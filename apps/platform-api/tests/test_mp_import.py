@@ -58,7 +58,7 @@ class MpImportTests(unittest.TestCase):
             path = Path(temp_dir) / "mp.xlsx"
             self._workbook(path)
             preview = preview_workbook(path)
-        self.assertEqual(preview["summary"]["row_count"], 1347)
+        self.assertEqual(preview["summary"]["row_count"], 3111)
         states = {row["value_state"] for row in preview["rows"]}
         self.assertIn("NOT_APPLICABLE", states)
         self.assertIn("ZERO_IS_VALID", states)

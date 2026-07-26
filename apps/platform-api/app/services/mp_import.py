@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 
 from app.db import execute, fetch_one, transaction
 from app.services.audit import write_audit
@@ -64,7 +65,7 @@ def _source_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
-def preview_workbook(path: str | Path, months: range | list[int] = range(1, 6)) -> dict[str, Any]:
+def preview_workbook(path: str | Path, months: range | list[int] = range(1, 13)) -> dict[str, Any]:
     source = Path(path)
     workbook = load_workbook(source, data_only=True, read_only=True)
     selected_months = sorted({int(month) for month in months if 1 <= int(month) <= 12})
@@ -118,10 +119,10 @@ def preview_workbook(path: str | Path, months: range | list[int] = range(1, 6)) 
                             "value_kind": kind,
                             "numeric_value": value,
                             "value_state": value_state,
-                            "source_reference": (
-                                f"{source.name}|{sheet_name}|"
-                                f"{sheet.cell(row_no, start + offset).coordinate}"
-                            ),
+                                "source_reference": (
+                                    f"{source.name}|{sheet_name}|"
+                                    f"{get_column_letter(start + offset)}{row_no}"
+                                ),
                         })
                         if metric_key == "new_member_count" and kind == "ACTUAL" and value is not None and value < 0:
                             issues.append({
