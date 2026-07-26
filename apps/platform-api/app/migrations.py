@@ -8,7 +8,15 @@ from app.core.settings import get_settings
 from app.db import connect, execute
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+def _find_migration_root() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "migrations"
+        if candidate.is_dir():
+            return candidate
+    raise RuntimeError("Unable to locate the database migrations directory")
+
+
+MIGRATION_ROOT = _find_migration_root()
 
 
 def _split_mysql(script: str) -> list[str]:
@@ -18,7 +26,7 @@ def _split_mysql(script: str) -> list[str]:
 def run_migrations() -> list[str]:
     settings = get_settings()
     dialect = "sqlite" if settings.database_url.startswith("sqlite") else "mysql"
-    migration_dir = REPO_ROOT / "migrations" / dialect
+    migration_dir = MIGRATION_ROOT / dialect
     connection = connect()
     applied: list[str] = []
     try:
@@ -59,4 +67,3 @@ def run_migrations() -> list[str]:
     finally:
         connection.close()
     return applied
-

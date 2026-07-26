@@ -1,0 +1,15 @@
+.git
+.github
+.venv
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+**/data
+artifacts
+Codex记忆
+apps/admin-web
+docs
+tests
+*.log
+*.db
+*.sqlite*

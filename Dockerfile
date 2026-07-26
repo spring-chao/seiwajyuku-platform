@@ -9,11 +9,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     RUN_BOOTSTRAP_ON_STARTUP=false
 
 WORKDIR /app
-COPY requirements.txt .
+COPY apps/platform-api/requirements.txt .
 RUN pip install -r requirements.txt \
     && addgroup --system app \
     && adduser --system --ingroup app app
-COPY --chown=app:app app ./app
+COPY --chown=app:app apps/platform-api/app ./app
+COPY --chown=app:app migrations ./migrations
 RUN mkdir -p /app/data && chown app:app /app/data
 
 EXPOSE 8000

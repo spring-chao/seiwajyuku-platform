@@ -26,6 +26,7 @@ class Settings:
     field_encryption_key: str
     integration_api_key: str
     deployment_read_only: bool
+    run_bootstrap_on_startup: bool
 
     @property
     def is_production(self) -> bool:
@@ -35,7 +36,7 @@ class Settings:
         if (
             self.is_production
             and not self.allow_production_mutations
-            and not self.deployment_read_only
+            and (not self.deployment_read_only or self.run_bootstrap_on_startup)
         ):
             raise RuntimeError(
                 "生产环境写入未获批准：必须启用 DEPLOYMENT_READ_ONLY，"
@@ -71,4 +72,5 @@ def get_settings() -> Settings:
         field_encryption_key=os.getenv("FIELD_ENCRYPTION_KEY", "").strip(),
         integration_api_key=os.getenv("INTEGRATION_API_KEY", "dev-integration-key").strip(),
         deployment_read_only=_bool("DEPLOYMENT_READ_ONLY"),
+        run_bootstrap_on_startup=_bool("RUN_BOOTSTRAP_ON_STARTUP"),
     )
