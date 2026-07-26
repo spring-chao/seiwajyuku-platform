@@ -114,9 +114,9 @@ useEventListener(document, "keydown", ({ code }) => {
 
           <el-alert
             class="preview-notice"
-            title="当前为云端只读可行性验证环境"
-            description="管理门户已部署；持久数据库和完整 API 尚未启用，因此登录及数据写入暂不可用。"
-            type="warning"
+            title="生产环境已启用"
+            description="管理门户、持久数据库和完整 API 已部署，可正常登录和使用。"
+            type="success"
             :closable="false"
             show-icon
           />
