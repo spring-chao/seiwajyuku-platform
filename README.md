@@ -33,10 +33,15 @@ docs/              基线、任务卡、验收和回滚说明
 
 ## 本地启动
 
-完成任务 2 后使用：
-
 ```powershell
 Copy-Item .env.example .env
 docker compose --profile dev up --build
 ```
 
+## 腾讯云只读验证环境
+
+- 管理门户：`https://shengheshu-d2g2zyyl99f6c6fc2-1453587887.tcloudbaseapp.com/ops-platform/`
+- API 健康探针：`https://shengheshu-d2g2zyyl99f6c6fc2-1453587887.ap-shanghai.app.tcloudbase.com/ops-preview/api/v1/health`
+- 当前状态：只读可行性验证。前端静态托管及独立 API 路径可用，完整 API 因持久数据库和 Python 运行依赖尚未配置而未启用。
+
+详细边界、验证证据与回滚命令见 `docs/verification/腾讯云CloudBase部署可行性验证.md`。

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.cloudbase.net/cli/cloudbaserc.schema.json",
+  "envId": "shengheshu-d2g2zyyl99f6c6fc2",
+  "functionRoot": ".",
+  "functions": [
+    {
+      "name": "seiwajyukuPlatformApiPreview",
+      "runtime": "Python3.10",
+      "handler": "handler.main",
+      "timeout": 30,
+      "memorySize": 512,
+      "installDependency": true,
+      "securityRule": {
+        "invoke": "ALL_USER"
+      },
+      "description": "盛和塾运营平台无持久库只读部署验证",
+      "envVariables": {
+        "APP_ENV": "dev",
+        "DATABASE_URL": "sqlite:////tmp/seiwajyuku_platform_preview.db",
+        "ALLOW_PRODUCTION_MUTATIONS": "false",
+        "DEPLOYMENT_READ_ONLY": "true",
+        "CORS_ORIGINS": "https://shengheshu-d2g2zyyl99f6c6fc2-1453587887.tcloudbaseapp.com"
+      }
+    }
+  ]
+}

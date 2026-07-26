@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+
+
+SAFE_ENVIRONMENTS = {"dev", "test", "staging"}
+
+
+def _bool(name: str, default: bool = False) -> bool:
+    return os.getenv(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
+@dataclass(frozen=True)
+class Settings:
+    app_env: str
+    app_name: str
+    database_url: str
+    cors_origins: tuple[str, ...]
+    allow_production_mutations: bool
+    jwt_secret: str
+    access_token_minutes: int
+    refresh_token_days: int
+    bootstrap_admin_username: str
+    bootstrap_admin_password: str
+    field_encryption_key: str
+    integration_api_key: str
+    deployment_read_only: bool
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env == "production"
+
+    def assert_safe_startup(self) -> None:
+        if self.is_production and not self.allow_production_mutations:
+            raise RuntimeError(
+                "生产环境写入未获批准：必须在获批任务中显式设置 ALLOW_PRODUCTION_MUTATIONS=true"
+            )
+        if self.app_env not in SAFE_ENVIRONMENTS | {"production"}:
+            raise RuntimeError(f"未知 APP_ENV: {self.app_env}")
+        if self.app_env in {"dev", "test"} and "production" in self.database_url.lower():
+            raise RuntimeError("开发/测试环境禁止使用疑似生产数据库地址")
+        if self.app_env in {"staging", "production"} and len(self.jwt_secret) < 32:
+            raise RuntimeError("staging/production 的 JWT_SECRET 至少需要 32 个字符")
+        if self.app_env in {"staging", "production"} and not self.field_encryption_key:
+            raise RuntimeError("staging/production 必须配置 FIELD_ENCRYPTION_KEY")
+
+
+def get_settings() -> Settings:
+    origins = tuple(
+        item.strip()
+        for item in os.getenv("CORS_ORIGINS", "http://localhost:8848").split(",")
+        if item.strip()
+    )
+    return Settings(
+        app_env=os.getenv("APP_ENV", "dev").strip().lower(),
+        app_name=os.getenv("APP_NAME", "seiwajyuku-platform-api").strip(),
+        database_url=os.getenv("DATABASE_URL", "sqlite:///./data/seiwajyuku_dev.db").strip(),
+        cors_origins=origins,
+        allow_production_mutations=_bool("ALLOW_PRODUCTION_MUTATIONS"),
+        jwt_secret=os.getenv("JWT_SECRET", "dev-only-secret-change-me-00000000"),
+        access_token_minutes=int(os.getenv("ACCESS_TOKEN_MINUTES", "30")),
+        refresh_token_days=int(os.getenv("REFRESH_TOKEN_DAYS", "7")),
+        bootstrap_admin_username=os.getenv("BOOTSTRAP_ADMIN_USERNAME", "admin").strip(),
+        bootstrap_admin_password=os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "").strip(),
+        field_encryption_key=os.getenv("FIELD_ENCRYPTION_KEY", "").strip(),
+        integration_api_key=os.getenv("INTEGRATION_API_KEY", "dev-integration-key").strip(),
+        deployment_read_only=_bool("DEPLOYMENT_READ_ONLY"),
+    )

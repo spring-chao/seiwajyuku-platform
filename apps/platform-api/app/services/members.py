@@ -1,0 +1,217 @@
+from __future__ import annotations
+
+import csv
+import io
+import json
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from app.core.privacy import decrypt_text, encrypt_text, protected_phone
+from app.db import execute, fetch_all, fetch_one, transaction
+from app.services.audit import write_audit
+from app.services.iam import accessible_org_ids, user_context
+
+
+def _as_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def create_member(
+    actor_user_id: int,
+    *,
+    member_code: str,
+    name: str,
+    org_unit_id: str,
+    development_org_unit_id: str | None,
+    phone: str,
+    company_name: str | None = None,
+) -> int:
+    allowed = accessible_org_ids(actor_user_id)
+    if allowed is not None and org_unit_id not in allowed:
+        raise PermissionError("不能在授权组织之外创建学长")
+    fields = protected_phone(phone)
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        cursor = execute(
+            connection,
+            "INSERT INTO members(member_code, name, org_unit_id, development_org_unit_id, status, "
+            "phone_ciphertext, phone_hash, phone_last4, phone_masked, company_name, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?)",
+            (
+                member_code, name, org_unit_id, development_org_unit_id,
+                fields["phone_ciphertext"], fields["phone_hash"], fields["phone_last4"],
+                fields["phone_masked"], company_name, now, now,
+            ),
+        )
+        member_id = cursor.lastrowid
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="members.create",
+            resource_type="member",
+            resource_id=str(member_id),
+            org_unit_id=org_unit_id,
+            after={"member_code": member_code, "name": name, "phone": fields["phone_masked"]},
+        )
+        return member_id
+
+
+def list_members(user_id: int, org_unit_id: str | None = None) -> list[dict[str, Any]]:
+    params: list[Any] = []
+    sql = (
+        "SELECT m.id, m.member_code, m.name, m.org_unit_id, o.name AS org_name, "
+        "m.development_org_unit_id, m.status, m.phone_masked, m.phone_last4, "
+        "m.company_name, m.enterprise_stage, m.sensitivity_level "
+        "FROM members m JOIN org_units o ON o.id=m.org_unit_id"
+    )
+    if org_unit_id:
+        sql += " WHERE m.org_unit_id=?"
+        params.append(org_unit_id)
+    sql += " ORDER BY o.name, m.name"
+    rows = fetch_all(sql, tuple(params))
+    allowed = accessible_org_ids(user_id)
+    if allowed is not None:
+        rows = [row for row in rows if row["org_unit_id"] in allowed]
+    return rows
+
+
+def reveal_contact(
+    *, member_id: int, task_id: int, actor_user_id: int, purpose: str, client_reference: str | None
+) -> dict[str, str]:
+    purpose = purpose.strip()
+    if len(purpose) < 4:
+        raise ValueError("必须填写本次联系用途")
+    task = fetch_one(
+        "SELECT id, member_id, org_unit_id, assigned_user_id, status, due_at FROM followup_tasks WHERE id=?",
+        (task_id,),
+    )
+    if not task or task["member_id"] != member_id:
+        raise PermissionError("联系任务与学长不匹配")
+    now = datetime.now(UTC)
+    if task["assigned_user_id"] != actor_user_id or task["status"] not in {"OPEN", "IN_PROGRESS"}:
+        raise PermissionError("只有当前有效任务责任人可以查看")
+    if task["due_at"] and _as_utc(task["due_at"]) < now:
+        raise PermissionError("联系任务已过期")
+    allowed = accessible_org_ids(actor_user_id)
+    if allowed is not None and task["org_unit_id"] not in allowed:
+        raise PermissionError("任务不在组织授权范围内")
+    member = fetch_one(
+        "SELECT id, name, phone_ciphertext, phone_masked FROM members WHERE id=?", (member_id,)
+    )
+    if not member or not member["phone_ciphertext"]:
+        raise ValueError("学长没有可用联系方式")
+    phone = decrypt_text(member["phone_ciphertext"])
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO contact_access_logs(task_id, member_id, actor_user_id, purpose, result, "
+            "client_reference, accessed_at) VALUES (?, ?, ?, ?, 'SUCCESS', ?, ?)",
+            (task_id, member_id, actor_user_id, purpose, client_reference, now.isoformat()),
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="members.contact.reveal",
+            resource_type="member",
+            resource_id=str(member_id),
+            org_unit_id=task["org_unit_id"],
+            purpose=purpose,
+            after={"task_id": task_id, "phone": member["phone_masked"]},
+        )
+    return {"name": member["name"], "phone": phone, "expires_in": "60秒"}
+
+
+def normal_export_csv(user_id: int) -> str:
+    rows = list_members(user_id)
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["member_code", "name", "org_name", "phone_masked", "company_name", "status"],
+    )
+    writer.writeheader()
+    writer.writerows(
+        {key: row.get(key) for key in writer.fieldnames}
+        for row in rows
+    )
+    with transaction() as connection:
+        write_audit(
+            connection,
+            actor_user_id=user_id,
+            action="exports.members.normal",
+            resource_type="member_export",
+            after={"row_count": len(rows), "sensitive_fields": False},
+        )
+    return "\ufeff" + output.getvalue()
+
+
+def create_sensitive_export(user_id: int, purpose: str, second_confirmed: bool) -> int:
+    purpose = purpose.strip()
+    if not second_confirmed or len(purpose) < 6:
+        raise ValueError("敏感导出必须填写用途并完成二次确认")
+    user = user_context(user_id)
+    if not user or "data_security_admin" not in user["roles"]:
+        raise PermissionError("仅数据安全管理员可执行敏感导出")
+    rows = list_members(user_id)
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["member_code", "name", "org_name", "phone", "company_name", "status"],
+    )
+    writer.writeheader()
+    for row in rows:
+        sensitive = fetch_one("SELECT phone_ciphertext FROM members WHERE id=?", (row["id"],))
+        writer.writerow({
+            "member_code": row["member_code"],
+            "name": row["name"],
+            "org_name": row["org_name"],
+            "phone": decrypt_text(sensitive["phone_ciphertext"]) if sensitive["phone_ciphertext"] else "",
+            "company_name": row.get("company_name"),
+            "status": row["status"],
+        })
+    now = datetime.now(UTC)
+    expires = now + timedelta(minutes=15)
+    watermark = f"敏感数据｜仅限{user['display_name']}｜{now.isoformat()}"
+    payload = encrypt_text(watermark + "\n" + output.getvalue())
+    with transaction() as connection:
+        cursor = execute(
+            connection,
+            "INSERT INTO sensitive_export_jobs(actor_user_id, export_type, org_scope_json, fields_json, "
+            "purpose, second_confirmed, watermark_text, payload_ciphertext, status, expires_at, created_at) "
+            "VALUES (?, 'SENSITIVE', ?, ?, ?, 1, ?, ?, 'READY', ?, ?)",
+            (
+                user_id, json.dumps(user["scopes"], ensure_ascii=False),
+                json.dumps(writer.fieldnames, ensure_ascii=False), purpose, watermark, payload,
+                expires.isoformat(), now.isoformat(),
+            ),
+        )
+        job_id = cursor.lastrowid
+        write_audit(
+            connection,
+            actor_user_id=user_id,
+            action="exports.members.sensitive.create",
+            resource_type="sensitive_export_job",
+            resource_id=str(job_id),
+            purpose=purpose,
+            after={"row_count": len(rows), "expires_at": expires.isoformat()},
+        )
+        return job_id
+
+
+def download_sensitive_export(job_id: int, user_id: int) -> str:
+    user = user_context(user_id)
+    if not user or "data_security_admin" not in user["roles"]:
+        raise PermissionError("仅数据安全管理员可下载敏感导出")
+    job = fetch_one("SELECT * FROM sensitive_export_jobs WHERE id=?", (job_id,))
+    if not job or job["actor_user_id"] != user_id or job["status"] != "READY":
+        raise PermissionError("导出任务不可用")
+    if _as_utc(job["expires_at"]) < datetime.now(UTC):
+        raise PermissionError("导出链接已过期")
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO export_download_logs(export_job_id, actor_user_id, result, downloaded_at) "
+            "VALUES (?, ?, 'SUCCESS', ?)",
+            (job_id, user_id, datetime.now(UTC).isoformat()),
+        )
+    return decrypt_text(job["payload_ciphertext"])

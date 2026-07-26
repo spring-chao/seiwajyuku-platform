@@ -3,6 +3,10 @@
 !.env.example
 !.env.dev.example
 !.env.staging.example
+!apps/admin-web/.env
+!apps/admin-web/.env.development
+!apps/admin-web/.env.production
+!apps/admin-web/.env.staging
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -14,10 +18,12 @@ dist/
 .vite/
 data/*.db
 data/*.sqlite*
+apps/platform-api/data/*.db
+apps/platform-api/data/*.sqlite*
 backups/
 artifacts/
+third_party/
 *.log
 *.pem
 *.key
 *.bak
-

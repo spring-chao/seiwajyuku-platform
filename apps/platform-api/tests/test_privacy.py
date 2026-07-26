@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+import unittest
+from datetime import UTC, datetime, timedelta
+
+from app.db import execute, fetch_all, fetch_one, transaction
+from app.migrations import run_migrations
+from app.services.iam import create_user, seed_iam
+from app.services.members import (
+    create_member,
+    create_sensitive_export,
+    download_sensitive_export,
+    list_members,
+    normal_export_csv,
+    reveal_contact,
+)
+
+
+class PrivacyIsolationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        run_migrations()
+        seed_iam()
+        cls.admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+        now = datetime.now(UTC).isoformat()
+        with transaction() as connection:
+            if not execute(
+                connection, "SELECT id FROM org_units WHERE id='privacy-center'"
+            ).fetchone():
+                execute(
+                    connection,
+                    "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, "
+                    "created_at, updated_at) VALUES ('privacy-center', 'PRIVACY_CENTER', ?, "
+                    "'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+                    ("隐私测试中心", now, now),
+                )
+        cls.regional_user_id = create_user(
+            cls.admin["id"],
+            username="privacy-regional",
+            display_name="隐私测试负责人",
+            password="privacy-regional-password",
+            roles=["regional_manager"],
+            scopes=[{"scope_type": "SUBTREE", "org_unit_id": "privacy-center"}],
+        )
+        cls.security_user_id = create_user(
+            cls.admin["id"],
+            username="privacy-security",
+            display_name="隐私测试安全员",
+            password="privacy-security-password",
+            roles=["data_security_admin"],
+            scopes=[{"scope_type": "ALL", "org_unit_id": None}],
+        )
+        cls.member_id = create_member(
+            cls.admin["id"],
+            member_code="PRIVACY-001",
+            name="隐私测试学长",
+            org_unit_id="privacy-center",
+            development_org_unit_id=None,
+            phone="13800138000",
+            company_name="示例企业",
+        )
+        with transaction() as connection:
+            cursor = execute(
+                connection,
+                "INSERT INTO followup_tasks(member_id, org_unit_id, task_type, service_purpose, "
+                "assigned_user_id, status, confidentiality_level, due_at, created_by, created_at, "
+                "updated_at) VALUES (?, 'privacy-center', 'PHONE', ?, ?, 'OPEN', 'ASSIGNEE', ?, ?, ?, ?)",
+                (
+                    cls.member_id,
+                    "确认近期经营支持需求",
+                    cls.regional_user_id,
+                    (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+                    cls.admin["id"],
+                    now,
+                    now,
+                ),
+            )
+            cls.task_id = cursor.lastrowid
+
+    def test_member_list_and_normal_export_are_masked(self) -> None:
+        rows = list_members(self.regional_user_id)
+        member = next(row for row in rows if row["id"] == self.member_id)
+        self.assertEqual(member["phone_masked"], "138****8000")
+        self.assertNotIn("phone_ciphertext", member)
+        content = normal_export_csv(self.regional_user_id)
+        self.assertIn("138****8000", content)
+        self.assertNotIn("13800138000", content)
+
+    def test_contact_reveal_requires_current_assignee(self) -> None:
+        revealed = reveal_contact(
+            member_id=self.member_id,
+            task_id=self.task_id,
+            actor_user_id=self.regional_user_id,
+            purpose="执行已分配的电话跟进",
+            client_reference="privacy-test",
+        )
+        self.assertEqual(revealed["phone"], "13800138000")
+        with self.assertRaises(PermissionError):
+            reveal_contact(
+                member_id=self.member_id,
+                task_id=self.task_id,
+                actor_user_id=self.admin["id"],
+                purpose="非责任人尝试查看联系方式",
+                client_reference="privacy-test-denied",
+            )
+        logs = fetch_all(
+            "SELECT action, before_json, after_json FROM audit_logs "
+            "WHERE resource_type IN ('member', 'member_export')"
+        )
+        self.assertNotIn("13800138000", str(logs))
+
+    def test_sensitive_export_isolated_and_watermarked(self) -> None:
+        with self.assertRaises(PermissionError):
+            create_sensitive_export(self.admin["id"], "系统管理员越权测试", True)
+        with self.assertRaises(ValueError):
+            create_sensitive_export(self.security_user_id, "安全复核导出", False)
+        job_id = create_sensitive_export(
+            self.security_user_id, "安全复核导出测试用途", True
+        )
+        content = download_sensitive_export(job_id, self.security_user_id)
+        self.assertIn("敏感数据", content)
+        self.assertIn("13800138000", content)
+        job = fetch_one(
+            "SELECT payload_ciphertext, expires_at FROM sensitive_export_jobs WHERE id=?",
+            (job_id,),
+        )
+        self.assertNotIn("13800138000", job["payload_ciphertext"])
+        self.assertIsNotNone(job["expires_at"])
+
+
+if __name__ == "__main__":
+    unittest.main()

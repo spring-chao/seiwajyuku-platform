@@ -1,0 +1,42 @@
+CREATE TABLE IF NOT EXISTS followup_records (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    task_id BIGINT NOT NULL,
+    member_id BIGINT NOT NULL,
+    channel VARCHAR(32) NOT NULL,
+    contacted_at DATETIME NOT NULL,
+    subject_statement TEXT,
+    objective_facts TEXT,
+    staff_judgment TEXT,
+    outcome_code VARCHAR(64) NOT NULL,
+    next_action TEXT,
+    next_followup_at DATETIME,
+    created_by BIGINT NOT NULL,
+    created_at DATETIME NOT NULL,
+    INDEX idx_followup_records_task(task_id, contacted_at),
+    CONSTRAINT fk_followup_record_task FOREIGN KEY(task_id) REFERENCES followup_tasks(id),
+    CONSTRAINT fk_followup_record_member FOREIGN KEY(member_id) REFERENCES members(id),
+    CONSTRAINT fk_followup_record_user FOREIGN KEY(created_by) REFERENCES app_users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS enterprise_visit_records (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    task_id BIGINT NOT NULL,
+    member_id BIGINT NOT NULL,
+    appointment_at DATETIME,
+    visited_at DATETIME NOT NULL,
+    purpose TEXT NOT NULL,
+    participants_json JSON NOT NULL,
+    location_type VARCHAR(64) NOT NULL,
+    objective_facts TEXT NOT NULL,
+    expressed_needs TEXT,
+    support_provided TEXT,
+    staff_judgment TEXT,
+    next_action TEXT,
+    next_followup_at DATETIME,
+    created_by BIGINT NOT NULL,
+    created_at DATETIME NOT NULL,
+    INDEX idx_enterprise_visits_member(member_id, visited_at),
+    CONSTRAINT fk_visit_task FOREIGN KEY(task_id) REFERENCES followup_tasks(id),
+    CONSTRAINT fk_visit_member FOREIGN KEY(member_id) REFERENCES members(id),
+    CONSTRAINT fk_visit_user FOREIGN KEY(created_by) REFERENCES app_users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
