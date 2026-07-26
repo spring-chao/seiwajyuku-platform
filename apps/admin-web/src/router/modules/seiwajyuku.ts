@@ -31,6 +31,23 @@ export default {
       }
     },
     {
+      path: "/operations/members",
+      name: "MemberManagement",
+      component: () => import("@/views/seiwajyuku/members.vue"),
+      meta: {
+        title: "学员管理",
+        icon: "ep/user",
+        roles: [
+          "system_admin",
+          "operations_admin",
+          "regional_manager",
+          "class_counselor",
+          "group_leader",
+          "read_only"
+        ]
+      }
+    },
+    {
       path: "/operations/followups",
       name: "FollowupTasks",
       component: () => import("@/views/seiwajyuku/followups.vue"),

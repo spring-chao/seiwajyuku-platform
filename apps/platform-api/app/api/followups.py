@@ -9,6 +9,7 @@ from app.services.followups import (
     add_visit_record,
     close_task,
     create_task,
+    list_assignees,
     list_tasks,
 )
 
@@ -78,6 +79,14 @@ def task_list(
     user: dict = Depends(require_permission("followups:manage")),
 ) -> dict:
     return {"success": True, "data": list_tasks(user["id"], status)}
+
+
+@router.get("/assignees")
+def assignee_list(
+    org_unit_id: str | None = None,
+    user: dict = Depends(require_permission("followups:manage")),
+) -> dict:
+    return {"success": True, "data": _call(list_assignees, user["id"], org_unit_id)}
 
 
 @router.post("/tasks/{task_id}/records")

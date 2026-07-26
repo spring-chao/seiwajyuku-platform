@@ -105,6 +105,36 @@ export type FollowupTask = {
   status: "OPEN" | "IN_PROGRESS" | "CLOSED";
   due_at?: string;
   next_followup_at?: string;
+  can_record: boolean;
+};
+
+export type Member = {
+  id: number;
+  member_code: string;
+  name: string;
+  org_unit_id: string;
+  org_name: string;
+  development_org_unit_id?: string;
+  status: string;
+  phone_masked: string;
+  phone_last4?: string;
+  company_name?: string;
+  enterprise_stage?: string;
+  sensitivity_level: string;
+};
+
+export type OrgUnit = {
+  id: string;
+  unit_code: string;
+  name: string;
+  unit_type: string;
+  parent_id?: string;
+};
+
+export type FollowupAssignee = {
+  id: number;
+  username: string;
+  display_name: string;
 };
 
 export type ActivitySnapshot = {
@@ -127,6 +157,112 @@ export const getFollowupTasks = (status?: string) =>
     "/api/v1/followups/tasks",
     { params: status ? { status } : undefined }
   );
+
+export const getMembers = (orgUnitId?: string) =>
+  http.request<{ success: boolean; data: Member[] }>(
+    "get",
+    "/api/v1/members",
+    { params: orgUnitId ? { org_unit_id: orgUnitId } : undefined }
+  );
+
+export const createMember = (data: {
+  member_code: string;
+  name: string;
+  org_unit_id: string;
+  development_org_unit_id?: string;
+  phone: string;
+  company_name?: string;
+}) =>
+  http.request<{ success: boolean; data: { id: number } }>(
+    "post",
+    "/api/v1/members",
+    { data }
+  );
+
+export const getOrgUnits = () =>
+  http.request<{ success: boolean; data: OrgUnit[] }>(
+    "get",
+    "/api/v1/org-units/tree"
+  );
+
+export const getFollowupAssignees = (orgUnitId?: string) =>
+  http.request<{ success: boolean; data: FollowupAssignee[] }>(
+    "get",
+    "/api/v1/followups/assignees",
+    { params: orgUnitId ? { org_unit_id: orgUnitId } : undefined }
+  );
+
+export const createFollowupTask = (data: {
+  member_id: number;
+  task_type: string;
+  service_purpose: string;
+  assigned_user_id: number;
+  due_at?: string;
+  confidentiality_level?: string;
+}) =>
+  http.request<{ success: boolean; data: { id: number } }>(
+    "post",
+    "/api/v1/followups/tasks",
+    { data }
+  );
+
+export const revealMemberContact = (
+  memberId: number,
+  data: { task_id: number; purpose: string; client_reference?: string }
+) =>
+  http.request<{
+    success: boolean;
+    data: { name: string; phone: string; expires_in: string };
+  }>("post", `/api/v1/members/${memberId}/contact-access`, { data });
+
+export const createFollowupRecord = (
+  taskId: number,
+  data: {
+    channel: string;
+    contacted_at: string;
+    outcome_code: string;
+    subject_statement?: string;
+    objective_facts?: string;
+    staff_judgment?: string;
+    next_action?: string;
+    next_followup_at?: string;
+  }
+) =>
+  http.request<{ success: boolean; data: { id: number } }>(
+    "post",
+    `/api/v1/followups/tasks/${taskId}/records`,
+    { data }
+  );
+
+export const createVisitRecord = (
+  taskId: number,
+  data: {
+    appointment_at?: string;
+    visited_at: string;
+    purpose: string;
+    participants: string[];
+    location_type: string;
+    objective_facts: string;
+    expressed_needs?: string;
+    support_provided?: string;
+    staff_judgment?: string;
+    next_action?: string;
+    next_followup_at?: string;
+  }
+) =>
+  http.request<{ success: boolean; data: { id: number } }>(
+    "post",
+    `/api/v1/followups/tasks/${taskId}/visits`,
+    { data }
+  );
+
+export const closeFollowupTask = (taskId: number, closureNote: string) =>
+  http.request<{
+    success: boolean;
+    data: { id: number; status: "CLOSED" };
+  }>("post", `/api/v1/followups/tasks/${taskId}/close`, {
+    data: { closure_note: closureNote }
+  });
 
 export const getActivities = (month?: string) =>
   http.request<{ success: boolean; data: ActivitySnapshot[] }>(

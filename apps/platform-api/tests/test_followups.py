@@ -10,6 +10,7 @@ from app.services.followups import (
     add_visit_record,
     close_task,
     create_task,
+    list_assignees,
     list_tasks,
 )
 from app.services.iam import create_user, seed_iam
@@ -118,6 +119,12 @@ class FollowupLoopTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             close_task(task_id, self.owner_id, "尚未执行")
+
+    def test_assignee_candidates_respect_org_scope(self) -> None:
+        rows = list_assignees(self.admin["id"], "followup-center")
+        self.assertIn(self.owner_id, {row["id"] for row in rows})
+        visible = list_tasks(self.owner_id)
+        self.assertTrue(all(row["can_record"] for row in visible))
 
 
 if __name__ == "__main__":

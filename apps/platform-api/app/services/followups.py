@@ -6,12 +6,32 @@ from typing import Any
 
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
-from app.services.iam import accessible_org_ids
+from app.services.iam import accessible_org_ids, user_context
 
 
 CHANNELS = {"PHONE", "WECHAT", "MEETING", "VISIT", "COURSE", "OTHER"}
 OUTCOMES = {"CONNECTED", "NO_ANSWER", "DECLINED", "RESCHEDULED", "COMPLETED", "OTHER"}
 OPEN_STATES = {"OPEN", "IN_PROGRESS"}
+
+
+def list_assignees(actor_user_id: int, org_unit_id: str | None = None) -> list[dict[str, Any]]:
+    actor_allowed = accessible_org_ids(actor_user_id)
+    if org_unit_id and actor_allowed is not None and org_unit_id not in actor_allowed:
+        raise PermissionError("组织不在当前用户授权范围内")
+    rows = fetch_all(
+        "SELECT id, username, display_name FROM app_users WHERE is_active=1 ORDER BY display_name, id"
+    )
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        context = user_context(row["id"])
+        if not context or "followups:manage" not in context["permissions"]:
+            continue
+        if org_unit_id:
+            assignee_allowed = accessible_org_ids(row["id"])
+            if assignee_allowed is not None and org_unit_id not in assignee_allowed:
+                continue
+        result.append(row)
+    return result
 
 
 def _task_for_actor(task_id: int, user_id: int, *, assignee_required: bool = False) -> dict:
@@ -100,7 +120,8 @@ def list_tasks(user_id: int, status: str | None = None) -> list[dict[str, Any]]:
     if allowed is not None:
         rows = [row for row in rows if row["org_unit_id"] in allowed]
     return [
-        row for row in rows
+        {**row, "can_record": row["assigned_user_id"] == user_id}
+        for row in rows
         if row["confidentiality_level"] != "ASSIGNEE" or row["assigned_user_id"] == user_id
     ]
 
