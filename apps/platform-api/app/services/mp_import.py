@@ -65,7 +65,11 @@ def _source_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
-def preview_workbook(path: str | Path, months: range | list[int] = range(1, 13)) -> dict[str, Any]:
+def preview_workbook(
+    path: str | Path,
+    months: range | list[int] = range(1, 7),
+    planning_month: int | None = 7,
+) -> dict[str, Any]:
     source = Path(path)
     workbook = load_workbook(source, data_only=True, read_only=True)
     selected_months = sorted({int(month) for month in months if 1 <= int(month) <= 12})
@@ -77,6 +81,10 @@ def preview_workbook(path: str | Path, months: range | list[int] = range(1, 13))
         missing = [sheet for sheet in [*CENTER_SHEETS, "苏州塾MP"] if sheet not in sheet_map]
         if missing:
             raise ValueError(f"工作簿缺少工作表: {', '.join(missing)}")
+        import_kinds = {month: ("MP", "FORECAST", "ACTUAL") for month in selected_months}
+        if planning_month is not None and 1 <= int(planning_month) <= 12:
+            import_kinds.setdefault(int(planning_month), ("MP", "FORECAST"))
+        imported_months = sorted(import_kinds)
         for sheet_name, (org_id, _, center_name) in CENTER_SHEETS.items():
             sheet = workbook[sheet_map[sheet_name]]
             center_targets[org_id] = {}
@@ -106,9 +114,9 @@ def preview_workbook(path: str | Path, months: range | list[int] = range(1, 13))
                 })
                 if annual is not None:
                     center_targets[org_id][metric_key] = annual
-                for month in selected_months:
+                for month in imported_months:
                     start = MONTH_START_COLUMN[month]
-                    for offset, kind in ((0, "MP"), (1, "FORECAST"), (2, "ACTUAL")):
+                    for offset, kind in enumerate(import_kinds[month]):
                         value, value_state = _state(sheet.cell(row_no, start + offset).value, month)
                         rows.append({
                             "org_unit_id": org_id,
@@ -183,7 +191,7 @@ def preview_workbook(path: str | Path, months: range | list[int] = range(1, 13))
             "source_name": source.name,
             "source_sha256": _source_hash(source),
             "sheet_names": workbook.sheetnames,
-            "months": selected_months,
+            "months": imported_months,
             "rows": rows,
             "issues": issues,
             "reconciliation": reconciliation,
