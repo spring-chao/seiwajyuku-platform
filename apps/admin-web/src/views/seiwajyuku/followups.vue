@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import dayjs from "dayjs";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
@@ -19,6 +19,9 @@ import {
 defineOptions({ name: "FollowupTasks" });
 
 type DialogMode = "create" | "record" | "visit";
+
+const RECORD_DRAFT_KEY = "seiwajyuku-followup-record-draft-v1";
+const VISIT_DRAFT_KEY = "seiwajyuku-followup-visit-draft-v1";
 
 const loading = ref(false);
 const saving = ref(false);
@@ -101,6 +104,43 @@ const visitForm = reactive({
   next_followup_at: ""
 });
 
+function readDraft(key: string, taskId: number) {
+  try {
+    const draft = JSON.parse(sessionStorage.getItem(key) || "null") as {
+      task_id?: number;
+      values?: Record<string, string>;
+    } | null;
+    return draft?.task_id === taskId ? draft.values : undefined;
+  } catch {
+    sessionStorage.removeItem(key);
+    return undefined;
+  }
+}
+
+function saveDraft(
+  key: string,
+  taskId: number,
+  values: Record<string, string>
+) {
+  sessionStorage.setItem(
+    key,
+    JSON.stringify({ task_id: taskId, values, saved_at: Date.now() })
+  );
+}
+
+function saveActiveDraft() {
+  if (!activeTask.value || !dialogVisible.value) return;
+  if (dialogMode.value === "record") {
+    saveDraft(RECORD_DRAFT_KEY, activeTask.value.id, { ...recordForm });
+  }
+  if (dialogMode.value === "visit") {
+    saveDraft(VISIT_DRAFT_KEY, activeTask.value.id, { ...visitForm });
+  }
+}
+
+watch(recordForm, saveActiveDraft, { deep: true });
+watch(visitForm, saveActiveDraft, { deep: true });
+
 function errorText(error: any, fallback = "操作失败") {
   const detail = error?.response?.data?.detail;
   if (detail) return detail;
@@ -172,6 +212,11 @@ function openRecord(task: any) {
   });
   dialogMode.value = "record";
   dialogVisible.value = true;
+  const draft = readDraft(RECORD_DRAFT_KEY, activeTask.value.id);
+  if (draft) {
+    Object.assign(recordForm, draft);
+    ElMessage.info("已恢复本次跟进的未确认填写内容");
+  }
 }
 
 function openVisit(task: any) {
@@ -191,6 +236,11 @@ function openVisit(task: any) {
   });
   dialogMode.value = "visit";
   dialogVisible.value = true;
+  const draft = readDraft(VISIT_DRAFT_KEY, activeTask.value.id);
+  if (draft) {
+    Object.assign(visitForm, draft);
+    ElMessage.info("已恢复本次走访的未确认填写内容");
+  }
 }
 
 async function submit() {
@@ -224,6 +274,7 @@ async function submit() {
       ) {
         throw new Error("请填写联系时间，并至少填写一项联系内容");
       }
+      saveActiveDraft();
       await createFollowupRecord(activeTask.value.id, {
         channel: recordForm.channel,
         contacted_at: recordForm.contacted_at,
@@ -234,6 +285,7 @@ async function submit() {
         next_action: recordForm.next_action.trim() || undefined,
         next_followup_at: recordForm.next_followup_at || undefined
       });
+      sessionStorage.removeItem(RECORD_DRAFT_KEY);
       ElMessage.success("跟进记录已保存");
     } else if (activeTask.value) {
       if (
@@ -243,6 +295,7 @@ async function submit() {
       ) {
         throw new Error("请填写走访时间、目的和客观事实");
       }
+      saveActiveDraft();
       await createVisitRecord(activeTask.value.id, {
         appointment_at: visitForm.appointment_at || undefined,
         visited_at: visitForm.visited_at,
@@ -259,6 +312,7 @@ async function submit() {
         next_action: visitForm.next_action.trim() || undefined,
         next_followup_at: visitForm.next_followup_at || undefined
       });
+      sessionStorage.removeItem(VISIT_DRAFT_KEY);
       ElMessage.success("走访记录已保存");
     }
     dialogVisible.value = false;
