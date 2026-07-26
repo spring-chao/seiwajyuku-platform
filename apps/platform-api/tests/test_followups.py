@@ -123,6 +123,17 @@ class FollowupLoopTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             close_task(task_id, self.owner_id, "尚未执行")
 
+    def test_task_requires_service_purpose_of_at_least_four_characters(self) -> None:
+        with self.assertRaisesRegex(ValueError, "至少填写 4 个字符"):
+            create_task(
+                self.admin["id"],
+                member_id=self.member_id,
+                task_type="CARE",
+                service_purpose="走访",
+                assigned_user_id=self.owner_id,
+                due_at=None,
+            )
+
     def test_assignee_candidates_respect_org_scope(self) -> None:
         rows = list_assignees(self.admin["id"], "followup-center")
         self.assertIn(self.owner_id, {row["id"] for row in rows})

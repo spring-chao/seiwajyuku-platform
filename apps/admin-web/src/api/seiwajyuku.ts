@@ -242,7 +242,7 @@ export const createFollowupTask = (data: {
   http.request<{ success: boolean; data: { id: number } }>(
     "post",
     "/api/v1/followups/tasks",
-    { data }
+    { data, timeout: 60000 }
   );
 
 export const revealMemberContact = (
@@ -270,7 +270,7 @@ export const createFollowupRecord = (
   http.request<{ success: boolean; data: { id: number } }>(
     "post",
     `/api/v1/followups/tasks/${taskId}/records`,
-    { data }
+    { data, timeout: 60000 }
   );
 
 export const createVisitRecord = (
@@ -292,7 +292,7 @@ export const createVisitRecord = (
   http.request<{ success: boolean; data: { id: number } }>(
     "post",
     `/api/v1/followups/tasks/${taskId}/visits`,
-    { data }
+    { data, timeout: 60000 }
   );
 
 export const closeFollowupTask = (taskId: number, closureNote: string) =>
@@ -300,7 +300,8 @@ export const closeFollowupTask = (taskId: number, closureNote: string) =>
     success: boolean;
     data: { id: number; status: "CLOSED" };
   }>("post", `/api/v1/followups/tasks/${taskId}/close`, {
-    data: { closure_note: closureNote }
+    data: { closure_note: closureNote },
+    timeout: 60000
   });
 
 export const getActivities = (month?: string) =>

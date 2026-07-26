@@ -60,6 +60,9 @@ def create_task(
     due_at: str | None,
     confidentiality_level: str = "ASSIGNEE",
 ) -> int:
+    service_purpose = service_purpose.strip()
+    if len(service_purpose) < 4:
+        raise ValueError("服务目的至少填写 4 个字符")
     member = fetch_one("SELECT id, org_unit_id, phone_masked FROM members WHERE id=?", (member_id,))
     if not member:
         raise ValueError("学长不存在")
@@ -80,7 +83,7 @@ def create_task(
             "updated_at) VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)",
             (
                 member_id, member["org_unit_id"], task_type.strip().upper(),
-                service_purpose.strip(), assigned_user_id, confidentiality_level,
+                service_purpose, assigned_user_id, confidentiality_level,
                 due_at, actor_user_id, now, now,
             ),
         )

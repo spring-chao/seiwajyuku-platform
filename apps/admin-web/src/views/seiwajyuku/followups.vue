@@ -68,6 +68,15 @@ const taskForm = reactive({
   due_at: "",
   confidentiality_level: "ASSIGNEE"
 });
+const servicePurposeLength = computed(
+  () => taskForm.service_purpose.trim().length
+);
+const servicePurposeError = computed(() => {
+  if (!taskForm.service_purpose.trim()) return "";
+  return servicePurposeLength.value < 4
+    ? `服务目的至少填写 4 个字符，当前 ${servicePurposeLength.value} 个`
+    : "";
+});
 const recordForm = reactive({
   channel: "PHONE",
   contacted_at: dayjs().format("YYYY-MM-DDTHH:mm:ss"),
@@ -92,8 +101,16 @@ const visitForm = reactive({
   next_followup_at: ""
 });
 
-function errorText(error: any) {
-  return error?.response?.data?.detail || error?.message || "操作失败";
+function errorText(error: any, fallback = "操作失败") {
+  const detail = error?.response?.data?.detail;
+  if (detail) return detail;
+  if (error?.code === "ECONNABORTED") {
+    return "填写超时，结果可能已保存。请刷新任务列表确认后再重试，避免重复提交";
+  }
+  if (error?.message === "Network Error") {
+    return "网络连接中断，操作结果暂时无法确认。请刷新任务列表后再决定是否重试";
+  }
+  return error?.message || fallback;
 }
 
 async function load() {
@@ -106,7 +123,7 @@ async function load() {
     rows.value = tasks.data;
     members.value = memberResult.data;
   } catch (error) {
-    ElMessage.error(errorText(error));
+    ElMessage.error(errorText(error, "加载关怀数据失败，请刷新页面后重试"));
   } finally {
     loading.value = false;
   }
@@ -180,13 +197,13 @@ async function submit() {
   saving.value = true;
   try {
     if (dialogMode.value === "create") {
-      if (
-        !taskForm.member_id ||
-        !taskForm.assigned_user_id ||
-        taskForm.service_purpose.trim().length < 4
-      ) {
-        throw new Error("请完整填写学员、服务目的和责任人");
+      if (!taskForm.member_id) throw new Error("请选择学员");
+      if (servicePurposeLength.value < 4) {
+        throw new Error(
+          `服务目的至少填写 4 个字符，当前 ${servicePurposeLength.value} 个`
+        );
       }
+      if (!taskForm.assigned_user_id) throw new Error("请选择责任人");
       await createFollowupTask({
         member_id: taskForm.member_id,
         task_type: taskForm.task_type,
@@ -247,7 +264,7 @@ async function submit() {
     dialogVisible.value = false;
     await load();
   } catch (error) {
-    ElMessage.error(errorText(error));
+    ElMessage.error(errorText(error, "保存失败，请稍后重试"));
   } finally {
     saving.value = false;
   }
@@ -408,12 +425,18 @@ onMounted(load);
               <el-option label="企业走访" value="VISIT" />
             </el-select>
           </el-form-item>
-          <el-form-item class="full" label="服务目的">
+          <el-form-item
+            class="full"
+            label="服务目的（至少 4 个字符）"
+            :error="servicePurposeError || undefined"
+          >
             <el-input
               v-model="taskForm.service_purpose"
               type="textarea"
               :rows="3"
-              placeholder="说明本次联系要解决或了解的事项"
+              maxlength="1000"
+              show-word-limit
+              placeholder="至少填写 4 个字符，说明本次联系要解决或了解的事项"
             />
           </el-form-item>
           <el-form-item label="责任人">
