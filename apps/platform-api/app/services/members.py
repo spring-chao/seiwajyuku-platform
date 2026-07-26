@@ -13,8 +13,10 @@ from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
 
 
-def _as_utc(value: str) -> datetime:
-    parsed = datetime.fromisoformat(value)
+def _as_utc(value: str | datetime) -> datetime:
+    # SQLite returns timestamps as strings, while PyMySQL returns DATETIME
+    # columns as datetime objects. Contact access must support both drivers.
+    parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value)
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 

@@ -7,6 +7,7 @@ from app.db import execute, fetch_all, fetch_one, transaction
 from app.migrations import run_migrations
 from app.services.iam import create_user, seed_iam
 from app.services.members import (
+    _as_utc,
     create_member,
     create_sensitive_export,
     download_sensitive_export,
@@ -85,6 +86,10 @@ class PrivacyIsolationTests(unittest.TestCase):
         content = normal_export_csv(self.regional_user_id)
         self.assertIn("138****8000", content)
         self.assertNotIn("13800138000", content)
+
+    def test_mysql_datetime_is_accepted_for_task_deadline(self) -> None:
+        value = datetime(2026, 7, 27, 9, 30)
+        self.assertEqual(_as_utc(value), value.replace(tzinfo=UTC))
 
     def test_contact_reveal_requires_current_assignee(self) -> None:
         revealed = reveal_contact(
