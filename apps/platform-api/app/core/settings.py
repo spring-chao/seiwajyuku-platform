@@ -32,9 +32,14 @@ class Settings:
         return self.app_env == "production"
 
     def assert_safe_startup(self) -> None:
-        if self.is_production and not self.allow_production_mutations:
+        if (
+            self.is_production
+            and not self.allow_production_mutations
+            and not self.deployment_read_only
+        ):
             raise RuntimeError(
-                "生产环境写入未获批准：必须在获批任务中显式设置 ALLOW_PRODUCTION_MUTATIONS=true"
+                "生产环境写入未获批准：必须启用 DEPLOYMENT_READ_ONLY，"
+                "或在获批任务中显式设置 ALLOW_PRODUCTION_MUTATIONS=true"
             )
         if self.app_env not in SAFE_ENVIRONMENTS | {"production"}:
             raise RuntimeError(f"未知 APP_ENV: {self.app_env}")

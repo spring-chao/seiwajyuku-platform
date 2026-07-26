@@ -60,5 +60,7 @@ app.include_router(integrations_router)
 
 @app.on_event("startup")
 def startup() -> None:
+    if settings.deployment_read_only:
+        return
     run_migrations()
     seed_iam()

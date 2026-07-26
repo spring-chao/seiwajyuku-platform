@@ -1,0 +1,14 @@
+.env
+.env.*
+.pytest_cache
+__pycache__
+*.py[cod]
+*.db
+*.sqlite*
+data
+tests
+third_party
+artifacts
+cloudbaserc.json
+handler.py
+scf_bootstrap
