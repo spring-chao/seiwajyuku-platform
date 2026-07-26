@@ -24,6 +24,7 @@ PERMISSIONS = {
     "plans:publish": ("发布年度方案", "SENSITIVE"),
     "members:read": ("查看学长", "INTERNAL"),
     "members:manage": ("维护学长主数据", "SENSITIVE"),
+    "members:detail_view": ("直接查看完整学员与企业资料", "RESTRICTED"),
     "followups:manage": ("管理关怀任务", "SENSITIVE"),
     "contact:reveal": ("按任务逐人查看联系方式", "SENSITIVE"),
     "exports:normal": ("普通脱敏导出", "INTERNAL"),
@@ -36,12 +37,12 @@ ROLE_PERMISSIONS = {
     "data_security_admin": {"org:read", "members:read", "exports:sensitive", "audit:read"},
     "operations_admin": {
         "org:read", "org:manage", "plans:read", "plans:write", "plans:publish",
-        "members:read", "members:manage", "followups:manage", "exports:normal", "audit:read",
+        "members:read", "members:manage", "members:detail_view", "followups:manage", "exports:normal", "audit:read",
         "integrations:manage",
     },
     "regional_manager": {
         "org:read", "plans:read", "plans:write", "members:read",
-        "members:manage", "followups:manage", "contact:reveal", "exports:normal",
+        "members:manage", "members:detail_view", "followups:manage", "contact:reveal", "exports:normal",
     },
     "class_counselor": {
         "org:read", "plans:read", "members:read", "followups:manage",

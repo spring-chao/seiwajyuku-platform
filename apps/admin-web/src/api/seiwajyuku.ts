@@ -254,6 +254,12 @@ export const revealMemberContact = (
     data: { name: string; phone: string; expires_in: string };
   }>("post", `/api/v1/members/${memberId}/contact-access`, { data });
 
+export const getMemberDetail = (memberId: number) =>
+  http.request<{
+    success: boolean;
+    data: Record<string, string | number | null>;
+  }>("get", `/api/v1/members/${memberId}/detail`);
+
 export const createFollowupRecord = (
   taskId: number,
   data: {

@@ -11,6 +11,7 @@ from app.services.members import (
     create_member,
     create_sensitive_export,
     download_sensitive_export,
+    get_member_detail,
     list_members,
     normal_export_csv,
     reveal_contact,
@@ -90,6 +91,12 @@ class PrivacyIsolationTests(unittest.TestCase):
     def test_mysql_datetime_is_accepted_for_task_deadline(self) -> None:
         value = datetime(2026, 7, 27, 9, 30)
         self.assertEqual(_as_utc(value), value.replace(tzinfo=UTC))
+
+    def test_regional_manager_can_view_full_profile_with_audit(self) -> None:
+        profile = get_member_detail(self.member_id, self.regional_user_id)
+        self.assertEqual(profile["phone"], "13800138000")
+        self.assertNotIn("phone_ciphertext", profile)
+        self.assertEqual(profile["name"], "隐私测试学长")
 
     def test_contact_reveal_requires_current_assignee(self) -> None:
         revealed = reveal_contact(

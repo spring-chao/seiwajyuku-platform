@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, h, onMounted, reactive, ref, watch } from "vue";
 import dayjs from "dayjs";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
@@ -9,12 +9,14 @@ import {
   createVisitRecord,
   getFollowupAssignees,
   getFollowupTasks,
+  getMemberDetail,
   getMembers,
   revealMemberContact,
   type FollowupAssignee,
   type FollowupTask,
   type Member
 } from "@/api/seiwajyuku";
+import { useUserStoreHook } from "@/store/modules/user";
 
 defineOptions({ name: "FollowupTasks" });
 
@@ -35,6 +37,11 @@ const activeTask = ref<FollowupTask>();
 
 const openCount = computed(
   () => rows.value.filter(item => item.status !== "CLOSED").length
+);
+const canViewFullProfile = computed(() =>
+  useUserStoreHook().roles.some(role =>
+    ["system_admin", "operations_admin", "regional_manager"].includes(role)
+  )
 );
 const dialogTitle = computed(() => {
   if (dialogMode.value === "create") return "创建关怀任务";
@@ -325,6 +332,41 @@ async function submit() {
 }
 
 async function reveal(task: any) {
+  if (canViewFullProfile.value) {
+    try {
+      const response = await getMemberDetail(task.member_id);
+      const profile = response.data;
+      const fields = [
+        ["姓名", profile.name],
+        ["手机号", profile.phone],
+        ["所属中心", profile.org_name],
+        ["班级 / 小组", [profile.class_name, profile.group_name].filter(Boolean).join(" / ")],
+        ["职务", profile.position],
+        ["公司名称", profile.company_name],
+        ["公司地址", profile.company_address],
+        ["行业", [profile.industry_category, profile.industry].filter(Boolean).join(" / ")],
+        ["公司产品", profile.company_products],
+        ["公司规模", profile.company_size],
+        ["年销售额", profile.annual_sales],
+        ["利润率", profile.profit_margin],
+        ["备注", profile.notes]
+      ].filter(([, value]) => value !== null && value !== undefined && value !== "");
+      await ElMessageBox.alert(
+        h(
+          "div",
+          { class: "profile-detail" },
+          fields.map(([label, value]) =>
+            h("p", [h("strong", `${label}：`), String(value)])
+          )
+        ),
+        "学员完整资料",
+        { confirmButtonText: "关闭" }
+      );
+    } catch (error) {
+      ElMessage.error(errorText(error, "读取完整资料失败，请稍后重试"));
+    }
+    return;
+  }
   try {
     const { value } = await ElMessageBox.prompt(
       "完整手机号只用于当前任务联系，并将记录访问用途和审计日志。",
@@ -441,7 +483,9 @@ onMounted(load);
         <el-table-column label="操作" width="315" fixed="right">
           <template #default="{ row }">
             <div v-if="row.status !== 'CLOSED' && row.can_record" class="row-actions">
-              <el-button link type="primary" @click="reveal(row)">联系</el-button>
+              <el-button link type="primary" @click="reveal(row)">
+                {{ canViewFullProfile ? "查看资料" : "联系" }}
+              </el-button>
               <el-button link type="primary" @click="openRecord(row)">记跟进</el-button>
               <el-button link type="primary" @click="openVisit(row)">记走访</el-button>
               <el-button link type="danger" @click="closeTask(row)">关闭</el-button>
@@ -647,6 +691,15 @@ onMounted(load);
 }
 .muted {
   color: var(--el-text-color-secondary);
+}
+.profile-detail {
+  max-height: 55vh;
+  overflow-y: auto;
+  line-height: 1.7;
+}
+.profile-detail p {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
 }
 .form-grid {
   display: grid;

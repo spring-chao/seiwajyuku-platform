@@ -9,6 +9,7 @@ from app.services.members import (
     create_member,
     create_sensitive_export,
     download_sensitive_export,
+    get_member_detail,
     list_members,
     normal_export_csv,
     reveal_contact,
@@ -95,6 +96,20 @@ def contact_access(
             purpose=payload.purpose,
             client_reference=payload.client_reference,
         )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/members/{member_id}/detail")
+def member_detail(
+    member_id: int,
+    user: dict = Depends(require_permission("members:detail_view")),
+) -> dict:
+    try:
+        data = get_member_detail(member_id, user["id"])
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:

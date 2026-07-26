@@ -13,6 +13,9 @@ from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
 
 
+DIRECT_PROFILE_ROLES = {"system_admin", "operations_admin", "regional_manager"}
+
+
 def _as_utc(value: str | datetime) -> datetime:
     # SQLite returns timestamps as strings, while PyMySQL returns DATETIME
     # columns as datetime objects. Contact access must support both drivers.
@@ -155,12 +158,6 @@ def reveal_contact(
         raise ValueError("学长没有可用联系方式")
     phone = decrypt_text(member["phone_ciphertext"])
     with transaction() as connection:
-        execute(
-            connection,
-            "INSERT INTO contact_access_logs(task_id, member_id, actor_user_id, purpose, result, "
-            "client_reference, accessed_at) VALUES (?, ?, ?, ?, 'SUCCESS', ?, ?)",
-            (task_id, member_id, actor_user_id, purpose, client_reference, now.isoformat()),
-        )
         write_audit(
             connection,
             actor_user_id=actor_user_id,
@@ -172,6 +169,54 @@ def reveal_contact(
             after={"task_id": task_id, "phone": member["phone_masked"]},
         )
     return {"name": member["name"], "phone": phone, "expires_in": "60秒"}
+
+
+def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
+    user = user_context(actor_user_id)
+    if not user or not DIRECT_PROFILE_ROLES.intersection(user["roles"]):
+        raise PermissionError("当前角色不能直接查看完整资料")
+    member = fetch_one(
+        "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, m.phone_ciphertext, "
+        "m.gender, m.birthday, m.district, m.class_name, m.group_name, m.join_date, "
+        "m.study_start_date, m.membership_years, m.renewal_month, m.status, m.position, "
+        "m.referrer, m.referrer_center, m.company_name, m.company_address, "
+        "m.industry_category, m.industry, m.company_products, m.company_size, m.notes, "
+        "m.enterprise_financial_ciphertext FROM members m "
+        "JOIN org_units o ON o.id=m.org_unit_id WHERE m.id=?",
+        (member_id,),
+    )
+    if not member:
+        raise ValueError("学长不存在")
+    allowed = accessible_org_ids(actor_user_id)
+    if allowed is not None and member["org_unit_id"] not in allowed:
+        raise PermissionError("学长不在组织授权范围内")
+    if not member["phone_ciphertext"]:
+        raise ValueError("学长没有可用联系方式")
+    financial_data = (
+        json.loads(decrypt_text(member["enterprise_financial_ciphertext"]))
+        if member["enterprise_financial_ciphertext"]
+        else {}
+    )
+    with transaction() as connection:
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="members.profile.direct_view",
+            resource_type="member",
+            resource_id=str(member_id),
+            org_unit_id=member["org_unit_id"],
+            after={"fields": "full_member_and_enterprise_profile"},
+        )
+    return {
+        key: value
+        for key, value in {
+            **member,
+            "phone": decrypt_text(member["phone_ciphertext"]),
+            "annual_sales": financial_data.get("annual_sales"),
+            "profit_margin": financial_data.get("profit_margin"),
+        }.items()
+        if key not in {"phone_ciphertext", "enterprise_financial_ciphertext"}
+    }
 
 
 def normal_export_csv(user_id: int) -> str:
