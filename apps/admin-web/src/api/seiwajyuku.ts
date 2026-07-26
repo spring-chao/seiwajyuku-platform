@@ -15,11 +15,11 @@ export type DashboardItem = {
   metric_key: string;
   metric_name: string;
   unit: string;
-  annual_target: number | null;
-  mp?: { value: number | null; state: string };
-  forecast?: { value: number | null; state: string };
-  actual?: { value: number | null; state: string };
-  forecast_achievement: number | null;
+  annual_target: number | string | null;
+  mp?: { value: number | string | null; state: string };
+  forecast?: { value: number | string | null; state: string };
+  actual?: { value: number | string | null; state: string };
+  forecast_achievement: number | string | null;
 };
 
 export type PeriodValue = {
