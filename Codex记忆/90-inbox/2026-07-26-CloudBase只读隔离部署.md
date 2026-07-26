@@ -1,13 +1,14 @@
 ---
 memory_id: seiwajyuku-cloudbase-readonly-preview-20260726
 type: capture-candidate
-status: inbox
-updated: 2026-07-26T17:00:11+08:00
+status: superseded
+updated: 2026-07-27T00:20:00+08:00
 source: user-authorized deployment and verified online smoke test 2026-07-26
 confidence: medium
 sensitivity: internal
 project: seiwajyuku-platform
 tags: [codex-memory, cloudbase, deployment, isolation]
+superseded_by: "[[2026-07-27-当前交付与部署基线]]"
 ---
 
 # CloudBase 只读隔离部署

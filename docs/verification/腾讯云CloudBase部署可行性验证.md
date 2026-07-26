@@ -1,65 +1,80 @@
-# 腾讯云 CloudBase 部署可行性验证
+# 腾讯云 CloudBase 部署与验证基线
 
-更新时间：2026-07-26  
+更新时间：2026-07-27
 环境 ID：`shengheshu-d2g2zyyl99f6c6fc2`
 
-## 结论
+## 当前结论
 
-在与签到系统共用 CloudBase 环境的前提下，使用独立静态目录、独立云函数和独立 HTTP 访问前缀部署本平台是可行的。当前已经完成管理门户与只读健康探针的在线部署，但这不是完整生产上线：
+本平台已在与签到系统共用的 CloudBase 环境中完成独立部署：
 
-- Vue 管理门户可由静态托管的 `/ops-platform/` 独立目录提供。
-- 平台 API 可由独立的 `/ops-preview` 前缀访问。
-- 当前环境未开通云托管，CloudRun 部署请求被平台拒绝，未创建或开通付费资源。
-- Python 云函数未自动安装 FastAPI 等完整运行依赖，且环境中尚无本平台持久数据库，因此函数只提供只读探针。
-- 禁止把云函数 `/tmp` 下的 SQLite 当作生产数据库；登录、导入和业务写入均被明确阻止。
+- Vue 管理门户部署在静态托管的 `/ops-platform/` 目录。
+- FastAPI 部署为独立 CloudRun 服务 `seiwajyuku-platform-api`。
+- 平台使用独立 MySQL 数据库和独立环境变量。
+- 登录、年度 MP 看板、月度填报、学员管理及关怀跟进 API 已由完整后端提供。
+- CloudRun 服务升级不会修改签到系统的云函数、HTTP 路径或静态页面。
 
-## 在线地址与验证结果
+## 在线资源与验证结果
 
-| 验证项 | 地址或资源 | 结果 |
+| 验证项 | 地址或资源 | 当前结果 |
 | --- | --- | --- |
 | 管理门户 | `https://shengheshu-d2g2zyyl99f6c6fc2-1453587887.tcloudbaseapp.com/ops-platform/` | HTTP 200 |
-| API 健康探针 | `https://shengheshu-d2g2zyyl99f6c6fc2-1453587887.ap-shanghai.app.tcloudbase.com/ops-preview/api/v1/health` | HTTP 200，`full_api_available=false` |
-| 写入保护 | `POST /ops-preview/api/v1/auth/login` | HTTP 403 |
-| 静态资源 | `ops-platform/` | 35 个文件独立部署 |
-| 平台函数 | `seiwajyukuPlatformApiPreview` | Python 3.10，部署完成 |
-| 平台访问服务 | `/ops-preview` | 仅绑定平台预览函数 |
+| CloudRun 服务 | `seiwajyuku-platform-api` | 运行中 |
+| API 根地址 | `https://seiwajyuku-platform-api-287369-8-1453587887.sh.run.tcloudbase.com` | 可访问 |
+| API 健康检查 | `/api/v1/health` | HTTP 200 |
+| 责任人接口 | `/api/v1/followups/assignees` | 未登录返回 HTTP 401，证明路由存在且鉴权生效 |
+| 前端静态资源 | `ops-platform/` | HTTP 200 |
 
-## 本地质量验证
-
-- 后端：`15 passed`；覆盖系统健康检查、IAM 范围隔离、MP 只读导入、隐私导出、关怀与企业走访闭环、签到/读书集成及 CloudBase 只读适配器。
-- 前端：TypeScript 与 Vue 类型检查通过。
-- 前端预发布构建：2,035 个模块构建成功，产物约 2.33 MB。
+`401` 是未携带登录令牌时的预期响应；若新接口返回 `404`，应视为后端版本未正确发布。
 
 ## 与签到系统的隔离
 
-部署前后均未修改签到系统的以下资源：
+本平台不得修改或删除以下签到系统资源：
 
 - 云函数：`checkinApi`
 - HTTP 访问路径：`/api`、`/api/*`
 - 静态托管根目录及签到系统已有页面
 
-本平台新增资源仅为：
+本平台使用的独立资源为：
 
 - 静态目录：`ops-platform/`
-- 云函数：`seiwajyukuPlatformApiPreview`
-- HTTP 访问路径：`/ops-preview`
+- CloudRun 服务：`seiwajyuku-platform-api`
+- 独立 MySQL 数据库及平台专用环境变量
 
-## 完整上线前置条件
+早期只读预览函数 `seiwajyukuPlatformApiPreview` 和 `/ops-preview` 不是当前完整 API 的发布目标。
 
-1. 明确选择并开通持久运行方案：CloudRun，或可稳定打包完整 Python 依赖的云函数。
-2. 配置独立的持久 MySQL 数据库，不复用签到系统业务表，不使用临时 SQLite。
-3. 通过密钥管理或环境变量配置独立密钥、首个管理员和数据库凭据。
-4. 执行数据库迁移、备份恢复演练、权限验收与数据导入核对。
-5. 将 `DEPLOYMENT_READ_ONLY` 切换为 `false` 前再次取得生产写入批准。
+## 发布流程
 
-## 回滚
+1. 确认工作区只包含本次发布内容，并记录当前 Git 提交号。
+2. 运行后端测试、前端类型检查和预发布构建。
+3. 从仓库根目录发布 CloudRun 服务：
 
-以下命令只删除本平台新增的验证资源，不应作用于签到系统：
+   ```powershell
+   tcb cloudrun deploy --serviceName seiwajyuku-platform-api --port 8000 --source . --force --env-id shengheshu-d2g2zyyl99f6c6fc2
+   ```
 
-```powershell
-tcb hosting delete ops-platform --dir --env-id shengheshu-d2g2zyyl99f6c6fc2
-tcb service delete --service-path ops-preview --env-id shengheshu-d2g2zyyl99f6c6fc2
-tcb fn delete seiwajyukuPlatformApiPreview --env-id shengheshu-d2g2zyyl99f6c6fc2
-```
+4. 使用预发布环境变量构建前端，并将构建产物发布到 `ops-platform/`。
+5. 发布完成后依次验证健康检查、登录、关键页面及本次新增 API。
 
-执行回滚前应再次核对目标名称和路径；当前验证环境按用户要求保留，未执行上述命令。
+发布命令不得包含真实数据库密码、令牌或管理员密码；敏感配置只通过 CloudRun 环境变量管理。
+
+## 发布前验证门禁
+
+- 后端测试通过。
+- Vue 和 TypeScript 类型检查通过。
+- 前端预发布构建通过。
+- `/api/v1/health` 返回 HTTP 200。
+- 登录可正常取得令牌，错误密码有明确提示。
+- 年度 MP 看板和月度填报的数据、单位、百分比及分中心范围正确。
+- 新增 API 未登录时返回 `401` 或 `403`，不得返回 `404` 或 `500`。
+- 关键静态资源返回 HTTP 200，浏览器控制台无阻断性错误。
+
+## 回滚策略
+
+发生阻断性问题时，不删除 CloudBase 环境、签到系统资源或共享静态根目录：
+
+1. 在 CloudRun 版本管理中将流量切回上一稳定版本，或从上一稳定 Git 提交重新部署。
+2. 将 `ops-platform/` 恢复为上一稳定构建产物。
+3. 若涉及数据库迁移，先停止写入，再按对应迁移文档执行反向迁移或从已验证备份恢复。
+4. 回滚后重新检查健康接口、登录和签到系统既有入口。
+
+任何删除资源的操作都不属于常规回滚流程，必须另行确认精确资源名称和影响范围。
