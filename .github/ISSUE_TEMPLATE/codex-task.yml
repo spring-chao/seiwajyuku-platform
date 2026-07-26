@@ -1,0 +1,59 @@
+name: Codex 单任务卡
+description: 一个可独立验收、测试和回滚的开发任务
+title: "[Codex] "
+labels: ["codex-task"]
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: 任务目标
+      description: 只描述一个可验收结果。
+    validations:
+      required: true
+  - type: textarea
+    id: basis
+    attributes:
+      label: 业务依据
+      description: 标注需求规格和技术设计章节。
+    validations:
+      required: true
+  - type: textarea
+    id: allowed
+    attributes:
+      label: 允许修改
+      description: 明确仓库、目录、数据库表和外部系统。
+    validations:
+      required: true
+  - type: checkboxes
+    id: prohibitions
+    attributes:
+      label: 禁止事项
+      options:
+        - label: 不连接或修改生产数据
+          required: true
+        - label: 不泄露密钥或敏感个人数据
+          required: true
+        - label: 不扩大本任务范围
+          required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收场景
+      description: 给出业务人员可操作步骤及预期结果。
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: 测试要求
+      description: 单元、集成、权限、隐私和数据核对。
+    validations:
+      required: true
+  - type: textarea
+    id: rollback
+    attributes:
+      label: 回滚与费用
+      description: 回滚步骤、数据恢复方式、资源与费用影响。
+    validations:
+      required: true
+
