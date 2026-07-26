@@ -22,5 +22,8 @@
         "CORS_ORIGINS": "https://shengheshu-d2g2zyyl99f6c6fc2-1453587887.tcloudbaseapp.com"
       }
     }
-  ]
+  ],
+  "cloudrun": {
+    "name": "seiwajyuku-platform-api"
+  }
 }
