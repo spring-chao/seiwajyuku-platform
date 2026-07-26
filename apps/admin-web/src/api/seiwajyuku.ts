@@ -30,7 +30,7 @@ export type PeriodValue = {
   metric_name: string;
   unit: string;
   value_kind: "MP" | "FORECAST" | "ACTUAL";
-  numeric_value: number | null;
+  numeric_value: number | string | null;
   value_state: string;
   source_type: string;
   is_manual_override: number;
