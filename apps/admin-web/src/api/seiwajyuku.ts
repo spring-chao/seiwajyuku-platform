@@ -119,6 +119,24 @@ export type Member = {
   phone_masked: string;
   phone_last4?: string;
   company_name?: string;
+  gender?: string;
+  district?: string;
+  company_address?: string;
+  class_name?: string;
+  group_name?: string;
+  birthday?: string;
+  join_date?: string;
+  study_start_date?: string;
+  membership_years?: number;
+  renewal_month?: string;
+  position?: string;
+  referrer?: string;
+  referrer_center?: string;
+  industry_category?: string;
+  industry?: string;
+  company_products?: string;
+  company_size?: string;
+  notes?: string;
   enterprise_stage?: string;
   sensitivity_level: string;
 };
@@ -166,12 +184,33 @@ export const getMembers = (orgUnitId?: string) =>
   );
 
 export const createMember = (data: {
-  member_code: string;
+  member_code?: string;
   name: string;
   org_unit_id: string;
   development_org_unit_id?: string;
   phone: string;
   company_name?: string;
+  gender?: string;
+  district?: string;
+  company_address?: string;
+  class_name?: string;
+  group_name?: string;
+  birthday?: string;
+  join_date?: string;
+  study_start_date?: string;
+  membership_years?: number;
+  renewal_month?: string;
+  status?: string;
+  position?: string;
+  referrer?: string;
+  referrer_center?: string;
+  industry_category?: string;
+  industry?: string;
+  company_products?: string;
+  annual_sales?: string;
+  company_size?: string;
+  profit_margin?: string;
+  notes?: string;
 }) =>
   http.request<{ success: boolean; data: { id: number } }>(
     "post",

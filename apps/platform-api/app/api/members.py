@@ -19,12 +19,33 @@ router = APIRouter(prefix="/api/v1", tags=["members-privacy"])
 
 
 class MemberCreatePayload(BaseModel):
-    member_code: str = Field(min_length=2, max_length=128)
+    member_code: str | None = Field(default=None, min_length=2, max_length=128)
     name: str = Field(min_length=1, max_length=255)
     org_unit_id: str
     development_org_unit_id: str | None = None
     phone: str
     company_name: str | None = None
+    gender: str | None = Field(default=None, max_length=32)
+    district: str | None = Field(default=None, max_length=255)
+    company_address: str | None = Field(default=None, max_length=1000)
+    class_name: str | None = Field(default=None, max_length=255)
+    group_name: str | None = Field(default=None, max_length=255)
+    birthday: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    join_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    study_start_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    membership_years: float | None = Field(default=None, ge=0, le=100)
+    renewal_month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
+    status: str = Field(default="ACTIVE", pattern="^(ACTIVE|INACTIVE|SUSPENDED)$")
+    position: str | None = Field(default=None, max_length=255)
+    referrer: str | None = Field(default=None, max_length=255)
+    referrer_center: str | None = Field(default=None, max_length=255)
+    industry_category: str | None = Field(default=None, max_length=255)
+    industry: str | None = Field(default=None, max_length=255)
+    company_products: str | None = Field(default=None, max_length=4000)
+    annual_sales: str | None = Field(default=None, max_length=255)
+    company_size: str | None = Field(default=None, max_length=255)
+    profit_margin: str | None = Field(default=None, max_length=64)
+    notes: str | None = Field(default=None, max_length=4000)
 
 
 class ContactAccessPayload(BaseModel):
@@ -122,4 +143,3 @@ def download_export(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename=sensitive-members-{job_id}.csv"},
     )
-

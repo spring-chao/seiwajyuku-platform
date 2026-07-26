@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -20,28 +21,73 @@ def _as_utc(value: str) -> datetime:
 def create_member(
     actor_user_id: int,
     *,
-    member_code: str,
+    member_code: str | None,
     name: str,
     org_unit_id: str,
     development_org_unit_id: str | None,
     phone: str,
     company_name: str | None = None,
+    gender: str | None = None,
+    district: str | None = None,
+    company_address: str | None = None,
+    class_name: str | None = None,
+    group_name: str | None = None,
+    birthday: str | None = None,
+    join_date: str | None = None,
+    study_start_date: str | None = None,
+    membership_years: float | None = None,
+    renewal_month: str | None = None,
+    status: str = "ACTIVE",
+    position: str | None = None,
+    referrer: str | None = None,
+    referrer_center: str | None = None,
+    industry_category: str | None = None,
+    industry: str | None = None,
+    company_products: str | None = None,
+    annual_sales: str | None = None,
+    company_size: str | None = None,
+    profit_margin: str | None = None,
+    notes: str | None = None,
 ) -> int:
     allowed = accessible_org_ids(actor_user_id)
     if allowed is not None and org_unit_id not in allowed:
         raise PermissionError("不能在授权组织之外创建学长")
     fields = protected_phone(phone)
     now = datetime.now(UTC).isoformat()
+    member_code = (member_code or "").strip() or (
+        f"MEM-{datetime.now(UTC):%Y%m%d%H%M%S}-{secrets.token_hex(2).upper()}"
+    )
+    financial_data = {
+        key: value.strip()
+        for key, value in {
+            "annual_sales": annual_sales or "",
+            "profit_margin": profit_margin or "",
+        }.items()
+        if value.strip()
+    }
+    financial_ciphertext = (
+        encrypt_text(json.dumps(financial_data, ensure_ascii=False))
+        if financial_data
+        else None
+    )
     with transaction() as connection:
         cursor = execute(
             connection,
             "INSERT INTO members(member_code, name, org_unit_id, development_org_unit_id, status, "
-            "phone_ciphertext, phone_hash, phone_last4, phone_masked, company_name, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?)",
+            "phone_ciphertext, phone_hash, phone_last4, phone_masked, company_name, "
+            "gender, district, company_address, class_name, group_name, birthday, join_date, "
+            "study_start_date, membership_years, renewal_month, position, referrer, "
+            "referrer_center, industry_category, industry, company_products, company_size, notes, "
+            "enterprise_financial_ciphertext, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                member_code, name, org_unit_id, development_org_unit_id,
+                member_code, name, org_unit_id, development_org_unit_id, status,
                 fields["phone_ciphertext"], fields["phone_hash"], fields["phone_last4"],
-                fields["phone_masked"], company_name, now, now,
+                fields["phone_masked"], company_name, gender, district, company_address,
+                class_name, group_name, birthday, join_date, study_start_date,
+                membership_years, renewal_month, position, referrer, referrer_center,
+                industry_category, industry, company_products, company_size, notes,
+                financial_ciphertext, now, now,
             ),
         )
         member_id = cursor.lastrowid
@@ -62,7 +108,11 @@ def list_members(user_id: int, org_unit_id: str | None = None) -> list[dict[str,
     sql = (
         "SELECT m.id, m.member_code, m.name, m.org_unit_id, o.name AS org_name, "
         "m.development_org_unit_id, m.status, m.phone_masked, m.phone_last4, "
-        "m.company_name, m.enterprise_stage, m.sensitivity_level "
+        "m.company_name, m.gender, m.district, m.company_address, m.class_name, "
+        "m.group_name, m.birthday, m.join_date, m.study_start_date, m.membership_years, "
+        "m.renewal_month, m.position, m.referrer, m.referrer_center, "
+        "m.industry_category, m.industry, m.company_products, m.company_size, m.notes, "
+        "m.enterprise_stage, m.sensitivity_level "
         "FROM members m JOIN org_units o ON o.id=m.org_unit_id"
     )
     if org_unit_id:

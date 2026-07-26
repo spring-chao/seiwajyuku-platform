@@ -37,14 +37,33 @@ const filteredRows = computed(() => {
 });
 
 const form = reactive({
-  member_code: "",
   name: "",
   org_unit_id: "",
   phone: "",
-  company_name: ""
+  company_name: "",
+  gender: "",
+  district: "",
+  company_address: "",
+  class_name: "",
+  group_name: "",
+  birthday: "",
+  join_date: "",
+  study_start_date: "",
+  membership_years: undefined as number | undefined,
+  renewal_month: "",
+  status: "ACTIVE",
+  position: "",
+  referrer: "",
+  referrer_center: "",
+  industry_category: "",
+  industry: "",
+  company_products: "",
+  annual_sales: "",
+  company_size: "",
+  profit_margin: "",
+  notes: ""
 });
 const rules: FormRules = {
-  member_code: [{ required: true, message: "请输入学员编号", trigger: "blur" }],
   name: [{ required: true, message: "请输入姓名", trigger: "blur" }],
   org_unit_id: [{ required: true, message: "请选择分中心", trigger: "change" }],
   phone: [
@@ -79,11 +98,31 @@ async function load() {
 
 function openCreate() {
   Object.assign(form, {
-    member_code: "",
     name: "",
     org_unit_id: selectedOrg.value,
     phone: "",
-    company_name: ""
+    company_name: "",
+    gender: "",
+    district: "",
+    company_address: "",
+    class_name: "",
+    group_name: "",
+    birthday: "",
+    join_date: "",
+    study_start_date: "",
+    membership_years: undefined,
+    renewal_month: "",
+    status: "ACTIVE",
+    position: "",
+    referrer: "",
+    referrer_center: "",
+    industry_category: "",
+    industry: "",
+    company_products: "",
+    annual_sales: "",
+    company_size: "",
+    profit_margin: "",
+    notes: ""
   });
   dialogVisible.value = true;
 }
@@ -93,11 +132,31 @@ async function submit() {
   saving.value = true;
   try {
     await createMember({
-      member_code: form.member_code.trim(),
       name: form.name.trim(),
       org_unit_id: form.org_unit_id,
       phone: form.phone.trim(),
-      company_name: form.company_name.trim() || undefined
+      company_name: form.company_name.trim() || undefined,
+      gender: form.gender || undefined,
+      district: form.district.trim() || undefined,
+      company_address: form.company_address.trim() || undefined,
+      class_name: form.class_name.trim() || undefined,
+      group_name: form.group_name.trim() || undefined,
+      birthday: form.birthday || undefined,
+      join_date: form.join_date || undefined,
+      study_start_date: form.study_start_date || undefined,
+      membership_years: form.membership_years,
+      renewal_month: form.renewal_month || undefined,
+      status: form.status,
+      position: form.position.trim() || undefined,
+      referrer: form.referrer.trim() || undefined,
+      referrer_center: form.referrer_center.trim() || undefined,
+      industry_category: form.industry_category.trim() || undefined,
+      industry: form.industry.trim() || undefined,
+      company_products: form.company_products.trim() || undefined,
+      annual_sales: form.annual_sales.trim() || undefined,
+      company_size: form.company_size.trim() || undefined,
+      profit_margin: form.profit_margin.trim() || undefined,
+      notes: form.notes.trim() || undefined
     });
     ElMessage.success("学员已创建，手机号已加密保存");
     dialogVisible.value = false;
@@ -156,9 +215,14 @@ onMounted(load);
       </div>
 
       <el-table :data="filteredRows" stripe empty-text="暂无学员数据">
-        <el-table-column prop="member_code" label="学员编号" min-width="130" />
         <el-table-column prop="name" label="姓名" min-width="110" />
         <el-table-column prop="org_name" label="所属分中心" min-width="140" />
+        <el-table-column prop="class_name" label="班级" min-width="120">
+          <template #default="{ row }">{{ row.class_name || "—" }}</template>
+        </el-table-column>
+        <el-table-column prop="group_name" label="组名" min-width="110">
+          <template #default="{ row }">{{ row.group_name || "—" }}</template>
+        </el-table-column>
         <el-table-column prop="company_name" label="企业" min-width="180">
           <template #default="{ row }">{{ row.company_name || "—" }}</template>
         </el-table-column>
@@ -173,7 +237,15 @@ onMounted(load);
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" title="新增试点学员" width="560px">
+    <el-dialog
+      v-model="dialogVisible"
+      title="新增学员"
+      width="1180px"
+      class="member-dialog"
+    >
+      <p class="form-hint">
+        姓名、分中心和手机号为必填项；年销售额与利润率按敏感信息加密保存。
+      </p>
       <el-form
         ref="formRef"
         :model="form"
@@ -181,13 +253,10 @@ onMounted(load);
         label-position="top"
       >
         <div class="form-grid">
-          <el-form-item label="学员编号" prop="member_code">
-            <el-input v-model="form.member_code" placeholder="如 SZ-WJ-0001" />
-          </el-form-item>
           <el-form-item label="姓名" prop="name">
             <el-input v-model="form.name" />
           </el-form-item>
-          <el-form-item label="所属分中心" prop="org_unit_id">
+          <el-form-item label="分中心" prop="org_unit_id">
             <el-select v-model="form.org_unit_id" placeholder="请选择">
               <el-option
                 v-for="org in centerOrgs"
@@ -197,11 +266,108 @@ onMounted(load);
               />
             </el-select>
           </el-form-item>
+          <el-form-item label="公司名称" prop="company_name">
+            <el-input v-model="form.company_name" />
+          </el-form-item>
           <el-form-item label="手机号" prop="phone">
             <el-input v-model="form.phone" maxlength="11" />
           </el-form-item>
-          <el-form-item class="full" label="企业名称" prop="company_name">
-            <el-input v-model="form.company_name" />
+          <el-form-item label="隶属区">
+            <el-input v-model="form.district" />
+          </el-form-item>
+          <el-form-item label="公司地址">
+            <el-input v-model="form.company_address" />
+          </el-form-item>
+          <el-form-item label="性别">
+            <el-select v-model="form.gender" clearable placeholder="请选择">
+              <el-option label="男" value="MALE" />
+              <el-option label="女" value="FEMALE" />
+              <el-option label="其他/未说明" value="UNSPECIFIED" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="班级">
+            <el-input v-model="form.class_name" />
+          </el-form-item>
+          <el-form-item label="行业分类">
+            <el-input v-model="form.industry_category" />
+          </el-form-item>
+          <el-form-item label="生日">
+            <el-date-picker
+              v-model="form.birthday"
+              type="date"
+              value-format="YYYY-MM-DD"
+              placeholder="YYYY-MM-DD"
+            />
+          </el-form-item>
+          <el-form-item label="组名">
+            <el-input v-model="form.group_name" />
+          </el-form-item>
+          <el-form-item label="行业">
+            <el-input v-model="form.industry" />
+          </el-form-item>
+          <el-form-item label="状态">
+            <el-select v-model="form.status">
+              <el-option label="在册" value="ACTIVE" />
+              <el-option label="停用" value="INACTIVE" />
+              <el-option label="暂停" value="SUSPENDED" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="职务">
+            <el-input v-model="form.position" />
+          </el-form-item>
+          <el-form-item label="公司产品">
+            <el-input v-model="form.company_products" />
+          </el-form-item>
+          <el-form-item label="入塾日期">
+            <el-date-picker
+              v-model="form.join_date"
+              type="date"
+              value-format="YYYY-MM-DD"
+              placeholder="YYYY-MM-DD"
+            />
+          </el-form-item>
+          <el-form-item label="续费月份">
+            <el-date-picker
+              v-model="form.renewal_month"
+              type="month"
+              value-format="YYYY-MM"
+              placeholder="YYYY-MM"
+            />
+          </el-form-item>
+          <el-form-item label="年销售额">
+            <el-input v-model="form.annual_sales" placeholder="按原系统口径填写" />
+          </el-form-item>
+          <el-form-item label="开始学习时间">
+            <el-date-picker
+              v-model="form.study_start_date"
+              type="date"
+              value-format="YYYY-MM-DD"
+              placeholder="YYYY-MM-DD"
+            />
+          </el-form-item>
+          <el-form-item label="推荐人">
+            <el-input v-model="form.referrer" />
+          </el-form-item>
+          <el-form-item label="公司规模">
+            <el-input v-model="form.company_size" />
+          </el-form-item>
+          <el-form-item label="入塾年限">
+            <el-input-number
+              v-model="form.membership_years"
+              :min="0"
+              :max="100"
+              :precision="1"
+              controls-position="right"
+            />
+          </el-form-item>
+          <el-form-item label="推荐人所属分中心">
+            <el-input v-model="form.referrer_center" />
+          </el-form-item>
+          <el-form-item label="利润率">
+            <el-input v-model="form.profit_margin" placeholder="例如 12%" />
+          </el-form-item>
+          <el-form-item class="full" label="备注">
+            <el-input v-model="form.notes" type="textarea" :rows="3" />
           </el-form-item>
         </div>
       </el-form>
@@ -254,7 +420,7 @@ onMounted(load);
 }
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0 18px;
 }
 .form-grid .full {
@@ -262,6 +428,17 @@ onMounted(load);
 }
 .form-grid :deep(.el-select) {
   width: 100%;
+}
+.form-grid :deep(.el-date-editor),
+.form-grid :deep(.el-input-number) {
+  width: 100%;
+}
+.form-hint {
+  margin: -4px 0 20px;
+  color: var(--el-text-color-secondary);
+}
+:global(.member-dialog) {
+  max-width: calc(100vw - 40px);
 }
 @media (max-width: 760px) {
   .page-head {

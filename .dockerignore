@@ -1,6 +1,8 @@
 .git
 .github
 .venv
+.env
+.env.*
 **/__pycache__
 **/.pytest_cache
 **/*.pyc
@@ -8,7 +10,9 @@
 artifacts
 Codex记忆
 apps/admin-web
+apps/platform-api/tests
 docs
+scripts
 tests
 *.log
 *.db

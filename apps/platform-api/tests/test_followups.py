@@ -3,7 +3,10 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime, timedelta
 
+from fastapi.testclient import TestClient
+
 from app.db import execute, fetch_one, transaction
+from app.main import app
 from app.migrations import run_migrations
 from app.services.followups import (
     add_followup_record,
@@ -125,6 +128,10 @@ class FollowupLoopTests(unittest.TestCase):
         self.assertIn(self.owner_id, {row["id"] for row in rows})
         visible = list_tasks(self.owner_id)
         self.assertTrue(all(row["can_record"] for row in visible))
+
+    def test_assignee_route_exists(self) -> None:
+        response = TestClient(app).get("/api/v1/followups/assignees")
+        self.assertEqual(response.status_code, 401)
 
 
 if __name__ == "__main__":

@@ -127,6 +127,48 @@ class PrivacyIsolationTests(unittest.TestCase):
         self.assertNotIn("13800138000", job["payload_ciphertext"])
         self.assertIsNotNone(job["expires_at"])
 
+    def test_extended_member_profile_and_financial_fields_are_protected(self) -> None:
+        member_id = create_member(
+            self.admin["id"],
+            member_code=None,
+            name="扩展资料测试学长",
+            org_unit_id="privacy-center",
+            development_org_unit_id=None,
+            phone="13700137000",
+            company_name="扩展资料测试企业",
+            gender="MALE",
+            district="吴江区",
+            company_address="测试地址",
+            class_name="圆融一班",
+            group_name="圆梦组",
+            birthday="1988-08-08",
+            join_date="2024-01-01",
+            study_start_date="2024-01-01",
+            membership_years=2.5,
+            renewal_month="2026-01",
+            position="总经理",
+            referrer="推荐人",
+            referrer_center="吴江分中心",
+            industry_category="制造业",
+            industry="装备制造",
+            company_products="测试产品",
+            annual_sales="5000万元",
+            company_size="100-199人",
+            profit_margin="12%",
+            notes="扩展字段验证",
+        )
+        row = next(item for item in list_members(self.admin["id"]) if item["id"] == member_id)
+        self.assertEqual(row["class_name"], "圆融一班")
+        self.assertEqual(row["group_name"], "圆梦组")
+        self.assertNotIn("annual_sales", row)
+        stored = fetch_one(
+            "SELECT member_code, enterprise_financial_ciphertext FROM members WHERE id=?",
+            (member_id,),
+        )
+        self.assertTrue(stored["member_code"].startswith("MEM-"))
+        self.assertNotIn("5000万元", stored["enterprise_financial_ciphertext"])
+        self.assertNotIn("12%", stored["enterprise_financial_ciphertext"])
+
 
 if __name__ == "__main__":
     unittest.main()
