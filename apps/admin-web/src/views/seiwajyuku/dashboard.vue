@@ -93,6 +93,14 @@ const formatAchievement = (value: number | string | null | undefined) => {
   const numeric = toNumber(value);
   return numeric === null ? "—" : `${(numeric * 100).toFixed(1)}%`;
 };
+const annualAchievement = (row: any) => {
+  const actual = toNumber(row.actual?.value);
+  const annualTarget = toNumber(row.annual_target);
+  if (actual === null || annualTarget === null || annualTarget === 0) {
+    return null;
+  }
+  return actual / annualTarget;
+};
 const unitLabel = (unit?: string) =>
   ({ PERCENT: "百分比", PERSON: "人数", SCORE: "分数" })[unit ?? ""] ??
   "数值";
@@ -227,6 +235,7 @@ onMounted(async () => {
         <span><b>预定</b>：预计本月完成</span>
         <span><b>实绩</b>：本月实际完成</span>
         <span><b>预定达成率</b>：实绩 ÷ 预定</span>
+        <span><b>年度目标达成率</b>：当月实绩 ÷ 年度目标</span>
       </div>
       <el-table :data="selectedItems" stripe empty-text="当前月份暂无该指标数据">
         <el-table-column prop="org_name" label="区域分中心" min-width="150" />
@@ -261,6 +270,21 @@ onMounted(async () => {
               "
             >
               {{ formatAchievement(row.forecast_achievement) }}
+            </el-tag>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="年度目标达成率"
+          min-width="155"
+          align="right"
+        >
+          <template #default="{ row }">
+            <el-tag
+              v-if="annualAchievement(row) !== null"
+              :type="annualAchievement(row)! >= 1 ? 'success' : 'info'"
+            >
+              {{ formatAchievement(annualAchievement(row)) }}
             </el-tag>
             <span v-else>—</span>
           </template>

@@ -91,6 +91,9 @@ const unitLabel = (unit: string) =>
   ({ PERCENT: "%", PERSON: "人", SCORE: "分" })[unit] ?? "";
 
 const stateInfo = (row: any) => {
+  if (!row.actual && toNumber(row.forecast?.numeric_value) !== null) {
+    return { label: "预定已填", type: "info" } as const;
+  }
   const state =
     row.actual?.value_state ??
     row.forecast?.value_state ??
@@ -224,12 +227,22 @@ onMounted(async () => {
             {{ unitLabel(row.unit) }}
           </template>
         </el-table-column>
-        <el-table-column label="月MP" width="145" align="right">
+        <el-table-column
+          label="月MP"
+          width="170"
+          align="right"
+          header-align="right"
+        >
           <template #default="{ row }">
             {{ formatValue(row.mp?.numeric_value, row.unit) }}
           </template>
         </el-table-column>
-        <el-table-column label="预定" width="190">
+        <el-table-column
+          label="预定"
+          width="190"
+          align="right"
+          header-align="right"
+        >
           <template #default="{ row }">
             <span v-if="!editable" class="readonly-value">
               {{ formatValue(row.forecast?.numeric_value, row.unit) }}
@@ -248,7 +261,12 @@ onMounted(async () => {
             />
           </template>
         </el-table-column>
-        <el-table-column label="实绩" width="190">
+        <el-table-column
+          label="实绩"
+          width="190"
+          align="right"
+          header-align="right"
+        >
           <template #default="{ row }">
             <span v-if="!editable" class="readonly-value">
               {{ formatValue(row.actual?.numeric_value, row.unit) }}
@@ -265,7 +283,12 @@ onMounted(async () => {
             />
           </template>
         </el-table-column>
-        <el-table-column label="数据状态" min-width="150">
+        <el-table-column
+          label="数据状态"
+          min-width="150"
+          align="center"
+          header-align="center"
+        >
           <template #default="{ row }">
             <el-tag :type="stateInfo(row).type">
               {{ stateInfo(row).label }}
@@ -334,7 +357,6 @@ header h1 {
 }
 .readonly-value {
   display: block;
-  padding-right: 16px;
   color: #344b42;
   text-align: right;
 }
