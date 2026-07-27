@@ -150,7 +150,7 @@ def save_preview(preview: dict[str, Any], actor_user_id: int) -> int:
     now = datetime.now(UTC).isoformat()
     with transaction() as connection:
         batch_id = execute(connection, "INSERT INTO renewal_import_batches(source_name, source_sha256, status, preview_json, created_by, created_at) VALUES (?, ?, 'PREVIEWED', ?, ?, ?)",
-                           (preview["source_name"], preview["source_sha256"], json.dumps(preview, ensure_ascii=False), actor_user_id, now)).lastrowid
+                           (preview["source_name"], preview["source_sha256"], json.dumps(preview, ensure_ascii=False, default=str), actor_user_id, now)).lastrowid
         for row in preview["rows"]:
             execute(connection, "INSERT INTO renewal_import_staging(batch_id,row_no,match_status,member_id,org_unit_id,due_month,proposed_status,history_note,assistance_note,raw_json,issue_code,created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (batch_id, row["row_no"], row["match_status"], row["member_id"], row["org_unit_id"], row["due_month"], row["proposed_status"], row["history_note"], row["assistance_note"], json.dumps(row["raw"], ensure_ascii=False, default=str), row["issue_code"], now))
