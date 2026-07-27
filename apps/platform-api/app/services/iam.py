@@ -26,6 +26,8 @@ PERMISSIONS = {
     "members:manage": ("维护学长主数据", "SENSITIVE"),
     "members:detail_view": ("直接查看完整学员与企业资料", "RESTRICTED"),
     "followups:manage": ("管理关怀任务", "SENSITIVE"),
+    "renewals:read": ("查看续费运营", "INTERNAL"),
+    "renewals:manage": ("管理续费周期与导入", "SENSITIVE"),
     "contact:reveal": ("按任务逐人查看联系方式", "SENSITIVE"),
     "exports:normal": ("普通脱敏导出", "INTERNAL"),
     "exports:sensitive": ("敏感导出", "RESTRICTED"),
@@ -38,20 +40,20 @@ ROLE_PERMISSIONS = {
     "operations_admin": {
         "org:read", "org:manage", "plans:read", "plans:write", "plans:publish",
         "members:read", "members:manage", "members:detail_view", "followups:manage", "exports:normal", "audit:read",
-        "integrations:manage",
+        "integrations:manage", "renewals:read", "renewals:manage",
     },
     "regional_manager": {
         "org:read", "plans:read", "plans:write", "members:read",
-        "members:manage", "members:detail_view", "followups:manage", "contact:reveal", "exports:normal",
+        "members:manage", "members:detail_view", "followups:manage", "contact:reveal", "exports:normal", "renewals:read", "renewals:manage",
     },
     "class_counselor": {
         "org:read", "plans:read", "members:read", "followups:manage",
-        "contact:reveal", "exports:normal",
+        "contact:reveal", "exports:normal", "renewals:read",
     },
     "group_leader": {
-        "org:read", "plans:read", "members:read", "followups:manage", "contact:reveal",
+        "org:read", "plans:read", "members:read", "followups:manage", "contact:reveal", "renewals:read",
     },
-    "read_only": {"org:read", "plans:read", "members:read"},
+    "read_only": {"org:read", "plans:read", "members:read", "renewals:read"},
 }
 ROLE_NAMES = {
     "system_admin": "系统管理员",

@@ -11,6 +11,7 @@ from app.api.iam import router as iam_router
 from app.api.integrations import router as integrations_router
 from app.api.imports import router as imports_router
 from app.api.plans import router as plans_router
+from app.api.renewals import router as renewals_router
 from app.api.members import router as members_router
 from app.api.system import router as system_router
 from app.core.settings import get_settings
@@ -59,6 +60,7 @@ app.include_router(auth_router)
 app.include_router(iam_router)
 app.include_router(imports_router)
 app.include_router(plans_router)
+app.include_router(renewals_router)
 app.include_router(members_router)
 app.include_router(followups_router)
 app.include_router(integrations_router)
