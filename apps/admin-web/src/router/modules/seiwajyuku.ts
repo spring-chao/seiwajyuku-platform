@@ -64,6 +64,23 @@ export default {
       }
     },
     {
+      path: "/operations/renewals",
+      name: "RenewalOperations",
+      component: () => import("@/views/seiwajyuku/renewals.vue"),
+      meta: {
+        title: "续费运营",
+        icon: "ep/refresh-right",
+        roles: [
+          "system_admin",
+          "operations_admin",
+          "regional_manager",
+          "class_counselor",
+          "group_leader",
+          "read_only"
+        ]
+      }
+    },
+    {
       path: "/operations/activities",
       name: "ActivityAdmin",
       component: () => import("@/views/seiwajyuku/activities.vue"),

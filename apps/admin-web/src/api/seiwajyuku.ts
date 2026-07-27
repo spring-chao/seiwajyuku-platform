@@ -169,6 +169,35 @@ export type ActivitySnapshot = {
   status: string;
 };
 
+export type RenewalOverviewRow = {
+  org_unit_id: string;
+  org_name: string;
+  due_month: number;
+  status: string;
+  count: number;
+};
+
+export type RenewalImportSummary = {
+  total: number;
+  matched: number;
+  needs_review: number;
+  invalid: number;
+  assistance_review: number;
+};
+
+export type RenewalImportSample = {
+  row_no: number;
+  name: string;
+  center_name: string;
+  class_name?: string;
+  due_month?: number;
+  match_status: string;
+  proposed_status: string;
+  history_note?: string;
+  assistance_note?: string;
+  issue_code?: string;
+};
+
 export const getFollowupTasks = (status?: string) =>
   http.request<{ success: boolean; data: FollowupTask[] }>(
     "get",
@@ -316,3 +345,30 @@ export const getActivities = (month?: string) =>
     "/api/v1/activities",
     { params: month ? { month } : undefined }
   );
+
+export const getRenewalOverview = (year: number) =>
+  http.request<{
+    success: boolean;
+    data: { year: number; rows: RenewalOverviewRow[] };
+  }>("get", "/api/v1/renewals/overview", { params: { year } });
+
+export const previewRenewalImport = (
+  renewalFile: File,
+  masterFile: File
+) => {
+  const data = new FormData();
+  data.append("renewal_file", renewalFile);
+  data.append("master_file", masterFile);
+  return http.request<{
+    success: boolean;
+    data: {
+      batch_id: number;
+      summary: RenewalImportSummary;
+      samples: RenewalImportSample[];
+    };
+  }>("post", "/api/v1/renewals/imports/preview", {
+    data,
+    timeout: 120000,
+    headers: { "Content-Type": "multipart/form-data" }
+  });
+};
