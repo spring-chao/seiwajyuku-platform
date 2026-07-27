@@ -50,7 +50,38 @@ def _status(note: Any) -> str:
     return "IN_COMMUNICATION"
 
 
-def preview_workbook(path: str | Path) -> dict[str, Any]:
+def _clean(value: Any) -> str:
+    return str(value or "").strip().replace("\n", "").replace(" ", "")
+
+
+def _phone(value: Any) -> str:
+    return "".join(char for char in _clean(value) if char.isdigit())[-11:]
+
+
+def _master_index(path: Path) -> tuple[dict[str, list[dict]], dict[tuple[str, str], list[dict]]]:
+    workbook = load_workbook(path, data_only=True, read_only=True)
+    try:
+        if "2026 新在册表" not in workbook.sheetnames:
+            raise ValueError("主档案缺少“2026 新在册表”工作表")
+        sheet = workbook["2026 新在册表"]
+        headers = [_clean(cell.value) for cell in next(sheet.iter_rows(min_row=1, max_row=1))]
+        col = {name: index for index, name in enumerate(headers)}
+        required = {"姓名", "手机号码", "所在分中心"}
+        if not required.issubset(col):
+            raise ValueError("主档案缺少姓名、手机号码或所在分中心列")
+        by_phone: dict[str, list[dict]] = {}; by_name_center: dict[tuple[str, str], list[dict]] = {}
+        for row_no, values in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
+            record = {headers[i]: values[i] for i in range(len(headers)) if values[i] not in (None, "")}
+            record["source_row"] = row_no
+            phone = _phone(record.get("手机号码")); key = (_clean(record.get("姓名")), _clean(record.get("所在分中心")))
+            if phone: by_phone.setdefault(phone, []).append(record)
+            if all(key): by_name_center.setdefault(key, []).append(record)
+        return by_phone, by_name_center
+    finally:
+        workbook.close()
+
+
+def preview_workbook(path: str | Path, master_path: str | Path | None = None) -> dict[str, Any]:
     source = Path(path)
     workbook = load_workbook(source, data_only=True, read_only=True)
     try:
@@ -62,7 +93,8 @@ def preview_workbook(path: str | Path) -> dict[str, Any]:
         if not required.issubset(headers):
             raise ValueError("续费基数表缺少姓名、分中心或2025年缴费月份列")
         col = {name: index for index, name in enumerate(headers)}
-        existing = fetch_all("SELECT id, name, org_unit_id, phone_hash FROM members")
+        master_by_phone, master_by_name_center = _master_index(Path(master_path)) if master_path else ({}, {})
+        existing = fetch_all("SELECT id, name, org_unit_id, phone_hash FROM members") if not master_path else []
         by_name_org = {(row["name"], row["org_unit_id"]): row for row in existing}
         rows: list[dict[str, Any]] = []
         summary = {"total": 0, "matched": 0, "needs_review": 0, "invalid": 0, "assistance_review": 0}
@@ -75,10 +107,25 @@ def preview_workbook(path: str | Path) -> dict[str, Any]:
             raw = {headers[i]: values[i] for i in range(len(headers)) if values[i] not in (None, "")}
             summary["total"] += 1
             org_id = CENTER_IDS.get(center_name)
+            source_phone = _phone(values[col["手机号码"]]) if "手机号码" in col else ""
+            master_phone = master_by_phone.get(source_phone, []) if source_phone else []
+            master_name = master_by_name_center.get((_clean(name), _clean(center_name)), []) if name and center_name else []
             member = by_name_org.get((name, org_id)) if name and org_id else None
             if not name or not org_id or not due_month:
                 match_status, issue = "INVALID", "MISSING_REQUIRED_FIELD"
                 summary["invalid"] += 1
+            elif len(master_phone) == 1:
+                match_status, issue, member = "MASTER_PHONE_EXACT", None, master_phone[0]
+                summary["matched"] += 1
+            elif len(master_phone) > 1:
+                match_status, issue = "NEEDS_REVIEW", "MASTER_PHONE_DUPLICATE"
+                summary["needs_review"] += 1
+            elif len(master_name) == 1:
+                match_status, issue, member = "MASTER_NAME_CENTER_EXACT", None, master_name[0]
+                summary["matched"] += 1
+            elif len(master_name) > 1:
+                match_status, issue = "NEEDS_REVIEW", "MASTER_NAME_CENTER_DUPLICATE"
+                summary["needs_review"] += 1
             elif member:
                 match_status, issue = "MATCHED", None
                 summary["matched"] += 1
@@ -88,7 +135,7 @@ def preview_workbook(path: str | Path) -> dict[str, Any]:
             if assistance:
                 summary["assistance_review"] += 1
             rows.append({"row_no": row_no, "name": name, "org_unit_id": org_id, "center_name": center_name,
-                         "member_id": member["id"] if member else None, "due_month": due_month,
+                         "member_id": member.get("id") if member else None, "master_source_row": member.get("source_row") if member else None, "due_month": due_month,
                          "match_status": match_status, "issue_code": issue, "proposed_status": _status(note),
                          "history_note": note, "assistance_note": assistance, "raw": raw})
         return {"source_name": source.name, "source_sha256": _hash(source), "summary": summary, "rows": rows}
