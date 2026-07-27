@@ -103,7 +103,6 @@ def seed_iam() -> None:
                 "VALUES ('org-suzhou', 'SZ_ROOT', '苏州塾', 'ROOT', NULL, 1, ?, ?)",
                 (now, now),
             )
-
         settings = get_settings()
         existing = execute(
             connection, "SELECT id FROM app_users WHERE username=?", (settings.bootstrap_admin_username,)

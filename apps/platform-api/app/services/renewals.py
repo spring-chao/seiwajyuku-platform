@@ -101,6 +101,9 @@ def preview_workbook(path: str | Path, master_path: str | Path | None = None) ->
         for row_no, values in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
             name = str(values[col["名字"]] or "").strip()
             center_name = str(values[col["所在分中心"]] or "").strip()
+            class_name = str(values[col["所属班级"]] or "").strip() if "所属班级" in col else ""
+            # 先锋班、黄埔班仅为直属学习班级；续费发展仍按六大分中心统计。
+            org_id, reporting_name = CENTER_IDS.get(center_name), center_name
             due_month = _month(values[col["2025年缴费月份"]])
             note = str(values[col["事务所跟进续费情况"]] or "").strip() if "事务所跟进续费情况" in col else ""
             assistance = str(values[col["需要协助"]] or "").strip() if "需要协助" in col else ""
@@ -134,7 +137,7 @@ def preview_workbook(path: str | Path, master_path: str | Path | None = None) ->
                 summary["needs_review"] += 1
             if assistance:
                 summary["assistance_review"] += 1
-            rows.append({"row_no": row_no, "name": name, "org_unit_id": org_id, "center_name": center_name,
+            rows.append({"row_no": row_no, "name": name, "org_unit_id": org_id, "center_name": reporting_name, "source_center_name": center_name, "class_name": class_name,
                          "member_id": member.get("id") if member else None, "master_source_row": member.get("source_row") if member else None, "due_month": due_month,
                          "match_status": match_status, "issue_code": issue, "proposed_status": _status(note),
                          "history_note": note, "assistance_note": assistance, "raw": raw})
