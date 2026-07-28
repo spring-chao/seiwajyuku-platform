@@ -13,7 +13,7 @@ from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
 
 
-DIRECT_PROFILE_ROLES = {"system_admin", "operations_admin", "regional_manager"}
+DIRECT_PROFILE_ROLES = {"system_admin", "operations_admin", "regional_manager", "class_counselor", "group_leader"}
 
 
 def _as_utc(value: str | datetime) -> datetime:
@@ -21,6 +21,27 @@ def _as_utc(value: str | datetime) -> datetime:
     # columns as datetime objects. Contact access must support both drivers.
     parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value)
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def can_access_member(
+    member_id: int, primary_org_id: str, allowed: set[str] | None
+) -> bool:
+    if allowed is None:
+        return True
+    if primary_org_id in allowed:
+        return True
+    if not allowed:
+        return False
+    placeholders = ",".join("?" for _ in allowed)
+    now = datetime.now(UTC).isoformat()
+    relation = fetch_one(
+        "SELECT 1 AS allowed FROM member_org_relations "
+        f"WHERE member_id=? AND org_unit_id IN ({placeholders}) "
+        "AND (valid_from IS NULL OR valid_from<=?) "
+        "AND (valid_until IS NULL OR valid_until>=?) LIMIT 1",
+        (member_id, *sorted(allowed), now, now),
+    )
+    return relation is not None
 
 
 def create_member(
@@ -127,7 +148,25 @@ def list_members(user_id: int, org_unit_id: str | None = None) -> list[dict[str,
     rows = fetch_all(sql, tuple(params))
     allowed = accessible_org_ids(user_id)
     if allowed is not None:
-        rows = [row for row in rows if row["org_unit_id"] in allowed]
+        if not allowed:
+            return []
+        placeholders = ",".join("?" for _ in allowed)
+        now = datetime.now(UTC).isoformat()
+        related_ids = {
+            row["member_id"]
+            for row in fetch_all(
+                "SELECT DISTINCT member_id FROM member_org_relations "
+                f"WHERE org_unit_id IN ({placeholders}) "
+                "AND (valid_from IS NULL OR valid_from<=?) "
+                "AND (valid_until IS NULL OR valid_until>=?)",
+                (*sorted(allowed), now, now),
+            )
+        }
+        rows = [
+            row
+            for row in rows
+            if row["org_unit_id"] in allowed or row["id"] in related_ids
+        ]
     return rows
 
 
@@ -172,11 +211,58 @@ def reveal_contact(
 
 
 def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
+    """返回学长基本资料，手机号脱敏，不含企业敏感财务数据。
+
+    完整手机号须经过 reveal_contact（任务用途控制）。
+    完整企业敏感资料须经过 get_member_enterprise_detail（用途+审计）。
+    """
     user = user_context(actor_user_id)
     if not user or not DIRECT_PROFILE_ROLES.intersection(user["roles"]):
-        raise PermissionError("当前角色不能直接查看完整资料")
+        raise PermissionError("当前角色不能查看学长资料")
     member = fetch_one(
-        "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, m.phone_ciphertext, "
+        "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, "
+        "m.phone_masked, m.phone_last4, "
+        "m.gender, m.birthday, m.district, m.class_name, m.group_name, m.join_date, "
+        "m.study_start_date, m.membership_years, m.renewal_month, m.status, m.position, "
+        "m.referrer, m.referrer_center, m.company_name, m.company_address, "
+        "m.industry_category, m.industry, m.company_products, m.company_size, m.notes "
+        "FROM members m "
+        "JOIN org_units o ON o.id=m.org_unit_id WHERE m.id=?",
+        (member_id,),
+    )
+    if not member:
+        raise ValueError("学长不存在")
+    allowed = accessible_org_ids(actor_user_id)
+    if not can_access_member(member_id, member["org_unit_id"], allowed):
+        raise PermissionError("学长不在组织授权范围内")
+    with transaction() as connection:
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="members.profile.view",
+            resource_type="member",
+            resource_id=str(member_id),
+            org_unit_id=member["org_unit_id"],
+            after={"fields": "basic_profile_masked"},
+        )
+    return dict(member)
+
+
+def get_member_enterprise_detail(
+    member_id: int, actor_user_id: int, purpose: str
+) -> dict[str, Any]:
+    """返回企业敏感资料，不返回完整手机号，必须填写用途并写审计。
+
+    仅 operations_admin 和 system_admin 可调用。
+    """
+    purpose = purpose.strip()
+    if len(purpose) < 4:
+        raise ValueError("必须填写查看用途（至少4个字符）")
+    user = user_context(actor_user_id)
+    if not user or not {"system_admin", "operations_admin"}.intersection(user["roles"]):
+        raise PermissionError("当前角色不能查看完整企业资料")
+    member = fetch_one(
+        "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, m.phone_masked, "
         "m.gender, m.birthday, m.district, m.class_name, m.group_name, m.join_date, "
         "m.study_start_date, m.membership_years, m.renewal_month, m.status, m.position, "
         "m.referrer, m.referrer_center, m.company_name, m.company_address, "
@@ -188,10 +274,8 @@ def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
     if not member:
         raise ValueError("学长不存在")
     allowed = accessible_org_ids(actor_user_id)
-    if allowed is not None and member["org_unit_id"] not in allowed:
+    if not can_access_member(member_id, member["org_unit_id"], allowed):
         raise PermissionError("学长不在组织授权范围内")
-    if not member["phone_ciphertext"]:
-        raise ValueError("学长没有可用联系方式")
     financial_data = (
         json.loads(decrypt_text(member["enterprise_financial_ciphertext"]))
         if member["enterprise_financial_ciphertext"]
@@ -201,21 +285,21 @@ def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
         write_audit(
             connection,
             actor_user_id=actor_user_id,
-            action="members.profile.direct_view",
+            action="members.profile.enterprise_view",
             resource_type="member",
             resource_id=str(member_id),
             org_unit_id=member["org_unit_id"],
+            purpose=purpose,
             after={"fields": "full_member_and_enterprise_profile"},
         )
     return {
         key: value
         for key, value in {
             **member,
-            "phone": decrypt_text(member["phone_ciphertext"]),
             "annual_sales": financial_data.get("annual_sales"),
             "profit_margin": financial_data.get("profit_margin"),
         }.items()
-        if key not in {"phone_ciphertext", "enterprise_financial_ciphertext"}
+        if key != "enterprise_financial_ciphertext"
     }
 
 

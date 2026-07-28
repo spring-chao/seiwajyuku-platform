@@ -68,7 +68,7 @@ def get_period_values(
 def put_period_values(
     plan_id: int,
     payload: PeriodValuesPayload,
-    user: dict = Depends(require_permission("plans:write")),
+    user: dict = Depends(require_permission("plans:period_write")),
 ) -> dict:
     try:
         changed = update_period_values(

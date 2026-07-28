@@ -20,11 +20,13 @@ PERMISSIONS = {
     "org:read": ("查看组织", "INTERNAL"),
     "org:manage": ("维护组织", "SENSITIVE"),
     "plans:read": ("查看年度MP", "INTERNAL"),
-    "plans:write": ("维护年度MP", "SENSITIVE"),
+    "plans:period_write": ("维护本区域年度MP", "SENSITIVE"),
+    "plans:import_global": ("全局导入年度MP", "RESTRICTED"),
     "plans:publish": ("发布年度方案", "SENSITIVE"),
     "members:read": ("查看学长", "INTERNAL"),
     "members:manage": ("维护学长主数据", "SENSITIVE"),
-    "members:detail_view": ("直接查看完整学员与企业资料", "RESTRICTED"),
+    "members:detail_view": ("查看学长基本资料(脱敏)", "INTERNAL"),
+    "members:enterprise_view": ("按用途查看完整企业敏感资料", "RESTRICTED"),
     "followups:manage": ("管理关怀任务", "SENSITIVE"),
     "renewals:read": ("查看续费运营", "INTERNAL"),
     "renewals:manage": ("管理续费周期与导入", "SENSITIVE"),
@@ -33,25 +35,31 @@ PERMISSIONS = {
     "exports:sensitive": ("敏感导出", "RESTRICTED"),
     "audit:read": ("查看审计", "SENSITIVE"),
     "integrations:manage": ("管理数据集成", "SENSITIVE"),
+    "attendance:sync": ("同步签到出勤数据", "SENSITIVE"),
+    "attendance:adjudicate": ("出勤裁定", "SENSITIVE"),
 }
 ROLE_PERMISSIONS = {
     "system_admin": set(PERMISSIONS) - {"exports:sensitive"},
     "data_security_admin": {"org:read", "members:read", "exports:sensitive", "audit:read"},
     "operations_admin": {
-        "org:read", "org:manage", "plans:read", "plans:write", "plans:publish",
-        "members:read", "members:manage", "members:detail_view", "followups:manage", "exports:normal", "audit:read",
+        "org:read", "org:manage", "plans:read", "plans:period_write", "plans:import_global", "plans:publish",
+        "members:read", "members:manage", "members:detail_view", "members:enterprise_view",
+        "followups:manage", "exports:normal", "audit:read",
         "integrations:manage", "renewals:read", "renewals:manage",
+        "attendance:sync", "attendance:adjudicate",
     },
     "regional_manager": {
-        "org:read", "plans:read", "plans:write", "members:read",
-        "members:manage", "members:detail_view", "followups:manage", "contact:reveal", "exports:normal", "renewals:read", "renewals:manage",
+        "org:read", "plans:read", "plans:period_write", "members:read",
+        "members:manage", "members:detail_view", "followups:manage", "contact:reveal",
+        "exports:normal", "renewals:read", "renewals:manage",
     },
     "class_counselor": {
-        "org:read", "plans:read", "members:read", "followups:manage",
-        "contact:reveal", "exports:normal", "renewals:read",
+        "org:read", "plans:read", "members:read", "members:detail_view",
+        "followups:manage", "contact:reveal", "exports:normal", "renewals:read",
     },
     "group_leader": {
-        "org:read", "plans:read", "members:read", "followups:manage", "contact:reveal", "renewals:read",
+        "org:read", "plans:read", "members:read", "members:detail_view",
+        "followups:manage", "contact:reveal", "renewals:read",
     },
     "read_only": {"org:read", "plans:read", "members:read", "renewals:read"},
 }
@@ -78,6 +86,12 @@ def seed_iam() -> None:
                 "INSERT IGNORE INTO permissions(permission_key, permission_name, sensitive_level, created_at) VALUES (?, ?, ?, ?)",
                 (key, name, level, now),
             )
+            execute(
+                connection,
+                "UPDATE permissions SET permission_name=?, sensitive_level=? "
+                "WHERE permission_key=?",
+                (name, level, key),
+            )
         for role_key, role_name in ROLE_NAMES.items():
             execute(
                 connection,
@@ -85,6 +99,19 @@ def seed_iam() -> None:
                 "VALUES (?, ?, 1, 1, ?, ?)" if sqlite else
                 "INSERT IGNORE INTO roles(role_key, role_name, is_system, is_active, created_at, updated_at) VALUES (?, ?, 1, 1, ?, ?)",
                 (role_key, role_name, now, now),
+            )
+            execute(
+                connection,
+                "UPDATE roles SET role_name=?, is_system=1, is_active=1, updated_at=? "
+                "WHERE role_key=?",
+                (role_name, now, role_key),
+            )
+            # System role definitions are authoritative: remove stale grants
+            # before applying the current least-privilege mapping.
+            execute(
+                connection,
+                "DELETE FROM role_permissions WHERE role_key=?",
+                (role_key,),
             )
             for permission in ROLE_PERMISSIONS[role_key]:
                 execute(

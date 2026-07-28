@@ -20,6 +20,8 @@ class SettingsTests(unittest.TestCase):
             integration_api_key="test-integration-key",
             deployment_read_only=False,
             run_bootstrap_on_startup=False,
+            signin_api_base_url="",
+            signin_service_api_key="",
         )
         with self.assertRaisesRegex(RuntimeError, "生产环境写入未获批准"):
             settings.assert_safe_startup()
@@ -40,6 +42,8 @@ class SettingsTests(unittest.TestCase):
             integration_api_key="test-integration-key",
             deployment_read_only=False,
             run_bootstrap_on_startup=False,
+            signin_api_base_url="",
+            signin_service_api_key="",
         )
         with self.assertRaisesRegex(RuntimeError, "禁止使用疑似生产数据库"):
             settings.assert_safe_startup()
@@ -60,6 +64,8 @@ class SettingsTests(unittest.TestCase):
             integration_api_key="test-integration-key",
             deployment_read_only=True,
             run_bootstrap_on_startup=False,
+            signin_api_base_url="",
+            signin_service_api_key="",
         )
         settings.assert_safe_startup()
 
@@ -79,6 +85,8 @@ class SettingsTests(unittest.TestCase):
             integration_api_key="test-integration-key",
             deployment_read_only=True,
             run_bootstrap_on_startup=True,
+            signin_api_base_url="",
+            signin_service_api_key="",
         )
         with self.assertRaises(RuntimeError):
             settings.assert_safe_startup()

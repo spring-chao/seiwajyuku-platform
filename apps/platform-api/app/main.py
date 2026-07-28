@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.attendance import router as attendance_router
+from app.api.checkin_rosters import router as checkin_rosters_router
 from app.api.followups import router as followups_router
 from app.api.iam import router as iam_router
 from app.api.integrations import router as integrations_router
@@ -22,11 +26,23 @@ from app.services.iam import seed_iam
 settings = get_settings()
 settings.assert_safe_startup()
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    if not (
+        settings.deployment_read_only and not settings.run_bootstrap_on_startup
+    ):
+        run_migrations()
+        seed_iam()
+    yield
+
+
 app = FastAPI(
     title="盛和塾综合运营与发展建设平台 API",
     version="0.1.0",
     docs_url="/api/docs" if not settings.is_production else None,
     redoc_url=None,
+    lifespan=lifespan,
 )
 app.add_middleware(
     CORSMiddleware,
@@ -64,11 +80,5 @@ app.include_router(renewals_router)
 app.include_router(members_router)
 app.include_router(followups_router)
 app.include_router(integrations_router)
-
-
-@app.on_event("startup")
-def startup() -> None:
-    if settings.deployment_read_only and not settings.run_bootstrap_on_startup:
-        return
-    run_migrations()
-    seed_iam()
+app.include_router(checkin_rosters_router)
+app.include_router(attendance_router)

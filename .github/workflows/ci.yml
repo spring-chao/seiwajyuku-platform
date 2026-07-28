@@ -22,7 +22,7 @@ jobs:
           cache: pip
           cache-dependency-path: apps/platform-api/requirements.txt
       - run: pip install -r requirements.txt
-      - run: python -m unittest discover -s tests -v
+      - run: python -m pytest -q
         env:
           APP_ENV: test
           DATABASE_URL: sqlite:///./data/test.db
@@ -54,5 +54,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build production API image
-        run: docker build -t seiwajyuku-platform-api:ci apps/platform-api
+      - name: Build production API image (root Dockerfile with migrations)
+        run: docker build -t seiwajyuku-platform-api:ci .

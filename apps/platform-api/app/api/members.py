@@ -8,12 +8,16 @@ from app.api.auth import require_permission
 from app.services.members import (
     create_member,
     create_sensitive_export,
+    can_access_member,
     download_sensitive_export,
     get_member_detail,
+    get_member_enterprise_detail,
     list_members,
     normal_export_csv,
     reveal_contact,
 )
+from app.services.iam import accessible_org_ids
+from app.db import fetch_one
 
 
 router = APIRouter(prefix="/api/v1", tags=["members-privacy"])
@@ -103,13 +107,34 @@ def contact_access(
     return {"success": True, "data": data}
 
 
+class EnterpriseDetailPayload(BaseModel):
+    purpose: str = Field(min_length=4, max_length=500)
+
+
 @router.get("/members/{member_id}/detail")
 def member_detail(
     member_id: int,
     user: dict = Depends(require_permission("members:detail_view")),
 ) -> dict:
+    """返回学长基本资料（手机号脱敏，不含企业敏感财务数据）。"""
     try:
         data = get_member_detail(member_id, user["id"])
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/members/{member_id}/enterprise-detail")
+def enterprise_detail(
+    member_id: int,
+    payload: EnterpriseDetailPayload,
+    user: dict = Depends(require_permission("members:enterprise_view")),
+) -> dict:
+    """返回企业敏感资料；完整手机号仍须通过有效联系任务临时查看。"""
+    try:
+        data = get_member_enterprise_detail(member_id, user["id"], payload.purpose)
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:
@@ -158,3 +183,28 @@ def download_export(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename=sensitive-members-{job_id}.csv"},
     )
+
+
+@router.get("/members/{member_id}/attendance-scores")
+def member_attendance_scores(
+    member_id: int,
+    user: dict = Depends(require_permission("members:read")),
+) -> dict:
+    """Get attendance score detail for a member."""
+    member = fetch_one("SELECT org_unit_id FROM members WHERE id=?", (member_id,))
+    if not member:
+        raise HTTPException(404, "学长不存在")
+    allowed = accessible_org_ids(user["id"])
+    if not can_access_member(member_id, member["org_unit_id"], allowed):
+        raise HTTPException(403, "学长不在组织授权范围内")
+    from app.services.attendance_scoring import member_scores
+    scores = member_scores(member_id)
+    total = sum(s["final_points"] for s in scores)
+    return {
+        "success": True,
+        "data": {
+            "member_id": member_id,
+            "total_points": total,
+            "records": scores,
+        },
+    }

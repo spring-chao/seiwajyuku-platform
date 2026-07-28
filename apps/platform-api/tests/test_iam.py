@@ -5,8 +5,12 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
-from app.db import execute, transaction
+from app.api.attendance import list_event_groups
+from app.db import execute, fetch_one, transaction
 from app.main import app
+from app.services.checkin_rosters import upsert_relation
+from app.services.iam import create_user
+from app.services.members import create_member, list_members
 
 
 class IamIsolationTests(unittest.TestCase):
@@ -85,6 +89,58 @@ class IamIsolationTests(unittest.TestCase):
             },
         )
         self.assertEqual(forbidden.status_code, 403)
+
+    def test_class_scope_can_access_member_through_formal_relation(self) -> None:
+        admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+        counselor_id = create_user(
+            admin["id"],
+            username="class-counselor-a",
+            display_name="圆融一班班主任",
+            password="class-counselor-password",
+            roles=["class_counselor"],
+            scopes=[{"scope_type": "UNIT", "org_unit_id": "class-a"}],
+        )
+        member_id = create_member(
+            admin["id"],
+            member_code="CLASS-RELATION-001",
+            name="班级关系测试学长",
+            org_unit_id="org-a",
+            development_org_unit_id=None,
+            phone="13500135000",
+        )
+        upsert_relation(
+            admin["id"],
+            member_id=member_id,
+            org_unit_id="class-a",
+            relation_type="STUDY_CLASS",
+            is_primary=True,
+        )
+        visible_ids = {row["id"] for row in list_members(counselor_id)}
+        self.assertIn(member_id, visible_ids)
+        now = datetime.now(UTC).isoformat()
+        with transaction() as connection:
+            execute(
+                connection,
+                "INSERT INTO attendance_event_groups"
+                "(source_key, external_group_id, org_unit_id, study_org_unit_id, "
+                "title, activity_type, event_date, status, created_at, updated_at) "
+                "VALUES ('test', 'class-visibility-001', 'org-a', 'class-a', "
+                "'班级活动权限测试', 'CLASS_MEETING', '2026-07-30', 'ACTIVE', ?, ?)",
+                (now, now),
+            )
+        activity_ids = {
+            row["id"]
+            for row in list_event_groups(
+                month=None,
+                org_unit_id=None,
+                user={"id": counselor_id},
+            )["data"]
+        }
+        activity = fetch_one(
+            "SELECT id FROM attendance_event_groups "
+            "WHERE external_group_id='class-visibility-001'"
+        )
+        self.assertIn(activity["id"], activity_ids)
 
 
 if __name__ == "__main__":

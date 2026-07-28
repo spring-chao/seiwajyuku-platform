@@ -27,6 +27,8 @@ class Settings:
     integration_api_key: str
     deployment_read_only: bool
     run_bootstrap_on_startup: bool
+    signin_api_base_url: str = ""
+    signin_service_api_key: str = ""
 
     @property
     def is_production(self) -> bool:
@@ -73,4 +75,6 @@ def get_settings() -> Settings:
         integration_api_key=os.getenv("INTEGRATION_API_KEY", "dev-integration-key").strip(),
         deployment_read_only=_bool("DEPLOYMENT_READ_ONLY"),
         run_bootstrap_on_startup=_bool("RUN_BOOTSTRAP_ON_STARTUP"),
+        signin_api_base_url=os.getenv("SIGNIN_API_BASE_URL", "").strip(),
+        signin_service_api_key=os.getenv("SIGNIN_SERVICE_API_KEY", "").strip(),
     )

@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/v1/imports", tags=["imports"])
 @router.post("/mp/preview")
 async def preview_mp(
     file: UploadFile = File(...),
-    user: dict = Depends(require_permission("plans:write")),
+    user: dict = Depends(require_permission("plans:import_global")),
 ) -> dict:
     if not (file.filename or "").lower().endswith(".xlsx"):
         raise HTTPException(400, "只接受 .xlsx 工作簿")
@@ -45,10 +45,12 @@ async def preview_mp(
 @router.post("/{batch_id}/apply")
 def apply_mp(
     batch_id: int,
-    user: dict = Depends(require_permission("plans:write")),
+    user: dict = Depends(require_permission("plans:import_global")),
 ) -> dict:
     try:
         result = apply_preview(batch_id, user["id"])
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": result}

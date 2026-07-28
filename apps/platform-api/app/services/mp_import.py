@@ -11,6 +11,7 @@ from openpyxl.utils import get_column_letter
 
 from app.db import execute, fetch_one, transaction
 from app.services.audit import write_audit
+from app.services.iam import user_context
 
 
 CENTER_SHEETS = {
@@ -328,6 +329,15 @@ def apply_preview(batch_id: int, actor_user_id: int) -> dict[str, Any]:
     preview = json.loads(batch["preview_json"])
     if any(issue["severity"] == "ERROR" for issue in preview["issues"]):
         raise ValueError("预览含阻断错误，不能应用")
+
+    # Defense-in-depth: global workbook application always requires the
+    # dedicated restricted permission, even for an ALL-scoped account.
+    user = user_context(actor_user_id)
+    if not user:
+        raise PermissionError("用户不存在或已停用")
+    if "plans:import_global" not in user["permissions"]:
+        raise PermissionError("缺少全局 MP 导入权限")
+
     now = datetime.now(UTC).isoformat()
     with transaction() as connection:
         _upsert_orgs(connection, now)

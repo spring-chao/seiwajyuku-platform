@@ -12,6 +12,7 @@ from app.services.members import (
     create_sensitive_export,
     download_sensitive_export,
     get_member_detail,
+    get_member_enterprise_detail,
     list_members,
     normal_export_csv,
     reveal_contact,
@@ -92,11 +93,32 @@ class PrivacyIsolationTests(unittest.TestCase):
         value = datetime(2026, 7, 27, 9, 30)
         self.assertEqual(_as_utc(value), value.replace(tzinfo=UTC))
 
-    def test_regional_manager_can_view_full_profile_with_audit(self) -> None:
+    def test_regional_manager_detail_returns_masked_phone(self) -> None:
+        """get_member_detail now returns masked phone, not full phone.
+
+        Full phone access requires reveal_contact (task-based).
+        """
         profile = get_member_detail(self.member_id, self.regional_user_id)
-        self.assertEqual(profile["phone"], "13800138000")
+        self.assertEqual(profile["phone_masked"], "138****8000")
+        self.assertNotIn("phone_ciphertext", profile)
+        self.assertNotIn("phone", profile)  # No full phone in basic detail
+        self.assertNotIn("annual_sales", profile)  # No financial data in basic detail
+        self.assertEqual(profile["name"], "隐私测试学长")
+
+    def test_enterprise_detail_requires_purpose_without_revealing_phone(self) -> None:
+        """Enterprise details stay separate from task-based phone access."""
+        # Regional manager cannot access enterprise detail
+        with self.assertRaises(PermissionError):
+            get_member_enterprise_detail(self.member_id, self.regional_user_id, "测试用途")
+        # Operations admin (system_admin here) can access with purpose.
+        profile = get_member_enterprise_detail(self.member_id, self.admin["id"], "运营核查用途")
+        self.assertEqual(profile["phone_masked"], "138****8000")
+        self.assertNotIn("phone", profile)
         self.assertNotIn("phone_ciphertext", profile)
         self.assertEqual(profile["name"], "隐私测试学长")
+        # Purpose too short
+        with self.assertRaises(ValueError):
+            get_member_enterprise_detail(self.member_id, self.admin["id"], "短")
 
     def test_contact_reveal_requires_current_assignee(self) -> None:
         revealed = reveal_contact(
