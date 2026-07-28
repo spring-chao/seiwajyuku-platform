@@ -15,8 +15,8 @@ jobs:
       run:
         working-directory: apps/platform-api
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -37,11 +37,11 @@ jobs:
       run:
         working-directory: apps/admin-web
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22.14.0"
           cache: pnpm
@@ -53,7 +53,7 @@ jobs:
   api-container:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build production API image (root Dockerfile with migrations)
         run: docker build -t seiwajyuku-platform-api:ci .
 
@@ -83,8 +83,8 @@ jobs:
       ALLOW_PRODUCTION_MUTATIONS: "false"
       PYTHONPATH: apps/platform-api
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
