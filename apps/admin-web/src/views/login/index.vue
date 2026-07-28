@@ -27,6 +27,7 @@ defineOptions({
 const router = useRouter();
 const loading = ref(false);
 const disabled = ref(false);
+const loginError = ref("");
 const ruleFormRef = ref<FormInstance>();
 
 const { initStorage } = useLayout();
@@ -41,10 +42,31 @@ const ruleForm = reactive({
   password: ""
 });
 
+function readableLoginError(error: unknown): string {
+  const response = (
+    error as {
+      response?: {
+        status?: number;
+        data?: { detail?: string; message?: string };
+      };
+      message?: string;
+    }
+  )?.response;
+  if (response?.status === 401) {
+    return "账号或密码错误，请使用最新管理员密码";
+  }
+  return (
+    response?.data?.detail ||
+    response?.data?.message ||
+    "登录请求失败，请检查网络后重试"
+  );
+}
+
 const onLogin = async (formEl: FormInstance | undefined) => {
   if (!formEl) return;
   await formEl.validate(valid => {
     if (valid) {
+      loginError.value = "";
       loading.value = true;
       useUserStoreHook()
         .loginByUsername({
@@ -64,8 +86,13 @@ const onLogin = async (formEl: FormInstance | undefined) => {
                 .finally(() => (disabled.value = false));
             });
           } else {
-            message("登录失败", { type: "error" });
+            loginError.value = "登录失败，请检查账号和密码";
+            message(loginError.value, { type: "error" });
           }
+        })
+        .catch(error => {
+          loginError.value = readableLoginError(error);
+          message(loginError.value, { type: "error" });
         })
         .finally(() => (loading.value = false));
     }
@@ -117,6 +144,15 @@ useEventListener(document, "keydown", ({ code }) => {
             title="生产环境已启用"
             description="管理门户、持久数据库和完整 API 已部署，可正常登录和使用。"
             type="success"
+            :closable="false"
+            show-icon
+          />
+
+          <el-alert
+            v-if="loginError"
+            class="login-error"
+            :title="loginError"
+            type="error"
             :closable="false"
             show-icon
           />
@@ -189,6 +225,11 @@ useEventListener(document, "keydown", ({ code }) => {
 
 .preview-notice {
   margin: 16px 0;
+  text-align: left;
+}
+
+.login-error {
+  margin: 0 0 16px;
   text-align: left;
 }
 </style>
