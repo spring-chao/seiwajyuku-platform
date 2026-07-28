@@ -4,8 +4,8 @@ The platform pulls attendance data from the signin system (cloud function)
 via machine-to-machine API using SIGNIN_SERVICE_API_KEY.
 
 Flow:
-1. GET /api/ops/v1/attendance/sessions?cursor=... → sessions
-2. GET /api/ops/v1/attendance/records?cursor=... → records
+1. GET /ops/v1/attendance/sessions?cursor=... → sessions
+2. GET /ops/v1/attendance/records?cursor=... → records
 3. Upsert into attendance_event_groups, attendance_sessions, attendance_records
 4. Calculate scores for each record
 5. Track sync state in attendance_sync_runs
@@ -297,7 +297,7 @@ def sync_from_signin(cursor: str | None = None) -> dict[str, Any]:
 
     try:
         # Step 1: Pull sessions
-        sessions_url = f"{base_url}/api/ops/v1/attendance/sessions"
+        sessions_url = f"{base_url}/ops/v1/attendance/sessions"
         params = {"limit": 200}
         if cursor:
             params["cursor"] = cursor
@@ -321,7 +321,7 @@ def sync_from_signin(cursor: str | None = None) -> dict[str, Any]:
             next_cursor = sessions_data.get("next_cursor")
 
             # Pull records for each session
-            records_url = f"{base_url}/api/ops/v1/attendance/records"
+            records_url = f"{base_url}/ops/v1/attendance/records"
             now = _now()
 
             for session_item in session_items:
