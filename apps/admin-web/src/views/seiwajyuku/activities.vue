@@ -1,24 +1,27 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import dayjs from "dayjs";
-import { getActivities, type ActivitySnapshot } from "@/api/seiwajyuku";
+import {
+  getAttendanceEventGroups,
+  type AttendanceEventGroup
+} from "@/api/seiwajyuku";
 
 defineOptions({ name: "ActivityAdmin" });
 
 const loading = ref(false);
 const month = ref(dayjs().format("YYYY-MM"));
-const rows = ref<ActivitySnapshot[]>([]);
+const rows = ref<AttendanceEventGroup[]>([]);
 const totalEligible = computed(() =>
-  rows.value.reduce((sum, item) => sum + item.eligible_count, 0)
+  rows.value.reduce((sum, item) => sum + item.record_count, 0)
 );
 const totalCompleted = computed(() =>
-  rows.value.reduce((sum, item) => sum + item.completed_count, 0)
+  rows.value.reduce((sum, item) => sum + item.present_count, 0)
 );
 
 async function load() {
   loading.value = true;
   try {
-    const response = await getActivities(month.value);
+    const response = await getAttendanceEventGroups(month.value);
     rows.value = response.data;
   } finally {
     loading.value = false;
@@ -33,8 +36,8 @@ onMounted(load);
     <section class="page-head">
       <div>
         <p>管理视图</p>
-        <h1>活动与签到快照</h1>
-        <span>现场扫码系统保持独立，本页只承接管理查询和自动指标核对。</span>
+        <h1>活动与签到记录</h1>
+        <span>展示已从签到系统同步的活动、场次和真实签到记录。</span>
       </div>
       <el-date-picker
         v-model="month"
@@ -46,9 +49,9 @@ onMounted(load);
     </section>
 
     <section class="summary">
-      <el-statistic title="活动快照" :value="rows.length" />
-      <el-statistic title="应参与人次" :value="totalEligible" />
-      <el-statistic title="已完成人次" :value="totalCompleted" />
+      <el-statistic title="活动场组" :value="rows.length" />
+      <el-statistic title="签到记录" :value="totalEligible" />
+      <el-statistic title="已签到人次" :value="totalCompleted" />
       <el-statistic
         title="综合完成率"
         :value="totalEligible ? (totalCompleted / totalEligible) * 100 : 0"
@@ -59,12 +62,13 @@ onMounted(load);
 
     <el-card shadow="never">
       <el-table :data="rows" stripe>
-        <el-table-column prop="occurred_at" label="活动时间" min-width="180" />
+        <el-table-column prop="event_date" label="活动日期" min-width="130" />
         <el-table-column prop="title" label="活动" min-width="180" />
-        <el-table-column prop="snapshot_type" label="来源类型" width="110" />
-        <el-table-column prop="activity_type" label="指标类型" min-width="150" />
-        <el-table-column prop="eligible_count" label="应参与" width="90" align="right" />
-        <el-table-column prop="completed_count" label="已完成" width="90" align="right" />
+        <el-table-column prop="org_name" label="所属分中心" min-width="150" />
+        <el-table-column prop="activity_type" label="活动类型" min-width="150" />
+        <el-table-column prop="session_count" label="场次数" width="90" align="right" />
+        <el-table-column prop="record_count" label="签到记录" width="100" align="right" />
+        <el-table-column prop="present_count" label="已签到" width="90" align="right" />
         <el-table-column prop="source_key" label="数据源" min-width="130" />
         <el-table-column prop="status" label="状态" width="100" />
       </el-table>

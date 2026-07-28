@@ -42,6 +42,17 @@ def normalize_activity_type(value: str | None) -> str:
     return aliases.get(normalized, normalized)
 
 
+def score_is_applicable(
+    member_id: int | None, score_eligible: bool, activity_type: str | None
+) -> bool:
+    """Only matched class-meeting attendance participates in this score model."""
+    return (
+        member_id is not None
+        and score_eligible
+        and normalize_activity_type(activity_type) == "CLASS_MEETING"
+    )
+
+
 def get_active_rule(session_code: str, activity_type: str = "CLASS_MEETING") -> dict | None:
     """Get the active score rule for a session code."""
     now = _now()
@@ -238,7 +249,14 @@ def recalculate_event_group(event_group_id: int) -> dict[str, Any]:
         (event_group_id,),
     )
     recalculated = 0
+    skipped = 0
     for rec in records:
+        activity_type = normalize_activity_type(rec["activity_type"])
+        if not score_is_applicable(
+            rec["member_id"], bool(rec["score_eligible"]), activity_type
+        ) or not get_active_rule(rec["session_code"], activity_type):
+            skipped += 1
+            continue
         upsert_score_record(
             attendance_record_id=rec["id"],
             member_id=rec["member_id"],
@@ -247,10 +265,14 @@ def recalculate_event_group(event_group_id: int) -> dict[str, Any]:
             checked_at=rec["checked_at"],
             scheduled_start_at=rec["scheduled_start_at"],
             score_eligible=bool(rec["score_eligible"]),
-            activity_type=rec["activity_type"],
+            activity_type=activity_type,
         )
         recalculated += 1
-    return {"event_group_id": event_group_id, "recalculated": recalculated}
+    return {
+        "event_group_id": event_group_id,
+        "recalculated": recalculated,
+        "skipped": skipped,
+    }
 
 
 def member_scores(member_id: int) -> list[dict[str, Any]]:

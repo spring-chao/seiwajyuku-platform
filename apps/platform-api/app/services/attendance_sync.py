@@ -19,7 +19,11 @@ import httpx
 
 from app.core.settings import get_settings
 from app.db import execute, fetch_one, transaction
-from app.services.attendance_scoring import normalize_activity_type, upsert_score_record
+from app.services.attendance_scoring import (
+    normalize_activity_type,
+    score_is_applicable,
+    upsert_score_record,
+)
 
 
 def _now() -> str:
@@ -48,12 +52,8 @@ def _db_datetime(value: Any) -> str | None:
 def _score_is_applicable(
     member_id: int | None, score_eligible: bool, activity_type: str | None
 ) -> bool:
-    """Only matched class-meeting attendance participates in this score model."""
-    return (
-        member_id is not None
-        and score_eligible
-        and normalize_activity_type(activity_type) == "CLASS_MEETING"
-    )
+    """Backward-compatible wrapper for the shared scoring eligibility rule."""
+    return score_is_applicable(member_id, score_eligible, activity_type)
 
 
 def _sync_run_start(source_key: str, cursor_before: str | None) -> int:

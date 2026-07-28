@@ -263,6 +263,36 @@ class AttendanceScoringTests(unittest.TestCase):
         self.assertEqual(record["attendance_status"], "MANUAL_PRESENT")
         self.assertEqual(score["final_points"], 7)
 
+    def test_member_relink_commits_when_score_rule_is_missing(self) -> None:
+        record_id, _, _, _ = self._create_record(
+            "attendance-record-relink-without-rule",
+            member_code="UNKNOWN-MEMBER",
+        )
+        with patch("app.api.attendance.get_active_rule", return_value=None):
+            result = create_adjudication(
+                record_id,
+                AdjudicationPayload(
+                    adjudication_type="MEMBER_RELINK",
+                    reason="导入学员主档后按唯一身份核对关联",
+                    member_id=self.member_id,
+                ),
+                {"id": self.admin["id"]},
+            )
+        record = fetch_one(
+            "SELECT member_id, attendance_status, score_eligible "
+            "FROM attendance_records WHERE id=?",
+            (record_id,),
+        )
+        score = fetch_one(
+            "SELECT id FROM attendance_score_records WHERE attendance_record_id=?",
+            (record_id,),
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(record["member_id"], self.member_id)
+        self.assertEqual(record["attendance_status"], "PRESENT")
+        self.assertEqual(record["score_eligible"], 1)
+        self.assertIsNone(score)
+
     def test_sync_consumes_all_record_pages(self) -> None:
         class FakeResponse:
             def __init__(self, payload: dict) -> None:

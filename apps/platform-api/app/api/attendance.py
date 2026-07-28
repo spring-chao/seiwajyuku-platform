@@ -18,7 +18,10 @@ from app.api.auth import require_permission
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.attendance_scoring import (
+    get_active_rule,
+    normalize_activity_type,
     recalculate_event_group,
+    score_is_applicable,
     upsert_score_record,
 )
 from app.services.attendance_sync import sync_from_signin
@@ -83,9 +86,18 @@ def list_event_groups(
     """List attendance event groups."""
     params: list = []
     sql = (
-        "SELECT eg.id, eg.title, eg.event_date, eg.activity_type, eg.status, "
+        "SELECT eg.id, eg.source_key, eg.title, eg.event_date, "
+        "eg.activity_type, eg.status, "
         "eg.org_unit_id, o.name AS org_name, eg.study_org_unit_id, "
-        "(SELECT COUNT(*) FROM attendance_sessions s WHERE s.event_group_id=eg.id) AS session_count "
+        "(SELECT COUNT(*) FROM attendance_sessions s "
+        "WHERE s.event_group_id=eg.id) AS session_count, "
+        "(SELECT COUNT(*) FROM attendance_records r "
+        "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
+        "WHERE s.event_group_id=eg.id) AS record_count, "
+        "(SELECT COUNT(*) FROM attendance_records r "
+        "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
+        "WHERE s.event_group_id=eg.id "
+        "AND r.attendance_status IN ('PRESENT','MANUAL_PRESENT')) AS present_count "
         "FROM attendance_event_groups eg "
         "JOIN org_units o ON o.id=eg.org_unit_id "
         "WHERE 1=1"
@@ -329,7 +341,17 @@ def create_adjudication(
         (record["attendance_session_id"],),
     )
     rec = fetch_one("SELECT * FROM attendance_records WHERE id=?", (record_id,))
-    if session and rec:
+    activity_type = (
+        normalize_activity_type(session["activity_type"]) if session else None
+    )
+    if (
+        session
+        and rec
+        and score_is_applicable(
+            rec["member_id"], bool(rec["score_eligible"]), activity_type
+        )
+        and get_active_rule(session["session_code"], activity_type)
+    ):
         upsert_score_record(
             attendance_record_id=record_id,
             member_id=rec["member_id"],
@@ -338,7 +360,7 @@ def create_adjudication(
             checked_at=rec["checked_at"],
             scheduled_start_at=session["scheduled_start_at"],
             score_eligible=bool(rec["score_eligible"]),
-            activity_type=session["activity_type"],
+            activity_type=activity_type,
         )
 
     return {"success": True, "data": {"id": adj_id}}

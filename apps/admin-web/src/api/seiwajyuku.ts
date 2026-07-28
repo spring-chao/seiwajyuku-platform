@@ -169,6 +169,21 @@ export type ActivitySnapshot = {
   status: string;
 };
 
+export type AttendanceEventGroup = {
+  id: number;
+  source_key: string;
+  title?: string;
+  event_date: string;
+  activity_type: string;
+  status: string;
+  org_unit_id: string;
+  org_name: string;
+  study_org_unit_id?: string;
+  session_count: number;
+  record_count: number;
+  present_count: number;
+};
+
 export type RenewalOverviewRow = {
   org_unit_id: string;
   org_name: string;
@@ -343,6 +358,13 @@ export const getActivities = (month?: string) =>
   http.request<{ success: boolean; data: ActivitySnapshot[] }>(
     "get",
     "/api/v1/activities",
+    { params: month ? { month } : undefined }
+  );
+
+export const getAttendanceEventGroups = (month?: string) =>
+  http.request<{ success: boolean; data: AttendanceEventGroup[] }>(
+    "get",
+    "/api/v1/attendance/event-groups",
     { params: month ? { month } : undefined }
   );
 
