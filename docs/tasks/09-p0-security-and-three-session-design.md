@@ -200,6 +200,9 @@ checked_at > scheduled_start_at → 迟到
 - 权限：`test_privacy.py` 已更新验证脱敏+企业资料分离
 - 隐私：企业资料接口不返回完整手机号；完整手机号仅在 contact-access（任务+用途）和经审计的签到名单匹配中返回
 - 自动测试：本地全新 SQLite 测试库 `pytest 31 passed`；CI 已统一执行完整 pytest 套件 ✅
+- GitHub Actions：提交 `cc85208`、`cf8ba08` 的 CI 均通过 ✅
+- 生产只读验证：CloudRun `seiwajyuku-platform-api-027` 健康检查 200、环境接口确认只读、写入探针 403 ✅
+- 双系统读取契约：签到服务新独立密钥访问 200，缺失/旧共享密钥访问 401；运营平台已配置同一入站密钥和正确 API 基址 ✅
 - 数据核对：SQLite 0008/0009 前向迁移通过；MySQL 真实实例迁移仍待 staging 验证
 
 ## 回滚说明
@@ -216,5 +219,16 @@ checked_at > scheduled_start_at → 迟到
 3. 黄埔班组织类型修正：从 CLASS 改为 SPECIAL_COHORT
 4. metric_overrides 表启用：人工覆盖写入原因和自动原值
 5. 生产 MySQL 备份恢复脚本和演练
-6. 两个系统正式联调：配置密钥、并行核对、回滚演练
+6. 两个系统正式联调：生产只读读取契约已验证；仍需在 staging 执行写入同步、积分并行核对和回滚演练
 7. 续费运营业务闭环：应用导入、生成周期、逐人工作台
+
+## P0.1 生产安全收口（2026-07-28）
+
+- 签到管理员密码不再内置默认值，改为必填 `ADMIN_PASSWORD_HASH`；缺失或格式错误时失败关闭。
+- 管理员登录增加单实例内存级失败限频（15 分钟内 5 次失败，第 6 次返回 429）。
+- 签到服务入站读取密钥使用 `SIGNIN_SERVICE_API_KEY`，名单出站密钥使用 `OPS_ROSTER_API_KEY`；旧 `OPS_API_KEY` 已从生产函数环境移除。
+- 管理员密码与服务密钥已轮换；旧默认密码和旧共享密钥均返回 401。
+- HTTP 路由 `/api/*` 保持公开签到访问与路径透传，并配置总 QPS 300、单 IP QPS 30。
+- 运营平台服务环境已显式设置 `DEPLOYMENT_READ_ONLY=true`、`ALLOW_PRODUCTION_MUTATIONS=false`、`RUN_BOOTSTRAP_ON_STARTUP=false`。
+- 生产版本采用 10% 灰度验证后提升：40 次环境读取均为 200 且只读，10 次写入探针均为 403；最终 `seiwajyuku-platform-api-027` 承载 100% 流量。
+- 明文密钥未写入仓库；轮换与回滚材料仅保存在 Windows 当前用户 DPAPI 加密文件中。
