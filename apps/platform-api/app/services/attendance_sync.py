@@ -26,6 +26,25 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _db_datetime(value: Any) -> str | None:
+    """Normalize external ISO timestamps for MySQL DATETIME columns."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        try:
+            parsed = datetime.fromisoformat(
+                f"{text[:-1]}+00:00" if text.endswith(("Z", "z")) else text
+            )
+        except ValueError:
+            return text
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    return parsed.isoformat(sep=" ", timespec="microseconds")
+
+
 def _sync_run_start(source_key: str, cursor_before: str | None) -> int:
     now = _now()
     with transaction() as connection:
@@ -96,7 +115,7 @@ def _upsert_event_group(
         "activity_type": normalize_activity_type(group_data.get("activity_type")),
         "event_date": event_date,
         "status": str(group_data.get("status") or "ACTIVE").upper(),
-        "source_updated_at": group_data.get("updated_at"),
+        "source_updated_at": _db_datetime(group_data.get("updated_at")),
         "updated_at": now,
     }
     if existing:
@@ -140,14 +159,14 @@ def _upsert_session(
         "session_code": str(session_data.get("session_code") or "MORNING").upper(),
         "session_name": session_data.get("session_name"),
         "session_order": session_data.get("session_order", 0),
-        "checkin_start_at": session_data.get("checkin_start_at"),
-        "scheduled_start_at": session_data.get("scheduled_start_at"),
-        "scheduled_end_at": session_data.get("scheduled_end_at"),
-        "checkin_end_at": session_data.get("checkin_end_at"),
+        "checkin_start_at": _db_datetime(session_data.get("checkin_start_at")),
+        "scheduled_start_at": _db_datetime(session_data.get("scheduled_start_at")),
+        "scheduled_end_at": _db_datetime(session_data.get("scheduled_end_at")),
+        "checkin_end_at": _db_datetime(session_data.get("checkin_end_at")),
         "status": str(session_data.get("status") or "ACTIVE").upper(),
         "source_revision": session_data.get("revision"),
-        "source_updated_at": session_data.get("updated_at"),
-        "finalized_at": session_data.get("finalized_at"),
+        "source_updated_at": _db_datetime(session_data.get("updated_at")),
+        "finalized_at": _db_datetime(session_data.get("finalized_at")),
         "updated_at": now,
     }
     if existing:
@@ -237,10 +256,10 @@ def _upsert_record(
         "participant_type": participant_type,
         "score_eligible": 1 if score_eligible else 0,
         "attendance_status": attendance_status,
-        "checked_at": record_data.get("checked_at"),
+        "checked_at": _db_datetime(record_data.get("checked_at")),
         "checkin_source": record_data.get("checkin_source"),
         "source_revision": incoming_revision,
-        "source_updated_at": record_data.get("updated_at"),
+        "source_updated_at": _db_datetime(record_data.get("updated_at")),
         "updated_at": now,
     }
 

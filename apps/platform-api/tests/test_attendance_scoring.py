@@ -13,7 +13,7 @@ from app.services.attendance_scoring import (
     recalculate_event_group,
     upsert_score_record,
 )
-from app.services.attendance_sync import _upsert_record, sync_from_signin
+from app.services.attendance_sync import _db_datetime, _upsert_record, sync_from_signin
 from app.services.iam import seed_iam
 from app.services.members import create_member
 
@@ -75,6 +75,17 @@ class AttendanceScoringTests(unittest.TestCase):
                 (cls.group_id, now, now),
             )
             cls.session_id = session.lastrowid
+
+    def test_external_utc_timestamps_are_mysql_datetime_compatible(self) -> None:
+        self.assertEqual(
+            _db_datetime("2026-07-28T09:15:30.123Z"),
+            "2026-07-28 09:15:30.123000",
+        )
+        self.assertEqual(
+            _db_datetime("2026-07-28T17:15:30+08:00"),
+            "2026-07-28 09:15:30.000000",
+        )
+        self.assertIsNone(_db_datetime(""))
 
     def test_mysql_decimal_rule_values_are_json_serializable(self) -> None:
         rule = {
