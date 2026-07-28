@@ -22,7 +22,7 @@ Invoke-RestMethod http://localhost:8000/health
 
 1. 从 `.env.staging.example` 创建独立 `.env`；
 2. 替换全部占位密码和密钥；
-3. 运行 `docker compose --profile staging up --build`；
+3. 运行 `docker compose --profile staging up --build`（使用根上下文 `Dockerfile.staging`，包含 migrations）；
 4. 访问 `http://localhost:8001/health`；
 5. 确认未配置任何生产数据库地址或生产敏感数据。
 

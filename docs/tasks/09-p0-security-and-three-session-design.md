@@ -215,11 +215,11 @@ checked_at > scheduled_start_at → 迟到
 ## 待后续工作
 
 1. 前端页面：活动与出勤（班级学习会、出勤明细、异常处理、个人积分、同步记录）
-2. 先运行 `scripts/backfill_member_org_relations.py` 预览，再在 staging 显式确认执行回填并处理无法匹配清单
+2. 隔离 staging SQLite 流程已验证；仍需在独立 staging MySQL 上运行 `scripts/backfill_member_org_relations.py`，处理真实无法匹配清单
 3. 黄埔班组织类型修正：从 CLASS 改为 SPECIAL_COHORT
 4. metric_overrides 表启用：人工覆盖写入原因和自动原值
 5. 生产 MySQL 备份恢复脚本和演练
-6. 两个系统正式联调：生产只读读取契约已验证；仍需在 staging 执行写入同步、积分并行核对和回滚演练
+6. 两个系统正式联调：本地隔离替身已完成 3 场同步与积分核对；仍需连接独立 staging 签到服务执行真实写入和回滚演练
 7. 续费运营业务闭环：应用导入、生成周期、逐人工作台
 
 ## P0.1 生产安全收口（2026-07-28）
