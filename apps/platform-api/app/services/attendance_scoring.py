@@ -20,9 +20,11 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _parse_dt(value: str | None) -> datetime | None:
+def _parse_dt(value: str | datetime | None) -> datetime | None:
     if not value:
         return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     try:
         dt = datetime.fromisoformat(value)
         return dt if dt.tzinfo else dt.replace(tzinfo=UTC)

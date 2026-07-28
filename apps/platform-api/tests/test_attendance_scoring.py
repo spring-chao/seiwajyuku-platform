@@ -103,8 +103,18 @@ class AttendanceScoringTests(unittest.TestCase):
                 scheduled_start_at="2026-07-29T09:00:00+00:00",
                 score_eligible=True,
             )
+            datetime_score = calculate_score(
+                attendance_record_id=1,
+                member_id=1,
+                session_code="MORNING",
+                attendance_status="PRESENT",
+                checked_at=datetime(2026, 7, 29, 9, 5, tzinfo=UTC),
+                scheduled_start_at=datetime(2026, 7, 29, 9, 0, tzinfo=UTC),
+                score_eligible=True,
+            )
         self.assertEqual(score["final_points"], 6.0)
         self.assertIn('"base_points": 7.0', score["calculation_detail_json"])
+        self.assertEqual(datetime_score["final_points"], 6.0)
 
     def _create_record(
         self,
