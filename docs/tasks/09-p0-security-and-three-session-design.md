@@ -52,7 +52,7 @@
 - `api/plans.py`：填报端点改用 `plans:period_write`
 - `mp_import.py`：`apply_preview()` 增加防御性 org scope 检查
 
-### P0-3：班级和小组权限缺少正式关系模型 — 代码闭环，数据回填待执行
+### P0-3：班级和小组权限缺少正式关系模型 — 代码及隔离回填闭环，真实数据待回填
 
 **问题**：`members` 表仅保存 `class_name`/`group_name` 文本，班主任无法按班级查看学员。
 
@@ -63,14 +63,15 @@
 - 学长列表、详情和个人积分权限已接入正式关系表
 - **部署前置**：将现有 `class_name`/`group_name` 文本映射回填到关系表
 
-### P0-4：生产发布镜像、迁移和备份链路未闭合 — 部分修复
+### P0-4：生产发布镜像、迁移和备份链路未闭合 — staging 链路已闭环
 
 **问题**：CI 构建使用 `apps/platform-api/Dockerfile`（缺少 `COPY migrations`），与根 Dockerfile 不一致。
 
 **修复**：
 - 删除冗余 `apps/platform-api/Dockerfile`
 - CI 改用根 Dockerfile（`docker build -t ... .`）
-- **待办**：生产 MySQL 备份恢复脚本、迁移测试
+- GitHub Actions 新增 MySQL 8.4 隔离作业，真实运行 0001-0009 迁移、`mysqldump`、空库恢复和行数校验
+- **待办**：生产 MySQL 备份恢复演练（生产继续只读）
 
 ### P0-5：两个系统的名单接口契约未落地 — 已修复
 
@@ -191,7 +192,7 @@ checked_at > scheduled_start_at → 迟到
 
 | 文件 | 变更 |
 |------|------|
-| `.github/workflows/ci.yml` | 统一使用根 Dockerfile |
+| `.github/workflows/ci.yml` | 统一使用根 Dockerfile；新增隔离 MySQL 8.4 staging 验证 |
 
 ## 测试要求
 
@@ -199,11 +200,11 @@ checked_at > scheduled_start_at → 迟到
 - 集成：签到系统 JS 通过 `node --check` ✅
 - 权限：`test_privacy.py` 已更新验证脱敏+企业资料分离
 - 隐私：企业资料接口不返回完整手机号；完整手机号仅在 contact-access（任务+用途）和经审计的签到名单匹配中返回
-- 自动测试：本地全新 SQLite 测试库 `pytest 31 passed`；CI 已统一执行完整 pytest 套件 ✅
-- GitHub Actions：提交 `cc85208`、`cf8ba08` 的 CI 均通过 ✅
+- 自动测试：本地全新 SQLite 测试库 `pytest 32 passed`；CI 已统一执行完整 pytest 套件 ✅
+- GitHub Actions：运行 `30361733821` 的 API、前端、生产镜像和 MySQL staging 四个作业全部通过 ✅
 - 生产只读验证：CloudRun `seiwajyuku-platform-api-027` 健康检查 200、环境接口确认只读、写入探针 403 ✅
 - 双系统读取契约：签到服务新独立密钥访问 200，缺失/旧共享密钥访问 401；运营平台已配置同一入站密钥和正确 API 基址 ✅
-- 数据核对：SQLite 0008/0009 前向迁移通过；MySQL 真实实例迁移仍待 staging 验证
+- 数据核对：SQLite 0008/0009 前向迁移通过；MySQL 8.4 真实实例完成 0001-0009、关系回填、三场同步、积分核对及备份恢复 ✅
 
 ## 回滚说明
 
@@ -215,11 +216,11 @@ checked_at > scheduled_start_at → 迟到
 ## 待后续工作
 
 1. 前端页面：活动与出勤（班级学习会、出勤明细、异常处理、个人积分、同步记录）
-2. 隔离 staging SQLite 流程已验证；仍需在独立 staging MySQL 上运行 `scripts/backfill_member_org_relations.py`，处理真实无法匹配清单
+2. 隔离 staging SQLite 与 MySQL 8.4 流程已验证；仍需对真实业务数据运行 `scripts/backfill_member_org_relations.py` 并处理无法匹配清单
 3. 黄埔班组织类型修正：从 CLASS 改为 SPECIAL_COHORT
 4. metric_overrides 表启用：人工覆盖写入原因和自动原值
-5. 生产 MySQL 备份恢复脚本和演练
-6. 两个系统正式联调：本地隔离替身已完成 3 场同步与积分核对；仍需连接独立 staging 签到服务执行真实写入和回滚演练
+5. 生产 MySQL 备份恢复演练（staging MySQL 备份恢复已通过）
+6. 两个系统正式联调：隔离 MySQL 已完成 3 场同步与积分核对；仍需连接真实 staging 签到服务执行写入和回滚演练
 7. 续费运营业务闭环：应用导入、生成周期、逐人工作台
 
 ## P0.1 生产安全收口（2026-07-28）

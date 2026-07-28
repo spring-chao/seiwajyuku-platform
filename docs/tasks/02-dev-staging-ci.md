@@ -6,7 +6,7 @@
 - staging：独立 MySQL 容器和独立配置示例；
 - 配置：根目录三份 `.env*.example`，不包含真实密钥；
 - 恢复门禁：脚本拒绝 production，恢复必须显式确认当前环境且校验 SHA-256；
-- CI：API 测试、pure-admin-thin 类型检查和 staging 构建。
+- CI：API 测试、pure-admin-thin 类型检查、staging 构建、生产镜像构建，以及隔离 MySQL 8.4 迁移/回填/同步/积分/备份恢复验证。
 
 ## 本地验收
 
@@ -25,6 +25,8 @@ Invoke-RestMethod http://localhost:8000/health
 3. 运行 `docker compose --profile staging up --build`（使用根上下文 `Dockerfile.staging`，包含 migrations）；
 4. 访问 `http://localhost:8001/health`；
 5. 确认未配置任何生产数据库地址或生产敏感数据。
+
+GitHub Actions 的 `mysql-staging` 作业会为每次运行创建并销毁独立 MySQL 8.4 容器，禁止远程数据库地址，自动执行 0001-0009 迁移、合成数据回填、三场签到同步、积分核对、`mysqldump` 和空库恢复。运行 `30361733821` 已完整通过；这用于数据库兼容和恢复门禁，不替代长期共享的 staging 服务。
 
 ## 回滚
 
