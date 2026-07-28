@@ -51,7 +51,7 @@ def create_member(
     name: str,
     org_unit_id: str,
     development_org_unit_id: str | None,
-    phone: str,
+    phone: str | None,
     company_name: str | None = None,
     gender: str | None = None,
     district: str | None = None,
@@ -78,7 +78,16 @@ def create_member(
     allowed = accessible_org_ids(actor_user_id)
     if allowed is not None and org_unit_id not in allowed:
         raise PermissionError("不能在授权组织之外创建学长")
-    fields = protected_phone(phone)
+    fields: dict[str, str | None] = (
+        protected_phone(phone)
+        if phone and phone.strip()
+        else {
+            "phone_ciphertext": None,
+            "phone_hash": None,
+            "phone_last4": None,
+            "phone_masked": None,
+        }
+    )
     now = datetime.now(UTC).isoformat()
     member_code = (member_code or "").strip() or (
         f"MEM-{datetime.now(UTC):%Y%m%d%H%M%S}-{secrets.token_hex(2).upper()}"
@@ -117,6 +126,63 @@ def create_member(
             ),
         )
         member_id = cursor.lastrowid
+        relations: list[tuple[str, str, bool]] = [
+            ("PRIMARY_REGION", org_unit_id, True)
+        ]
+        if development_org_unit_id:
+            relations.append(
+                ("DEVELOPMENT_RELATION", development_org_unit_id, True)
+            )
+
+        class_org_id: str | None = None
+        if class_name and class_name.strip():
+            class_matches = execute(
+                connection,
+                "SELECT id, unit_type FROM org_units "
+                "WHERE is_active=1 AND name=? "
+                "AND unit_type IN ('CLASS', 'SPECIAL_COHORT')",
+                (class_name.strip(),),
+            ).fetchall()
+            if len(class_matches) == 1:
+                class_org_id = class_matches[0]["id"]
+                relation_type = (
+                    "SPECIAL_COHORT"
+                    if class_matches[0]["unit_type"] == "SPECIAL_COHORT"
+                    else "STUDY_CLASS"
+                )
+                relations.append((relation_type, class_org_id, True))
+
+        if group_name and group_name.strip():
+            group_sql = (
+                "SELECT id FROM org_units WHERE is_active=1 "
+                "AND unit_type='GROUP' AND name=?"
+            )
+            group_params: tuple[Any, ...] = (group_name.strip(),)
+            if class_org_id:
+                group_sql += " AND parent_id=?"
+                group_params += (class_org_id,)
+            group_matches = execute(
+                connection, group_sql, group_params
+            ).fetchall()
+            if len(group_matches) == 1:
+                relations.append(("STUDY_GROUP", group_matches[0]["id"], True))
+
+        for relation_type, relation_org_id, is_primary in relations:
+            execute(
+                connection,
+                "INSERT INTO member_org_relations"
+                "(member_id, org_unit_id, relation_type, is_primary, "
+                "source_type, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, 'MEMBER_CREATE', ?, ?)",
+                (
+                    member_id,
+                    relation_org_id,
+                    relation_type,
+                    1 if is_primary else 0,
+                    now,
+                    now,
+                ),
+            )
         write_audit(
             connection,
             actor_user_id=actor_user_id,
@@ -124,7 +190,11 @@ def create_member(
             resource_type="member",
             resource_id=str(member_id),
             org_unit_id=org_unit_id,
-            after={"member_code": member_code, "name": name, "phone": fields["phone_masked"]},
+            after={
+                "member_code": member_code,
+                "name": name,
+                "phone": fields["phone_masked"],
+            },
         )
         return member_id
 

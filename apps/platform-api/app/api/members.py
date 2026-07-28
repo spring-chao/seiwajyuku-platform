@@ -28,7 +28,7 @@ class MemberCreatePayload(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     org_unit_id: str
     development_org_unit_id: str | None = None
-    phone: str
+    phone: str | None = None
     company_name: str | None = None
     gender: str | None = Field(default=None, max_length=32)
     district: str | None = Field(default=None, max_length=255)

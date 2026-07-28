@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 from app.api.attendance import list_event_groups
 from app.db import execute, fetch_one, transaction
 from app.main import app
-from app.services.checkin_rosters import upsert_relation
 from app.services.iam import create_user
 from app.services.members import create_member, list_members
 
@@ -107,14 +106,22 @@ class IamIsolationTests(unittest.TestCase):
             org_unit_id="org-a",
             development_org_unit_id=None,
             phone="13500135000",
+            class_name="圆融一班",
         )
-        upsert_relation(
-            admin["id"],
-            member_id=member_id,
-            org_unit_id="class-a",
-            relation_type="STUDY_CLASS",
-            is_primary=True,
+        primary_relation = fetch_one(
+            "SELECT id FROM member_org_relations "
+            "WHERE member_id=? AND org_unit_id='org-a' "
+            "AND relation_type='PRIMARY_REGION'",
+            (member_id,),
         )
+        class_relation = fetch_one(
+            "SELECT id FROM member_org_relations "
+            "WHERE member_id=? AND org_unit_id='class-a' "
+            "AND relation_type='STUDY_CLASS'",
+            (member_id,),
+        )
+        self.assertIsNotNone(primary_relation)
+        self.assertIsNotNone(class_relation)
         visible_ids = {row["id"] for row in list_members(counselor_id)}
         self.assertIn(member_id, visible_ids)
         now = datetime.now(UTC).isoformat()
@@ -141,6 +148,32 @@ class IamIsolationTests(unittest.TestCase):
             "WHERE external_group_id='class-visibility-001'"
         )
         self.assertIn(activity["id"], activity_ids)
+
+    def test_member_without_phone_is_kept_with_primary_relation(self) -> None:
+        admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+        member_id = create_member(
+            admin["id"],
+            member_code="MISSING-PHONE-001",
+            name="待补手机号学长",
+            org_unit_id="org-b",
+            development_org_unit_id=None,
+            phone=None,
+        )
+        member = fetch_one(
+            "SELECT phone_ciphertext, phone_hash, phone_masked "
+            "FROM members WHERE id=?",
+            (member_id,),
+        )
+        relation = fetch_one(
+            "SELECT id FROM member_org_relations "
+            "WHERE member_id=? AND org_unit_id='org-b' "
+            "AND relation_type='PRIMARY_REGION'",
+            (member_id,),
+        )
+        self.assertIsNone(member["phone_ciphertext"])
+        self.assertIsNone(member["phone_hash"])
+        self.assertIsNone(member["phone_masked"])
+        self.assertIsNotNone(relation)
 
 
 if __name__ == "__main__":

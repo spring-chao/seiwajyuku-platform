@@ -36,7 +36,10 @@ class PureHttp {
   }
 
   /** `token`过期后，暂存待执行的请求 */
-  private static requests = [];
+  private static requests: Array<{
+    resolve: (token: string) => void;
+    reject: (reason?: unknown) => void;
+  }> = [];
 
   /** 防止重复刷新`token` */
   private static isRefreshing = false;
@@ -49,12 +52,27 @@ class PureHttp {
 
   /** 重连原始请求 */
   private static retryOriginalRequest(config: PureHttpRequestConfig) {
-    return new Promise(resolve => {
-      PureHttp.requests.push((token: string) => {
-        config.headers["Authorization"] = formatToken(token);
-        resolve(config);
+    return new Promise<PureHttpRequestConfig>((resolve, reject) => {
+      PureHttp.requests.push({
+        resolve: (token: string) => {
+          config.headers["Authorization"] = formatToken(token);
+          resolve(config);
+        },
+        reject
       });
     });
+  }
+
+  /** 刷新成功后放行全部排队请求 */
+  private static resolvePendingRequests(token: string) {
+    const requests = PureHttp.requests.splice(0);
+    requests.forEach(request => request.resolve(token));
+  }
+
+  /** 刷新失败时必须拒绝全部排队请求，避免页面永久 loading */
+  private static rejectPendingRequests(reason: unknown) {
+    const requests = PureHttp.requests.splice(0);
+    requests.forEach(request => request.reject(reason));
   }
 
   /** 请求拦截 */
@@ -74,12 +92,14 @@ class PureHttp {
         const whiteList = ["/api/v1/auth/refresh", "/api/v1/auth/login"];
         return whiteList.some(url => config.url.endsWith(url))
           ? config
-          : new Promise(resolve => {
+          : new Promise((resolve, reject) => {
               const data = getToken();
               if (data) {
                 const now = new Date().getTime();
                 const expired = parseInt(data.expires) - now <= 0;
                 if (expired) {
+                  const pendingRequest =
+                    PureHttp.retryOriginalRequest(config);
                   if (!PureHttp.isRefreshing) {
                     PureHttp.isRefreshing = true;
                     // token过期刷新
@@ -87,15 +107,17 @@ class PureHttp {
                       .handRefreshToken({ refreshToken: data.refreshToken })
                       .then(res => {
                         const token = res.data.accessToken;
-                        config.headers["Authorization"] = formatToken(token);
-                        PureHttp.requests.forEach(cb => cb(token));
-                        PureHttp.requests = [];
+                        PureHttp.resolvePendingRequests(token);
+                      })
+                      .catch(error => {
+                        PureHttp.rejectPendingRequests(error);
+                        useUserStoreHook().logOut();
                       })
                       .finally(() => {
                         PureHttp.isRefreshing = false;
                       });
                   }
-                  resolve(PureHttp.retryOriginalRequest(config));
+                  pendingRequest.then(resolve).catch(reject);
                 } else {
                   config.headers["Authorization"] = formatToken(
                     data.accessToken
