@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import unittest
 from datetime import UTC, datetime
+from decimal import Decimal
 from unittest.mock import patch
 
 from app.api.attendance import AdjudicationPayload, create_adjudication
 from app.db import execute, fetch_one, transaction
 from app.migrations import run_migrations
 from app.services.attendance_scoring import (
+    calculate_score,
     recalculate_event_group,
     upsert_score_record,
 )
@@ -51,6 +53,7 @@ class AttendanceScoringTests(unittest.TestCase):
                 phone="13600136000",
             )
         )
+
         with transaction() as connection:
             group = execute(
                 connection,
@@ -72,6 +75,36 @@ class AttendanceScoringTests(unittest.TestCase):
                 (cls.group_id, now, now),
             )
             cls.session_id = session.lastrowid
+
+    def test_mysql_decimal_rule_values_are_json_serializable(self) -> None:
+        rule = {
+            "id": 99,
+            "rule_version": 1,
+            "base_points": Decimal("7.00"),
+            "late_deduction": Decimal("1.00"),
+            "early_leave_deduction": Decimal("1.00"),
+        }
+        with (
+            patch(
+                "app.services.attendance_scoring.get_active_rule",
+                return_value=rule,
+            ),
+            patch(
+                "app.services.attendance_scoring.has_active_early_leave",
+                return_value=False,
+            ),
+        ):
+            score = calculate_score(
+                attendance_record_id=1,
+                member_id=1,
+                session_code="MORNING",
+                attendance_status="PRESENT",
+                checked_at="2026-07-29T09:05:00+00:00",
+                scheduled_start_at="2026-07-29T09:00:00+00:00",
+                score_eligible=True,
+            )
+        self.assertEqual(score["final_points"], 6.0)
+        self.assertIn('"base_points": 7.0', score["calculation_detail_json"])
 
     def _create_record(
         self,

@@ -85,7 +85,12 @@ def calculate_score(
     if not rule:
         raise ValueError(f"没有找到 {session_code} 的有效积分规则")
 
-    base_points = rule["base_points"]
+    # MySQL DECIMAL values are returned as Decimal while SQLite returns float.
+    # Normalize rule values before arithmetic and JSON serialization so both
+    # database backends produce the same scoring contract.
+    base_points = float(rule["base_points"])
+    rule_late_deduction = float(rule["late_deduction"])
+    rule_early_leave_deduction = float(rule["early_leave_deduction"])
 
     if not score_eligible:
         final_points = 0
@@ -108,11 +113,13 @@ def calculate_score(
             and scheduled_dt
             and checked_dt > scheduled_dt
         )
-        late_deduction = rule["late_deduction"] if is_late else 0
+        late_deduction = rule_late_deduction if is_late else 0
 
         # Check early leave
         is_early_leave = has_active_early_leave(attendance_record_id)
-        early_leave_deduction = rule["early_leave_deduction"] if is_early_leave else 0
+        early_leave_deduction = (
+            rule_early_leave_deduction if is_early_leave else 0
+        )
 
         final_points = max(base_points - late_deduction - early_leave_deduction, 0)
 
