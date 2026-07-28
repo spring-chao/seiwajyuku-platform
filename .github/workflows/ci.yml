@@ -56,3 +56,62 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build production API image (root Dockerfile with migrations)
         run: docker build -t seiwajyuku-platform-api:ci .
+
+  mysql-staging:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: seiwajyuku_staging
+          MYSQL_USER: seiwajyuku
+          MYSQL_PASSWORD: ci-staging-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pci-root-password"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENV: staging
+      DATABASE_URL: mysql+pymysql://seiwajyuku:ci-staging-password@127.0.0.1:3306/seiwajyuku_staging?charset=utf8mb4
+      JWT_SECRET: ci-staging-jwt-secret-000000000000
+      FIELD_ENCRYPTION_KEY: ci-staging-field-key
+      DEPLOYMENT_READ_ONLY: "false"
+      ALLOW_PRODUCTION_MUTATIONS: "false"
+      PYTHONPATH: apps/platform-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/platform-api/requirements.txt
+      - run: pip install -r apps/platform-api/requirements.txt
+      - name: Run real MySQL migrations, backfill and attendance validation
+        run: python scripts/validate_staging_mysql.py
+      - name: Dump staging database
+        run: >-
+          docker exec "${{ job.services.mysql.id }}"
+          mysqldump -uroot -pci-root-password
+          --single-transaction --routines --triggers
+          seiwajyuku_staging > staging-backup.sql
+      - name: Restore into an empty database
+        run: |
+          docker exec "${{ job.services.mysql.id }}" \
+            mysql -uroot -pci-root-password \
+            -e "CREATE DATABASE seiwajyuku_restore CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
+          docker exec -i "${{ job.services.mysql.id }}" \
+            mysql -uroot -pci-root-password seiwajyuku_restore < staging-backup.sql
+      - name: Verify restored schema and row counts
+        run: |
+          source_counts="$(docker exec "${{ job.services.mysql.id }}" \
+            mysql -N -uroot -pci-root-password seiwajyuku_staging \
+            -e "SELECT CONCAT((SELECT COUNT(*) FROM schema_migrations),':',(SELECT COUNT(*) FROM member_org_relations),':',(SELECT COUNT(*) FROM attendance_score_records));")"
+          restore_counts="$(docker exec "${{ job.services.mysql.id }}" \
+            mysql -N -uroot -pci-root-password seiwajyuku_restore \
+            -e "SELECT CONCAT((SELECT COUNT(*) FROM schema_migrations),':',(SELECT COUNT(*) FROM member_org_relations),':',(SELECT COUNT(*) FROM attendance_score_records));")"
+          test "$source_counts" = "9:4:6"
+          test "$restore_counts" = "$source_counts"
