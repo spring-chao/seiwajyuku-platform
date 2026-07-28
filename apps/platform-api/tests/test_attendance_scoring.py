@@ -13,7 +13,12 @@ from app.services.attendance_scoring import (
     recalculate_event_group,
     upsert_score_record,
 )
-from app.services.attendance_sync import _db_datetime, _upsert_record, sync_from_signin
+from app.services.attendance_sync import (
+    _db_datetime,
+    _score_is_applicable,
+    _upsert_record,
+    sync_from_signin,
+)
 from app.services.iam import seed_iam
 from app.services.members import create_member
 
@@ -86,6 +91,13 @@ class AttendanceScoringTests(unittest.TestCase):
             "2026-07-28 09:15:30.000000",
         )
         self.assertIsNone(_db_datetime(""))
+
+    def test_only_matched_class_attendance_is_scored(self) -> None:
+        self.assertTrue(_score_is_applicable(1, True, "class_meeting"))
+        self.assertFalse(_score_is_applicable(None, False, "class_meeting"))
+        self.assertFalse(
+            _score_is_applicable(1, True, "center_quarterly_report")
+        )
 
     def test_mysql_decimal_rule_values_are_json_serializable(self) -> None:
         rule = {

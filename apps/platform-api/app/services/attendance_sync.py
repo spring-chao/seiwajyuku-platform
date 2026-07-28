@@ -45,6 +45,17 @@ def _db_datetime(value: Any) -> str | None:
     return parsed.isoformat(sep=" ", timespec="microseconds")
 
 
+def _score_is_applicable(
+    member_id: int | None, score_eligible: bool, activity_type: str | None
+) -> bool:
+    """Only matched class-meeting attendance participates in this score model."""
+    return (
+        member_id is not None
+        and score_eligible
+        and normalize_activity_type(activity_type) == "CLASS_MEETING"
+    )
+
+
 def _sync_run_start(source_key: str, cursor_before: str | None) -> int:
     now = _now()
     with transaction() as connection:
@@ -401,23 +412,32 @@ def sync_from_signin(cursor: str | None = None) -> dict[str, Any]:
                                 else:
                                     updated += 1
 
-                                upsert_score_record(
-                                    attendance_record_id=record_id,
-                                    member_id=member_id,
-                                    session_code=session_item.get(
-                                        "session_code", "MORNING"
-                                    ),
-                                    attendance_status=attendance_status,
-                                    checked_at=record_data.get("checked_at"),
-                                    scheduled_start_at=session_item.get(
-                                        "scheduled_start_at"
-                                    ),
-                                    score_eligible=score_eligible,
-                                    activity_type=normalize_activity_type(
-                                        group_data.get("activity_type")
-                                    ),
-                                    source_updated_at=record_data.get("updated_at"),
-                                )
+                                if _score_is_applicable(
+                                    member_id,
+                                    score_eligible,
+                                    group_data.get("activity_type"),
+                                ):
+                                    upsert_score_record(
+                                        attendance_record_id=record_id,
+                                        member_id=member_id,
+                                        session_code=session_item.get(
+                                            "session_code", "MORNING"
+                                        ),
+                                        attendance_status=attendance_status,
+                                        checked_at=record_data.get("checked_at"),
+                                        scheduled_start_at=session_item.get(
+                                            "scheduled_start_at"
+                                        ),
+                                        score_eligible=score_eligible,
+                                        activity_type=normalize_activity_type(
+                                            group_data.get("activity_type")
+                                        ),
+                                        source_updated_at=_db_datetime(
+                                            record_data.get("updated_at")
+                                        ),
+                                    )
+                                else:
+                                    ignored += 1
                             except Exception as exc:
                                 errors += 1
                                 error_messages.append(
