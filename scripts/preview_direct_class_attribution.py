@@ -18,6 +18,12 @@ from openpyxl import load_workbook
 
 
 DIRECT_CLASSES = ("黄埔一班", "黄埔二班", "先锋班", "神仙班")
+DIRECT_CLASS_CODES = {
+    "黄埔一班": "SUZHOU_DIRECT_HUANGPU_1",
+    "黄埔二班": "SUZHOU_DIRECT_HUANGPU_2",
+    "先锋班": "SUZHOU_DIRECT_PIONEER",
+    "神仙班": "SUZHOU_DIRECT_IMMORTAL",
+}
 CLASS_POLICIES = {
     "黄埔一班": "STANDARD_STUDY_CLASS",
     "黄埔二班": "STANDARD_STUDY_CLASS",
@@ -33,6 +39,7 @@ DEVELOPMENT_CENTERS = (
     "姑苏相城分中心",
 )
 REQUIRED_COLUMNS = ("是否在册", "所在分中心", "所属班级", "所属小组")
+NOTE_ONLY_GROUP_VALUES = {"目前不读书"}
 
 
 def _text(value: Any) -> str:
@@ -41,6 +48,10 @@ def _text(value: Any) -> str:
 
 def _counter_rows(counter: Counter[str], *, key: str) -> list[dict[str, Any]]:
     return [{key: name, "count": count} for name, count in sorted(counter.items())]
+
+
+def _group_is_note_only(class_name: str, group_name: str) -> bool:
+    return class_name == "先锋班" or group_name in NOTE_ONLY_GROUP_VALUES
 
 
 def build_preview(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
@@ -75,7 +86,6 @@ def build_preview(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
 
     # These are status/duplicate labels, not reliable group nodes. Preserve the
     # original value in the member note rather than losing it or creating a group.
-    note_values = {"目前不读书"}
     notes_to_preserve = [
         {
             "class_name": class_name,
@@ -84,8 +94,20 @@ def build_preview(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
             "count": count,
         }
         for (class_name, group_name), count in sorted(groups.items())
-        if class_name == "先锋班" or group_name in note_values
+        if _group_is_note_only(class_name, group_name)
     ]
+    group_candidates = [
+        {
+            "class_name": class_name,
+            "group_name": group_name,
+            "count": count,
+            "target_relation": "STUDY_GROUP",
+        }
+        for (class_name, group_name), count in sorted(groups.items())
+        if not _group_is_note_only(class_name, group_name)
+    ]
+    study_group_relation_count = sum(item["count"] for item in group_candidates)
+    core_relation_count = len(active_rows) * 3
 
     return {
         "mode": "READ_ONLY_PREVIEW",
@@ -94,6 +116,16 @@ def build_preview(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         "classes": _counter_rows(classes, key="class_name"),
         "class_policies": [
             {"class_name": class_name, "policy": CLASS_POLICIES[class_name]}
+            for class_name in DIRECT_CLASSES
+        ],
+        "organization_candidates": [
+            {
+                "code": DIRECT_CLASS_CODES[class_name],
+                "name": class_name,
+                "unit_type": "CLASS",
+                "parent_lookup": "苏州分中心",
+                "reuse_only_when": "同名 CLASS 且父级唯一为苏州分中心",
+            }
             for class_name in DIRECT_CLASSES
         ],
         "development_centers": _counter_rows(centers, key="center"),
@@ -106,6 +138,21 @@ def build_preview(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
             for (class_name, group_name), count in sorted(groups.items())
         ],
         "notes_to_preserve": notes_to_preserve,
+        "group_candidates": group_candidates,
+        "relationship_plan": {
+            "PRIMARY_REGION": len(active_rows),
+            "DEVELOPMENT_RELATION": len(active_rows),
+            "STUDY_CLASS": len(active_rows),
+            "STUDY_GROUP": study_group_relation_count,
+            "total": core_relation_count + study_group_relation_count,
+        },
+        "write_gates": [
+            "运行时工作簿 SHA256 必须与本次预览一致，否则停止。",
+            "苏州分中心、六个发展分中心及四个直属班级必须各自唯一解析；任何缺失或重名停止。",
+            "成员须按受保护的唯一标识与当前生产名册逐条匹配；不匹配记录只进差异清单。",
+            "黄埔二班和先锋班各 1 名旧服务独有记录必须保留为差异，禁止自动停用或删除。",
+            "生产写入前须生成事务内审计、写入前快照与可执行回滚清单，并取得当次明确确认。",
+        ],
         "issues": issues,
     }
 
