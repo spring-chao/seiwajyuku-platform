@@ -67,15 +67,19 @@ def build_preview(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     if missing_centers:
         issues.append({"code": "MISSING_DEVELOPMENT_CENTER", "count": missing_centers})
 
-    # These two values are status/duplicate labels, not reliable group nodes.
-    group_review_values = {"先锋班", "目前不读书"}
-    review_groups = [
-        {"class_name": class_name, "group_name": group_name, "count": count}
+    # These are status/duplicate labels, not reliable group nodes. Preserve the
+    # original value in the member note rather than losing it or creating a group.
+    note_values = {"先锋班", "目前不读书"}
+    notes_to_preserve = [
+        {
+            "class_name": class_name,
+            "source_group_value": group_name,
+            "target_note": f"原所属小组：{group_name}",
+            "count": count,
+        }
         for (class_name, group_name), count in sorted(groups.items())
-        if group_name in group_review_values
+        if group_name in note_values
     ]
-    if review_groups:
-        issues.append({"code": "GROUP_VALUE_NEEDS_REVIEW", "groups": review_groups})
 
     return {
         "mode": "READ_ONLY_PREVIEW",
@@ -91,6 +95,7 @@ def build_preview(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
             {"class_name": class_name, "group_name": group_name, "count": count}
             for (class_name, group_name), count in sorted(groups.items())
         ],
+        "notes_to_preserve": notes_to_preserve,
         "issues": issues,
     }
 

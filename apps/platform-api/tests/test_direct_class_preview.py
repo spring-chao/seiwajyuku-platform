@@ -27,11 +27,22 @@ class DirectClassPreviewTests(unittest.TestCase):
         )
         self.assertEqual(preview["issues"], [])
 
-    def test_preview_marks_non_group_values_for_review(self) -> None:
+    def test_preview_moves_non_group_values_to_member_notes(self) -> None:
         preview = build_preview([
             {"是否在册": "在册", "所在分中心": "园区分中心", "所属班级": "先锋班", "所属小组": "目前不读书"},
         ])
-        self.assertEqual(preview["issues"][0]["code"], "GROUP_VALUE_NEEDS_REVIEW")
+        self.assertEqual(preview["issues"], [])
+        self.assertEqual(
+            preview["notes_to_preserve"],
+            [
+                {
+                    "class_name": "先锋班",
+                    "source_group_value": "目前不读书",
+                    "target_note": "原所属小组：目前不读书",
+                    "count": 1,
+                }
+            ],
+        )
 
 
 if __name__ == "__main__":
