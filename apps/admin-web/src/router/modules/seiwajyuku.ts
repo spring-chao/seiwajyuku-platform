@@ -27,7 +27,14 @@ export default {
       meta: {
         title: "月度填报",
         icon: "ep/edit-pen",
-        roles: ["system_admin", "operations_admin", "regional_manager"]
+        roles: [
+          "system_admin",
+          "operations_admin",
+          "ops_center_director",
+          "ops_center_operations",
+          "ops_center_management",
+          "volunteer_regional_lead"
+        ]
       }
     },
     {
@@ -40,9 +47,24 @@ export default {
         roles: [
           "system_admin",
           "operations_admin",
+          "ops_center_director",
+          "ops_center_operations",
+          "ops_center_learning",
+          "ops_center_development",
+          "ops_center_management",
+          "ops_center_data",
+          "ops_center_administration",
           "regional_manager",
           "class_counselor",
           "group_leader",
+          "volunteer_director",
+          "volunteer_regional_lead",
+          "volunteer_regional_service",
+          "volunteer_class_counselor",
+          "volunteer_class_committee",
+          "volunteer_group_leader",
+          "volunteer_group_committee",
+          "volunteer_activity",
           "read_only"
         ]
       }
@@ -57,9 +79,21 @@ export default {
         roles: [
           "system_admin",
           "operations_admin",
+          "ops_center_director",
+          "ops_center_operations",
+          "ops_center_learning",
+          "ops_center_development",
+          "ops_center_administration",
           "regional_manager",
           "class_counselor",
-          "group_leader"
+          "group_leader",
+          "volunteer_director",
+          "volunteer_regional_lead",
+          "volunteer_regional_service",
+          "volunteer_class_counselor",
+          "volunteer_class_committee",
+          "volunteer_group_leader",
+          "volunteer_group_committee"
         ]
       }
     },
@@ -73,11 +107,32 @@ export default {
         roles: [
           "system_admin",
           "operations_admin",
+          "ops_center_director",
+          "ops_center_operations",
+          "ops_center_development",
+          "ops_center_data",
+          "ops_center_finance",
           "regional_manager",
           "class_counselor",
           "group_leader",
+          "volunteer_director",
+          "volunteer_regional_lead",
+          "volunteer_regional_service",
+          "volunteer_class_counselor",
+          "volunteer_class_committee",
+          "volunteer_group_leader",
           "read_only"
         ]
+      }
+    },
+    {
+      path: "/operations/identity-admin",
+      name: "IdentityAdmin",
+      component: () => import("@/views/seiwajyuku/identity-admin.vue"),
+      meta: {
+        title: "身份与任职",
+        icon: "ep/key",
+        roles: ["system_admin", "technical_admin"]
       }
     },
     {
@@ -90,9 +145,20 @@ export default {
         roles: [
           "system_admin",
           "operations_admin",
+          "ops_center_director",
+          "ops_center_learning",
+          "ops_center_data",
           "regional_manager",
           "class_counselor",
           "group_leader",
+          "volunteer_director",
+          "volunteer_regional_lead",
+          "volunteer_regional_service",
+          "volunteer_class_counselor",
+          "volunteer_class_committee",
+          "volunteer_group_leader",
+          "volunteer_group_committee",
+          "volunteer_activity",
           "read_only"
         ]
       }

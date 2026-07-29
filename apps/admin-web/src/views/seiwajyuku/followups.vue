@@ -3,20 +3,32 @@ import { computed, h, onMounted, reactive, ref, watch } from "vue";
 import dayjs from "dayjs";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
+  acceptFollowupInvitation,
   closeFollowupTask,
+  createFollowupInvitation,
   createFollowupRecord,
   createFollowupTask,
   createVisitRecord,
   getFollowupAssignees,
+  getFollowupCapabilities,
   getFollowupTasks,
   getMemberDetail,
   getMembers,
+  getMyFollowupInvitations,
+  markFollowupInvitationUnavailable,
   revealMemberContact,
+  requestFollowupInvitationAdjustment,
   type FollowupAssignee,
+  type FollowupInvitation,
   type FollowupTask,
   type Member
 } from "@/api/seiwajyuku";
 import { useUserStoreHook } from "@/store/modules/user";
+import {
+  adaptVolunteerMessage,
+  productCopy,
+  productLanguageContext
+} from "@/utils/productLanguage";
 
 defineOptions({ name: "FollowupTasks" });
 
@@ -29,30 +41,49 @@ const loading = ref(false);
 const saving = ref(false);
 const status = ref<string>();
 const rows = ref<FollowupTask[]>([]);
+const invitations = ref<FollowupInvitation[]>([]);
+const invitationEnabled = ref(false);
 const members = ref<Member[]>([]);
 const assignees = ref<FollowupAssignee[]>([]);
 const dialogVisible = ref(false);
 const dialogMode = ref<DialogMode>("create");
 const activeTask = ref<FollowupTask>();
+const companionDialogVisible = ref(false);
+const companionInvitation = ref<FollowupInvitation>();
 
 const openCount = computed(
   () => rows.value.filter(item => item.status !== "CLOSED").length
 );
-const canViewFullProfile = computed(() =>
-  useUserStoreHook().roles.some(role =>
-    ["system_admin", "operations_admin", "regional_manager"].includes(role)
+const actionableInvitations = computed(() =>
+  invitations.value.filter(item =>
+    ["PENDING", "ADJUSTMENT_REQUESTED", "ACCEPTED"].includes(item.status)
   )
 );
+const languageContext = computed(() =>
+  productLanguageContext(useUserStoreHook().roles)
+);
+const copy = computed(() => productCopy(languageContext.value));
+const canViewFullProfile = computed(() =>
+  useUserStoreHook().permissions.includes("members:enterprise_view")
+);
 const dialogTitle = computed(() => {
-  if (dialogMode.value === "create") return "创建关怀任务";
+  if (dialogMode.value === "create") return copy.value.createTitle;
   if (dialogMode.value === "record") return `记录跟进 · ${activeTask.value?.member_name}`;
   return `记录企业走访 · ${activeTask.value?.member_name}`;
 });
 
-const statusText: Record<string, string> = {
-  OPEN: "待执行",
-  IN_PROGRESS: "跟进中",
-  CLOSED: "已关闭"
+const statusText = computed<Record<string, string>>(() => ({
+  OPEN: copy.value.open,
+  IN_PROGRESS: copy.value.inProgress,
+  CLOSED: copy.value.closed
+}));
+const invitationStatusText: Record<string, string> = {
+  PENDING: "等待您的回应",
+  ACCEPTED: "已温暖接受",
+  ADJUSTMENT_REQUESTED: "已建议调整时间",
+  UNAVAILABLE: "本次暂时无法参与",
+  CANCELLED: "邀请已撤回",
+  EXPIRED: "邀请已过有效期"
 };
 const channelOptions = [
   ["PHONE", "电话"],
@@ -77,6 +108,15 @@ const taskForm = reactive({
   assigned_user_id: undefined as number | undefined,
   due_at: "",
   confidentiality_level: "ASSIGNEE"
+  ,
+  invitation_mode: false,
+  invitation_message: "",
+  invitation_valid_until: ""
+});
+const companionForm = reactive({
+  invited_user_id: undefined as number | undefined,
+  invitation_message: "",
+  valid_until: ""
 });
 const servicePurposeLength = computed(
   () => taskForm.service_purpose.trim().length
@@ -150,25 +190,37 @@ watch(visitForm, saveActiveDraft, { deep: true });
 
 function errorText(error: any, fallback = "操作失败") {
   const detail = error?.response?.data?.detail;
-  if (detail) return detail;
+  if (detail) {
+    return languageContext.value === "VOLUNTEER"
+      ? adaptVolunteerMessage(detail)
+      : detail;
+  }
   if (error?.code === "ECONNABORTED") {
     return "填写超时，结果可能已保存。请刷新任务列表确认后再重试，避免重复提交";
   }
   if (error?.message === "Network Error") {
     return "网络连接中断，操作结果暂时无法确认。请刷新任务列表后再决定是否重试";
   }
-  return error?.message || fallback;
+  const message = error?.message || fallback;
+  return languageContext.value === "VOLUNTEER"
+    ? adaptVolunteerMessage(message)
+    : message;
 }
 
 async function load() {
   loading.value = true;
   try {
-    const [tasks, memberResult] = await Promise.all([
+    const [tasks, memberResult, capabilities, invitationResult] =
+      await Promise.all([
       getFollowupTasks(status.value),
-      getMembers()
+      getMembers(),
+      getFollowupCapabilities(),
+      getMyFollowupInvitations()
     ]);
     rows.value = tasks.data;
     members.value = memberResult.data;
+    invitationEnabled.value = capabilities.data.enabled;
+    invitations.value = invitationResult.data;
   } catch (error) {
     ElMessage.error(errorText(error, "加载关怀数据失败，请刷新页面后重试"));
   } finally {
@@ -183,7 +235,10 @@ async function openCreate() {
     service_purpose: "",
     assigned_user_id: undefined,
     due_at: "",
-    confidentiality_level: "ASSIGNEE"
+    confidentiality_level: "ASSIGNEE",
+    invitation_mode: false,
+    invitation_message: "",
+    invitation_valid_until: ""
   });
   assignees.value = [];
   dialogMode.value = "create";
@@ -260,7 +315,8 @@ async function submit() {
           `服务目的至少填写 4 个字符，当前 ${servicePurposeLength.value} 个`
         );
       }
-      if (!taskForm.assigned_user_id) throw new Error("请选择责任人");
+      if (!taskForm.assigned_user_id)
+        throw new Error(`请选择${copy.value.assignee}`);
       await createFollowupTask({
         member_id: taskForm.member_id,
         task_type: taskForm.task_type,
@@ -268,8 +324,14 @@ async function submit() {
         assigned_user_id: taskForm.assigned_user_id,
         due_at: taskForm.due_at || undefined,
         confidentiality_level: taskForm.confidentiality_level
+        ,
+        invitation_mode: taskForm.invitation_mode,
+        invitation_message:
+          taskForm.invitation_message.trim() || undefined,
+        invitation_valid_until:
+          taskForm.invitation_valid_until || undefined
       });
-      ElMessage.success("关怀任务已创建");
+      ElMessage.success(copy.value.created);
     } else if (dialogMode.value === "record" && activeTask.value) {
       if (
         !recordForm.contacted_at ||
@@ -398,20 +460,138 @@ async function closeTask(task: any) {
   try {
     const { value } = await ElMessageBox.prompt(
       "至少保存过一次电话、面谈或企业走访结果后才能关闭。",
-      `关闭任务 · ${task.member_name}`,
+      `${copy.value.closeTitle} · ${task.member_name}`,
       {
-        inputPlaceholder: "填写关闭说明（至少 4 个字）",
+        inputPlaceholder: `填写${copy.value.closeNote}（至少 4 个字）`,
         inputValidator: value => value.trim().length >= 4 || "说明至少填写 4 个字",
-        confirmButtonText: "确认关闭",
+        confirmButtonText: copy.value.close,
         cancelButtonText: "取消"
       }
     );
     await closeFollowupTask(task.id, value.trim());
-    ElMessage.success("任务已关闭");
+    ElMessage.success(copy.value.closeSuccess);
     await load();
   } catch (error: any) {
     if (error === "cancel" || error === "close") return;
     ElMessage.error(errorText(error));
+  }
+}
+
+async function acceptInvitation(invitation: FollowupInvitation) {
+  try {
+    await ElMessageBox.confirm(
+      "感谢您的回应。接受后，这项服务会进入您的待办，并按有效任职范围开放必要信息。",
+      `接受担当 · ${invitation.member_name}`,
+      { confirmButtonText: "愿意担当", cancelButtonText: "再想一想" }
+    );
+    await acceptFollowupInvitation(invitation.id);
+    ElMessage.success("感谢担当，服务事项已加入您的待办");
+    await load();
+  } catch (error: any) {
+    if (error === "cancel" || error === "close") return;
+    ElMessage.error(errorText(error));
+  }
+}
+
+async function suggestAnotherTime(invitation: FollowupInvitation) {
+  try {
+    const { value: time } = await ElMessageBox.prompt(
+      "请输入您更从容、合适的时间，例如 2026-08-05 18:00。",
+      "建议调整完成时间",
+      {
+        inputPlaceholder: "YYYY-MM-DD HH:mm",
+        inputValidator: value => dayjs(value).isValid() || "请输入有效时间",
+        confirmButtonText: "下一步",
+        cancelButtonText: "取消"
+      }
+    );
+    const { value: note } = await ElMessageBox.prompt(
+      "简单说明即可，方便发起人理解和协调。",
+      "补充说明",
+      {
+        inputPlaceholder: "例如：本周已有服务安排",
+        inputValidator: value => value.trim().length >= 2 || "请至少填写 2 个字",
+        confirmButtonText: "发送建议",
+        cancelButtonText: "取消"
+      }
+    );
+    await requestFollowupInvitationAdjustment(
+      invitation.id,
+      dayjs(time).format("YYYY-MM-DDTHH:mm:ss"),
+      note.trim()
+    );
+    ElMessage.success("时间建议已温暖地送达发起人");
+    await load();
+  } catch (error: any) {
+    if (error === "cancel" || error === "close") return;
+    ElMessage.error(errorText(error));
+  }
+}
+
+async function temporarilyUnavailable(invitation: FollowupInvitation) {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      "每个人都有需要留白的时候。简单说明即可，不会展示参与率或排名。",
+      "本次暂时无法参与",
+      {
+        inputPlaceholder: "例如：本周时间暂时无法妥善安排",
+        inputValidator: value => value.trim().length >= 2 || "请至少填写 2 个字",
+        confirmButtonText: "温暖回应",
+        cancelButtonText: "取消"
+      }
+    );
+    await markFollowupInvitationUnavailable(invitation.id, value.trim());
+    ElMessage.success("回应已送达，感谢您的坦诚");
+    await load();
+  } catch (error: any) {
+    if (error === "cancel" || error === "close") return;
+    ElMessage.error(errorText(error));
+  }
+}
+
+async function openCompanionInvitation(invitation: FollowupInvitation) {
+  companionInvitation.value = invitation;
+  const task = rows.value.find(item => item.id === invitation.task_id);
+  if (!task) {
+    ElMessage.warning("请先刷新服务事项列表");
+    return;
+  }
+  try {
+    const response = await getFollowupAssignees(task.org_unit_id);
+    assignees.value = response.data.filter(
+      item => item.username !== useUserStoreHook().username
+    );
+    Object.assign(companionForm, {
+      invited_user_id: undefined,
+      invitation_message: "想邀请您与我同行协力，一起温暖地完成这项服务",
+      valid_until: dayjs().add(2, "day").format("YYYY-MM-DDTHH:mm:ss")
+    });
+    companionDialogVisible.value = true;
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  }
+}
+
+async function submitCompanionInvitation() {
+  if (!companionInvitation.value || !companionForm.invited_user_id) {
+    ElMessage.warning("请选择同行伙伴");
+    return;
+  }
+  saving.value = true;
+  try {
+    await createFollowupInvitation(companionInvitation.value.task_id, {
+      invited_user_id: companionForm.invited_user_id,
+      invitation_type: "COMPANION",
+      invitation_message: companionForm.invitation_message.trim() || undefined,
+      valid_until: companionForm.valid_until
+    });
+    companionDialogVisible.value = false;
+    ElMessage.success("同行邀请已送达");
+    await load();
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    saving.value = false;
   }
 }
 
@@ -422,9 +602,9 @@ onMounted(load);
   <div class="followup-page" v-loading="loading">
     <section class="page-head">
       <div>
-        <p>关怀任务闭环</p>
+        <p>{{ copy.pageKicker }}</p>
         <h1>电话跟进与企业走访</h1>
-        <span>联系方式默认脱敏，只有当前有效任务责任人可按用途临时查看。</span>
+        <span>{{ copy.accessHint }}</span>
       </div>
       <div class="head-actions">
         <el-select
@@ -438,20 +618,79 @@ onMounted(load);
           <el-option label="已关闭" value="CLOSED" />
         </el-select>
         <el-button type="primary" size="large" @click="openCreate">
-          创建任务
+          {{ copy.create }}
         </el-button>
       </div>
     </section>
 
     <el-alert
-      :title="`当前显示 ${rows.length} 项，其中 ${openCount} 项尚未关闭`"
+      :title="`当前显示 ${rows.length} 项，其中 ${openCount} 项尚未完成`"
       type="info"
       :closable="false"
       show-icon
     />
 
+    <el-card
+      v-if="invitationEnabled && actionableInvitations.length"
+      class="invitation-card"
+      shadow="never"
+    >
+      <template #header>
+        <div>
+          <strong>服务邀请</strong>
+          <p>请按自己的时间与状态安心回应，每一种回应都值得尊重。</p>
+        </div>
+      </template>
+      <div class="invitation-list">
+        <article
+          v-for="invitation in actionableInvitations"
+          :key="invitation.id"
+          class="invitation-item"
+        >
+          <div>
+            <el-tag type="success" effect="plain">
+              {{ invitation.invitation_type === "ASSIGNEE" ? "邀请担当" : "同行邀请" }}
+            </el-tag>
+            <h3>{{ invitation.member_name }} · {{ invitation.org_name }}</h3>
+            <p>{{ invitation.service_purpose }}</p>
+            <blockquote v-if="invitation.invitation_message">
+              {{ invitation.inviter_name }}：{{ invitation.invitation_message }}
+            </blockquote>
+            <small>
+              {{ invitationStatusText[invitation.status] }} ·
+              邀请有效至 {{ dayjs(invitation.valid_until).format("YYYY-MM-DD HH:mm") }}
+            </small>
+          </div>
+          <div class="invitation-actions">
+            <template v-if="invitation.status === 'PENDING'">
+              <el-button type="primary" @click="acceptInvitation(invitation)">
+                愿意担当
+              </el-button>
+              <el-button @click="suggestAnotherTime(invitation)">
+                建议调整时间
+              </el-button>
+              <el-button text @click="temporarilyUnavailable(invitation)">
+                本次暂时无法参与
+              </el-button>
+            </template>
+            <el-button
+              v-if="
+                invitation.status === 'ACCEPTED' &&
+                invitation.invitation_type === 'ASSIGNEE'
+              "
+              type="primary"
+              plain
+              @click="openCompanionInvitation(invitation)"
+            >
+              邀请同行协力
+            </el-button>
+          </div>
+        </article>
+      </div>
+    </el-card>
+
     <el-card shadow="never">
-      <el-table :data="rows" stripe empty-text="暂无关怀任务，请先在学员管理中建立试点学员">
+      <el-table :data="rows" stripe :empty-text="copy.empty">
         <el-table-column prop="member_name" label="学员" min-width="105" fixed />
         <el-table-column prop="phone_masked" label="联系方式" min-width="135" />
         <el-table-column prop="company_name" label="企业" min-width="150">
@@ -483,15 +722,27 @@ onMounted(load);
         <el-table-column label="操作" width="315" fixed="right">
           <template #default="{ row }">
             <div v-if="row.status !== 'CLOSED' && row.can_record" class="row-actions">
-              <el-button link type="primary" @click="reveal(row)">
+              <el-button
+                v-if="row.can_close"
+                link
+                type="primary"
+                @click="reveal(row)"
+              >
                 {{ canViewFullProfile ? "查看资料" : "联系" }}
               </el-button>
               <el-button link type="primary" @click="openRecord(row)">记跟进</el-button>
               <el-button link type="primary" @click="openVisit(row)">记走访</el-button>
-              <el-button link type="danger" @click="closeTask(row)">关闭</el-button>
+              <el-button
+                v-if="row.can_close"
+                link
+                type="danger"
+                @click="closeTask(row)"
+              >
+                {{ copy.close }}
+              </el-button>
             </div>
             <span v-else class="muted">
-              {{ row.status === "CLOSED" ? "已完成" : "仅责任人可操作" }}
+              {{ row.status === "CLOSED" ? copy.closed : copy.onlyAssignee }}
             </span>
           </template>
         </el-table-column>
@@ -516,7 +767,7 @@ onMounted(load);
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="任务类型">
+          <el-form-item :label="copy.itemType">
             <el-select v-model="taskForm.task_type">
               <el-option label="日常关怀" value="CARE" />
               <el-option label="电话回访" value="PHONE" />
@@ -537,7 +788,7 @@ onMounted(load);
               placeholder="至少填写 4 个字符，说明本次联系要解决或了解的事项"
             />
           </el-form-item>
-          <el-form-item label="责任人">
+          <el-form-item :label="copy.assignee">
             <el-select
               v-model="taskForm.assigned_user_id"
               placeholder="先选择学员"
@@ -551,7 +802,7 @@ onMounted(load);
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="截止时间">
+          <el-form-item :label="copy.deadline">
             <el-date-picker
               v-model="taskForm.due_at"
               type="datetime"
@@ -561,10 +812,46 @@ onMounted(load);
           </el-form-item>
           <el-form-item label="保密范围">
             <el-select v-model="taskForm.confidentiality_level">
-              <el-option label="仅责任人可见" value="ASSIGNEE" />
-              <el-option label="组织管理人员可见" value="ORG_MANAGERS" />
+              <el-option :label="copy.privateLabel" value="ASSIGNEE" />
+              <el-option :label="copy.managerLabel" value="ORG_MANAGERS" />
             </el-select>
           </el-form-item>
+          <template v-if="invitationEnabled">
+            <el-form-item class="full" label="协同方式">
+              <el-switch
+                v-model="taskForm.invitation_mode"
+                active-text="先邀请担当，对方接受后再开放服务事项"
+                :inactive-text="
+                  languageContext === 'VOLUNTEER'
+                    ? '直接发起服务事项'
+                    : '沿用直接指派方式'
+                "
+              />
+            </el-form-item>
+            <el-form-item
+              v-if="taskForm.invitation_mode"
+              class="full"
+              label="邀请寄语"
+            >
+              <el-input
+                v-model="taskForm.invitation_message"
+                type="textarea"
+                :rows="2"
+                placeholder="说明为什么想到邀请对方，以及期待获得的支持"
+              />
+            </el-form-item>
+            <el-form-item
+              v-if="taskForm.invitation_mode"
+              label="邀请有效期"
+            >
+              <el-date-picker
+                v-model="taskForm.invitation_valid_until"
+                type="datetime"
+                value-format="YYYY-MM-DDTHH:mm:ss"
+                placeholder="请选择回应期限"
+              />
+            </el-form-item>
+          </template>
         </div>
       </el-form>
 
@@ -648,6 +935,58 @@ onMounted(load);
         <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="companionDialogVisible"
+      title="邀请同行协力"
+      width="560px"
+    >
+      <el-alert
+        title="同行伙伴可以共同记录服务过程，但不会获得完整联系方式，也不能结束服务事项。"
+        type="info"
+        :closable="false"
+      />
+      <el-form :model="companionForm" label-position="top" class="companion-form">
+        <el-form-item label="同行伙伴">
+          <el-select
+            v-model="companionForm.invited_user_id"
+            filterable
+            placeholder="选择一位有效任职范围内的志工"
+          >
+            <el-option
+              v-for="user in assignees"
+              :key="user.id"
+              :label="user.display_name"
+              :value="user.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="邀请寄语">
+          <el-input
+            v-model="companionForm.invitation_message"
+            type="textarea"
+            :rows="3"
+          />
+        </el-form-item>
+        <el-form-item label="邀请有效期">
+          <el-date-picker
+            v-model="companionForm.valid_until"
+            type="datetime"
+            value-format="YYYY-MM-DDTHH:mm:ss"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="companionDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="saving"
+          @click="submitCompanionInvitation"
+        >
+          送出同行邀请
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -689,6 +1028,53 @@ onMounted(load);
 .row-actions {
   white-space: nowrap;
 }
+.invitation-card :deep(.el-card__header) p {
+  margin: 6px 0 0;
+  color: var(--el-text-color-secondary);
+}
+.invitation-list {
+  display: grid;
+  gap: 14px;
+}
+.invitation-item {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px;
+  background: #f5fbf7;
+  border: 1px solid #d9eee0;
+  border-radius: 12px;
+}
+.invitation-item h3 {
+  margin: 10px 0 6px;
+}
+.invitation-item p,
+.invitation-item blockquote {
+  margin: 6px 0;
+}
+.invitation-item blockquote {
+  padding-left: 12px;
+  color: #35634c;
+  border-left: 3px solid #8cc9a7;
+}
+.invitation-item small {
+  color: var(--el-text-color-secondary);
+}
+.invitation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  min-width: 280px;
+}
+.companion-form {
+  margin-top: 18px;
+}
+.companion-form :deep(.el-select),
+.companion-form :deep(.el-date-editor) {
+  width: 100%;
+}
 .muted {
   color: var(--el-text-color-secondary);
 }
@@ -727,6 +1113,14 @@ onMounted(load);
   }
   .form-grid .full {
     grid-column: auto;
+  }
+  .invitation-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .invitation-actions {
+    justify-content: flex-start;
+    min-width: 0;
   }
 }
 </style>

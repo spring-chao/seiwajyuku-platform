@@ -40,6 +40,9 @@ PERMISSIONS = {
 }
 ROLE_PERMISSIONS = {
     "system_admin": set(PERMISSIONS) - {"exports:sensitive"},
+    "technical_admin": {
+        "iam:manage", "org:read", "org:manage", "audit:read", "integrations:manage",
+    },
     "data_security_admin": {"org:read", "members:read", "exports:sensitive", "audit:read"},
     "operations_admin": {
         "org:read", "org:manage", "plans:read", "plans:period_write", "plans:import_global", "plans:publish",
@@ -62,15 +65,99 @@ ROLE_PERMISSIONS = {
         "followups:manage", "contact:reveal", "renewals:read",
     },
     "read_only": {"org:read", "plans:read", "members:read", "renewals:read"},
+    "ops_center_director": {
+        "org:read", "org:manage", "plans:read", "plans:period_write",
+        "plans:import_global", "plans:publish", "members:read", "members:manage",
+        "members:detail_view", "members:enterprise_view", "followups:manage",
+        "renewals:read", "renewals:manage", "exports:normal", "audit:read",
+        "integrations:manage", "attendance:sync", "attendance:adjudicate",
+    },
+    "ops_center_operations": {
+        "org:read", "plans:read", "plans:period_write", "members:read",
+        "members:manage", "members:detail_view", "followups:manage",
+        "renewals:read", "renewals:manage", "exports:normal",
+    },
+    "ops_center_learning": {
+        "org:read", "plans:read", "members:read", "members:detail_view",
+        "followups:manage", "attendance:adjudicate",
+    },
+    "ops_center_development": {
+        "org:read", "members:read", "members:manage", "members:detail_view",
+        "followups:manage", "renewals:read", "renewals:manage", "exports:normal",
+    },
+    "ops_center_management": {
+        "org:read", "plans:read", "plans:period_write", "plans:publish",
+        "members:read", "audit:read",
+    },
+    "ops_center_data": {
+        "org:read", "org:manage", "plans:read", "plans:import_global",
+        "members:read", "members:manage", "members:detail_view", "exports:normal",
+        "integrations:manage", "renewals:read", "attendance:sync",
+    },
+    "ops_center_finance": {
+        "org:read", "plans:read", "renewals:read", "renewals:manage",
+    },
+    "ops_center_administration": {
+        "org:read", "members:read", "members:detail_view", "followups:manage",
+    },
+    "volunteer_director": {
+        "org:read", "plans:read", "members:read", "members:detail_view",
+        "followups:manage", "contact:reveal", "renewals:read",
+    },
+    "volunteer_regional_lead": {
+        "org:read", "plans:read", "plans:period_write", "members:read",
+        "members:detail_view", "followups:manage", "contact:reveal",
+        "exports:normal", "renewals:read",
+    },
+    "volunteer_regional_service": {
+        "org:read", "members:read", "members:detail_view", "followups:manage",
+        "contact:reveal", "renewals:read",
+    },
+    "volunteer_class_counselor": {
+        "org:read", "plans:read", "members:read", "members:detail_view",
+        "followups:manage", "contact:reveal", "renewals:read",
+    },
+    "volunteer_class_committee": {
+        "org:read", "members:read", "members:detail_view", "followups:manage",
+        "contact:reveal", "renewals:read",
+    },
+    "volunteer_group_leader": {
+        "org:read", "members:read", "members:detail_view", "followups:manage",
+        "contact:reveal", "renewals:read",
+    },
+    "volunteer_group_committee": {
+        "org:read", "members:read", "members:detail_view", "followups:manage",
+        "contact:reveal",
+    },
+    "volunteer_activity": {
+        "org:read", "members:read", "members:detail_view",
+    },
 }
 ROLE_NAMES = {
     "system_admin": "系统管理员",
+    "technical_admin": "系统技术管理员",
     "data_security_admin": "数据安全管理员（最高权限）",
     "operations_admin": "苏州塾运营管理员",
     "regional_manager": "区域分中心负责人/理事",
     "class_counselor": "班主任/辅导员/班委",
     "group_leader": "组长/组委",
     "read_only": "只读观察员",
+    "ops_center_director": "运营中心负责人",
+    "ops_center_operations": "分中心运营专员",
+    "ops_center_learning": "学习践行专员",
+    "ops_center_development": "发展建设专员",
+    "ops_center_management": "运营管理专员",
+    "ops_center_data": "数据中心专员",
+    "ops_center_finance": "财务专员",
+    "ops_center_administration": "行政专员",
+    "volunteer_director": "理事志工",
+    "volunteer_regional_lead": "三级分中心负责人志工",
+    "volunteer_regional_service": "三级分中心志工",
+    "volunteer_class_counselor": "班主任志工",
+    "volunteer_class_committee": "班委志工",
+    "volunteer_group_leader": "组长志工",
+    "volunteer_group_committee": "组委志工",
+    "volunteer_activity": "专项活动志工",
 }
 
 
@@ -214,7 +301,7 @@ def user_context(user_id: int) -> dict | None:
     if not user or not user["is_active"]:
         return None
     now = datetime.now(UTC).isoformat()
-    user["roles"] = [
+    direct_roles = [
         row["role_key"]
         for row in fetch_all(
             "SELECT ur.role_key FROM user_roles ur JOIN roles r ON r.role_key=ur.role_key "
@@ -224,23 +311,119 @@ def user_context(user_id: int) -> dict | None:
             (user_id, now, now),
         )
     ]
-    user["permissions"] = [
-        row["permission_key"]
+    identity_enabled = get_settings().identity_authorization_enabled
+    position_roles = [
+        row["position_key"]
         for row in fetch_all(
-            "SELECT DISTINCT rp.permission_key FROM user_roles ur "
-            "JOIN roles r ON r.role_key=ur.role_key AND r.is_active=1 "
-            "JOIN role_permissions rp ON rp.role_key=ur.role_key "
-            "WHERE ur.user_id=? AND (ur.valid_from IS NULL OR ur.valid_from<=?) "
-            "AND (ur.valid_until IS NULL OR ur.valid_until>=?)",
+            "SELECT DISTINCT pa.position_key FROM account_person_links apl "
+            "JOIN operations_employments oe ON oe.person_id=apl.person_id "
+            "JOIN operations_position_assignments pa ON pa.employment_id=oe.id "
+            "WHERE apl.user_id=? AND oe.employment_status IN ('PLANNED','ACTIVE') "
+            "AND (oe.started_on IS NULL OR oe.started_on<=?) "
+            "AND (oe.ended_on IS NULL OR oe.ended_on>=?) "
+            "AND pa.status IN ('PLANNED','ACTIVE') "
+            "AND (pa.valid_from IS NULL OR pa.valid_from<=?) "
+            "AND (pa.valid_until IS NULL OR pa.valid_until>=?)",
+            (user_id, now, now, now, now),
+        )
+    ] if identity_enabled else []
+    volunteer_roles = [
+        row["appointment_key"]
+        for row in fetch_all(
+            "SELECT DISTINCT va.appointment_key FROM account_person_links apl "
+            "JOIN volunteer_appointments va ON va.person_id=apl.person_id "
+            "WHERE apl.user_id=? AND va.status IN ('PLANNED','ACTIVE') "
+            "AND va.starts_at<=? AND va.ends_at>=?",
             (user_id, now, now),
         )
-    ]
-    user["scopes"] = fetch_all(
+    ] if identity_enabled else []
+    technical_roles = [
+        "technical_admin"
+        for row in fetch_all(
+            "SELECT ta.id FROM account_person_links apl "
+            "JOIN technical_admin_assignments ta ON ta.person_id=apl.person_id "
+            "WHERE apl.user_id=? AND ta.status IN ('PLANNED','ACTIVE') "
+            "AND ta.starts_at<=? AND ta.ends_at>=?",
+            (user_id, now, now),
+        )
+    ] if identity_enabled else []
+    roles = sorted(set(direct_roles + position_roles + volunteer_roles + technical_roles))
+    user["roles"] = roles
+    if roles:
+        placeholders = ",".join("?" for _ in roles)
+        user["permissions"] = [
+            row["permission_key"]
+            for row in fetch_all(
+                "SELECT DISTINCT rp.permission_key FROM role_permissions rp "
+                "JOIN roles r ON r.role_key=rp.role_key AND r.is_active=1 "
+                f"WHERE rp.role_key IN ({placeholders})",
+                tuple(roles),
+            )
+        ]
+    else:
+        user["permissions"] = []
+    direct_scopes = fetch_all(
         "SELECT scope_type, org_unit_id, valid_from, valid_until FROM data_scope_grants "
         "WHERE user_id=? AND (valid_from IS NULL OR valid_from<=?) "
         "AND (valid_until IS NULL OR valid_until>=?)",
         (user_id, now, now),
     )
+    employment_scopes = fetch_all(
+        "SELECT esr.scope_type, esr.org_unit_id, esr.valid_from, esr.valid_until "
+        "FROM account_person_links apl "
+        "JOIN operations_employments oe ON oe.person_id=apl.person_id "
+        "JOIN employee_service_responsibilities esr ON esr.employment_id=oe.id "
+        "WHERE apl.user_id=? AND oe.employment_status IN ('PLANNED','ACTIVE') "
+        "AND (oe.started_on IS NULL OR oe.started_on<=?) "
+        "AND (oe.ended_on IS NULL OR oe.ended_on>=?) "
+        "AND esr.status IN ('PLANNED','ACTIVE') "
+        "AND (esr.valid_from IS NULL OR esr.valid_from<=?) "
+        "AND (esr.valid_until IS NULL OR esr.valid_until>=?)",
+        (user_id, now, now, now, now),
+    ) if identity_enabled else []
+    volunteer_scopes = fetch_all(
+        "SELECT va.scope_type, va.org_unit_id, va.starts_at AS valid_from, "
+        "va.ends_at AS valid_until FROM account_person_links apl "
+        "JOIN volunteer_appointments va ON va.person_id=apl.person_id "
+        "WHERE apl.user_id=? AND va.status IN ('PLANNED','ACTIVE') "
+        "AND va.starts_at<=? AND va.ends_at>=?",
+        (user_id, now, now),
+    ) if identity_enabled else []
+    unique_scopes: dict[tuple, dict] = {}
+    for scope in direct_scopes + employment_scopes + volunteer_scopes:
+        key = (
+            scope["scope_type"], scope.get("org_unit_id"),
+            str(scope.get("valid_from")), str(scope.get("valid_until")),
+        )
+        unique_scopes[key] = scope
+    user["scopes"] = list(unique_scopes.values())
+    subjects: list[str] = []
+    if position_roles:
+        subjects.append("OPERATIONS_EMPLOYEE")
+    if volunteer_roles:
+        subjects.append("VOLUNTEER")
+    if technical_roles:
+        subjects.append("TECHNICAL_ADMIN")
+    if identity_enabled and fetch_one(
+        "SELECT mi.member_id FROM account_person_links apl "
+        "JOIN member_identities mi ON mi.person_id=apl.person_id "
+        "WHERE apl.user_id=? AND mi.status='ACTIVE' LIMIT 1",
+        (user_id,),
+    ):
+        subjects.append("MEMBER")
+    user["subject_contexts"] = subjects
+    user["language_context"] = (
+        "OPERATIONS" if position_roles else
+        "VOLUNTEER" if volunteer_roles else
+        "TECHNICAL" if technical_roles else
+        "LEGACY"
+    )
+    user["authorization_sources"] = {
+        "legacy_roles": direct_roles,
+        "employment_positions": position_roles,
+        "volunteer_appointments": volunteer_roles,
+        "technical_assignments": technical_roles,
+    }
     return user
 
 

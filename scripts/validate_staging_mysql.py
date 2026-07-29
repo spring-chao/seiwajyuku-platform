@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from urllib.parse import urlparse
 
@@ -11,6 +11,12 @@ from app.db import execute, fetch_all, transaction
 from app.migrations import run_migrations
 from app.services.attendance_scoring import recalculate_event_group
 from app.services.attendance_sync import sync_from_signin
+from app.services.followup_invitations import (
+    accept_invitation,
+    create_invitation,
+)
+from app.services.followups import add_followup_record, create_task, list_tasks
+from app.services.iam import seed_iam, user_context
 
 from backfill_member_org_relations import apply_candidates, build_candidates
 
@@ -36,6 +42,20 @@ def _seed_fixture() -> None:
             "INSERT INTO app_users"
             "(id, username, display_name, password_hash, created_at, updated_at) "
             "VALUES (1, 'staging-operator', 'Staging Operator', 'not-used', ?, ?)",
+            (now, now),
+        )
+        execute(
+            connection,
+            "INSERT INTO app_users"
+            "(id, username, display_name, password_hash, created_at, updated_at) "
+            "VALUES (2, 'staging-volunteer', 'Staging Volunteer', 'not-used', ?, ?)",
+            (now, now),
+        )
+        execute(
+            connection,
+            "INSERT INTO app_users"
+            "(id, username, display_name, password_hash, created_at, updated_at) "
+            "VALUES (3, 'staging-companion', 'Staging Companion', 'not-used', ?, ?)",
             (now, now),
         )
         orgs = [
@@ -227,10 +247,179 @@ def _run_attendance_validation() -> dict:
     }
 
 
+def _run_identity_validation() -> dict:
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO person_profiles"
+            "(id, display_name, status, created_at, updated_at) "
+            "VALUES ('staging-person-1', 'Staging Identity', 'ACTIVE', ?, ?)",
+            (now, now),
+        )
+        execute(
+            connection,
+            "INSERT INTO account_person_links"
+            "(user_id, person_id, linked_at, source_reference) "
+            "VALUES (1, 'staging-person-1', ?, 'mysql-staging-validation')",
+            (now,),
+        )
+        employment = execute(
+            connection,
+            "INSERT INTO operations_employments"
+            "(person_id, institution_id, employment_status, started_on, "
+            "source_reference, created_at, updated_at) "
+            "VALUES ('staging-person-1', 'institution-suzhou-operations', "
+            "'ACTIVE', ?, 'mysql-staging-validation', ?, ?)",
+            (now, now, now),
+        )
+        execute(
+            connection,
+            "INSERT INTO operations_position_assignments"
+            "(employment_id, position_key, valid_from, status, source_reference, "
+            "created_at, updated_at) "
+            "VALUES (?, 'ops_center_learning', ?, 'ACTIVE', "
+            "'mysql-staging-validation', ?, ?)",
+            (employment.lastrowid, now, now, now),
+        )
+        execute(
+            connection,
+            "INSERT INTO employee_service_responsibilities"
+            "(employment_id, org_unit_id, scope_type, valid_from, status, "
+            "source_reference, created_at, updated_at) "
+            "VALUES (?, 'r1', 'SUBTREE', ?, 'ACTIVE', "
+            "'mysql-staging-validation', ?, ?)",
+            (employment.lastrowid, now, now, now),
+        )
+        for user_id, person_id, appointment_key in (
+            (2, "staging-volunteer-person", "volunteer_regional_service"),
+            (3, "staging-companion-person", "volunteer_class_committee"),
+        ):
+            execute(
+                connection,
+                "INSERT INTO person_profiles"
+                "(id, display_name, status, created_at, updated_at) "
+                "VALUES (?, ?, 'ACTIVE', ?, ?)",
+                (person_id, f"Staging Volunteer {user_id}", now, now),
+            )
+            execute(
+                connection,
+                "INSERT INTO account_person_links"
+                "(user_id, person_id, linked_at, source_reference) "
+                "VALUES (?, ?, ?, 'mysql-staging-validation')",
+                (user_id, person_id, now),
+            )
+            execute(
+                connection,
+                "INSERT INTO volunteer_appointments"
+                "(person_id, appointment_key, org_unit_id, scope_type, starts_at, "
+                "ends_at, status, source_reference, created_at, updated_at) "
+                "VALUES (?, ?, 'r1', 'SUBTREE', ?, ?, 'ACTIVE', "
+                "'mysql-staging-validation', ?, ?)",
+                (
+                    person_id,
+                    appointment_key,
+                    now,
+                    now + timedelta(days=365),
+                    now,
+                    now,
+                ),
+            )
+    context = user_context(1)
+    if "ops_center_learning" not in context["roles"]:
+        raise AssertionError(context)
+    if "attendance:adjudicate" not in context["permissions"]:
+        raise AssertionError(context)
+    if "members:enterprise_view" in context["permissions"]:
+        raise AssertionError(context)
+    return {
+        "language_context": context["language_context"],
+        "roles": context["roles"],
+        "sensitive_business_access": "members:enterprise_view" in context["permissions"],
+    }
+
+
+def _run_followup_invitation_validation() -> dict:
+    now = datetime.now(UTC).replace(tzinfo=None)
+    task_id = create_task(
+        1,
+        member_id=1,
+        task_type="CARE",
+        service_purpose="MySQL invitation state validation",
+        assigned_user_id=2,
+        due_at=(now + timedelta(days=2)).isoformat(),
+        invitation_mode=True,
+        invitation_message="Staging primary invitation",
+        invitation_valid_until=(now + timedelta(days=1)).isoformat(),
+    )
+    primary = fetch_all(
+        "SELECT id FROM followup_service_invitations "
+        "WHERE task_id=? AND invitation_type='ASSIGNEE'",
+        (task_id,),
+    )[0]
+    accept_invitation(primary["id"], 2, "Accepted in MySQL validation")
+    companion_id = create_invitation(
+        task_id,
+        2,
+        invited_user_id=3,
+        invitation_type="COMPANION",
+        invitation_message="Staging companion invitation",
+        proposed_due_at=None,
+        valid_until=(now + timedelta(days=1)).isoformat(),
+    )
+    accept_invitation(companion_id, 3, "Accepted companion invitation")
+    record_id = add_followup_record(
+        task_id,
+        3,
+        channel="MEETING",
+        contacted_at=now.isoformat(),
+        outcome_code="CONNECTED",
+        subject_statement="MySQL companion service record",
+        objective_facts=None,
+        staff_judgment=None,
+        next_action="Complete staging validation",
+        next_followup_at=None,
+    )
+    primary_task = next(row for row in list_tasks(2) if row["id"] == task_id)
+    companion_task = next(row for row in list_tasks(3) if row["id"] == task_id)
+    if not primary_task["can_close"] or not companion_task["can_record"]:
+        raise AssertionError(
+            {"primary": primary_task, "companion": companion_task}
+        )
+    if companion_task["can_close"]:
+        raise AssertionError("Companion unexpectedly received close permission")
+    invitation_rows = fetch_all(
+        "SELECT invitation_type, status FROM followup_service_invitations "
+        "WHERE task_id=? ORDER BY id",
+        (task_id,),
+    )
+    if invitation_rows != [
+        {"invitation_type": "ASSIGNEE", "status": "ACCEPTED"},
+        {"invitation_type": "COMPANION", "status": "ACCEPTED"},
+    ]:
+        raise AssertionError(invitation_rows)
+    audit_count = fetch_all(
+        "SELECT COUNT(*) AS total FROM audit_logs "
+        "WHERE resource_type='followup_service_invitation'"
+    )[0]["total"]
+    if int(audit_count) < 4:
+        raise AssertionError({"invitation_audit_count": audit_count})
+    return {
+        "task_id": task_id,
+        "record_id": record_id,
+        "invitations": invitation_rows,
+        "primary_can_close": primary_task["can_close"],
+        "companion_can_record": companion_task["can_record"],
+        "companion_can_close": companion_task["can_close"],
+        "invitation_audit_count": int(audit_count),
+    }
+
+
 def main() -> int:
     _assert_safe_target()
     applied_migrations = run_migrations()
     _seed_fixture()
+    seed_iam()
 
     candidates, issues = build_candidates()
     if len(candidates) != 4 or len(issues) != 2:
@@ -252,6 +441,8 @@ def main() -> int:
             "repeated_inserted": repeated,
         },
         "attendance": _run_attendance_validation(),
+        "identity_authorization": _run_identity_validation(),
+        "followup_invitations": _run_followup_invitation_validation(),
     }
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     return 0

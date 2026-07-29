@@ -99,6 +99,7 @@ export type FollowupTask = {
   member_name: string;
   phone_masked: string;
   company_name?: string;
+  org_unit_id: string;
   org_name: string;
   service_purpose: string;
   assignee_name: string;
@@ -106,6 +107,33 @@ export type FollowupTask = {
   due_at?: string;
   next_followup_at?: string;
   can_record: boolean;
+  can_close: boolean;
+};
+
+export type FollowupInvitation = {
+  id: number;
+  task_id: number;
+  invitation_type: "ASSIGNEE" | "COMPANION";
+  status:
+    | "PENDING"
+    | "ACCEPTED"
+    | "ADJUSTMENT_REQUESTED"
+    | "UNAVAILABLE"
+    | "CANCELLED"
+    | "EXPIRED";
+  invitation_message?: string;
+  proposed_due_at?: string;
+  requested_due_at?: string;
+  response_note?: string;
+  valid_until: string;
+  member_id: number;
+  member_name: string;
+  phone_masked: string;
+  company_name?: string;
+  service_purpose: string;
+  due_at?: string;
+  org_name: string;
+  inviter_name: string;
 };
 
 export type Member = {
@@ -282,11 +310,76 @@ export const createFollowupTask = (data: {
   assigned_user_id: number;
   due_at?: string;
   confidentiality_level?: string;
+  invitation_mode?: boolean;
+  invitation_message?: string;
+  invitation_valid_until?: string;
 }) =>
   http.request<{ success: boolean; data: { id: number } }>(
     "post",
     "/api/v1/followups/tasks",
     { data, timeout: 60000 }
+  );
+
+export const getFollowupCapabilities = () =>
+  http.request<{
+    success: boolean;
+    data: { enabled: boolean; production_mutations_approved: boolean };
+  }>("get", "/api/v1/followups/capabilities");
+
+export const getMyFollowupInvitations = () =>
+  http.request<{ success: boolean; data: FollowupInvitation[] }>(
+    "get",
+    "/api/v1/followups/invitations/mine"
+  );
+
+export const createFollowupInvitation = (
+  taskId: number,
+  data: {
+    invited_user_id: number;
+    invitation_type: "ASSIGNEE" | "COMPANION";
+    invitation_message?: string;
+    proposed_due_at?: string;
+    valid_until: string;
+  }
+) =>
+  http.request<{ success: boolean; data: { id: number } }>(
+    "post",
+    `/api/v1/followups/tasks/${taskId}/invitations`,
+    { data }
+  );
+
+export const acceptFollowupInvitation = (
+  invitationId: number,
+  responseNote?: string
+) =>
+  http.request("post", `/api/v1/followups/invitations/${invitationId}/accept`, {
+    data: { response_note: responseNote }
+  });
+
+export const requestFollowupInvitationAdjustment = (
+  invitationId: number,
+  requestedDueAt: string,
+  responseNote: string
+) =>
+  http.request(
+    "post",
+    `/api/v1/followups/invitations/${invitationId}/adjustment-request`,
+    {
+      data: {
+        requested_due_at: requestedDueAt,
+        response_note: responseNote
+      }
+    }
+  );
+
+export const markFollowupInvitationUnavailable = (
+  invitationId: number,
+  responseNote: string
+) =>
+  http.request(
+    "post",
+    `/api/v1/followups/invitations/${invitationId}/unavailable`,
+    { data: { response_note: responseNote } }
   );
 
 export const revealMemberContact = (

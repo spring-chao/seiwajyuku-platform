@@ -29,6 +29,9 @@ class Settings:
     run_bootstrap_on_startup: bool
     signin_api_base_url: str = ""
     signin_service_api_key: str = ""
+    identity_authorization_enabled: bool = False
+    identity_admin_writes_enabled: bool = False
+    volunteer_service_invitations_enabled: bool = False
 
     @property
     def is_production(self) -> bool:
@@ -52,6 +55,18 @@ class Settings:
             raise RuntimeError("staging/production 的 JWT_SECRET 至少需要 32 个字符")
         if self.app_env in {"staging", "production"} and not self.field_encryption_key:
             raise RuntimeError("staging/production 必须配置 FIELD_ENCRYPTION_KEY")
+        if (
+            self.is_production
+            and self.identity_admin_writes_enabled
+            and not self.allow_production_mutations
+        ):
+            raise RuntimeError("生产身份管理写入未获批准")
+        if (
+            self.is_production
+            and self.volunteer_service_invitations_enabled
+            and not self.allow_production_mutations
+        ):
+            raise RuntimeError("生产志工服务邀请写入未获批准")
 
 
 def get_settings() -> Settings:
@@ -75,6 +90,11 @@ def get_settings() -> Settings:
         integration_api_key=os.getenv("INTEGRATION_API_KEY", "dev-integration-key").strip(),
         deployment_read_only=_bool("DEPLOYMENT_READ_ONLY"),
         run_bootstrap_on_startup=_bool("RUN_BOOTSTRAP_ON_STARTUP"),
+        identity_authorization_enabled=_bool("IDENTITY_AUTHORIZATION_ENABLED"),
+        identity_admin_writes_enabled=_bool("IDENTITY_ADMIN_WRITES_ENABLED"),
+        volunteer_service_invitations_enabled=_bool(
+            "VOLUNTEER_SERVICE_INVITATIONS_ENABLED"
+        ),
         signin_api_base_url=os.getenv("SIGNIN_API_BASE_URL", "").strip(),
         signin_service_api_key=os.getenv("SIGNIN_SERVICE_API_KEY", "").strip(),
     )
