@@ -16,6 +16,7 @@ from app.api.identity_admin import router as identity_admin_router
 from app.api.integrations import router as integrations_router
 from app.api.imports import router as imports_router
 from app.api.direct_class_preflight import router as direct_class_preflight_router
+from app.api.direct_class_import import router as direct_class_import_router
 from app.api.plans import router as plans_router
 from app.api.renewals import router as renewals_router
 from app.api.members import router as members_router
@@ -91,6 +92,7 @@ app.include_router(iam_router)
 app.include_router(identity_admin_router)
 app.include_router(imports_router)
 app.include_router(direct_class_preflight_router)
+app.include_router(direct_class_import_router)
 app.include_router(plans_router)
 app.include_router(renewals_router)
 app.include_router(members_router)
