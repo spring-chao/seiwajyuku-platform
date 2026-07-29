@@ -112,10 +112,96 @@ def list_special_cohorts(user_id: int) -> list[dict[str, Any]]:
 
 def roster_options(user_id: int) -> dict[str, Any]:
     """Return class/group/special_cohort options for roster selection."""
+    now = _now()
+    counts = fetch_all(
+        "SELECT mor.relation_type, mor.org_unit_id, COUNT(DISTINCT mor.member_id) AS member_count "
+        "FROM member_org_relations mor "
+        "JOIN members m ON m.id=mor.member_id "
+        "JOIN org_units o ON o.id=mor.org_unit_id "
+        "WHERE m.status='ACTIVE' AND o.is_active=1 "
+        "AND mor.relation_type IN ('STUDY_CLASS','STUDY_GROUP','SPECIAL_COHORT') "
+        "AND (mor.valid_from IS NULL OR mor.valid_from<=?) "
+        "AND (mor.valid_until IS NULL OR mor.valid_until>=?) "
+        "GROUP BY mor.relation_type, mor.org_unit_id",
+        (now, now),
+    )
+    count_by_relation = {
+        (row["relation_type"], row["org_unit_id"]): int(row["member_count"])
+        for row in counts
+    }
+
+    def with_counts(
+        rows: list[dict[str, Any]], relation_type: str
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                **row,
+                "member_count": count_by_relation.get(
+                    (relation_type, row["id"]), 0
+                ),
+            }
+            for row in rows
+        ]
+
     return {
-        "classes": list_classes(user_id),
-        "groups": list_groups(user_id),
-        "special_cohorts": list_special_cohorts(user_id),
+        "classes": with_counts(list_classes(user_id), "STUDY_CLASS"),
+        "groups": with_counts(list_groups(user_id), "STUDY_GROUP"),
+        "special_cohorts": with_counts(
+            list_special_cohorts(user_id), "SPECIAL_COHORT"
+        ),
+        "source": "PLATFORM_ORG_RELATIONS",
+        "query_mode": "ORG_UNIT_ID",
+        "fallback_mode": "FAIL_CLOSED",
+    }
+
+
+def roster_integrity_summary() -> dict[str, Any]:
+    """Return aggregate-only integrity checks for the signin integration."""
+    now = _now()
+    options = roster_options(0)
+    mismatch = fetch_one(
+        "SELECT COUNT(DISTINCT group_rel.member_id) AS mismatch_count "
+        "FROM member_org_relations group_rel "
+        "JOIN members m ON m.id=group_rel.member_id "
+        "JOIN org_units group_org ON group_org.id=group_rel.org_unit_id "
+        "LEFT JOIN member_org_relations class_rel "
+        "ON class_rel.member_id=group_rel.member_id "
+        "AND class_rel.relation_type='STUDY_CLASS' "
+        "AND (class_rel.valid_from IS NULL OR class_rel.valid_from<=?) "
+        "AND (class_rel.valid_until IS NULL OR class_rel.valid_until>=?) "
+        "WHERE group_rel.relation_type='STUDY_GROUP' "
+        "AND m.status='ACTIVE' AND group_org.is_active=1 "
+        "AND (group_rel.valid_from IS NULL OR group_rel.valid_from<=?) "
+        "AND (group_rel.valid_until IS NULL OR group_rel.valid_until>=?) "
+        "AND (class_rel.org_unit_id IS NULL OR class_rel.org_unit_id<>group_org.parent_id)",
+        (now, now, now, now),
+    )
+    invalid_relations = fetch_one(
+        "SELECT COUNT(*) AS invalid_count "
+        "FROM member_org_relations mor "
+        "LEFT JOIN org_units o ON o.id=mor.org_unit_id "
+        "WHERE o.id IS NULL OR o.is_active=0",
+    )
+    class_member_count = sum(row["member_count"] for row in options["classes"])
+    group_member_count = sum(row["member_count"] for row in options["groups"])
+    special_member_count = sum(
+        row["member_count"] for row in options["special_cohorts"]
+    )
+    mismatch_count = int((mismatch or {}).get("mismatch_count") or 0)
+    invalid_count = int((invalid_relations or {}).get("invalid_count") or 0)
+    return {
+        "source": "PLATFORM_ORG_RELATIONS",
+        "query_mode": "ORG_UNIT_ID",
+        "fallback_mode": "FAIL_CLOSED",
+        "class_count": len(options["classes"]),
+        "group_count": len(options["groups"]),
+        "special_cohort_count": len(options["special_cohorts"]),
+        "class_member_count": class_member_count,
+        "group_member_count": group_member_count,
+        "special_cohort_member_count": special_member_count,
+        "group_class_mismatch_count": mismatch_count,
+        "invalid_relation_count": invalid_count,
+        "passed": mismatch_count == 0 and invalid_count == 0,
     }
 
 
@@ -182,10 +268,16 @@ def roster_members(
             f"{phone_select}"
             "m.org_unit_id AS primary_org_id, o.name AS primary_org_name, "
             "m.company_name, mor.org_unit_id AS relation_org_id, "
-            "mor.relation_type, mor.is_primary "
+            "mor.relation_type, mor.is_primary, "
+            "relation_org.name AS relation_org_name, "
+            "relation_org.parent_id AS relation_parent_id, "
+            "relation_parent.name AS relation_parent_name "
             "FROM member_org_relations mor "
             "JOIN members m ON m.id=mor.member_id "
             "JOIN org_units o ON o.id=m.org_unit_id "
+            "JOIN org_units relation_org ON relation_org.id=mor.org_unit_id "
+            "LEFT JOIN org_units relation_parent "
+            "ON relation_parent.id=relation_org.parent_id "
             "WHERE mor.org_unit_id=? AND mor.relation_type=? "
             "AND (mor.valid_from IS NULL OR mor.valid_from<=?) "
             "AND (mor.valid_until IS NULL OR mor.valid_until>=?) "
@@ -202,6 +294,12 @@ def roster_members(
                     item["phone"] = decrypt_text(item.pop("phone_ciphertext"))
                 elif "phone_ciphertext" in item:
                     item.pop("phone_ciphertext")
+                if relation_type == "STUDY_GROUP":
+                    item["class_name"] = item.get("relation_parent_name") or ""
+                    item["group_name"] = item.get("relation_org_name") or ""
+                elif relation_type == "STUDY_CLASS":
+                    item["class_name"] = item.get("relation_org_name") or ""
+                    item["group_name"] = ""
                 results.append(item)
 
     return results
