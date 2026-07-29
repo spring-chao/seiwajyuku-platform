@@ -327,6 +327,16 @@ onMounted(load);
           <el-descriptions-item label="生产写入">
             已禁止
           </el-descriptions-item>
+          <el-descriptions-item label="工作簿班级分布" :span="2">
+            <el-tag
+              v-for="item in preflightResult.source.by_class"
+              :key="item.class_name"
+              class="result-tag"
+              type="success"
+            >
+              {{ item.class_name }} {{ item.count }} 人
+            </el-tag>
+          </el-descriptions-item>
           <el-descriptions-item label="生产现有直属班记录" :span="2">
             <el-tag
               v-for="item in preflightResult.production_existing_direct_class_records"
@@ -346,11 +356,59 @@ onMounted(load);
               {{ item.status }}：{{ item.count }}
             </el-tag>
           </el-descriptions-item>
+          <el-descriptions-item label="未匹配生产主档" :span="2">
+            <span v-if="!preflightResult.matching.no_production_match_by_class.length">
+              无
+            </span>
+            <template v-else>
+              <el-tag
+                v-for="item in preflightResult.matching.no_production_match_by_class"
+                :key="item.class_name"
+                class="result-tag"
+                type="warning"
+              >
+                {{ item.class_name }}：{{ item.count }} 人
+              </el-tag>
+            </template>
+          </el-descriptions-item>
+          <el-descriptions-item label="已匹配但待校正字段" :span="2">
+            <span v-if="!preflightResult.matching.matched_profile_fields_needing_reconciliation.length">
+              无
+            </span>
+            <template v-else>
+              <el-tag
+                v-for="item in preflightResult.matching.matched_profile_fields_needing_reconciliation"
+                :key="item.field"
+                class="result-tag"
+                type="info"
+              >
+                {{ item.field }}：{{ item.count }}
+              </el-tag>
+            </template>
+          </el-descriptions-item>
+          <el-descriptions-item label="直属班组织解析" :span="2">
+            <el-tag
+              v-for="item in preflightResult.organization.direct_class_status"
+              :key="item.class_name"
+              class="result-tag"
+              :type="item.action === 'REUSE' ? 'success' : 'warning'"
+            >
+              {{ item.class_name }}：{{ item.action }}
+            </el-tag>
+          </el-descriptions-item>
         </el-descriptions>
         <el-alert
           v-if="preflightResult.issues.length"
           class="result-alert"
           title="存在需人工复核的汇总项；系统不会自动写入"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+        <el-alert
+          v-if="preflightResult.issues.length"
+          class="result-alert"
+          :title="`复核原因：${preflightResult.issues.map(item => `${item.code} ${item.count}`).join('；')}`"
           type="warning"
           :closable="false"
           show-icon
