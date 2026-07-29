@@ -249,6 +249,7 @@ def _run_attendance_validation() -> dict:
 
 def _run_identity_validation() -> dict:
     now = datetime.now(UTC).replace(tzinfo=None)
+    active_from = now - timedelta(days=1)
     with transaction() as connection:
         execute(
             connection,
@@ -271,7 +272,7 @@ def _run_identity_validation() -> dict:
             "source_reference, created_at, updated_at) "
             "VALUES ('staging-person-1', 'institution-suzhou-operations', "
             "'ACTIVE', ?, 'mysql-staging-validation', ?, ?)",
-            (now, now, now),
+            (active_from, now, now),
         )
         execute(
             connection,
@@ -280,7 +281,7 @@ def _run_identity_validation() -> dict:
             "created_at, updated_at) "
             "VALUES (?, 'ops_center_learning', ?, 'ACTIVE', "
             "'mysql-staging-validation', ?, ?)",
-            (employment.lastrowid, now, now, now),
+            (employment.lastrowid, active_from, now, now),
         )
         execute(
             connection,
@@ -289,7 +290,7 @@ def _run_identity_validation() -> dict:
             "source_reference, created_at, updated_at) "
             "VALUES (?, 'r1', 'SUBTREE', ?, 'ACTIVE', "
             "'mysql-staging-validation', ?, ?)",
-            (employment.lastrowid, now, now, now),
+            (employment.lastrowid, active_from, now, now),
         )
         for user_id, person_id, appointment_key in (
             (2, "staging-volunteer-person", "volunteer_regional_service"),
@@ -319,7 +320,7 @@ def _run_identity_validation() -> dict:
                 (
                     person_id,
                     appointment_key,
-                    now,
+                    active_from,
                     now + timedelta(days=365),
                     now,
                     now,
