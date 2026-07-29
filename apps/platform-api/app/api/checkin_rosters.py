@@ -15,7 +15,11 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from app.core.settings import get_settings
 from app.db import transaction
 from app.services.audit import write_audit
-from app.services.checkin_rosters import roster_members, roster_options
+from app.services.checkin_rosters import (
+    roster_integrity_summary,
+    roster_members,
+    roster_options,
+)
 
 
 router = APIRouter(prefix="/api/v1/checkin-rosters", tags=["checkin-rosters"])
@@ -43,6 +47,15 @@ def options(
     _verify_api_key(x_api_key)
     data = roster_options(0)  # 0 = system access via API key
     return {"success": True, "data": data}
+
+
+@router.get("/validate")
+def validate(
+    x_api_key: str | None = Header(default=None),
+) -> dict:
+    """Return aggregate roster-source and organization integrity checks."""
+    _verify_api_key(x_api_key)
+    return {"success": True, "data": roster_integrity_summary()}
 
 
 @router.get("/members")
@@ -89,4 +102,27 @@ def members(
             purpose="签到系统名单匹配",
             after={"row_count": len(data), "fields": ["member_code", "phone"]},
         )
-    return {"success": True, "data": data}
+    scope_type = (
+        "STUDY_GROUP"
+        if group_org_unit_id
+        else "STUDY_CLASS"
+        if class_org_unit_id
+        else "SPECIAL_COHORT"
+        if special_cohort_org_unit_id
+        else "PRIMARY_REGION"
+    )
+    return {
+        "success": True,
+        "data": {
+            "members": data,
+            "member_count": len(data),
+            "source": "PLATFORM_ORG_RELATIONS",
+            "query_mode": "ORG_UNIT_ID",
+            "fallback_mode": "FAIL_CLOSED",
+            "scope": {
+                "relation_type": scope_type,
+                "org_unit_id": scope_id,
+                "class_org_unit_id": class_org_unit_id,
+            },
+        },
+    }

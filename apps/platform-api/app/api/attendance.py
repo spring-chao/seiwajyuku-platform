@@ -10,11 +10,13 @@ Endpoints:
 """
 from __future__ import annotations
 
+import hmac
 from datetime import UTC, datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_permission
+from app.core.settings import get_settings
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.attendance_scoring import (
@@ -48,12 +50,17 @@ def _org_is_allowed(
     )
 
 
-@router.post("/sync")
-def sync(
-    cursor: str | None = None,
-    user: dict = Depends(require_permission("attendance:sync")),
-) -> dict:
-    """Trigger incremental sync from signin system."""
+def _verify_signin_service_key(x_api_key: str | None) -> None:
+    expected = get_settings().signin_service_api_key
+    if not expected:
+        raise HTTPException(503, "签到服务密钥未配置")
+    if not x_api_key:
+        raise HTTPException(401, "缺少 X-API-Key 请求头")
+    if not hmac.compare_digest(x_api_key, expected):
+        raise HTTPException(403, "API Key 无效")
+
+
+def _run_sync(cursor: str | None, actor_user_id: int | None, action: str) -> dict:
     try:
         result = sync_from_signin(cursor)
     except ValueError as exc:
@@ -63,8 +70,8 @@ def sync(
     with transaction() as connection:
         write_audit(
             connection,
-            actor_user_id=user["id"],
-            action="attendance.sync.trigger",
+            actor_user_id=actor_user_id,
+            action=action,
             resource_type="attendance_sync_run",
             resource_id=str(result["run_id"]),
             after={
@@ -75,6 +82,25 @@ def sync(
             },
         )
     return {"success": True, "data": result}
+
+
+@router.post("/sync")
+def sync(
+    cursor: str | None = None,
+    user: dict = Depends(require_permission("attendance:sync")),
+) -> dict:
+    """Trigger incremental sync from signin system."""
+    return _run_sync(cursor, user["id"], "attendance.sync.trigger")
+
+
+@router.post("/sync/scheduled")
+def scheduled_sync(
+    cursor: str | None = None,
+    x_api_key: str | None = Header(default=None),
+) -> dict:
+    """Run the weekday timer pull using the signin service credential."""
+    _verify_signin_service_key(x_api_key)
+    return _run_sync(cursor, None, "attendance.sync.scheduled")
 
 
 @router.get("/event-groups")
