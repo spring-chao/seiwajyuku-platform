@@ -123,8 +123,8 @@ def build_preview(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
                 "code": DIRECT_CLASS_CODES[class_name],
                 "name": class_name,
                 "unit_type": "CLASS",
-                "parent_lookup": "苏州分中心",
-                "reuse_only_when": "同名 CLASS 且父级唯一为苏州分中心",
+                "parent_lookup": "unit_code:SZ_ROOT（苏州塾根节点）",
+                "reuse_only_when": "同名 CLASS 且父级唯一为 SZ_ROOT",
             }
             for class_name in DIRECT_CLASSES
         ],
@@ -148,7 +148,7 @@ def build_preview(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         },
         "write_gates": [
             "运行时工作簿 SHA256 必须与本次预览一致，否则停止。",
-            "苏州分中心、六个发展分中心及四个直属班级必须各自唯一解析；任何缺失或重名停止。",
+            "苏州塾根节点（SZ_ROOT）、六个发展分中心及四个直属班级必须各自唯一解析；任何缺失或重名停止。",
             "成员须按受保护的唯一标识与当前生产名册逐条匹配；不匹配记录只进差异清单。",
             "黄埔二班和先锋班各 1 名旧服务独有记录必须保留为差异，禁止自动停用或删除。",
             "生产写入前须生成事务内审计、写入前快照与可执行回滚清单，并取得当次明确确认。",
