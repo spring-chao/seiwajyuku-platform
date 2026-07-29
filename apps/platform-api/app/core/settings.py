@@ -32,6 +32,7 @@ class Settings:
     identity_authorization_enabled: bool = False
     identity_admin_writes_enabled: bool = False
     volunteer_service_invitations_enabled: bool = False
+    class_roster_org_import_enabled: bool = False
 
     @property
     def is_production(self) -> bool:
@@ -94,6 +95,9 @@ def get_settings() -> Settings:
         identity_admin_writes_enabled=_bool("IDENTITY_ADMIN_WRITES_ENABLED"),
         volunteer_service_invitations_enabled=_bool(
             "VOLUNTEER_SERVICE_INVITATIONS_ENABLED"
+        ),
+        class_roster_org_import_enabled=_bool(
+            "CLASS_ROSTER_ORG_IMPORT_ENABLED"
         ),
         signin_api_base_url=os.getenv("SIGNIN_API_BASE_URL", "").strip(),
         signin_service_api_key=os.getenv("SIGNIN_SERVICE_API_KEY", "").strip(),
