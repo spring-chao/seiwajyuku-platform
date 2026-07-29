@@ -1,11 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage, type FormInstance, type FormRules } from "element-plus";
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules,
+  type UploadFile,
+  type UploadUserFile
+} from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
 import {
   createMember,
   getMembers,
   getOrgUnits,
+  previewDirectClassWorkbook,
+  type DirectClassPreflight,
   type Member,
   type OrgUnit
 } from "@/api/seiwajyuku";
@@ -15,6 +24,10 @@ defineOptions({ name: "MemberManagement" });
 const loading = ref(false);
 const saving = ref(false);
 const dialogVisible = ref(false);
+const preflightVisible = ref(false);
+const preflightLoading = ref(false);
+const preflightFiles = ref<UploadUserFile[]>([]);
+const preflightResult = ref<DirectClassPreflight>();
 const selectedOrg = ref("");
 const keyword = ref("");
 const rows = ref<Member[]>([]);
@@ -168,6 +181,39 @@ async function submit() {
   }
 }
 
+function selectPreflightFile(file: UploadFile) {
+  preflightFiles.value = [file];
+  preflightResult.value = undefined;
+  return false;
+}
+
+async function runDirectClassPreflight() {
+  const workbook = preflightFiles.value[0]?.raw;
+  if (!workbook) {
+    ElMessage.warning("请先选择直属班级名单 .xlsx 文件");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      "文件只在服务器内存中用于受保护匹配，结果只返回汇总数量；不会创建、修改或停用任何学员、组织或关系。",
+      "确认进行直属四班只读预检",
+      { confirmButtonText: "开始只读预检", cancelButtonText: "取消", type: "warning" }
+    );
+  } catch {
+    return;
+  }
+  preflightLoading.value = true;
+  try {
+    const result = await previewDirectClassWorkbook(workbook);
+    preflightResult.value = result.data;
+    ElMessage.success("只读预检已完成，未写入生产数据");
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    preflightLoading.value = false;
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -179,9 +225,14 @@ onMounted(load);
         <h1>学员管理</h1>
         <span>手机号加密保存；列表、普通查询和后续任务默认只显示脱敏号码。</span>
       </div>
-      <el-button v-if="canManage" type="primary" size="large" @click="openCreate">
-        新增学员
-      </el-button>
+      <div class="head-actions" v-if="canManage">
+        <el-button size="large" @click="preflightVisible = true">
+          直属四班预检
+        </el-button>
+        <el-button type="primary" size="large" @click="openCreate">
+          新增学员
+        </el-button>
+      </div>
     </section>
 
     <el-alert
@@ -236,6 +287,80 @@ onMounted(load);
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-dialog
+      v-model="preflightVisible"
+      title="直属四班生产前只读预检"
+      width="860px"
+      class="preflight-dialog"
+    >
+      <el-alert
+        title="本操作不创建或修改任何生产数据"
+        description="工作簿仅在服务器内存中解析；手机号仅用于受保护的匹配，界面只显示汇总数量。"
+        type="success"
+        :closable="false"
+        show-icon
+      />
+      <el-upload
+        class="preflight-upload"
+        accept=".xlsx"
+        :auto-upload="false"
+        :limit="1"
+        :file-list="preflightFiles"
+        :on-change="selectPreflightFile"
+      >
+        <el-button>选择直属班级名单 .xlsx</el-button>
+      </el-upload>
+      <el-button
+        type="primary"
+        :loading="preflightLoading"
+        @click="runDirectClassPreflight"
+      >
+        生成只读预检报告
+      </el-button>
+
+      <div v-if="preflightResult" class="preflight-result">
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="在册直属学员">
+            {{ preflightResult.source.active_direct_member_count }} 人
+          </el-descriptions-item>
+          <el-descriptions-item label="生产写入">
+            已禁止
+          </el-descriptions-item>
+          <el-descriptions-item label="生产现有直属班记录" :span="2">
+            <el-tag
+              v-for="item in preflightResult.production_existing_direct_class_records"
+              :key="item.class_name"
+              class="result-tag"
+            >
+              {{ item.class_name }} {{ item.count }} 人
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="匹配结果" :span="2">
+            <el-tag
+              v-for="item in preflightResult.matching.summary"
+              :key="item.status"
+              class="result-tag"
+              type="info"
+            >
+              {{ item.status }}：{{ item.count }}
+            </el-tag>
+          </el-descriptions-item>
+        </el-descriptions>
+        <el-alert
+          v-if="preflightResult.issues.length"
+          class="result-alert"
+          title="存在需人工复核的汇总项；系统不会自动写入"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+        <p class="form-hint">{{ preflightResult.write_gates[0] }}</p>
+      </div>
+      <template #footer>
+        <el-button @click="preflightVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="dialogVisible"
@@ -408,6 +533,10 @@ onMounted(load);
 .page-head span {
   color: #cbe9d8;
 }
+.head-actions {
+  display: flex;
+  gap: 12px;
+}
 .toolbar {
   display: grid;
   grid-template-columns: 220px minmax(260px, 1fr) auto;
@@ -437,6 +566,20 @@ onMounted(load);
   margin: -4px 0 20px;
   color: var(--el-text-color-secondary);
 }
+.preflight-upload {
+  margin: 18px 0 12px;
+}
+.preflight-result {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+.result-tag {
+  margin: 0 8px 6px 0;
+}
+.result-alert {
+  margin-top: 4px;
+}
 :global(.member-dialog) {
   max-width: calc(100vw - 40px);
 }
@@ -444,6 +587,9 @@ onMounted(load);
   .page-head {
     align-items: flex-start;
     gap: 20px;
+  }
+  .head-actions {
+    flex-wrap: wrap;
   }
   .toolbar,
   .form-grid {

@@ -177,6 +177,37 @@ export type OrgUnit = {
   parent_id?: string;
 };
 
+export type DirectClassPreflight = {
+  mode: "READ_ONLY_PRODUCTION_PREFLIGHT";
+  automatic_production_write_allowed: false;
+  source_name: string;
+  source_sha256: string;
+  source: {
+    active_direct_member_count: number;
+    by_class: { class_name: string; count: number }[];
+    sheet_name: string;
+  };
+  organization: {
+    root_unit_code: string;
+    root_match_count: number;
+    development_center_match_counts: { center_name: string; match_count: number }[];
+    direct_class_status: {
+      class_name: string;
+      active_class_matches: number;
+      correct_parent_matches: number;
+      action: "REUSE" | "CREATE_OR_RESOLVE";
+    }[];
+  };
+  matching: {
+    summary: { status: string; count: number }[];
+    no_production_match_by_class: { class_name: string; count: number }[];
+    matched_profile_fields_needing_reconciliation: { field: string; count: number }[];
+  };
+  production_existing_direct_class_records: { class_name: string; count: number }[];
+  issues: { code: string; count: number }[];
+  write_gates: string[];
+};
+
 export type FollowupAssignee = {
   id: number;
   username: string;
@@ -295,6 +326,20 @@ export const getOrgUnits = () =>
     "get",
     "/api/v1/org-units/tree"
   );
+
+export const previewDirectClassWorkbook = (workbook: File) => {
+  const data = new FormData();
+  data.append("workbook", workbook);
+  return http.request<{ success: boolean; data: DirectClassPreflight }>(
+    "post",
+    "/api/v1/direct-class-preflight/preview",
+    {
+      data,
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 60000
+    }
+  );
+};
 
 export const getFollowupAssignees = (orgUnitId?: string) =>
   http.request<{ success: boolean; data: FollowupAssignee[] }>(
