@@ -13,6 +13,7 @@ import {
   createMember,
   getMembers,
   getOrgUnits,
+  applyDirectClassWorkbook,
   previewDirectClassWorkbook,
   type DirectClassPreflight,
   type Member,
@@ -185,6 +186,16 @@ function selectPreflightFile(file: UploadFile) {
   preflightFiles.value = [file];
   preflightResult.value = undefined;
   return false;
+}
+
+async function applyDirectClassImport() {
+  const workbook = preflightFiles.value[0]?.raw;
+  if (!workbook || !preflightResult.value) return;
+  try { await ElMessageBox.confirm("将按已确认工作簿写入直属四班：8 名新建、115 名更新、430 条组织关系和 4 条备注。指纹或实时预检不符将自动停止并回滚。", "执行直属四班生产导入", { confirmButtonText: "确认执行", cancelButtonText: "取消", type: "warning" }); } catch { return; }
+  preflightLoading.value = true;
+  try { const result = await applyDirectClassWorkbook(workbook); ElMessage.success(`导入完成：新建 ${result.data.created}，更新 ${result.data.updated}，关系 ${result.data.relations}`); await load(); }
+  catch (error) { ElMessage.error(errorText(error)); }
+  finally { preflightLoading.value = false; }
 }
 
 async function runDirectClassPreflight() {
@@ -416,6 +427,7 @@ onMounted(load);
         <p class="form-hint">{{ preflightResult.write_gates[0] }}</p>
       </div>
       <template #footer>
+        <el-button v-if="preflightResult && !preflightResult.issues.length" type="danger" :loading="preflightLoading" @click="applyDirectClassImport">执行确认导入</el-button>
         <el-button @click="preflightVisible = false">关闭</el-button>
       </template>
     </el-dialog>

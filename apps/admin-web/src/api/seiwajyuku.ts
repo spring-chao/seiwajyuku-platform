@@ -341,6 +341,14 @@ export const previewDirectClassWorkbook = (workbook: File) => {
   );
 };
 
+export const applyDirectClassWorkbook = (workbook: File) => {
+  const data = new FormData();
+  data.append("workbook", workbook);
+  return http.request<{ success: boolean; data: { batch_id: number; created: number; updated: number; relations: number; notes: number } }>(
+    "post", "/api/v1/direct-class-import/apply", { data, headers: { "Content-Type": "multipart/form-data" }, timeout: 120000 }
+  );
+};
+
 export const getFollowupAssignees = (orgUnitId?: string) =>
   http.request<{ success: boolean; data: FollowupAssignee[] }>(
     "get",
