@@ -27,6 +27,16 @@ from app.services.iam import seed_iam
 
 settings = get_settings()
 settings.assert_safe_startup()
+READ_ONLY_EPHEMERAL_POST_PATHS = frozenset({
+    "/api/v1/direct-class-preflight/preview",
+})
+
+
+def read_only_request_allowed(method: str, path: str) -> bool:
+    """Allow only explicitly audited, memory-only previews during production read-only mode."""
+    return method in {"GET", "HEAD", "OPTIONS"} or (
+        method == "POST" and path in READ_ONLY_EPHEMERAL_POST_PATHS
+    )
 
 
 @asynccontextmanager
@@ -63,7 +73,9 @@ app.add_middleware(
 
 @app.middleware("http")
 async def deployment_read_only_guard(request: Request, call_next):
-    if settings.deployment_read_only and request.method not in {"GET", "HEAD", "OPTIONS"}:
+    if settings.deployment_read_only and not read_only_request_allowed(
+        request.method, request.url.path
+    ):
         return JSONResponse(
             status_code=403,
             content={

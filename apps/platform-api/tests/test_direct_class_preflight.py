@@ -3,9 +3,18 @@ from __future__ import annotations
 import unittest
 
 from app.services.direct_class_preflight import DEVELOPMENT_CENTERS, build_preflight
+from app.main import read_only_request_allowed
 
 
 class DirectClassProductionPreflightTests(unittest.TestCase):
+    def test_read_only_mode_allows_only_the_ephemeral_preflight_post(self) -> None:
+        self.assertTrue(
+            read_only_request_allowed("POST", "/api/v1/direct-class-preflight/preview")
+        )
+        self.assertTrue(read_only_request_allowed("GET", "/api/v1/members"))
+        self.assertFalse(read_only_request_allowed("POST", "/api/v1/members"))
+        self.assertFalse(read_only_request_allowed("PUT", "/api/v1/metric-period-values"))
+
     def test_preflight_matches_only_hashed_identifiers_and_stays_read_only(self) -> None:
         org_units = [
             {"id": "org-suzhou", "unit_code": "SZ_ROOT", "name": "苏州塾", "unit_type": "ROOT", "parent_id": None, "is_active": 1},
