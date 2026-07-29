@@ -54,6 +54,34 @@ class DirectClassPreviewTests(unittest.TestCase):
             {"class_name": "神仙班", "policy": "CONTRIBUTOR_FLEXIBLE_NO_REQUIREMENTS"},
             preview["class_policies"],
         )
+        self.assertEqual(
+            preview["relationship_plan"],
+            {
+                "PRIMARY_REGION": 2,
+                "DEVELOPMENT_RELATION": 2,
+                "STUDY_CLASS": 2,
+                "STUDY_GROUP": 0,
+                "total": 6,
+            },
+        )
+
+    def test_preview_proposes_only_normal_class_groups(self) -> None:
+        preview = build_preview([
+            {"是否在册": "在册", "所在分中心": "园区分中心", "所属班级": "黄埔一班", "所属小组": "稻米组"},
+            {"是否在册": "在册", "所在分中心": "园区分中心", "所属班级": "黄埔二班", "所属小组": "目前不读书"},
+            {"是否在册": "在册", "所在分中心": "园区分中心", "所属班级": "先锋班", "所属小组": "幸福奋进组"},
+        ])
+        self.assertEqual(
+            preview["group_candidates"],
+            [{
+                "class_name": "黄埔一班",
+                "group_name": "稻米组",
+                "count": 1,
+                "target_relation": "STUDY_GROUP",
+            }],
+        )
+        self.assertEqual(preview["relationship_plan"]["STUDY_GROUP"], 1)
+        self.assertEqual(preview["relationship_plan"]["total"], 10)
 
 
 if __name__ == "__main__":
