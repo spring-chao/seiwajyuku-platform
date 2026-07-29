@@ -14,6 +14,7 @@ sys.path.insert(0, str(API_ROOT))
 from app.core.settings import get_settings  # noqa: E402
 from app.db import execute, fetch_one, transaction  # noqa: E402
 from app.migrations import run_migrations  # noqa: E402
+from app.services.followup_invitations import create_invitation  # noqa: E402
 from app.services.followups import create_task  # noqa: E402
 from app.services.iam import create_user, seed_iam, user_context  # noqa: E402
 from app.services.identity_admin import (  # noqa: E402
@@ -256,6 +257,41 @@ def _ensure_invitation(
     return task_id, int(invitation["id"])
 
 
+def _ensure_companion_invitation(
+    primary_user_id: int, companion_user_id: int, member_id: int
+) -> tuple[int, int]:
+    """Pre-seed an independent companion scenario for first-login verification."""
+    existing = fetch_one(
+        "SELECT t.id AS task_id, i.id AS invitation_id "
+        "FROM followup_tasks t JOIN followup_service_invitations i ON i.task_id=t.id "
+        "WHERE t.member_id=? AND t.created_by=? "
+        "AND i.invitation_type='COMPANION' AND i.invited_user_id=? "
+        "ORDER BY i.id DESC LIMIT 1",
+        (member_id, primary_user_id, companion_user_id),
+    )
+    if existing:
+        return int(existing["task_id"]), int(existing["invitation_id"])
+    now = datetime.now(UTC)
+    task_id = create_task(
+        primary_user_id,
+        member_id=member_id,
+        task_type="CARE",
+        service_purpose="体验同行志工的最小必要服务记录权限",
+        assigned_user_id=primary_user_id,
+        due_at=(now + timedelta(days=7)).isoformat(),
+    )
+    invitation_id = create_invitation(
+        task_id,
+        primary_user_id,
+        invited_user_id=companion_user_id,
+        invitation_type="COMPANION",
+        invitation_message="邀请您同行协力，共同温暖地完成这项服务",
+        proposed_due_at=(now + timedelta(days=7)).isoformat(),
+        valid_until=(now + timedelta(days=3)).isoformat(),
+    )
+    return task_id, invitation_id
+
+
 def main() -> int:
     _assert_safe_target()
     for _, _, environment_name in PILOT_USERS.values():
@@ -293,6 +329,9 @@ def main() -> int:
     task_id, invitation_id = _ensure_invitation(
         users["ops"], users["primary"], member_id
     )
+    companion_task_id, companion_invitation_id = _ensure_companion_invitation(
+        users["primary"], users["companion"], member_id
+    )
     contexts = {key: user_context(user_id) for key, user_id in users.items()}
     if "followups:manage" not in contexts["ops"]["permissions"]:
         raise AssertionError("试点专职账号缺少服务事项权限")
@@ -321,6 +360,8 @@ def main() -> int:
                 "member_id": member_id,
                 "task_id": task_id,
                 "invitation_id": invitation_id,
+                "companion_task_id": companion_task_id,
+                "companion_invitation_id": companion_invitation_id,
                 "synthetic_data_only": True,
             },
             ensure_ascii=False,
