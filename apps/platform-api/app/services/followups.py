@@ -34,7 +34,13 @@ def list_assignees(actor_user_id: int, org_unit_id: str | None = None) -> list[d
     return result
 
 
-def _task_for_actor(task_id: int, user_id: int, *, assignee_required: bool = False) -> dict:
+def _task_for_actor(
+    task_id: int,
+    user_id: int,
+    *,
+    assignee_required: bool = False,
+    participant_required: bool = False,
+) -> dict:
     task = fetch_one(
         "SELECT t.*, m.name AS member_name, m.phone_masked, m.company_name "
         "FROM followup_tasks t JOIN members m ON m.id=t.member_id WHERE t.id=?",
@@ -45,8 +51,16 @@ def _task_for_actor(task_id: int, user_id: int, *, assignee_required: bool = Fal
     allowed = accessible_org_ids(user_id)
     if allowed is not None and task["org_unit_id"] not in allowed:
         raise PermissionError("跟进任务不在组织授权范围内")
-    if assignee_required and task["assigned_user_id"] != user_id:
-        raise PermissionError("只有当前任务责任人可以记录跟进结果")
+    if assignee_required:
+        from app.services.followup_invitations import is_primary_assignee
+
+        if not is_primary_assignee(task_id, user_id):
+            raise PermissionError("只有已接受邀请的担当人可以完成服务事项")
+    if participant_required:
+        from app.services.followup_invitations import can_participate
+
+        if not can_participate(task_id, user_id):
+            raise PermissionError("接受服务邀请后才可以记录服务过程")
     return task
 
 
@@ -59,6 +73,9 @@ def create_task(
     assigned_user_id: int,
     due_at: str | None,
     confidentiality_level: str = "ASSIGNEE",
+    invitation_mode: bool = False,
+    invitation_message: str | None = None,
+    invitation_valid_until: str | None = None,
 ) -> int:
     service_purpose = service_purpose.strip()
     if len(service_purpose) < 4:
@@ -74,6 +91,13 @@ def create_task(
         raise ValueError("任务责任人没有该学长所属组织的数据权限")
     if confidentiality_level not in {"ASSIGNEE", "ORG_MANAGERS"}:
         raise ValueError("未知保密级别")
+    if invitation_mode and not invitation_valid_until:
+        raise ValueError("服务邀请必须设置有效期")
+    if invitation_mode:
+        from app.services.followup_invitations import invitation_capabilities
+
+        if not invitation_capabilities()["enabled"]:
+            raise PermissionError("志工服务邀请功能尚未启用")
     now = datetime.now(UTC).isoformat()
     with transaction() as connection:
         cursor = execute(
@@ -88,6 +112,24 @@ def create_task(
             ),
         )
         task_id = cursor.lastrowid
+        if invitation_mode:
+            from app.services.followup_invitations import insert_invitation
+
+            insert_invitation(
+                connection,
+                task={
+                    "id": task_id,
+                    "org_unit_id": member["org_unit_id"],
+                    "created_by": actor_user_id,
+                    "assigned_user_id": assigned_user_id,
+                },
+                actor_user_id=actor_user_id,
+                invited_user_id=assigned_user_id,
+                invitation_type="ASSIGNEE",
+                invitation_message=invitation_message,
+                proposed_due_at=due_at,
+                valid_until=invitation_valid_until or "",
+            )
         write_audit(
             connection,
             actor_user_id=actor_user_id,
@@ -122,11 +164,21 @@ def list_tasks(user_id: int, status: str | None = None) -> list[dict[str, Any]]:
     allowed = accessible_org_ids(user_id)
     if allowed is not None:
         rows = [row for row in rows if row["org_unit_id"] in allowed]
-    return [
-        {**row, "can_record": row["assigned_user_id"] == user_id}
-        for row in rows
-        if row["confidentiality_level"] != "ASSIGNEE" or row["assigned_user_id"] == user_id
-    ]
+    from app.services.followup_invitations import can_participate, is_primary_assignee
+
+    result = []
+    for row in rows:
+        participant = can_participate(row["id"], user_id)
+        if row["confidentiality_level"] == "ASSIGNEE" and not participant:
+            continue
+        result.append(
+            {
+                **row,
+                "can_record": participant,
+                "can_close": is_primary_assignee(row["id"], user_id),
+            }
+        )
+    return result
 
 
 def add_followup_record(
@@ -142,7 +194,7 @@ def add_followup_record(
     next_action: str | None,
     next_followup_at: str | None,
 ) -> int:
-    task = _task_for_actor(task_id, actor_user_id, assignee_required=True)
+    task = _task_for_actor(task_id, actor_user_id, participant_required=True)
     if task["status"] not in OPEN_STATES:
         raise ValueError("已关闭任务不能追加跟进记录")
     channel = channel.upper()
@@ -198,7 +250,7 @@ def add_visit_record(
     next_action: str | None,
     next_followup_at: str | None,
 ) -> int:
-    task = _task_for_actor(task_id, actor_user_id, assignee_required=True)
+    task = _task_for_actor(task_id, actor_user_id, participant_required=True)
     if task["status"] not in OPEN_STATES:
         raise ValueError("已关闭任务不能追加走访记录")
     if not purpose.strip() or not objective_facts.strip():

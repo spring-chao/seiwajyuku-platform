@@ -81,6 +81,8 @@ jobs:
       FIELD_ENCRYPTION_KEY: ci-staging-field-key
       DEPLOYMENT_READ_ONLY: "false"
       ALLOW_PRODUCTION_MUTATIONS: "false"
+      IDENTITY_AUTHORIZATION_ENABLED: "true"
+      VOLUNTEER_SERVICE_INVITATIONS_ENABLED: "true"
       PYTHONPATH: apps/platform-api
     steps:
       - uses: actions/checkout@v7
@@ -109,9 +111,9 @@ jobs:
         run: |
           source_counts="$(docker exec "${{ job.services.mysql.id }}" \
             mysql -N -uroot -pci-root-password seiwajyuku_staging \
-            -e "SELECT CONCAT((SELECT COUNT(*) FROM schema_migrations),':',(SELECT COUNT(*) FROM member_org_relations),':',(SELECT COUNT(*) FROM attendance_score_records));")"
+            -e "SELECT CONCAT((SELECT COUNT(*) FROM schema_migrations),':',(SELECT COUNT(*) FROM member_org_relations),':',(SELECT COUNT(*) FROM attendance_score_records),':',(SELECT COUNT(*) FROM operating_institutions));")"
           restore_counts="$(docker exec "${{ job.services.mysql.id }}" \
             mysql -N -uroot -pci-root-password seiwajyuku_restore \
-            -e "SELECT CONCAT((SELECT COUNT(*) FROM schema_migrations),':',(SELECT COUNT(*) FROM member_org_relations),':',(SELECT COUNT(*) FROM attendance_score_records));")"
-          test "$source_counts" = "10:4:3"
+            -e "SELECT CONCAT((SELECT COUNT(*) FROM schema_migrations),':',(SELECT COUNT(*) FROM member_org_relations),':',(SELECT COUNT(*) FROM attendance_score_records),':',(SELECT COUNT(*) FROM operating_institutions));")"
+          test "$source_counts" = "12:4:3:4"
           test "$restore_counts" = "$source_counts"

@@ -12,6 +12,15 @@ from app.services.followups import (
     list_assignees,
     list_tasks,
 )
+from app.services.followup_invitations import (
+    accept_invitation,
+    create_invitation,
+    invitation_capabilities,
+    list_my_invitations,
+    mark_unavailable,
+    request_adjustment,
+    respond_to_adjustment,
+)
 
 
 router = APIRouter(prefix="/api/v1/followups", tags=["followups"])
@@ -24,6 +33,9 @@ class TaskPayload(BaseModel):
     assigned_user_id: int
     due_at: str | None = None
     confidentiality_level: str = "ASSIGNEE"
+    invitation_mode: bool = False
+    invitation_message: str | None = Field(default=None, max_length=1000)
+    invitation_valid_until: str | None = None
 
 
 class RecordPayload(BaseModel):
@@ -53,6 +65,28 @@ class VisitPayload(BaseModel):
 
 class ClosePayload(BaseModel):
     closure_note: str = Field(min_length=4, max_length=1000)
+
+
+class InvitationPayload(BaseModel):
+    invited_user_id: int
+    invitation_type: str
+    invitation_message: str | None = Field(default=None, max_length=1000)
+    proposed_due_at: str | None = None
+    valid_until: str
+
+
+class InvitationResponsePayload(BaseModel):
+    response_note: str | None = Field(default=None, max_length=1000)
+
+
+class AdjustmentRequestPayload(BaseModel):
+    requested_due_at: str
+    response_note: str = Field(min_length=2, max_length=1000)
+
+
+class AdjustmentResponsePayload(BaseModel):
+    proposed_due_at: str
+    response_note: str | None = Field(default=None, max_length=1000)
 
 
 def _call(function, *args, **kwargs):
@@ -87,6 +121,75 @@ def assignee_list(
     user: dict = Depends(require_permission("followups:manage")),
 ) -> dict:
     return {"success": True, "data": _call(list_assignees, user["id"], org_unit_id)}
+
+
+@router.get("/capabilities")
+def capabilities(
+    _: dict = Depends(require_permission("followups:manage")),
+) -> dict:
+    return {"success": True, "data": invitation_capabilities()}
+
+
+@router.get("/invitations/mine")
+def invitation_list(
+    user: dict = Depends(require_permission("followups:manage")),
+) -> dict:
+    return {"success": True, "data": list_my_invitations(user["id"])}
+
+
+@router.post("/tasks/{task_id}/invitations")
+def invitation_create(
+    task_id: int,
+    payload: InvitationPayload,
+    user: dict = Depends(require_permission("followups:manage")),
+) -> dict:
+    invitation_id = _call(
+        create_invitation, task_id, user["id"], **payload.model_dump()
+    )
+    return {"success": True, "data": {"id": invitation_id}}
+
+
+@router.post("/invitations/{invitation_id}/accept")
+def invitation_accept(
+    invitation_id: int,
+    payload: InvitationResponsePayload,
+    user: dict = Depends(require_permission("followups:manage")),
+) -> dict:
+    _call(accept_invitation, invitation_id, user["id"], payload.response_note)
+    return {"success": True, "data": {"id": invitation_id, "status": "ACCEPTED"}}
+
+
+@router.post("/invitations/{invitation_id}/unavailable")
+def invitation_unavailable(
+    invitation_id: int,
+    payload: InvitationResponsePayload,
+    user: dict = Depends(require_permission("followups:manage")),
+) -> dict:
+    _call(mark_unavailable, invitation_id, user["id"], payload.response_note or "")
+    return {"success": True, "data": {"id": invitation_id, "status": "UNAVAILABLE"}}
+
+
+@router.post("/invitations/{invitation_id}/adjustment-request")
+def invitation_adjustment_request(
+    invitation_id: int,
+    payload: AdjustmentRequestPayload,
+    user: dict = Depends(require_permission("followups:manage")),
+) -> dict:
+    _call(request_adjustment, invitation_id, user["id"], **payload.model_dump())
+    return {
+        "success": True,
+        "data": {"id": invitation_id, "status": "ADJUSTMENT_REQUESTED"},
+    }
+
+
+@router.post("/invitations/{invitation_id}/adjustment-response")
+def invitation_adjustment_response(
+    invitation_id: int,
+    payload: AdjustmentResponsePayload,
+    user: dict = Depends(require_permission("followups:manage")),
+) -> dict:
+    _call(respond_to_adjustment, invitation_id, user["id"], **payload.model_dump())
+    return {"success": True, "data": {"id": invitation_id, "status": "PENDING"}}
 
 
 @router.post("/tasks/{task_id}/records")

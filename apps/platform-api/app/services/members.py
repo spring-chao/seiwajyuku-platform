@@ -13,9 +13,6 @@ from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
 
 
-DIRECT_PROFILE_ROLES = {"system_admin", "operations_admin", "regional_manager", "class_counselor", "group_leader"}
-
-
 def _as_utc(value: str | datetime) -> datetime:
     # SQLite returns timestamps as strings, while PyMySQL returns DATETIME
     # columns as datetime objects. Contact access must support both drivers.
@@ -255,6 +252,10 @@ def reveal_contact(
     now = datetime.now(UTC)
     if task["assigned_user_id"] != actor_user_id or task["status"] not in {"OPEN", "IN_PROGRESS"}:
         raise PermissionError("只有当前有效任务责任人可以查看")
+    from app.services.followup_invitations import is_primary_assignee
+
+    if not is_primary_assignee(task_id, actor_user_id):
+        raise PermissionError("接受服务邀请后才可以查看本次联系信息")
     if task["due_at"] and _as_utc(task["due_at"]) < now:
         raise PermissionError("联系任务已过期")
     allowed = accessible_org_ids(actor_user_id)
@@ -287,7 +288,7 @@ def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
     完整企业敏感资料须经过 get_member_enterprise_detail（用途+审计）。
     """
     user = user_context(actor_user_id)
-    if not user or not DIRECT_PROFILE_ROLES.intersection(user["roles"]):
+    if not user or "members:detail_view" not in user["permissions"]:
         raise PermissionError("当前角色不能查看学长资料")
     member = fetch_one(
         "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, "
@@ -323,13 +324,13 @@ def get_member_enterprise_detail(
 ) -> dict[str, Any]:
     """返回企业敏感资料，不返回完整手机号，必须填写用途并写审计。
 
-    仅 operations_admin 和 system_admin 可调用。
+    仅具有 members:enterprise_view 用途权限的岗位可调用。
     """
     purpose = purpose.strip()
     if len(purpose) < 4:
         raise ValueError("必须填写查看用途（至少4个字符）")
     user = user_context(actor_user_id)
-    if not user or not {"system_admin", "operations_admin"}.intersection(user["roles"]):
+    if not user or "members:enterprise_view" not in user["permissions"]:
         raise PermissionError("当前角色不能查看完整企业资料")
     member = fetch_one(
         "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, m.phone_masked, "
@@ -401,7 +402,7 @@ def create_sensitive_export(user_id: int, purpose: str, second_confirmed: bool) 
     if not second_confirmed or len(purpose) < 6:
         raise ValueError("敏感导出必须填写用途并完成二次确认")
     user = user_context(user_id)
-    if not user or "data_security_admin" not in user["roles"]:
+    if not user or "exports:sensitive" not in user["permissions"]:
         raise PermissionError("仅数据安全管理员可执行敏感导出")
     rows = list_members(user_id)
     output = io.StringIO()
@@ -451,7 +452,7 @@ def create_sensitive_export(user_id: int, purpose: str, second_confirmed: bool) 
 
 def download_sensitive_export(job_id: int, user_id: int) -> str:
     user = user_context(user_id)
-    if not user or "data_security_admin" not in user["roles"]:
+    if not user or "exports:sensitive" not in user["permissions"]:
         raise PermissionError("仅数据安全管理员可下载敏感导出")
     job = fetch_one("SELECT * FROM sensitive_export_jobs WHERE id=?", (job_id,))
     if not job or job["actor_user_id"] != user_id or job["status"] != "READY":

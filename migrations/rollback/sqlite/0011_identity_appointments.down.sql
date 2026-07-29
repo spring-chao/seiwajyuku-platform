@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS technical_admin_assignments;
+DROP TABLE IF EXISTS volunteer_appointments;
+DROP TABLE IF EXISTS employee_service_responsibilities;
+DROP TABLE IF EXISTS operations_position_assignments;
+DROP TABLE IF EXISTS operations_employments;
+DROP TABLE IF EXISTS member_membership_periods;
+DROP TABLE IF EXISTS member_identities;
+DROP TABLE IF EXISTS account_person_links;
+DROP TABLE IF EXISTS person_profiles;
+DROP TABLE IF EXISTS institution_org_links;
+DROP TABLE IF EXISTS operating_institutions;

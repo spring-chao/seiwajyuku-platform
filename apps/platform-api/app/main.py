@@ -12,6 +12,7 @@ from app.api.attendance import router as attendance_router
 from app.api.checkin_rosters import router as checkin_rosters_router
 from app.api.followups import router as followups_router
 from app.api.iam import router as iam_router
+from app.api.identity_admin import router as identity_admin_router
 from app.api.integrations import router as integrations_router
 from app.api.imports import router as imports_router
 from app.api.plans import router as plans_router
@@ -74,6 +75,7 @@ async def deployment_read_only_guard(request: Request, call_next):
 app.include_router(system_router)
 app.include_router(auth_router)
 app.include_router(iam_router)
+app.include_router(identity_admin_router)
 app.include_router(imports_router)
 app.include_router(plans_router)
 app.include_router(renewals_router)

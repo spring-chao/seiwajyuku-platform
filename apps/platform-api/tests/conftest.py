@@ -14,4 +14,7 @@ test_database = Path(tempfile.gettempdir()) / (
 )
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{test_database.as_posix()}")
 os.environ.setdefault("ALLOW_PRODUCTION_MUTATIONS", "false")
+os.environ.setdefault("IDENTITY_AUTHORIZATION_ENABLED", "true")
+os.environ.setdefault("IDENTITY_ADMIN_WRITES_ENABLED", "true")
+os.environ.setdefault("VOLUNTEER_SERVICE_INVITATIONS_ENABLED", "true")
 os.environ.setdefault("BOOTSTRAP_ADMIN_PASSWORD", "test-admin-password")
