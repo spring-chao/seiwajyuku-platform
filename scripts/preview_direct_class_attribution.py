@@ -18,6 +18,12 @@ from openpyxl import load_workbook
 
 
 DIRECT_CLASSES = ("黄埔一班", "黄埔二班", "先锋班", "神仙班")
+CLASS_POLICIES = {
+    "黄埔一班": "STANDARD_STUDY_CLASS",
+    "黄埔二班": "STANDARD_STUDY_CLASS",
+    "先锋班": "FLEXIBLE_NO_REQUIREMENTS",
+    "神仙班": "CONTRIBUTOR_FLEXIBLE_NO_REQUIREMENTS",
+}
 DEVELOPMENT_CENTERS = (
     "园区分中心",
     "昆山分中心",
@@ -69,7 +75,7 @@ def build_preview(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
 
     # These are status/duplicate labels, not reliable group nodes. Preserve the
     # original value in the member note rather than losing it or creating a group.
-    note_values = {"先锋班", "目前不读书"}
+    note_values = {"目前不读书"}
     notes_to_preserve = [
         {
             "class_name": class_name,
@@ -78,7 +84,7 @@ def build_preview(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
             "count": count,
         }
         for (class_name, group_name), count in sorted(groups.items())
-        if group_name in note_values
+        if class_name == "先锋班" or group_name in note_values
     ]
 
     return {
@@ -86,6 +92,10 @@ def build_preview(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         "automatic_production_write_allowed": False,
         "direct_class_member_count": len(active_rows),
         "classes": _counter_rows(classes, key="class_name"),
+        "class_policies": [
+            {"class_name": class_name, "policy": CLASS_POLICIES[class_name]}
+            for class_name in DIRECT_CLASSES
+        ],
         "development_centers": _counter_rows(centers, key="center"),
         "class_center_matrix": [
             {"class_name": class_name, "center": center, "count": count}

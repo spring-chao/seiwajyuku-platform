@@ -27,9 +27,10 @@ class DirectClassPreviewTests(unittest.TestCase):
         )
         self.assertEqual(preview["issues"], [])
 
-    def test_preview_moves_non_group_values_to_member_notes(self) -> None:
+    def test_preview_moves_pioneer_and_status_group_values_to_member_notes(self) -> None:
         preview = build_preview([
-            {"是否在册": "在册", "所在分中心": "园区分中心", "所属班级": "先锋班", "所属小组": "目前不读书"},
+            {"是否在册": "在册", "所在分中心": "园区分中心", "所属班级": "先锋班", "所属小组": "诸队组"},
+            {"是否在册": "在册", "所在分中心": "园区分中心", "所属班级": "黄埔二班", "所属小组": "目前不读书"},
         ])
         self.assertEqual(preview["issues"], [])
         self.assertEqual(
@@ -37,11 +38,21 @@ class DirectClassPreviewTests(unittest.TestCase):
             [
                 {
                     "class_name": "先锋班",
+                    "source_group_value": "诸队组",
+                    "target_note": "原所属小组：诸队组",
+                    "count": 1,
+                },
+                {
+                    "class_name": "黄埔二班",
                     "source_group_value": "目前不读书",
                     "target_note": "原所属小组：目前不读书",
                     "count": 1,
-                }
+                },
             ],
+        )
+        self.assertIn(
+            {"class_name": "神仙班", "policy": "CONTRIBUTOR_FLEXIBLE_NO_REQUIREMENTS"},
+            preview["class_policies"],
         )
 
 
