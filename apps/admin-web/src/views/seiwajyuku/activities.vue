@@ -3,7 +3,9 @@ import { computed, onMounted, ref } from "vue";
 import dayjs from "dayjs";
 import {
   getAttendanceEventGroups,
-  type AttendanceEventGroup
+  getAttendanceSyncStatus,
+  type AttendanceEventGroup,
+  type AttendanceSyncStatus
 } from "@/api/seiwajyuku";
 
 defineOptions({ name: "ActivityAdmin" });
@@ -11,18 +13,51 @@ defineOptions({ name: "ActivityAdmin" });
 const loading = ref(false);
 const month = ref(dayjs().format("YYYY-MM"));
 const rows = ref<AttendanceEventGroup[]>([]);
+const syncStatus = ref<AttendanceSyncStatus | null>(null);
 const totalEligible = computed(() =>
   rows.value.reduce((sum, item) => sum + item.record_count, 0)
 );
 const totalCompleted = computed(() =>
   rows.value.reduce((sum, item) => sum + item.present_count, 0)
 );
+const syncAlert = computed(() => {
+  const status = syncStatus.value;
+  if (!status || status.state === "NO_RUNS") {
+    return { type: "info" as const, title: "签到自动同步尚无运行记录" };
+  }
+  if (status.state === "CRITICAL") {
+    return {
+      type: "error" as const,
+      title: `签到自动同步已连续异常 ${status.consecutive_failure_count} 次，请技术管理员检查`
+    };
+  }
+  if (status.state === "WARNING") {
+    return {
+      type: "warning" as const,
+      title: `最近一次签到自动同步异常（连续 ${status.consecutive_failure_count} 次）`
+    };
+  }
+  if (status.state === "RUNNING") {
+    return { type: "info" as const, title: "签到数据正在同步" };
+  }
+  const finishedAt = status.last_run?.finished_at
+    ? dayjs(status.last_run.finished_at).format("YYYY-MM-DD HH:mm")
+    : "最近";
+  return {
+    type: "success" as const,
+    title: `签到自动同步正常，最近完成于 ${finishedAt}`
+  };
+});
 
 async function load() {
   loading.value = true;
   try {
-    const response = await getAttendanceEventGroups(month.value);
-    rows.value = response.data;
+    const [eventResponse, syncResponse] = await Promise.all([
+      getAttendanceEventGroups(month.value),
+      getAttendanceSyncStatus()
+    ]);
+    rows.value = eventResponse.data;
+    syncStatus.value = syncResponse.data;
   } finally {
     loading.value = false;
   }
@@ -47,6 +82,13 @@ onMounted(load);
         @change="load"
       />
     </section>
+
+    <el-alert
+      :title="syncAlert.title"
+      :type="syncAlert.type"
+      :closable="false"
+      show-icon
+    />
 
     <section class="summary">
       <el-statistic title="活动场组" :value="rows.length" />

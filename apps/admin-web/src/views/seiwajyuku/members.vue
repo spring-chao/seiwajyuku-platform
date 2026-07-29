@@ -15,7 +15,9 @@ import {
   getOrgUnits,
   applyDirectClassWorkbook,
   previewDirectClassWorkbook,
+  previewFullClassRosterWorkbook,
   type DirectClassPreflight,
+  type FullClassRosterPreflight,
   type Member,
   type OrgUnit
 } from "@/api/seiwajyuku";
@@ -29,6 +31,10 @@ const preflightVisible = ref(false);
 const preflightLoading = ref(false);
 const preflightFiles = ref<UploadUserFile[]>([]);
 const preflightResult = ref<DirectClassPreflight>();
+const fullPreflightVisible = ref(false);
+const fullPreflightLoading = ref(false);
+const fullPreflightFiles = ref<UploadUserFile[]>([]);
+const fullPreflightResult = ref<FullClassRosterPreflight>();
 const selectedOrg = ref("");
 const keyword = ref("");
 const rows = ref<Member[]>([]);
@@ -188,6 +194,43 @@ function selectPreflightFile(file: UploadFile) {
   return false;
 }
 
+function selectFullPreflightFile(file: UploadFile) {
+  fullPreflightFiles.value = [file];
+  fullPreflightResult.value = undefined;
+  return false;
+}
+
+async function runFullClassPreflight() {
+  const workbook = fullPreflightFiles.value[0]?.raw;
+  if (!workbook) {
+    ElMessage.warning("请先选择最新学员表 .xlsx 文件");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      "文件只在服务器内存中用于受保护匹配，结果只返回班级、小组和匹配汇总；不会创建、修改或停用任何生产数据。",
+      "确认进行全量班级只读预检",
+      {
+        confirmButtonText: "开始只读预检",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+  } catch {
+    return;
+  }
+  fullPreflightLoading.value = true;
+  try {
+    const result = await previewFullClassRosterWorkbook(workbook);
+    fullPreflightResult.value = result.data;
+    ElMessage.success("全量班级只读预检已完成，未写入生产数据");
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    fullPreflightLoading.value = false;
+  }
+}
+
 async function applyDirectClassImport() {
   const workbook = preflightFiles.value[0]?.raw;
   if (!workbook || !preflightResult.value) return;
@@ -237,6 +280,9 @@ onMounted(load);
         <span>手机号加密保存；列表、普通查询和后续任务默认只显示脱敏号码。</span>
       </div>
       <div class="head-actions" v-if="canManage">
+        <el-button size="large" @click="fullPreflightVisible = true">
+          全量班级预检
+        </el-button>
         <el-button size="large" @click="preflightVisible = true">
           直属四班预检
         </el-button>
@@ -429,6 +475,130 @@ onMounted(load);
       <template #footer>
         <el-button v-if="preflightResult && !preflightResult.issues.length" type="danger" :loading="preflightLoading" @click="applyDirectClassImport">执行确认导入</el-button>
         <el-button @click="preflightVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="fullPreflightVisible"
+      title="全量班级与小组生产前只读预检"
+      width="1080px"
+      class="preflight-dialog"
+    >
+      <el-alert
+        title="本操作只生成聚合报告，不创建或修改任何生产数据"
+        description="工作簿只在服务器内存中解析；手机号仅转换为受保护的匹配摘要，界面不显示姓名、手机号、成员编号或组织 ID。"
+        type="success"
+        :closable="false"
+        show-icon
+      />
+      <el-upload
+        class="preflight-upload"
+        accept=".xlsx"
+        :auto-upload="false"
+        :limit="1"
+        :file-list="fullPreflightFiles"
+        :on-change="selectFullPreflightFile"
+      >
+        <el-button>选择最新学员表 .xlsx</el-button>
+      </el-upload>
+      <el-button
+        type="primary"
+        :loading="fullPreflightLoading"
+        @click="runFullClassPreflight"
+      >
+        生成全量只读预检报告
+      </el-button>
+
+      <div v-if="fullPreflightResult" class="preflight-result">
+        <el-descriptions :column="4" border>
+          <el-descriptions-item label="在册学员">
+            {{ fullPreflightResult.source.active_member_count }} 人
+          </el-descriptions-item>
+          <el-descriptions-item label="已有班级">
+            {{ fullPreflightResult.source.with_class_count }} 人
+          </el-descriptions-item>
+          <el-descriptions-item label="未分班">
+            {{ fullPreflightResult.source.missing_class_count }} 人
+          </el-descriptions-item>
+          <el-descriptions-item label="生产写入">
+            已禁止
+          </el-descriptions-item>
+          <el-descriptions-item label="普通班">
+            {{ fullPreflightResult.source.ordinary_class_count }} 个／
+            {{ fullPreflightResult.source.ordinary_class_member_count }} 人
+          </el-descriptions-item>
+          <el-descriptions-item label="直属班">
+            {{ fullPreflightResult.source.direct_class_count }} 个／
+            {{ fullPreflightResult.source.direct_class_member_count }} 人
+          </el-descriptions-item>
+          <el-descriptions-item label="普通班小组">
+            {{ fullPreflightResult.source.ordinary_group_pair_count }} 个
+          </el-descriptions-item>
+          <el-descriptions-item label="直属班小组">
+            {{ fullPreflightResult.source.direct_group_pair_count }} 个
+          </el-descriptions-item>
+          <el-descriptions-item label="生产匹配" :span="4">
+            <el-tag
+              v-for="item in fullPreflightResult.matching.summary"
+              :key="item.status"
+              class="result-tag"
+              type="info"
+            >
+              {{ item.status }}：{{ item.count }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="班级组织解析" :span="4">
+            <el-tag
+              v-for="item in fullPreflightResult.organization.class_status"
+              :key="item.class_name"
+              class="result-tag"
+              :type="item.action === 'REUSE' ? 'success' : item.action === 'REVIEW' ? 'danger' : 'warning'"
+            >
+              {{ item.class_name }}（{{ item.expected_parent }}）：{{ item.action }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="小组组织处理" :span="4">
+            <el-tag
+              v-for="item in fullPreflightResult.organization.group_action_summary"
+              :key="item.action"
+              class="result-tag"
+              :type="item.action === 'REUSE' ? 'success' : 'warning'"
+            >
+              {{ item.action }}：{{ item.count }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="待校正字段或关系" :span="4">
+            <span
+              v-if="!fullPreflightResult.matching.fields_or_relations_needing_reconciliation.length"
+            >
+              无
+            </span>
+            <template v-else>
+              <el-tag
+                v-for="item in fullPreflightResult.matching.fields_or_relations_needing_reconciliation"
+                :key="item.field"
+                class="result-tag"
+                type="warning"
+              >
+                {{ item.field }}：{{ item.count }}
+              </el-tag>
+            </template>
+          </el-descriptions-item>
+        </el-descriptions>
+        <el-alert
+          v-if="fullPreflightResult.issues.length"
+          class="result-alert"
+          :title="`需人工复核：${fullPreflightResult.issues.map(item => `${item.code} ${item.count}`).join('；')}`"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+        <p class="form-hint">
+          {{ fullPreflightResult.write_gates.join(" ") }}
+        </p>
+      </div>
+      <template #footer>
+        <el-button @click="fullPreflightVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 
