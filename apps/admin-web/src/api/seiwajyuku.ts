@@ -208,6 +208,57 @@ export type DirectClassPreflight = {
   write_gates: string[];
 };
 
+export type FullClassRosterPreflight = {
+  mode: "READ_ONLY_FULL_CLASS_ROSTER_PREFLIGHT";
+  automatic_production_write_allowed: false;
+  source_name: string;
+  source_sha256: string;
+  source: {
+    sheet_name: string;
+    active_member_count: number;
+    with_class_count: number;
+    missing_class_count: number;
+    ordinary_class_member_count: number;
+    direct_class_member_count: number;
+    ordinary_class_count: number;
+    direct_class_count: number;
+    valid_group_pair_count: number;
+    ordinary_group_pair_count: number;
+    direct_group_pair_count: number;
+    note_only_group_count: number;
+    by_center: { center_name: string; count: number }[];
+    by_class: { class_name: string; count: number }[];
+  };
+  organization: {
+    root_match_count: number;
+    development_center_match_counts: {
+      center_name: string;
+      match_count: number;
+    }[];
+    class_status: {
+      class_name: string;
+      member_count: number;
+      scope: "DIRECT" | "ORDINARY";
+      expected_parent: string;
+      active_class_matches: number;
+      correct_parent_matches: number;
+      action: "REUSE" | "CREATE_OR_RESOLVE" | "REVIEW";
+    }[];
+    class_action_summary: { action: string; count: number }[];
+    group_action_summary: { action: string; count: number }[];
+  };
+  matching: {
+    summary: { status: string; count: number }[];
+    no_production_match_by_class: { class_name: string; count: number }[];
+    fields_or_relations_needing_reconciliation: {
+      field: string;
+      count: number;
+    }[];
+  };
+  issues: { code: string; count: number }[];
+  write_gates: string[];
+};
+
 export type FollowupAssignee = {
   id: number;
   username: string;
@@ -241,6 +292,21 @@ export type AttendanceEventGroup = {
   session_count: number;
   record_count: number;
   present_count: number;
+};
+
+export type AttendanceSyncStatus = {
+  state: "NO_RUNS" | "RUNNING" | "HEALTHY" | "WARNING" | "CRITICAL";
+  alert_threshold: number;
+  consecutive_failure_count: number;
+  last_run: {
+    status: string;
+    started_at: string;
+    finished_at?: string;
+    received_sessions: number;
+    received_records: number;
+    error_count: number;
+    has_error_summary: boolean;
+  } | null;
 };
 
 export type RenewalOverviewRow = {
@@ -339,6 +405,19 @@ export const previewDirectClassWorkbook = (workbook: File) => {
       timeout: 60000
     }
   );
+};
+
+export const previewFullClassRosterWorkbook = (workbook: File) => {
+  const data = new FormData();
+  data.append("workbook", workbook);
+  return http.request<{
+    success: boolean;
+    data: FullClassRosterPreflight;
+  }>("post", "/api/v1/class-roster-preflight/preview", {
+    data,
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 120000
+  });
 };
 
 export const applyDirectClassWorkbook = (workbook: File) => {
@@ -512,6 +591,12 @@ export const getAttendanceEventGroups = (month?: string) =>
     "get",
     "/api/v1/attendance/event-groups",
     { params: month ? { month } : undefined }
+  );
+
+export const getAttendanceSyncStatus = () =>
+  http.request<{ success: boolean; data: AttendanceSyncStatus }>(
+    "get",
+    "/api/v1/attendance/sync/status"
   );
 
 export const getRenewalOverview = (year: number) =>

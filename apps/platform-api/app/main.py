@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.auth import router as auth_router
 from app.api.attendance import router as attendance_router
 from app.api.checkin_rosters import router as checkin_rosters_router
+from app.api.class_roster_preflight import router as class_roster_preflight_router
 from app.api.followups import router as followups_router
 from app.api.iam import router as iam_router
 from app.api.identity_admin import router as identity_admin_router
@@ -29,6 +30,7 @@ from app.services.iam import seed_iam
 settings = get_settings()
 settings.assert_safe_startup()
 READ_ONLY_EPHEMERAL_POST_PATHS = frozenset({
+    "/api/v1/class-roster-preflight/preview",
     "/api/v1/direct-class-preflight/preview",
 })
 
@@ -91,6 +93,7 @@ app.include_router(auth_router)
 app.include_router(iam_router)
 app.include_router(identity_admin_router)
 app.include_router(imports_router)
+app.include_router(class_roster_preflight_router)
 app.include_router(direct_class_preflight_router)
 app.include_router(direct_class_import_router)
 app.include_router(plans_router)

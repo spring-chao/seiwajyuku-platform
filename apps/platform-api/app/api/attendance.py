@@ -40,6 +40,79 @@ class AdjudicationPayload(BaseModel):
     member_id: int | None = None
 
 
+def _attendance_sync_health() -> dict:
+    rows = fetch_all(
+        "SELECT id, status, started_at, finished_at, received_sessions, "
+        "received_records, error_count, error_summary "
+        "FROM attendance_sync_runs WHERE source_key=? "
+        "ORDER BY id DESC LIMIT 20",
+        ("signin",),
+    )
+    if not rows:
+        return {
+            "state": "NO_RUNS",
+            "alert_threshold": 3,
+            "consecutive_failure_count": 0,
+            "last_run": None,
+        }
+
+    latest = rows[0]
+    consecutive_failures = 0
+    for row in rows:
+        status = str(row["status"]).upper()
+        if status == "RUNNING":
+            continue
+        if status == "SUCCESS":
+            break
+        if status in {"ERROR", "PARTIAL"}:
+            consecutive_failures += 1
+
+    latest_status = str(latest["status"]).upper()
+    if consecutive_failures >= 3:
+        state = "CRITICAL"
+    elif consecutive_failures:
+        state = "WARNING"
+    elif latest_status == "RUNNING":
+        state = "RUNNING"
+    else:
+        state = "HEALTHY"
+    return {
+        "state": state,
+        "alert_threshold": 3,
+        "consecutive_failure_count": consecutive_failures,
+        "last_run": {
+            "status": latest_status,
+            "started_at": latest["started_at"],
+            "finished_at": latest["finished_at"],
+            "received_sessions": latest["received_sessions"] or 0,
+            "received_records": latest["received_records"] or 0,
+            "error_count": latest["error_count"] or 0,
+            "has_error_summary": bool(latest["error_summary"]),
+        },
+    }
+
+
+def _write_failure_alert_if_threshold_reached() -> None:
+    health = _attendance_sync_health()
+    if health["consecutive_failure_count"] != health["alert_threshold"]:
+        return
+    with transaction() as connection:
+        write_audit(
+            connection,
+            actor_user_id=None,
+            action="attendance.sync.failure_alert",
+            resource_type="attendance_sync",
+            resource_id="signin",
+            after={
+                "state": health["state"],
+                "consecutive_failure_count": health[
+                    "consecutive_failure_count"
+                ],
+                "alert_threshold": health["alert_threshold"],
+            },
+        )
+
+
 def _org_is_allowed(
     primary_org_id: str,
     study_org_unit_id: str | None,
@@ -100,7 +173,22 @@ def scheduled_sync(
 ) -> dict:
     """Run the weekday timer pull using the signin service credential."""
     _verify_signin_service_key(x_api_key)
-    return _run_sync(cursor, None, "attendance.sync.scheduled")
+    try:
+        result = _run_sync(cursor, None, "attendance.sync.scheduled")
+    except HTTPException:
+        _write_failure_alert_if_threshold_reached()
+        raise
+    if result["data"]["status"] == "PARTIAL":
+        _write_failure_alert_if_threshold_reached()
+    return result
+
+
+@router.get("/sync/status")
+def sync_status(
+    user: dict = Depends(require_permission("members:read")),
+) -> dict:
+    """Return privacy-safe health details for the signin synchronization."""
+    return {"success": True, "data": _attendance_sync_health()}
 
 
 @router.get("/event-groups")
