@@ -27,6 +27,7 @@ CONFIRMED_SOURCE_SHA256 = (
 )
 CONFIRMATION_TEXT = "确认创建20个普通班和112个普通班小组"
 IMPORT_TYPE = "CLASS_ROSTER_ORG_PHASE1_20260730"
+RELATION_IMPORT_TYPE = "CLASS_ROSTER_RELATIONS_PHASE2_20260730"
 EXPECTED_MATCHING = {
     "MANUAL_REVIEW": 28,
     "NO_PRODUCTION_MATCH": 84,
@@ -38,6 +39,93 @@ EXPECTED_ISSUES = {
     "MISSING_CLASS": 18,
     "MISSING_PHONE": 11,
 }
+
+
+def apply_confirmed_member_relations(
+    content: bytes,
+    source_name: str,
+    actor_user_id: int,
+) -> dict[str, Any]:
+    """Add only missing study relations for uniquely matched, classed members."""
+    source_sha256 = hashlib.sha256(content).hexdigest()
+    if source_sha256 != CONFIRMED_SOURCE_SHA256:
+        raise ValueError("工作簿指纹与已确认版本不一致，已停止写入")
+    preview = preview_production_workbook(content, source_name, "2026 新在册表")
+    expected_source = {
+        "active_member_count": 834, "with_class_count": 816,
+        "missing_class_count": 18, "ordinary_class_member_count": 693,
+        "direct_class_member_count": 123, "ordinary_class_count": 20,
+        "direct_class_count": 4, "ordinary_group_pair_count": 112,
+        "direct_group_pair_count": 11,
+    }
+    if any(preview["source"].get(key) != value for key, value in expected_source.items()):
+        raise ValueError("工作簿汇总与生产确认包不一致，已停止写入")
+    if _summary(preview["matching"]["summary"], "status") != EXPECTED_MATCHING:
+        raise ValueError("生产人员匹配汇总已变化，已停止写入")
+    if _summary(preview["issues"], "code") != EXPECTED_ISSUES:
+        raise ValueError("人工复核问题汇总已变化，已停止写入")
+    if _summary(preview["organization"]["class_action_summary"], "action") != {"REUSE": 24}:
+        raise ValueError("班级组织尚未全部就绪，已停止写入")
+    if _summary(preview["organization"]["group_action_summary"], "action") != {"REUSE": 123}:
+        raise ValueError("小组组织尚未全部就绪，已停止写入")
+    rows, _ = read_workbook(content, "2026 新在册表")
+    phone_counts = defaultdict(int)
+    for row in rows:
+        if row["phone_hash"]:
+            phone_counts[row["phone_hash"]] += 1
+    eligible = [
+        row for row in rows
+        if row["class_name"] and row["phone_hash"]
+        and phone_counts[row["phone_hash"]] == 1
+    ]
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        existing_batch = execute(connection, "SELECT id, status FROM import_batches WHERE import_type=? AND source_sha256=? ORDER BY id DESC LIMIT 1", (RELATION_IMPORT_TYPE, source_sha256)).fetchone()
+        if existing_batch and existing_batch["status"] == "APPLIED":
+            return {"batch_id": existing_batch["id"], "status": "ALREADY_APPLIED"}
+        units = execute(connection, "SELECT id, name, unit_type, parent_id, is_active FROM org_units WHERE is_active=1").fetchall()
+        members = execute(connection, "SELECT id, phone_hash, status FROM members WHERE phone_hash IN (" + ",".join("?" for _ in {r['phone_hash'] for r in eligible}) + ")", tuple(sorted({r['phone_hash'] for r in eligible}))).fetchall()
+        by_phone: dict[str, list[Any]] = defaultdict(list)
+        for member in members:
+            by_phone[member["phone_hash"]].append(member)
+        root = next((u for u in units if u.get("name") == "苏州塾" and u["unit_type"] == "ROOT"), None)
+        if not root:
+            raise ValueError("苏州塾根节点不唯一，事务已回滚")
+        centers = {u["name"]: u["id"] for u in units if u["unit_type"] == "REGIONAL_CENTER"}
+        target_classes: dict[tuple[str, str], str] = {}
+        for row in eligible:
+            parent_id = root["id"] if row["class_name"] in DIRECT_CLASSES else centers.get(row["center_name"], "")
+            candidates = [u for u in units if u["unit_type"] == "CLASS" and u["name"] == row["class_name"] and u["parent_id"] == parent_id]
+            if len(candidates) != 1:
+                raise ValueError("班级组织状态在预检后变化，事务已回滚")
+            target_classes[(row["center_name"], row["class_name"])] = candidates[0]["id"]
+        relation_rows = execute(connection, "SELECT member_id, org_unit_id, relation_type FROM member_org_relations WHERE relation_type IN ('STUDY_CLASS','STUDY_GROUP')").fetchall()
+        relation_set = {(r["member_id"], r["org_unit_id"], r["relation_type"]) for r in relation_rows}
+        inserts: list[tuple[int, str, str]] = []
+        matched = 0
+        for row in eligible:
+            candidates = [m for m in by_phone[row["phone_hash"]] if m["status"] == "ACTIVE"]
+            if len(candidates) != 1:
+                continue
+            matched += 1
+            member_id = candidates[0]["id"]
+            class_id = target_classes[(row["center_name"], row["class_name"])]
+            if (member_id, class_id, "STUDY_CLASS") not in relation_set:
+                inserts.append((member_id, class_id, "STUDY_CLASS"))
+            if _valid_group(row["class_name"], row["group_name"]):
+                groups = [u for u in units if u["unit_type"] == "GROUP" and u["name"] == row["group_name"] and u["parent_id"] == class_id]
+                if len(groups) != 1:
+                    raise ValueError("小组组织状态在预检后变化，事务已回滚")
+                if (member_id, groups[0]["id"], "STUDY_GROUP") not in relation_set:
+                    inserts.append((member_id, groups[0]["id"], "STUDY_GROUP"))
+        if matched != 722:
+            raise ValueError("唯一生产人员匹配数量已变化，事务已回滚")
+        for member_id, org_unit_id, relation_type in inserts:
+            execute(connection, "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, source_type, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)", (member_id, org_unit_id, relation_type, RELATION_IMPORT_TYPE, now, now))
+        cursor = execute(connection, "INSERT INTO import_batches(import_type, source_name, source_sha256, status, preview_json, created_by, created_at, applied_at) VALUES (?, ?, ?, 'APPLIED', ?, ?, ?, ?)", (RELATION_IMPORT_TYPE, source_name, source_sha256, json.dumps({"matched_members": matched, "relations_added": len(inserts), "members_changed": 0}, ensure_ascii=False), actor_user_id, now, now))
+        batch_id = cursor.lastrowid
+        write_audit(connection, actor_user_id=actor_user_id, action="class_roster_relations_phase2.apply", resource_type="import_batch", resource_id=str(batch_id), after={"matched_members": matched, "relations_added": len(inserts), "members_changed": 0})
+    return {"batch_id": batch_id, "status": "APPLIED", "matched_members": matched, "relations_added": len(inserts), "members_changed": 0}
 
 
 def _summary(
