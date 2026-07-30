@@ -717,7 +717,7 @@ onMounted(load);
           执行第一阶段组织创建
         </el-button>
         <el-alert
-          v-if="canApplyFullRelations"
+          v-if="fullPreflightResult"
           class="result-alert"
           title="第二阶段仅补齐唯一匹配且已分班学员的班级、小组关系；不修改学员字段、发展归属或签到数据。"
           type="warning"
@@ -725,7 +725,7 @@ onMounted(load);
           show-icon
         />
         <el-button
-          v-if="canApplyFullRelations"
+          v-if="fullPreflightResult"
           type="danger"
           :loading="fullRelationImportLoading"
           @click="applyFullRelationImport"
