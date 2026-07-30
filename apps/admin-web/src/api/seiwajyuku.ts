@@ -420,6 +420,29 @@ export const previewFullClassRosterWorkbook = (workbook: File) => {
   });
 };
 
+export const applyFullClassRosterOrganization = (
+  workbook: File,
+  confirmationText: string
+) => {
+  const data = new FormData();
+  data.append("workbook", workbook);
+  data.append("confirmation_text", confirmationText);
+  return http.request<{
+    success: boolean;
+    data: {
+      batch_id: number;
+      status: "APPLIED" | "ALREADY_APPLIED";
+      created_classes: number;
+      created_groups: number;
+      members_changed: 0;
+    };
+  }>("post", "/api/v1/class-roster-org-import/apply", {
+    data,
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 120000
+  });
+};
+
 export const applyDirectClassWorkbook = (workbook: File) => {
   const data = new FormData();
   data.append("workbook", workbook);
