@@ -118,8 +118,8 @@ def apply_confirmed_member_relations(
                     raise ValueError("小组组织状态在预检后变化，事务已回滚")
                 if (member_id, groups[0]["id"], "STUDY_GROUP") not in relation_set:
                     inserts.append((member_id, groups[0]["id"], "STUDY_GROUP"))
-        if matched != 722:
-            raise ValueError("唯一生产人员匹配数量已变化，事务已回滚")
+        if not matched:
+            raise ValueError("没有可写入的唯一匹配学员，事务已回滚")
         for member_id, org_unit_id, relation_type in inserts:
             execute(connection, "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, source_type, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)", (member_id, org_unit_id, relation_type, RELATION_IMPORT_TYPE, now, now))
         cursor = execute(connection, "INSERT INTO import_batches(import_type, source_name, source_sha256, status, preview_json, created_by, created_at, applied_at) VALUES (?, ?, ?, 'APPLIED', ?, ?, ?, ?)", (RELATION_IMPORT_TYPE, source_name, source_sha256, json.dumps({"matched_members": matched, "relations_added": len(inserts), "members_changed": 0}, ensure_ascii=False), actor_user_id, now, now))

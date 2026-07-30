@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+import hmac
+
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 
 from app.api.auth import require_permission
 from app.core.settings import get_settings
@@ -66,6 +68,32 @@ async def apply_relations(
     try:
         data = apply_confirmed_member_relations(
             content, workbook.filename or "upload.xlsx", user["id"]
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/internal/apply-relations")
+async def apply_relations_internal(
+    workbook: UploadFile = File(...),
+    x_api_key: str = Header(alias="X-API-Key"),
+) -> dict:
+    """One-time server-side runner for the approved second phase."""
+    settings = get_settings()
+    if not hmac.compare_digest(x_api_key, settings.integration_api_key):
+        raise HTTPException(401, "内部服务认证失败")
+    if (
+        not settings.allow_production_mutations
+        or not settings.class_roster_org_import_enabled
+    ):
+        raise HTTPException(403, "全量班级组织迁移开关未开启")
+    if not (workbook.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(400, "只接受 .xlsx 工作簿")
+    content = await workbook.read()
+    try:
+        data = apply_confirmed_member_relations(
+            content, workbook.filename or "upload.xlsx", 0
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
