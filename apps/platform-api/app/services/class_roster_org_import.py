@@ -28,6 +28,7 @@ CONFIRMED_SOURCE_SHA256 = (
 CONFIRMATION_TEXT = "确认创建20个普通班和112个普通班小组"
 IMPORT_TYPE = "CLASS_ROSTER_ORG_PHASE1_20260730"
 RELATION_IMPORT_TYPE = "CLASS_ROSTER_RELATIONS_PHASE2_20260730"
+RELATION_SOURCE_TYPE = "CLASS_ROSTER_REL_P2"
 EXPECTED_MATCHING = {
     "MANUAL_REVIEW": 28,
     "NO_PRODUCTION_MATCH": 84,
@@ -121,7 +122,7 @@ def apply_confirmed_member_relations(
         if not matched:
             raise ValueError("没有可写入的唯一匹配学员，事务已回滚")
         for member_id, org_unit_id, relation_type in inserts:
-            execute(connection, "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, source_type, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)", (member_id, org_unit_id, relation_type, RELATION_IMPORT_TYPE, now, now))
+            execute(connection, "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, source_type, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)", (member_id, org_unit_id, relation_type, RELATION_SOURCE_TYPE, now, now))
         cursor = execute(connection, "INSERT INTO import_batches(import_type, source_name, source_sha256, status, preview_json, created_by, created_at, applied_at) VALUES (?, ?, ?, 'APPLIED', ?, ?, ?, ?)", (RELATION_IMPORT_TYPE, source_name, source_sha256, json.dumps({"matched_members": matched, "relations_added": len(inserts), "members_changed": 0}, ensure_ascii=False), actor_user_id, now, now))
         batch_id = cursor.lastrowid
         write_audit(connection, actor_user_id=actor_user_id, action="class_roster_relations_phase2.apply", resource_type="import_batch", resource_id=str(batch_id), after={"matched_members": matched, "relations_added": len(inserts), "members_changed": 0})
