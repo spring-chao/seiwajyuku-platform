@@ -14,6 +14,7 @@ import {
   getMembers,
   getOrgUnits,
   applyDirectClassWorkbook,
+  applyFullClassRosterOrganization,
   previewDirectClassWorkbook,
   previewFullClassRosterWorkbook,
   type DirectClassPreflight,
@@ -33,11 +34,51 @@ const preflightFiles = ref<UploadUserFile[]>([]);
 const preflightResult = ref<DirectClassPreflight>();
 const fullPreflightVisible = ref(false);
 const fullPreflightLoading = ref(false);
+const fullOrgImportLoading = ref(false);
 const fullPreflightFiles = ref<UploadUserFile[]>([]);
 const fullPreflightResult = ref<FullClassRosterPreflight>();
 const selectedOrg = ref("");
 const keyword = ref("");
 const rows = ref<Member[]>([]);
+const fullOrgConfirmationText = "确认创建20个普通班和112个普通班小组";
+const canApplyFullOrgImport = computed(() => {
+  const result = fullPreflightResult.value;
+  if (!result) return false;
+  const classActions = Object.fromEntries(
+    result.organization.class_action_summary.map(item => [
+      item.action,
+      item.count
+    ])
+  );
+  const groupActions = Object.fromEntries(
+    result.organization.group_action_summary.map(item => [
+      item.action,
+      item.count
+    ])
+  );
+  const matching = Object.fromEntries(
+    result.matching.summary.map(item => [item.status, item.count])
+  );
+  const issues = Object.fromEntries(
+    result.issues.map(item => [item.code, item.count])
+  );
+  return (
+    result.source.active_member_count === 834 &&
+    result.source.ordinary_class_count === 20 &&
+    result.source.ordinary_group_pair_count === 112 &&
+    classActions.CREATE_OR_RESOLVE === 20 &&
+    classActions.REUSE === 4 &&
+    groupActions.REVIEW === 112 &&
+    groupActions.REUSE === 11 &&
+    matching.UNIQUE_ACTIVE_MATCH === 722 &&
+    matching.NO_PRODUCTION_MATCH === 84 &&
+    matching.MANUAL_REVIEW === 28 &&
+    issues.DUPLICATE_SOURCE_PHONE === 8 &&
+    issues.INVALID_PHONE === 9 &&
+    issues.MISSING_PHONE === 11 &&
+    issues.MISSING_CLASS === 18
+  );
+});
 const orgs = ref<OrgUnit[]>([]);
 const formRef = ref<FormInstance>();
 const canManage = computed(() =>
@@ -228,6 +269,44 @@ async function runFullClassPreflight() {
     ElMessage.error(errorText(error));
   } finally {
     fullPreflightLoading.value = false;
+  }
+}
+
+async function applyFullOrgImport() {
+  const workbook = fullPreflightFiles.value[0]?.raw;
+  if (!workbook || !canApplyFullOrgImport.value) return;
+  let confirmationText = "";
+  try {
+    const prompt = await ElMessageBox.prompt(
+      `本阶段仅创建20个普通班和112个普通班小组，不修改任何学员或签到数据。请输入：${fullOrgConfirmationText}`,
+      "第一阶段组织节点生产写入确认",
+      {
+        confirmButtonText: "执行第一阶段",
+        cancelButtonText: "取消",
+        type: "warning",
+        inputValidator: value =>
+          value === fullOrgConfirmationText || "确认文字不完整，已禁止写入"
+      }
+    );
+    confirmationText = prompt.value;
+  } catch {
+    return;
+  }
+  fullOrgImportLoading.value = true;
+  try {
+    const result = await applyFullClassRosterOrganization(
+      workbook,
+      confirmationText
+    );
+    ElMessage.success(
+      `第一阶段完成：创建班级 ${result.data.created_classes} 个、小组 ${result.data.created_groups} 个；学员变更 ${result.data.members_changed} 人`
+    );
+    const refreshed = await previewFullClassRosterWorkbook(workbook);
+    fullPreflightResult.value = refreshed.data;
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    fullOrgImportLoading.value = false;
   }
 }
 
@@ -596,6 +675,22 @@ onMounted(load);
         <p class="form-hint">
           {{ fullPreflightResult.write_gates.join(" ") }}
         </p>
+        <el-alert
+          v-if="canApplyFullOrgImport"
+          class="result-alert"
+          title="第一阶段只创建组织节点：20个普通班、112个普通班小组；不修改任何学员或签到数据。"
+          type="error"
+          :closable="false"
+          show-icon
+        />
+        <el-button
+          v-if="canApplyFullOrgImport"
+          type="danger"
+          :loading="fullOrgImportLoading"
+          @click="applyFullOrgImport"
+        >
+          执行第一阶段组织创建
+        </el-button>
       </div>
       <template #footer>
         <el-button @click="fullPreflightVisible = false">关闭</el-button>
