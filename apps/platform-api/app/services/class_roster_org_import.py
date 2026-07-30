@@ -46,6 +46,22 @@ def _summary(
     return {str(item[key]): int(item["count"]) for item in items}
 
 
+def _ordinary_class_conflicts(
+    units: Iterable[Mapping[str, Any]],
+    class_name: str,
+    expected_parent_id: str,
+) -> list[Mapping[str, Any]]:
+    """Match the active, parent-scoped class rule used by preflight."""
+    return [
+        unit
+        for unit in units
+        if unit["unit_type"] == "CLASS"
+        and unit["name"] == class_name
+        and unit["is_active"]
+        and unit["parent_id"] == expected_parent_id
+    ]
+
+
 def organization_topology(
     rows: Iterable[Mapping[str, str]],
 ) -> tuple[dict[str, str], set[tuple[str, str]]]:
@@ -194,12 +210,9 @@ def apply_confirmed_org_import(
         for class_name in sorted_classes:
             class_index = class_order[class_name]
             center_name = classes[class_name]
-            conflicts = [
-                unit
-                for unit in units
-                if unit["unit_type"] == "CLASS"
-                and unit["name"] == class_name
-            ]
+            conflicts = _ordinary_class_conflicts(
+                units, class_name, centers[center_name]
+            )
             if conflicts:
                 raise ValueError("普通班组织状态在预检后变化，事务已回滚")
             class_id = str(uuid4())

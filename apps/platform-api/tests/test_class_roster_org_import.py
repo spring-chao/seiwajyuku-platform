@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.class_roster_org_import import (
+    _ordinary_class_conflicts,
     _validate_preview,
     apply_confirmed_org_import,
     organization_topology,
@@ -58,6 +59,37 @@ def _confirmed_preview() -> dict:
 
 
 class ClassRosterOrgImportTests(unittest.TestCase):
+    def test_ordinary_class_conflict_is_active_and_parent_scoped(self) -> None:
+        units = [
+            {
+                "unit_type": "CLASS",
+                "name": "炎武一班",
+                "is_active": 1,
+                "parent_id": "sz-root",
+            },
+            {
+                "unit_type": "CLASS",
+                "name": "炎武一班",
+                "is_active": 0,
+                "parent_id": "kunshan-center",
+            },
+        ]
+
+        self.assertEqual(
+            _ordinary_class_conflicts(
+                units, "炎武一班", "kunshan-center"
+            ),
+            [],
+        )
+        self.assertEqual(
+            len(
+                _ordinary_class_conflicts(
+                    units, "炎武一班", "sz-root"
+                )
+            ),
+            1,
+        )
+
     def test_topology_is_parent_scoped_and_has_confirmed_counts(self) -> None:
         rows = []
         for class_index in range(20):
