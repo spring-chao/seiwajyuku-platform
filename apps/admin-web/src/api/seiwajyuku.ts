@@ -443,6 +443,25 @@ export const applyFullClassRosterOrganization = (
   });
 };
 
+export const applyFullClassRosterRelations = (workbook: File) => {
+  const data = new FormData();
+  data.append("workbook", workbook);
+  return http.request<{
+    success: boolean;
+    data: {
+      batch_id: number;
+      status: "APPLIED" | "ALREADY_APPLIED";
+      matched_members?: number;
+      relations_added?: number;
+      members_changed?: 0;
+    };
+  }>("post", "/api/v1/class-roster-org-import/apply-relations", {
+    data,
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 120000
+  });
+};
+
 export const applyDirectClassWorkbook = (workbook: File) => {
   const data = new FormData();
   data.append("workbook", workbook);

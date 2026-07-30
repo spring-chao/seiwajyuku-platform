@@ -15,6 +15,7 @@ import {
   getOrgUnits,
   applyDirectClassWorkbook,
   applyFullClassRosterOrganization,
+  applyFullClassRosterRelations,
   previewDirectClassWorkbook,
   previewFullClassRosterWorkbook,
   type DirectClassPreflight,
@@ -35,6 +36,7 @@ const preflightResult = ref<DirectClassPreflight>();
 const fullPreflightVisible = ref(false);
 const fullPreflightLoading = ref(false);
 const fullOrgImportLoading = ref(false);
+const fullRelationImportLoading = ref(false);
 const fullPreflightFiles = ref<UploadUserFile[]>([]);
 const fullPreflightResult = ref<FullClassRosterPreflight>();
 const selectedOrg = ref("");
@@ -78,6 +80,14 @@ const canApplyFullOrgImport = computed(() => {
     issues.MISSING_PHONE === 11 &&
     issues.MISSING_CLASS === 18
   );
+});
+const canApplyFullRelations = computed(() => {
+  const result = fullPreflightResult.value;
+  if (!result) return false;
+  const classes = Object.fromEntries(result.organization.class_action_summary.map(item => [item.action, item.count]));
+  const groups = Object.fromEntries(result.organization.group_action_summary.map(item => [item.action, item.count]));
+  const matching = Object.fromEntries(result.matching.summary.map(item => [item.status, item.count]));
+  return classes.REUSE === 24 && groups.REUSE === 123 && matching.UNIQUE_ACTIVE_MATCH === 722 && matching.NO_PRODUCTION_MATCH === 84 && matching.MANUAL_REVIEW === 28;
 });
 const orgs = ref<OrgUnit[]>([]);
 const formRef = ref<FormInstance>();
@@ -307,6 +317,21 @@ async function applyFullOrgImport() {
     ElMessage.error(errorText(error));
   } finally {
     fullOrgImportLoading.value = false;
+  }
+}
+
+async function applyFullRelationImport() {
+  const workbook = fullPreflightFiles.value[0]?.raw;
+  if (!workbook || !canApplyFullRelations.value) return;
+  fullRelationImportLoading.value = true;
+  try {
+    const result = await applyFullClassRosterRelations(workbook);
+    ElMessage.success(`第二阶段完成：唯一匹配学员 ${result.data.matched_members ?? 722} 人，新增组织关系 ${result.data.relations_added ?? 0} 条`);
+    fullPreflightResult.value = (await previewFullClassRosterWorkbook(workbook)).data;
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    fullRelationImportLoading.value = false;
   }
 }
 
@@ -690,6 +715,22 @@ onMounted(load);
           @click="applyFullOrgImport"
         >
           执行第一阶段组织创建
+        </el-button>
+        <el-alert
+          v-if="canApplyFullRelations"
+          class="result-alert"
+          title="第二阶段仅补齐唯一匹配且已分班学员的班级、小组关系；不修改学员字段、发展归属或签到数据。"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+        <el-button
+          v-if="canApplyFullRelations"
+          type="danger"
+          :loading="fullRelationImportLoading"
+          @click="applyFullRelationImport"
+        >
+          执行第二阶段关系写入
         </el-button>
       </div>
       <template #footer>
