@@ -164,16 +164,18 @@ def roster_integrity_summary() -> dict[str, Any]:
         "FROM member_org_relations group_rel "
         "JOIN members m ON m.id=group_rel.member_id "
         "JOIN org_units group_org ON group_org.id=group_rel.org_unit_id "
-        "LEFT JOIN member_org_relations class_rel "
-        "ON class_rel.member_id=group_rel.member_id "
-        "AND class_rel.relation_type='STUDY_CLASS' "
-        "AND (class_rel.valid_from IS NULL OR class_rel.valid_from<=?) "
-        "AND (class_rel.valid_until IS NULL OR class_rel.valid_until>=?) "
         "WHERE group_rel.relation_type='STUDY_GROUP' "
         "AND m.status='ACTIVE' AND group_org.is_active=1 "
         "AND (group_rel.valid_from IS NULL OR group_rel.valid_from<=?) "
         "AND (group_rel.valid_until IS NULL OR group_rel.valid_until>=?) "
-        "AND (class_rel.org_unit_id IS NULL OR class_rel.org_unit_id<>group_org.parent_id)",
+        "AND NOT EXISTS ("
+        "SELECT 1 FROM member_org_relations class_rel "
+        "WHERE class_rel.member_id=group_rel.member_id "
+        "AND class_rel.relation_type='STUDY_CLASS' "
+        "AND class_rel.org_unit_id=group_org.parent_id "
+        "AND (class_rel.valid_from IS NULL OR class_rel.valid_from<=?) "
+        "AND (class_rel.valid_until IS NULL OR class_rel.valid_until>=?)"
+        ")",
         (now, now, now, now),
     )
     invalid_relations = fetch_one(
