@@ -93,7 +93,7 @@ async def apply_relations_internal(
     content = await workbook.read()
     try:
         data = apply_confirmed_member_relations(
-            content, workbook.filename or "upload.xlsx", 0
+            content, workbook.filename or "upload.xlsx", None
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
