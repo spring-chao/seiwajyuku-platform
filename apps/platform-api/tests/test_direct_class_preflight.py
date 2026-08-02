@@ -11,6 +11,11 @@ class DirectClassProductionPreflightTests(unittest.TestCase):
         self.assertTrue(
             read_only_request_allowed("POST", "/api/v1/direct-class-preflight/preview")
         )
+        self.assertTrue(
+            read_only_request_allowed(
+                "POST", "/api/v1/attendance/sync/scheduled"
+            )
+        )
         self.assertTrue(read_only_request_allowed("GET", "/api/v1/members"))
         self.assertFalse(read_only_request_allowed("POST", "/api/v1/members"))
         self.assertFalse(read_only_request_allowed("PUT", "/api/v1/metric-period-values"))

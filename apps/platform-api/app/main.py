@@ -30,16 +30,21 @@ from app.services.iam import seed_iam
 
 settings = get_settings()
 settings.assert_safe_startup()
-READ_ONLY_EPHEMERAL_POST_PATHS = frozenset({
+READ_ONLY_ALLOWED_POST_PATHS = frozenset({
     "/api/v1/class-roster-preflight/preview",
     "/api/v1/direct-class-preflight/preview",
+    # The scheduled attendance pull is a key-authenticated integration write,
+    # not a migration or administrative data-management write. Keeping this
+    # path available preserves the existing weekday sync while all other POST
+    # writes remain blocked in read-only mode.
+    "/api/v1/attendance/sync/scheduled",
 })
 
 
 def read_only_request_allowed(method: str, path: str) -> bool:
     """Allow only explicitly audited, memory-only previews during production read-only mode."""
     return method in {"GET", "HEAD", "OPTIONS"} or (
-        method == "POST" and path in READ_ONLY_EPHEMERAL_POST_PATHS
+        method == "POST" and path in READ_ONLY_ALLOWED_POST_PATHS
     )
 
 
