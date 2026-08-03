@@ -692,6 +692,26 @@ export const getAttendanceReconciliationQueue = (params?: {
     };
   }>("get", "/api/v1/attendance/reconciliation-queue", { params });
 
+export type AttendanceReconciliationBreakdownRow = {
+  org_unit_id: string;
+  org_name: string;
+  count: number;
+};
+
+export const getAttendanceReconciliationBreakdown = (
+  issue: AttendanceReconciliationItem["key"]
+) =>
+  http.request<{
+    success: boolean;
+    data: {
+      scope: "AGGREGATE_ONLY";
+      issue: AttendanceReconciliationItem["key"];
+      rows: AttendanceReconciliationBreakdownRow[];
+    };
+  }>("get", "/api/v1/attendance/reconciliation-breakdown", {
+    params: { issue }
+  });
+
 export const getRenewalOverview = (year: number) =>
   http.request<{
     success: boolean;

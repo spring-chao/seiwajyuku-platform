@@ -3,10 +3,12 @@ import { computed, onMounted, ref } from "vue";
 import dayjs from "dayjs";
 import {
   getAttendanceEventGroups,
+  getAttendanceReconciliationBreakdown,
   getAttendanceReconciliationQueue,
   getAttendanceReconciliationSummary,
   getAttendanceSyncStatus,
   type AttendanceEventGroup,
+  type AttendanceReconciliationBreakdownRow,
   type AttendanceReconciliationQueueRow,
   type AttendanceReconciliationItem,
   type AttendanceSyncStatus
@@ -20,6 +22,7 @@ const rows = ref<AttendanceEventGroup[]>([]);
 const syncStatus = ref<AttendanceSyncStatus | null>(null);
 const reconciliationItems = ref<AttendanceReconciliationItem[]>([]);
 const reviewRows = ref<AttendanceReconciliationQueueRow[]>([]);
+const reviewBreakdownRows = ref<AttendanceReconciliationBreakdownRow[]>([]);
 const reviewTotal = ref(0);
 const reviewVisible = ref(false);
 const reviewLoading = ref(false);
@@ -113,13 +116,17 @@ onMounted(load);
 async function loadReviewQueue() {
   reviewLoading.value = true;
   try {
-    const response = await getAttendanceReconciliationQueue({
-      issue: reviewIssue.value,
-      limit: reviewPageSize,
-      offset: (reviewPage.value - 1) * reviewPageSize
-    });
-    reviewRows.value = response.data.rows;
-    reviewTotal.value = response.data.total;
+    const [queueResponse, breakdownResponse] = await Promise.all([
+      getAttendanceReconciliationQueue({
+        issue: reviewIssue.value,
+        limit: reviewPageSize,
+        offset: (reviewPage.value - 1) * reviewPageSize
+      }),
+      getAttendanceReconciliationBreakdown(reviewIssue.value)
+    ]);
+    reviewRows.value = queueResponse.data.rows;
+    reviewTotal.value = queueResponse.data.total;
+    reviewBreakdownRows.value = breakdownResponse.data.rows;
   } finally {
     reviewLoading.value = false;
   }
@@ -233,6 +240,10 @@ async function openReviewQueue(issue: AttendanceReconciliationItem["key"]) {
         :closable="false"
         show-icon
       />
+      <el-table :data="reviewBreakdownRows" size="small" stripe class="review-breakdown">
+        <el-table-column prop="org_name" label="分布组织" min-width="220" />
+        <el-table-column prop="count" label="数量" width="100" align="right" />
+      </el-table>
       <el-table v-loading="reviewLoading" :data="reviewRows" stripe>
         <el-table-column prop="event_date" label="日期" width="120">
           <template #default="{ row }">{{ row.event_date || "—" }}</template>
@@ -313,6 +324,9 @@ async function openReviewQueue(issue: AttendanceReconciliationItem["key"]) {
 .review-pagination {
   justify-content: flex-end;
   margin-top: 16px;
+}
+.review-breakdown {
+  margin: 16px 0;
 }
 @media (max-width: 900px) {
   .summary {

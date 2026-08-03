@@ -324,6 +324,46 @@ def reconciliation_queue(
     }
 
 
+@router.get("/reconciliation-breakdown")
+def reconciliation_breakdown(
+    issue: Literal[
+        "unmatched_attendance_records",
+        "active_members_missing_phone_hash",
+        "active_members_missing_primary_region",
+        "active_members_missing_study_class",
+        "active_members_missing_study_group",
+    ] = "unmatched_attendance_records",
+    user: dict = Depends(require_permission("members:read")),
+) -> dict:
+    """Return aggregate issue distribution by primary operating organization."""
+    if issue == "unmatched_attendance_records":
+        rows = fetch_all(
+            "SELECT eg.org_unit_id, o.name AS org_name, COUNT(*) AS count "
+            "FROM attendance_records r JOIN attendance_sessions s ON s.id=r.attendance_session_id "
+            "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
+            "JOIN org_units o ON o.id=eg.org_unit_id "
+            "WHERE r.attendance_status='UNMATCHED' OR r.member_id IS NULL "
+            "GROUP BY eg.org_unit_id, o.name ORDER BY count DESC, eg.org_unit_id"
+        )
+    else:
+        conditions = {
+            "active_members_missing_phone_hash": "m.phone_hash IS NULL OR m.phone_hash=''",
+            "active_members_missing_primary_region": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='PRIMARY_REGION')",
+            "active_members_missing_study_class": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='STUDY_CLASS')",
+            "active_members_missing_study_group": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP')",
+        }
+        rows = fetch_all(
+            "SELECT m.org_unit_id, o.name AS org_name, COUNT(*) AS count "
+            "FROM members m JOIN org_units o ON o.id=m.org_unit_id "
+            "WHERE m.status='ACTIVE' AND (" + conditions[issue] + ") "
+            "GROUP BY m.org_unit_id, o.name ORDER BY count DESC, m.org_unit_id"
+        )
+    return {
+        "success": True,
+        "data": {"scope": "AGGREGATE_ONLY", "issue": issue, "rows": rows},
+    }
+
+
 @router.get("/event-groups")
 def list_event_groups(
     month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
