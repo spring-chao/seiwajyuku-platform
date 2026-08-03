@@ -675,6 +675,7 @@ export type AttendanceReconciliationQueueRow = {
 };
 
 export const getAttendanceReconciliationQueue = (params?: {
+  issue?: AttendanceReconciliationItem["key"];
   limit?: number;
   offset?: number;
 }) =>
@@ -682,6 +683,7 @@ export const getAttendanceReconciliationQueue = (params?: {
     success: boolean;
     data: {
       scope: "MANUAL_REVIEW_READ_ONLY";
+      issue: AttendanceReconciliationItem["key"];
       write_enabled: false;
       total: number;
       limit: number;

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hmac
 from datetime import UTC, datetime
+from typing import Literal
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -241,33 +242,79 @@ def reconciliation_summary(
 
 @router.get("/reconciliation-queue")
 def reconciliation_queue(
+    issue: Literal[
+        "unmatched_attendance_records",
+        "active_members_missing_phone_hash",
+        "active_members_missing_primary_region",
+        "active_members_missing_study_class",
+        "active_members_missing_study_group",
+    ] = "unmatched_attendance_records",
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     user: dict = Depends(require_permission("members:detail_view")),
 ) -> dict:
     """Return a paged read-only queue for authorized manual review."""
-    total = int(
-        (fetch_one(
-            "SELECT COUNT(*) AS count FROM attendance_records "
-            "WHERE attendance_status='UNMATCHED' OR member_id IS NULL"
-        ) or {"count": 0})["count"]
-        or 0
-    )
+    queries = {
+        "unmatched_attendance_records": {
+            "count": "SELECT COUNT(*) AS count FROM attendance_records "
+            "WHERE attendance_status='UNMATCHED' OR member_id IS NULL",
+            "rows": "SELECT r.id, r.member_code_snapshot, r.name_snapshot, "
+            "r.attendance_status, r.checked_at, s.session_name, "
+            "eg.title, eg.event_date, eg.org_unit_id, eg.study_org_unit_id "
+            "FROM attendance_records r JOIN attendance_sessions s "
+            "ON s.id=r.attendance_session_id JOIN attendance_event_groups eg "
+            "ON eg.id=s.event_group_id WHERE r.attendance_status='UNMATCHED' "
+            "OR r.member_id IS NULL ORDER BY eg.event_date DESC, r.id DESC",
+        },
+        "active_members_missing_phone_hash": {
+            "count": "SELECT COUNT(*) AS count FROM members "
+            "WHERE status='ACTIVE' AND (phone_hash IS NULL OR phone_hash='')",
+            "rows": "SELECT id, member_code AS member_code_snapshot, name AS name_snapshot, "
+            "status AS attendance_status, NULL AS checked_at, NULL AS session_name, "
+            "NULL AS title, NULL AS event_date, org_unit_id, development_org_unit_id AS study_org_unit_id "
+            "FROM members WHERE status='ACTIVE' AND (phone_hash IS NULL OR phone_hash='') "
+            "ORDER BY id DESC",
+        },
+        "active_members_missing_primary_region": {
+            "count": "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
+            "AND NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id "
+            "AND r.relation_type='PRIMARY_REGION')",
+            "rows": "SELECT m.id, m.member_code AS member_code_snapshot, m.name AS name_snapshot, "
+            "m.status AS attendance_status, NULL AS checked_at, NULL AS session_name, NULL AS title, "
+            "NULL AS event_date, m.org_unit_id, m.development_org_unit_id AS study_org_unit_id "
+            "FROM members m WHERE m.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
+            "WHERE r.member_id=m.id AND r.relation_type='PRIMARY_REGION') ORDER BY m.id DESC",
+        },
+        "active_members_missing_study_class": {
+            "count": "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
+            "AND NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id "
+            "AND r.relation_type='STUDY_CLASS')",
+            "rows": "SELECT m.id, m.member_code AS member_code_snapshot, m.name AS name_snapshot, "
+            "m.status AS attendance_status, NULL AS checked_at, NULL AS session_name, NULL AS title, "
+            "NULL AS event_date, m.org_unit_id, m.development_org_unit_id AS study_org_unit_id "
+            "FROM members m WHERE m.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
+            "WHERE r.member_id=m.id AND r.relation_type='STUDY_CLASS') ORDER BY m.id DESC",
+        },
+        "active_members_missing_study_group": {
+            "count": "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
+            "AND NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id "
+            "AND r.relation_type='STUDY_GROUP')",
+            "rows": "SELECT m.id, m.member_code AS member_code_snapshot, m.name AS name_snapshot, "
+            "m.status AS attendance_status, NULL AS checked_at, NULL AS session_name, NULL AS title, "
+            "NULL AS event_date, m.org_unit_id, m.development_org_unit_id AS study_org_unit_id "
+            "FROM members m WHERE m.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
+            "WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') ORDER BY m.id DESC",
+        },
+    }[issue]
+    total = int((fetch_one(queries["count"]) or {"count": 0})["count"] or 0)
     rows = fetch_all(
-        "SELECT r.id, r.member_code_snapshot, r.name_snapshot, "
-        "r.attendance_status, r.checked_at, s.session_name, "
-        "eg.title, eg.event_date, eg.org_unit_id, eg.study_org_unit_id "
-        "FROM attendance_records r "
-        "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
-        "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
-        "WHERE r.attendance_status='UNMATCHED' OR r.member_id IS NULL "
-        "ORDER BY eg.event_date DESC, r.id DESC LIMIT ? OFFSET ?",
-        (limit, offset),
+        f"{queries['rows']} LIMIT ? OFFSET ?", (limit, offset)
     )
     return {
         "success": True,
         "data": {
             "scope": "MANUAL_REVIEW_READ_ONLY",
+            "issue": issue,
             "write_enabled": False,
             "total": total,
             "limit": limit,

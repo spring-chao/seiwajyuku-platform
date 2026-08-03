@@ -25,6 +25,9 @@ const reviewVisible = ref(false);
 const reviewLoading = ref(false);
 const reviewPage = ref(1);
 const reviewPageSize = 20;
+const reviewIssue = ref<AttendanceReconciliationItem["key"]>(
+  "unmatched_attendance_records"
+);
 const totalEligible = computed(() =>
   rows.value.reduce((sum, item) => sum + item.record_count, 0)
 );
@@ -111,6 +114,7 @@ async function loadReviewQueue() {
   reviewLoading.value = true;
   try {
     const response = await getAttendanceReconciliationQueue({
+      issue: reviewIssue.value,
       limit: reviewPageSize,
       offset: (reviewPage.value - 1) * reviewPageSize
     });
@@ -121,7 +125,9 @@ async function loadReviewQueue() {
   }
 }
 
-async function openReviewQueue() {
+async function openReviewQueue(issue: AttendanceReconciliationItem["key"]) {
+  reviewIssue.value = issue;
+  reviewPage.value = 1;
   reviewVisible.value = true;
   await loadReviewQueue();
 }
@@ -181,15 +187,17 @@ async function openReviewQueue() {
           {{ reconciliationLabels[item.key] }}：{{ item.count }}
         </el-tag>
       </el-space>
-      <el-button
-        v-if="reconciliationItems[0]?.count"
-        class="review-button"
-        type="warning"
-        plain
-        @click="openReviewQueue"
-      >
-        查看待人工匹配记录
-      </el-button>
+      <template v-for="item in reconciliationItems" :key="`review-${item.key}`">
+        <el-button
+          v-if="item.count"
+          class="review-button"
+          type="warning"
+          plain
+          @click="openReviewQueue(item.key)"
+        >
+          查看{{ reconciliationLabels[item.key] }}
+        </el-button>
+      </template>
     </el-card>
 
     <el-card shadow="never">
@@ -214,21 +222,31 @@ async function openReviewQueue() {
       </el-table>
     </el-card>
 
-    <el-dialog v-model="reviewVisible" title="待人工匹配签到（只读）" width="920px">
+    <el-dialog
+      v-model="reviewVisible"
+      :title="`${reconciliationLabels[reviewIssue]}（只读）`"
+      width="920px"
+    >
       <el-alert
-        title="本窗口只提供人工核对所需的最小信息，不会自动匹配、修改签到或写入生产数据。"
+        title="本窗口只提供人工核对所需的最小信息，不会自动修正或写入生产数据。"
         type="warning"
         :closable="false"
         show-icon
       />
       <el-table v-loading="reviewLoading" :data="reviewRows" stripe>
-        <el-table-column prop="event_date" label="活动日期" width="120" />
-        <el-table-column prop="title" label="活动" min-width="180" />
-        <el-table-column prop="session_name" label="场次" min-width="140" />
+        <el-table-column prop="event_date" label="日期" width="120">
+          <template #default="{ row }">{{ row.event_date || "—" }}</template>
+        </el-table-column>
+        <el-table-column prop="title" label="活动" min-width="180">
+          <template #default="{ row }">{{ row.title || "—" }}</template>
+        </el-table-column>
+        <el-table-column prop="session_name" label="场次" min-width="140">
+          <template #default="{ row }">{{ row.session_name || "—" }}</template>
+        </el-table-column>
         <el-table-column prop="name_snapshot" label="姓名" width="110" />
         <el-table-column prop="member_code_snapshot" label="学员编号" width="140" />
         <el-table-column label="状态" width="100">
-          <template #default>待人工匹配</template>
+          <template #default>{{ reviewIssue === "unmatched_attendance_records" ? "待人工匹配" : "待人工核对" }}</template>
         </el-table-column>
       </el-table>
       <el-pagination
