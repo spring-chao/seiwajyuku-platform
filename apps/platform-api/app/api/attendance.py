@@ -429,7 +429,16 @@ def event_group_detail(
 ) -> dict:
     """Get event group detail with sessions and score summary."""
     group = fetch_one(
-        "SELECT eg.*, o.name AS org_name "
+        "SELECT eg.*, o.name AS org_name, "
+        "(SELECT COUNT(*) FROM attendance_sessions s "
+        "WHERE s.event_group_id=eg.id) AS session_count, "
+        "(SELECT COUNT(*) FROM attendance_records r "
+        "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
+        "WHERE s.event_group_id=eg.id) AS record_count, "
+        "(SELECT COUNT(*) FROM attendance_records r "
+        "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
+        "WHERE s.event_group_id=eg.id "
+        "AND r.attendance_status IN ('PRESENT','MANUAL_PRESENT')) AS present_count "
         "FROM attendance_event_groups eg "
         "JOIN org_units o ON o.id=eg.org_unit_id "
         "WHERE eg.id=?",

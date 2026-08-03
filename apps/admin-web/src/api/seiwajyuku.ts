@@ -294,6 +294,52 @@ export type AttendanceEventGroup = {
   present_count: number;
 };
 
+export type AttendanceSession = {
+  id: number;
+  event_group_id: number;
+  session_code: string;
+  session_name?: string;
+  session_order: number;
+  checkin_start_at?: string;
+  scheduled_start_at?: string;
+  scheduled_end_at?: string;
+  checkin_end_at?: string;
+  status: string;
+  record_count: number;
+  present_count: number;
+  total_points?: number | string | null;
+};
+
+export type AttendanceEventGroupDetail = {
+  group: AttendanceEventGroup & {
+    external_group_id: string;
+    source_updated_at?: string;
+    created_at: string;
+    updated_at: string;
+  };
+  sessions: AttendanceSession[];
+};
+
+export type AttendanceRecord = {
+  id: number;
+  attendance_session_id: number;
+  member_id?: number | null;
+  member_code_snapshot?: string | null;
+  name_snapshot?: string | null;
+  participant_type: string;
+  score_eligible: number;
+  attendance_status: string;
+  checked_at?: string | null;
+  checkin_source?: string | null;
+  session_code: string;
+  session_name?: string | null;
+  title?: string | null;
+  event_date: string;
+  final_points?: number | string | null;
+  is_late?: number | null;
+  is_early_leave?: number | null;
+};
+
 export type AttendanceSyncStatus = {
   state: "NO_RUNS" | "RUNNING" | "HEALTHY" | "WARNING" | "CRITICAL";
   alert_threshold: number;
@@ -639,6 +685,19 @@ export const getAttendanceSyncStatus = () =>
   http.request<{ success: boolean; data: AttendanceSyncStatus }>(
     "get",
     "/api/v1/attendance/sync/status"
+  );
+
+export const getAttendanceEventGroupDetail = (groupId: number) =>
+  http.request<{ success: boolean; data: AttendanceEventGroupDetail }>(
+    "get",
+    `/api/v1/attendance/event-groups/${groupId}`
+  );
+
+export const getAttendanceRecords = (eventGroupId: number) =>
+  http.request<{ success: boolean; data: AttendanceRecord[] }>(
+    "get",
+    "/api/v1/attendance/records",
+    { params: { event_group_id: eventGroupId } }
   );
 
 export type AttendanceReconciliationItem = {
