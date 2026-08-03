@@ -69,6 +69,17 @@ const activityStatusLabels: Record<string, string> = {
 function activityStatusLabel(status: string) {
   return activityStatusLabels[status] || status;
 }
+const activityTypeLabels: Record<string, string> = {
+  CLASS_MEETING: "班级学习会",
+  CENTER_QUARTERLY_REPORT: "分中心季度报告会",
+  CENTER_MONTHLY_REPORT: "分中心月度报告会",
+  READING_SESSION: "读书会",
+  OTHER: "其他活动"
+};
+
+function activityTypeLabel(activityType: string) {
+  return activityTypeLabels[activityType] || activityType;
+}
 
 async function load() {
   loading.value = true;
@@ -150,7 +161,11 @@ onMounted(load);
         <el-table-column prop="event_date" label="活动日期" min-width="130" />
         <el-table-column prop="title" label="活动" min-width="180" />
         <el-table-column prop="org_name" label="所属分中心" min-width="150" />
-        <el-table-column prop="activity_type" label="活动类型" min-width="150" />
+        <el-table-column label="活动类型" min-width="150">
+          <template #default="{ row }">
+            {{ activityTypeLabel(row.activity_type) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="session_count" label="场次数" width="90" align="right" />
         <el-table-column prop="record_count" label="签到记录" width="100" align="right" />
         <el-table-column prop="present_count" label="已签到" width="90" align="right" />
