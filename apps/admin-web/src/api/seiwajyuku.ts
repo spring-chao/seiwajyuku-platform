@@ -661,6 +661,35 @@ export const getAttendanceReconciliationSummary = () =>
     };
   }>("get", "/api/v1/attendance/reconciliation-summary");
 
+export type AttendanceReconciliationQueueRow = {
+  id: number;
+  member_code_snapshot?: string;
+  name_snapshot?: string;
+  attendance_status: string;
+  checked_at?: string;
+  session_name?: string;
+  title?: string;
+  event_date: string;
+  org_unit_id: string;
+  study_org_unit_id?: string;
+};
+
+export const getAttendanceReconciliationQueue = (params?: {
+  limit?: number;
+  offset?: number;
+}) =>
+  http.request<{
+    success: boolean;
+    data: {
+      scope: "MANUAL_REVIEW_READ_ONLY";
+      write_enabled: false;
+      total: number;
+      limit: number;
+      offset: number;
+      rows: AttendanceReconciliationQueueRow[];
+    };
+  }>("get", "/api/v1/attendance/reconciliation-queue", { params });
+
 export const getRenewalOverview = (year: number) =>
   http.request<{
     success: boolean;

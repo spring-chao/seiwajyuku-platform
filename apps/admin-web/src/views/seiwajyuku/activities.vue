@@ -3,9 +3,11 @@ import { computed, onMounted, ref } from "vue";
 import dayjs from "dayjs";
 import {
   getAttendanceEventGroups,
+  getAttendanceReconciliationQueue,
   getAttendanceReconciliationSummary,
   getAttendanceSyncStatus,
   type AttendanceEventGroup,
+  type AttendanceReconciliationQueueRow,
   type AttendanceReconciliationItem,
   type AttendanceSyncStatus
 } from "@/api/seiwajyuku";
@@ -17,6 +19,12 @@ const month = ref(dayjs().format("YYYY-MM"));
 const rows = ref<AttendanceEventGroup[]>([]);
 const syncStatus = ref<AttendanceSyncStatus | null>(null);
 const reconciliationItems = ref<AttendanceReconciliationItem[]>([]);
+const reviewRows = ref<AttendanceReconciliationQueueRow[]>([]);
+const reviewTotal = ref(0);
+const reviewVisible = ref(false);
+const reviewLoading = ref(false);
+const reviewPage = ref(1);
+const reviewPageSize = 20;
 const totalEligible = computed(() =>
   rows.value.reduce((sum, item) => sum + item.record_count, 0)
 );
@@ -98,6 +106,25 @@ async function load() {
 }
 
 onMounted(load);
+
+async function loadReviewQueue() {
+  reviewLoading.value = true;
+  try {
+    const response = await getAttendanceReconciliationQueue({
+      limit: reviewPageSize,
+      offset: (reviewPage.value - 1) * reviewPageSize
+    });
+    reviewRows.value = response.data.rows;
+    reviewTotal.value = response.data.total;
+  } finally {
+    reviewLoading.value = false;
+  }
+}
+
+async function openReviewQueue() {
+  reviewVisible.value = true;
+  await loadReviewQueue();
+}
 </script>
 
 <template>
@@ -154,6 +181,15 @@ onMounted(load);
           {{ reconciliationLabels[item.key] }}：{{ item.count }}
         </el-tag>
       </el-space>
+      <el-button
+        v-if="reconciliationItems[0]?.count"
+        class="review-button"
+        type="warning"
+        plain
+        @click="openReviewQueue"
+      >
+        查看待人工匹配记录
+      </el-button>
     </el-card>
 
     <el-card shadow="never">
@@ -177,6 +213,33 @@ onMounted(load);
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-dialog v-model="reviewVisible" title="待人工匹配签到（只读）" width="920px">
+      <el-alert
+        title="本窗口只提供人工核对所需的最小信息，不会自动匹配、修改签到或写入生产数据。"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
+      <el-table v-loading="reviewLoading" :data="reviewRows" stripe>
+        <el-table-column prop="event_date" label="活动日期" width="120" />
+        <el-table-column prop="title" label="活动" min-width="180" />
+        <el-table-column prop="session_name" label="场次" min-width="140" />
+        <el-table-column prop="name_snapshot" label="姓名" width="110" />
+        <el-table-column prop="member_code_snapshot" label="学员编号" width="140" />
+        <el-table-column label="状态" width="100">
+          <template #default>待人工匹配</template>
+        </el-table-column>
+      </el-table>
+      <el-pagination
+        v-model:current-page="reviewPage"
+        class="review-pagination"
+        layout="prev, pager, next, total"
+        :page-size="reviewPageSize"
+        :total="reviewTotal"
+        @current-change="loadReviewQueue"
+      />
+    </el-dialog>
   </div>
 </template>
 
@@ -225,6 +288,13 @@ onMounted(load);
 .reconciliation-card :deep(.el-card__header) span {
   color: var(--el-text-color-secondary);
   font-size: 13px;
+}
+.review-button {
+  margin-top: 16px;
+}
+.review-pagination {
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 @media (max-width: 900px) {
   .summary {

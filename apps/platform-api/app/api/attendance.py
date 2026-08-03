@@ -239,6 +239,44 @@ def reconciliation_summary(
     return {"success": True, "data": _attendance_reconciliation_summary()}
 
 
+@router.get("/reconciliation-queue")
+def reconciliation_queue(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    user: dict = Depends(require_permission("members:detail_view")),
+) -> dict:
+    """Return a paged read-only queue for authorized manual review."""
+    total = int(
+        (fetch_one(
+            "SELECT COUNT(*) AS count FROM attendance_records "
+            "WHERE attendance_status='UNMATCHED' OR member_id IS NULL"
+        ) or {"count": 0})["count"]
+        or 0
+    )
+    rows = fetch_all(
+        "SELECT r.id, r.member_code_snapshot, r.name_snapshot, "
+        "r.attendance_status, r.checked_at, s.session_name, "
+        "eg.title, eg.event_date, eg.org_unit_id, eg.study_org_unit_id "
+        "FROM attendance_records r "
+        "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
+        "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
+        "WHERE r.attendance_status='UNMATCHED' OR r.member_id IS NULL "
+        "ORDER BY eg.event_date DESC, r.id DESC LIMIT ? OFFSET ?",
+        (limit, offset),
+    )
+    return {
+        "success": True,
+        "data": {
+            "scope": "MANUAL_REVIEW_READ_ONLY",
+            "write_enabled": False,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "rows": rows,
+        },
+    }
+
+
 @router.get("/event-groups")
 def list_event_groups(
     month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
