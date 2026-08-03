@@ -641,6 +641,26 @@ export const getAttendanceSyncStatus = () =>
     "/api/v1/attendance/sync/status"
   );
 
+export type AttendanceReconciliationItem = {
+  key:
+    | "unmatched_attendance_records"
+    | "active_members_missing_phone_hash"
+    | "active_members_missing_primary_region"
+    | "active_members_missing_study_class"
+    | "active_members_missing_study_group";
+  count: number;
+};
+
+export const getAttendanceReconciliationSummary = () =>
+  http.request<{
+    success: boolean;
+    data: {
+      scope: "AGGREGATE_ONLY";
+      write_enabled: false;
+      items: AttendanceReconciliationItem[];
+    };
+  }>("get", "/api/v1/attendance/reconciliation-summary");
+
 export const getRenewalOverview = (year: number) =>
   http.request<{
     success: boolean;

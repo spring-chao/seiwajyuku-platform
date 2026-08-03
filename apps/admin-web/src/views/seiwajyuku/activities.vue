@@ -3,8 +3,10 @@ import { computed, onMounted, ref } from "vue";
 import dayjs from "dayjs";
 import {
   getAttendanceEventGroups,
+  getAttendanceReconciliationSummary,
   getAttendanceSyncStatus,
   type AttendanceEventGroup,
+  type AttendanceReconciliationItem,
   type AttendanceSyncStatus
 } from "@/api/seiwajyuku";
 
@@ -14,6 +16,7 @@ const loading = ref(false);
 const month = ref(dayjs().format("YYYY-MM"));
 const rows = ref<AttendanceEventGroup[]>([]);
 const syncStatus = ref<AttendanceSyncStatus | null>(null);
+const reconciliationItems = ref<AttendanceReconciliationItem[]>([]);
 const totalEligible = computed(() =>
   rows.value.reduce((sum, item) => sum + item.record_count, 0)
 );
@@ -48,16 +51,25 @@ const syncAlert = computed(() => {
     title: `签到自动同步正常，最近完成于 ${finishedAt}`
   };
 });
+const reconciliationLabels: Record<AttendanceReconciliationItem["key"], string> = {
+  unmatched_attendance_records: "待人工匹配签到",
+  active_members_missing_phone_hash: "在册学员缺少手机号摘要",
+  active_members_missing_primary_region: "在册学员缺少发展归属",
+  active_members_missing_study_class: "在册学员未分学习班级",
+  active_members_missing_study_group: "在册学员未分学习小组"
+};
 
 async function load() {
   loading.value = true;
   try {
-    const [eventResponse, syncResponse] = await Promise.all([
+    const [eventResponse, syncResponse, reconciliationResponse] = await Promise.all([
       getAttendanceEventGroups(month.value),
-      getAttendanceSyncStatus()
+      getAttendanceSyncStatus(),
+      getAttendanceReconciliationSummary()
     ]);
     rows.value = eventResponse.data;
     syncStatus.value = syncResponse.data;
+    reconciliationItems.value = reconciliationResponse.data.items;
   } finally {
     loading.value = false;
   }
@@ -101,6 +113,26 @@ onMounted(load);
         :precision="1"
       />
     </section>
+
+    <el-card shadow="never" class="reconciliation-card">
+      <template #header>
+        <div>
+          <strong>数据复核待办</strong>
+          <span>仅显示汇总数量，不显示个人资料；本页不提供写入或自动修正。</span>
+        </div>
+      </template>
+      <el-space wrap>
+        <el-tag
+          v-for="item in reconciliationItems"
+          :key="item.key"
+          :type="item.count ? 'warning' : 'success'"
+          effect="light"
+          size="large"
+        >
+          {{ reconciliationLabels[item.key] }}：{{ item.count }}
+        </el-tag>
+      </el-space>
+    </el-card>
 
     <el-card shadow="never">
       <el-table :data="rows" stripe>
@@ -155,6 +187,14 @@ onMounted(load);
   background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-light);
   border-radius: 14px;
+}
+.reconciliation-card :deep(.el-card__header) div {
+  display: grid;
+  gap: 6px;
+}
+.reconciliation-card :deep(.el-card__header) span {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
 }
 @media (max-width: 900px) {
   .summary {

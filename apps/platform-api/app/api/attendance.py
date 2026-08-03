@@ -113,6 +113,46 @@ def _write_failure_alert_if_threshold_reached() -> None:
         )
 
 
+def _attendance_reconciliation_summary() -> dict:
+    """Return only review workload counts; never expose attendance snapshots."""
+    queries = {
+        "unmatched_attendance_records": (
+            "SELECT COUNT(*) AS count FROM attendance_records "
+            "WHERE attendance_status='UNMATCHED' OR member_id IS NULL"
+        ),
+        "active_members_missing_phone_hash": (
+            "SELECT COUNT(*) AS count FROM members "
+            "WHERE status='ACTIVE' AND (phone_hash IS NULL OR phone_hash='')"
+        ),
+        "active_members_missing_primary_region": (
+            "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
+            "AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
+            "WHERE r.member_id=m.id AND r.relation_type='PRIMARY_REGION')"
+        ),
+        "active_members_missing_study_class": (
+            "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
+            "AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
+            "WHERE r.member_id=m.id AND r.relation_type='STUDY_CLASS')"
+        ),
+        "active_members_missing_study_group": (
+            "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
+            "AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
+            "WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP')"
+        ),
+    }
+    return {
+        "scope": "AGGREGATE_ONLY",
+        "write_enabled": False,
+        "items": [
+            {
+                "key": key,
+                "count": int((fetch_one(statement) or {"count": 0})["count"] or 0),
+            }
+            for key, statement in queries.items()
+        ],
+    }
+
+
 def _org_is_allowed(
     primary_org_id: str,
     study_org_unit_id: str | None,
@@ -189,6 +229,14 @@ def sync_status(
 ) -> dict:
     """Return privacy-safe health details for the signin synchronization."""
     return {"success": True, "data": _attendance_sync_health()}
+
+
+@router.get("/reconciliation-summary")
+def reconciliation_summary(
+    user: dict = Depends(require_permission("members:read")),
+) -> dict:
+    """Return privacy-safe aggregate workload for manual data review."""
+    return {"success": True, "data": _attendance_reconciliation_summary()}
 
 
 @router.get("/event-groups")
