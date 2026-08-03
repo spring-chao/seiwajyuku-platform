@@ -70,7 +70,8 @@ const reconciliationLabels: Record<AttendanceReconciliationItem["key"], string> 
   active_members_missing_phone_hash: "在册学员缺少手机号摘要",
   active_members_missing_primary_region: "在册学员缺少发展归属",
   active_members_missing_study_class: "在册学员未分学习班级",
-  active_members_missing_study_group: "在册学员未分学习小组"
+  active_members_missing_study_group: "在册学员未分学习小组",
+  active_members_expected_no_study_group: "按规则不建学习小组"
 };
 const activityStatusLabels: Record<string, string> = {
   ACTIVE: "正常",
@@ -93,6 +94,14 @@ const activityTypeLabels: Record<string, string> = {
 
 function activityTypeLabel(activityType: string) {
   return activityTypeLabels[activityType] || activityType;
+}
+
+function reconciliationTagType(item: AttendanceReconciliationItem) {
+  return item.key === "active_members_expected_no_study_group"
+    ? "success"
+    : item.count
+      ? "warning"
+      : "success";
 }
 
 async function load() {
@@ -187,7 +196,7 @@ async function openReviewQueue(issue: AttendanceReconciliationItem["key"]) {
         <el-tag
           v-for="item in reconciliationItems"
           :key="item.key"
-          :type="item.count ? 'warning' : 'success'"
+          :type="reconciliationTagType(item)"
           effect="light"
           size="large"
         >
@@ -196,7 +205,7 @@ async function openReviewQueue(issue: AttendanceReconciliationItem["key"]) {
       </el-space>
       <template v-for="item in reconciliationItems" :key="`review-${item.key}`">
         <el-button
-          v-if="item.count"
+          v-if="item.count && item.key !== 'active_members_expected_no_study_group'"
           class="review-button"
           type="warning"
           plain

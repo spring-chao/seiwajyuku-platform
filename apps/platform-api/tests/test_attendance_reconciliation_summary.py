@@ -11,6 +11,7 @@ def test_reconciliation_summary_returns_aggregate_counts_only():
             {"count": 2},
             {"count": 18},
             {"count": 21},
+            {"count": 22},
         ]
     )
     with patch("app.api.attendance.fetch_one", side_effect=lambda _: next(rows)):
@@ -25,5 +26,6 @@ def test_reconciliation_summary_returns_aggregate_counts_only():
             {"key": "active_members_missing_primary_region", "count": 2},
             {"key": "active_members_missing_study_class", "count": 18},
             {"key": "active_members_missing_study_group", "count": 21},
+            {"key": "active_members_expected_no_study_group", "count": 22},
         ],
     }

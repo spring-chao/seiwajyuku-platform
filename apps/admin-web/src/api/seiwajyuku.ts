@@ -647,7 +647,8 @@ export type AttendanceReconciliationItem = {
     | "active_members_missing_phone_hash"
     | "active_members_missing_primary_region"
     | "active_members_missing_study_class"
-    | "active_members_missing_study_group";
+    | "active_members_missing_study_group"
+    | "active_members_expected_no_study_group";
   count: number;
 };
 

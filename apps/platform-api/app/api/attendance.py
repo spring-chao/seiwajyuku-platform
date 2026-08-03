@@ -138,7 +138,16 @@ def _attendance_reconciliation_summary() -> dict:
         "active_members_missing_study_group": (
             "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
             "AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
-            "WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP')"
+            "WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') "
+            "AND NOT (COALESCE(m.class_name,'') IN ('先锋班','神仙班') "
+            "OR COALESCE(m.notes,'') LIKE '%目前不读书%')"
+        ),
+        "active_members_expected_no_study_group": (
+            "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
+            "AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
+            "WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') "
+            "AND (COALESCE(m.class_name,'') IN ('先锋班','神仙班') "
+            "OR COALESCE(m.notes,'') LIKE '%目前不读书%')"
         ),
     }
     return {
@@ -303,7 +312,9 @@ def reconciliation_queue(
             "m.status AS attendance_status, NULL AS checked_at, NULL AS session_name, NULL AS title, "
             "NULL AS event_date, m.org_unit_id, m.development_org_unit_id AS study_org_unit_id "
             "FROM members m WHERE m.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
-            "WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') ORDER BY m.id DESC",
+            "WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') "
+            "AND NOT (COALESCE(m.class_name,'') IN ('先锋班','神仙班') "
+            "OR COALESCE(m.notes,'') LIKE '%目前不读书%') ORDER BY m.id DESC",
         },
     }[issue]
     total = int((fetch_one(queries["count"]) or {"count": 0})["count"] or 0)
@@ -350,7 +361,7 @@ def reconciliation_breakdown(
             "active_members_missing_phone_hash": "m.phone_hash IS NULL OR m.phone_hash=''",
             "active_members_missing_primary_region": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='PRIMARY_REGION')",
             "active_members_missing_study_class": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='STUDY_CLASS')",
-            "active_members_missing_study_group": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP')",
+            "active_members_missing_study_group": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') AND NOT (COALESCE(m.class_name,'') IN ('先锋班','神仙班') OR COALESCE(m.notes,'') LIKE '%目前不读书%')",
         }
         rows = fetch_all(
             "SELECT m.org_unit_id, o.name AS org_name, COUNT(*) AS count "
