@@ -48,7 +48,18 @@ def connect():
 
 
 def _sql(connection, statement: str) -> str:
-    return statement if isinstance(connection, sqlite3.Connection) else statement.replace("?", "%s")
+    if isinstance(connection, sqlite3.Connection):
+        return statement
+
+    # PyMySQL uses ``%`` interpolation for its qmark-adapted parameters.  A
+    # literal percent in SQL (for example a ``LIKE '%目前不读书%'`` predicate)
+    # must therefore be escaped as ``%%`` or it is interpreted as another
+    # format placeholder and the request fails before reaching MySQL.
+    # Protect qmark placeholders while escaping literal percent signs.
+    placeholder = "\x00"
+    return statement.replace("?", placeholder).replace("%", "%%").replace(
+        placeholder, "%s"
+    )
 
 
 def execute(connection, statement: str, params: tuple[Any, ...] = ()):
@@ -85,4 +96,3 @@ def fetch_all(statement: str, params: tuple[Any, ...] = ()) -> list[dict[str, An
         return [dict(row) for row in execute(connection, statement, params).fetchall()]
     finally:
         connection.close()
-
