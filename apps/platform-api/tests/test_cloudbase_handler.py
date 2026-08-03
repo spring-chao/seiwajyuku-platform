@@ -27,10 +27,22 @@ class CloudBaseHandlerTests(unittest.TestCase):
                 object(),
             )
             self.assertEqual(health["statusCode"], 200)
-            mutation = handler.main(
+            login = handler.main(
                 {
                     "httpMethod": "POST",
                     "path": "/api/v1/auth/login",
+                    "headers": {"content-type": "application/json"},
+                    "body": "{}",
+                },
+                object(),
+            )
+            # Authentication remains reachable in read-only deployments. The
+            # empty request is rejected by login validation, not the guard.
+            self.assertEqual(login["statusCode"], 422)
+            mutation = handler.main(
+                {
+                    "httpMethod": "POST",
+                    "path": "/api/v1/members",
                     "headers": {"content-type": "application/json"},
                     "body": "{}",
                 },
