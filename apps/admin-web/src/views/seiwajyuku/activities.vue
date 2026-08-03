@@ -58,6 +58,17 @@ const reconciliationLabels: Record<AttendanceReconciliationItem["key"], string> 
   active_members_missing_study_class: "在册学员未分学习班级",
   active_members_missing_study_group: "在册学员未分学习小组"
 };
+const activityStatusLabels: Record<string, string> = {
+  ACTIVE: "正常",
+  INACTIVE: "已停用",
+  CANCELLED: "已取消",
+  CLOSED: "已结束",
+  DRAFT: "草稿"
+};
+
+function activityStatusLabel(status: string) {
+  return activityStatusLabels[status] || status;
+}
 
 async function load() {
   loading.value = true;
@@ -144,7 +155,11 @@ onMounted(load);
         <el-table-column prop="record_count" label="签到记录" width="100" align="right" />
         <el-table-column prop="present_count" label="已签到" width="90" align="right" />
         <el-table-column prop="source_key" label="数据源" min-width="130" />
-        <el-table-column prop="status" label="状态" width="100" />
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            {{ activityStatusLabel(row.status) }}
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
   </div>
