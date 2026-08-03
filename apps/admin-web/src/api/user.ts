@@ -42,19 +42,51 @@ type MeResponse = {
   };
 };
 
+type TransientRequestError = {
+  code?: string;
+  response?: { status?: number };
+};
+
+function isTransientRequestError(error: unknown): boolean {
+  const requestError = error as TransientRequestError;
+  const status = requestError?.response?.status;
+  if (!status) return true;
+  if (status === 401 || (status && status < 500)) return false;
+  return (
+    [408, 425, 429, 500, 502, 503, 504].includes(status) ||
+    requestError.code === "ECONNABORTED" ||
+    requestError.code === "ERR_NETWORK"
+  );
+}
+
+async function withLoginRetry<T>(request: () => Promise<T>): Promise<T> {
+  try {
+    return await request();
+  } catch (error) {
+    if (!isTransientRequestError(error)) throw error;
+    // CloudRun/数据库首次唤醒可能只需要几百毫秒；自动重试一次，避免用户重复点击。
+    await new Promise(resolve => setTimeout(resolve, 600));
+    return request();
+  }
+}
+
 export const getLogin = async (data?: {
   username?: string;
   password?: string;
 }): Promise<UserResult> => {
-  const login = await http.request<LoginResponse>(
-    "post",
-    "/api/v1/auth/login",
-    { data }
-  );
-  const me = await http.request<MeResponse>("get", "/api/v1/me", {
-    headers: {
-      Authorization: `Bearer ${login.data.access_token}`
-    }
+  const { login, me } = await withLoginRetry(async () => {
+    const login = await http.request<LoginResponse>(
+      "post",
+      "/api/v1/auth/login",
+      { data, timeout: 20000 }
+    );
+    const me = await http.request<MeResponse>("get", "/api/v1/me", {
+      headers: {
+        Authorization: `Bearer ${login.data.access_token}`
+      },
+      timeout: 20000
+    });
+    return { login, me };
   });
   return {
     success: login.success && me.success,
@@ -89,4 +121,3 @@ export const refreshTokenApi = async (data?: {
     }
   };
 };
-

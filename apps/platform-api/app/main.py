@@ -31,6 +31,11 @@ from app.services.iam import seed_iam
 settings = get_settings()
 settings.assert_safe_startup()
 READ_ONLY_ALLOWED_POST_PATHS = frozenset({
+    # Authentication must remain available while migration and admin writes are
+    # closed. Login only updates authentication metadata/audit records; refresh
+    # does not grant any permission beyond the existing account context.
+    "/api/v1/auth/login",
+    "/api/v1/auth/refresh",
     "/api/v1/class-roster-preflight/preview",
     "/api/v1/direct-class-preflight/preview",
     # The scheduled attendance pull is a key-authenticated integration write,

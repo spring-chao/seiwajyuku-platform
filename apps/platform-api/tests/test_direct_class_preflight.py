@@ -9,6 +9,12 @@ from app.main import read_only_request_allowed
 class DirectClassProductionPreflightTests(unittest.TestCase):
     def test_read_only_mode_allows_only_the_ephemeral_preflight_post(self) -> None:
         self.assertTrue(
+            read_only_request_allowed("POST", "/api/v1/auth/login")
+        )
+        self.assertTrue(
+            read_only_request_allowed("POST", "/api/v1/auth/refresh")
+        )
+        self.assertTrue(
             read_only_request_allowed("POST", "/api/v1/direct-class-preflight/preview")
         )
         self.assertTrue(
