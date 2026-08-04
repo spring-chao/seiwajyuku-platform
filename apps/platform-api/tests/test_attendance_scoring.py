@@ -164,7 +164,7 @@ class AttendanceScoringTests(unittest.TestCase):
             )
         return record_id, member_id, effective_status, eligible
 
-    def test_member_code_is_resolved_and_unknown_member_is_unmatched(self) -> None:
+    def test_member_code_is_resolved_and_unknown_member_keeps_source_status(self) -> None:
         _, member_id, status, eligible = self._create_record(
             "attendance-record-match"
         )
@@ -177,7 +177,25 @@ class AttendanceScoringTests(unittest.TestCase):
             member_code="UNKNOWN-MEMBER",
         )
         self.assertIsNone(member_id)
-        self.assertEqual(status, "UNMATCHED")
+        self.assertEqual(status, "PRESENT")
+        self.assertFalse(eligible)
+
+        now = datetime.now(UTC).isoformat()
+        with transaction() as connection:
+            _, _, member_id, status, eligible = _upsert_record(
+                connection,
+                session_id=self.session_id,
+                record_data={
+                    "external_record_id": "attendance-record-checked-in-flag",
+                    "member_code": "UNKNOWN-MEMBER-2",
+                    "name": "签到源字段测试学员",
+                    "checked_in": True,
+                    "revision": 1,
+                },
+                now=now,
+            )
+        self.assertIsNone(member_id)
+        self.assertEqual(status, "PRESENT")
         self.assertFalse(eligible)
 
     def test_lowercase_activity_recalculates_and_early_leave_can_cancel(self) -> None:

@@ -56,6 +56,39 @@ def _score_is_applicable(
     return score_is_applicable(member_id, score_eligible, activity_type)
 
 
+def _normalize_attendance_status(record_data: dict[str, Any]) -> str:
+    """Normalize source check-in fields without losing the source attendance fact."""
+    raw_status = record_data.get("attendance_status") or record_data.get("checkin_status")
+    if raw_status in (None, ""):
+        return "PRESENT" if bool(record_data.get("checked_in")) else "ABSENT"
+
+    normalized = str(raw_status).strip().upper()
+    aliases = {
+        "已签到": "PRESENT",
+        "签到": "PRESENT",
+        "CHECKED_IN": "PRESENT",
+        "CHECKED-IN": "PRESENT",
+        "LATE": "PRESENT",
+        "迟到": "PRESENT",
+        "未签到": "ABSENT",
+        "REGISTERED_ABSENT": "ABSENT",
+        "NOT_REGISTERED": "ABSENT",
+        "人工签到": "MANUAL_PRESENT",
+        "MANUAL": "MANUAL_PRESENT",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in {
+        "PRESENT",
+        "ABSENT",
+        "LEAVE",
+        "MANUAL_PRESENT",
+        "INVALIDATED",
+        "UNMATCHED",
+    }:
+        return "PRESENT" if bool(record_data.get("checked_in")) else "ABSENT"
+    return normalized
+
+
 def _sync_run_start(source_key: str, cursor_before: str | None) -> int:
     now = _now()
     with transaction() as connection:
@@ -251,12 +284,12 @@ def _upsert_record(
         member_id = matched["id"] if matched else None
 
     participant_type = str(record_data.get("participant_type") or "MEMBER").upper()
-    attendance_status = str(
-        record_data.get("attendance_status") or "ABSENT"
-    ).upper()
+    attendance_status = _normalize_attendance_status(record_data)
     score_eligible = bool(record_data.get("score_eligible", True))
     if participant_type == "MEMBER" and member_id is None:
-        attendance_status = "UNMATCHED"
+        # Keep the source check-in fact for raw 签到率. The unresolved identity
+        # is still fail-closed for class/center participation and scoring because
+        # both require member_id and organization relations.
         score_eligible = False
 
     fields = {
