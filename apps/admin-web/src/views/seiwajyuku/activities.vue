@@ -39,12 +39,91 @@ const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detail = ref<AttendanceEventGroupDetail | null>(null);
 const detailRecords = ref<AttendanceRecord[]>([]);
+type ParticipationFilter = "AUTO" | "CLASS" | "REGION";
+const participationFilter = ref<ParticipationFilter>("AUTO");
+
+function participationScope(row: any) {
+  const activityType = String(row.activity_type || "").toUpperCase();
+  if (activityType.includes("REPORT") || activityType.startsWith("CENTER_")) {
+    return "REGION" as const;
+  }
+  if (row.study_org_unit_id) return "CLASS" as const;
+  if (row.org_unit_type === "REGIONAL_CENTER") return "REGION" as const;
+  return "NONE" as const;
+}
+
+function participationScopeLabel(row: any) {
+  const scope = participationScope(row);
+  return scope === "CLASS" ? "本班" : scope === "REGION" ? "分中心" : "未配置";
+}
+
+function participationRosterCount(row: any) {
+  return participationScope(row) === "CLASS"
+    ? row.class_member_count
+    : participationScope(row) === "REGION"
+      ? row.region_member_count
+      : 0;
+}
+
+function participationPresentCount(row: any) {
+  return participationScope(row) === "CLASS"
+    ? row.class_present_count
+    : participationScope(row) === "REGION"
+      ? row.region_present_count
+      : 0;
+}
+
+function participationRateValue(row: any) {
+  const roster = participationRosterCount(row);
+  return roster > 0 ? (participationPresentCount(row) / roster) * 100 : null;
+}
+
+function detailParticipationRoster(session: any) {
+  return detail.value && participationScope(detail.value.group) === "REGION"
+    ? session.region_member_count
+    : session.class_member_count;
+}
+
+function detailParticipationPresent(session: any) {
+  return detail.value && participationScope(detail.value.group) === "REGION"
+    ? session.region_present_count
+    : session.class_present_count;
+}
+
+const visibleRows = computed(() =>
+  rows.value.filter(
+    (row) =>
+      participationFilter.value === "AUTO" ||
+      participationScope(row) === participationFilter.value
+  )
+);
 const totalEligible = computed(() =>
-  rows.value.reduce((sum, item) => sum + item.record_count, 0)
+  visibleRows.value.reduce((sum, item) => sum + item.record_count, 0)
 );
 const totalCompleted = computed(() =>
-  rows.value.reduce((sum, item) => sum + item.present_count, 0)
+  visibleRows.value.reduce((sum, item) => sum + item.present_count, 0)
 );
+const classRows = computed(() =>
+  visibleRows.value.filter((item) => participationScope(item) === "CLASS")
+);
+const regionRows = computed(() =>
+  visibleRows.value.filter((item) => participationScope(item) === "REGION")
+);
+const participationRows = computed(() =>
+  visibleRows.value.filter((item) => participationRateValue(item) !== null)
+);
+const totalParticipationPresent = computed(() =>
+  participationRows.value.reduce((sum, item) => sum + participationPresentCount(item), 0)
+);
+const averageParticipationRate = computed(() => {
+  if (!participationRows.value.length) return 0;
+  return (
+    participationRows.value.reduce(
+      (sum, item) => sum + (participationRateValue(item) || 0),
+      0
+    ) / participationRows.value.length
+  );
+});
 const syncAlert = computed(() => {
   const status = syncStatus.value;
   if (!status || status.state === "NO_RUNS") {
@@ -127,8 +206,12 @@ function participantTypeLabel(type: string) {
   return participantTypeLabels[type] || type;
 }
 
-function attendanceRate(present: number, total: number) {
-  return total ? `${((present / total) * 100).toFixed(1)}%` : "—";
+function recordAttendanceRate(present: number, total: number) {
+  return total > 0 ? `${((present / total) * 100).toFixed(1)}%` : "—";
+}
+
+function participationRate(present: number, roster: number) {
+  return roster > 0 ? `${((present / roster) * 100).toFixed(1)}%` : "—";
 }
 
 function formatDateTime(value?: string | null) {
@@ -213,13 +296,20 @@ async function openActivityDetail(row: any) {
         <h1>活动与签到记录</h1>
         <span>展示已从签到系统同步的活动、场次和真实签到记录。</span>
       </div>
-      <el-date-picker
-        v-model="month"
-        type="month"
-        value-format="YYYY-MM"
-        format="YYYY年MM月"
-        @change="load"
-      />
+      <div class="head-filters">
+        <el-date-picker
+          v-model="month"
+          type="month"
+          value-format="YYYY-MM"
+          format="YYYY年MM月"
+          @change="load"
+        />
+        <el-select v-model="participationFilter" aria-label="参会率查询口径" style="width: 190px">
+          <el-option label="全部活动（按活动自动）" value="AUTO" />
+          <el-option label="只看班级参会率" value="CLASS" />
+          <el-option label="只看分中心参会率" value="REGION" />
+        </el-select>
+      </div>
     </section>
 
     <el-alert
@@ -230,12 +320,21 @@ async function openActivityDetail(row: any) {
     />
 
     <section class="summary">
-      <el-statistic title="活动场组" :value="rows.length" />
+      <el-statistic title="活动场组" :value="visibleRows.length" />
       <el-statistic title="签到记录" :value="totalEligible" />
-      <el-statistic title="已签到人次" :value="totalCompleted" />
+      <el-statistic title="已签到记录" :value="totalCompleted" />
       <el-statistic
-        title="综合完成率"
+        title="签到率"
         :value="totalEligible ? (totalCompleted / totalEligible) * 100 : 0"
+        suffix="%"
+        :precision="1"
+      />
+      <el-statistic title="班级参会活动" :value="classRows.length" />
+      <el-statistic title="分中心参会活动" :value="regionRows.length" />
+      <el-statistic title="参会人数" :value="totalParticipationPresent" />
+      <el-statistic
+        title="平均参会率"
+        :value="averageParticipationRate"
         suffix="%"
         :precision="1"
       />
@@ -274,9 +373,15 @@ async function openActivityDetail(row: any) {
     </el-card>
 
     <el-card shadow="never">
-      <el-table :data="rows" stripe>
+      <div class="rate-definition">
+        签到率 = 已签到记录（含人工确认） ÷ 签到记录数；班级活动的本班参会率 = 本班已签到学员（含人工确认） ÷ 本班在册人数，报告会等大型活动的分中心参会率 = 分中心已签到学员（含人工确认） ÷ 分中心在册人数。
+      </div>
+      <el-table :data="visibleRows" stripe>
         <el-table-column prop="event_date" label="活动日期" min-width="130" />
         <el-table-column prop="title" label="活动" min-width="180" />
+        <el-table-column prop="class_name" label="所属班级" min-width="130">
+          <template #default="{ row }">{{ row.class_name || "—" }}</template>
+        </el-table-column>
         <el-table-column prop="org_name" label="所属分中心" min-width="150" />
         <el-table-column label="活动类型" min-width="150">
           <template #default="{ row }">
@@ -284,12 +389,24 @@ async function openActivityDetail(row: any) {
           </template>
         </el-table-column>
         <el-table-column prop="session_count" label="场次数" width="90" align="right" />
-        <el-table-column prop="record_count" label="签到记录" width="100" align="right" />
-        <el-table-column prop="present_count" label="已签到" width="90" align="right" />
+        <el-table-column label="参会口径" width="100">
+          <template #default="{ row }">{{ participationScopeLabel(row) }}</template>
+        </el-table-column>
+        <el-table-column label="应到人数" width="100" align="right">
+          <template #default="{ row }">{{ participationRosterCount(row) || "—" }}</template>
+        </el-table-column>
+        <el-table-column label="参会人数" width="100" align="right">
+          <template #default="{ row }">{{ participationRateValue(row) === null ? "—" : participationPresentCount(row) }}</template>
+        </el-table-column>
         <el-table-column label="签到率" width="100" align="right">
           <template #default="{ row }">
-            <span :class="{ 'rate-low': row.record_count && row.present_count / row.record_count < 0.5 }">
-              {{ attendanceRate(row.present_count, row.record_count) }}
+            {{ recordAttendanceRate(row.present_count, row.record_count) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="参会率" width="100" align="right">
+          <template #default="{ row }">
+            <span :class="{ 'rate-low': participationRateValue(row) !== null && (participationRateValue(row) || 0) < 50 }">
+              {{ participationRateValue(row) === null ? "—" : participationRate(participationPresentCount(row), participationRosterCount(row)) }}
             </span>
           </template>
         </el-table-column>
@@ -365,6 +482,10 @@ async function openActivityDetail(row: any) {
               <strong>{{ detail.group.event_date }}</strong>
             </div>
             <div>
+              <span>所属班级</span>
+              <strong>{{ detail.group.class_name || "—" }}</strong>
+            </div>
+            <div>
               <span>所属分中心</span>
               <strong>{{ detail.group.org_name }}</strong>
             </div>
@@ -373,15 +494,39 @@ async function openActivityDetail(row: any) {
               <strong>{{ activityTypeLabel(detail.group.activity_type) }}</strong>
             </div>
             <div>
+              <span>签到记录</span>
+              <strong>{{ detail.group.record_count }}</strong>
+            </div>
+            <div>
+              <span>已签到记录</span>
+              <strong>{{ detail.group.present_count }}</strong>
+            </div>
+            <div>
               <span>签到率</span>
-              <strong class="detail-rate">{{ attendanceRate(detail.group.present_count, detail.group.record_count) }}</strong>
+              <strong>{{ recordAttendanceRate(detail.group.present_count, detail.group.record_count) }}</strong>
+            </div>
+            <div>
+              <span>参会口径</span>
+              <strong>{{ participationScopeLabel(detail.group) }}</strong>
+            </div>
+            <div>
+              <span>应到人数</span>
+              <strong>{{ participationRosterCount(detail.group) || "—" }}</strong>
+            </div>
+            <div>
+              <span>参会人数</span>
+              <strong>{{ participationRateValue(detail.group) === null ? "—" : participationPresentCount(detail.group) }}</strong>
+            </div>
+            <div>
+              <span>参会率</span>
+              <strong class="detail-rate">{{ participationRateValue(detail.group) === null ? "—" : participationRate(participationPresentCount(detail.group), participationRosterCount(detail.group)) }}</strong>
             </div>
           </div>
 
           <section class="detail-section">
             <div class="detail-section__heading">
               <h3>场次汇总</h3>
-              <span>按签到系统同步的场次统计</span>
+              <span>同时展示签到率与参会率；班级活动按班级组织 ID，报告会等大型活动按分中心组织 ID 统计</span>
             </div>
             <el-table :data="detail.sessions" size="small" stripe>
               <el-table-column prop="session_name" label="场次" min-width="180">
@@ -390,10 +535,19 @@ async function openActivityDetail(row: any) {
               <el-table-column label="计划时间" width="150">
                 <template #default="{ row }">{{ formatDateTime(row.scheduled_start_at) }}</template>
               </el-table-column>
-              <el-table-column prop="record_count" label="记录数" width="90" align="right" />
-              <el-table-column prop="present_count" label="已签到" width="90" align="right" />
+              <el-table-column prop="record_count" label="签到记录" width="100" align="right" />
+              <el-table-column prop="present_count" label="已签到记录" width="110" align="right" />
               <el-table-column label="签到率" width="100" align="right">
-                <template #default="{ row }">{{ attendanceRate(row.present_count, row.record_count) }}</template>
+                <template #default="{ row }">{{ recordAttendanceRate(row.present_count, row.record_count) }}</template>
+              </el-table-column>
+              <el-table-column label="应到人数" width="100" align="right">
+                <template #default="{ row }">{{ detailParticipationRoster(row) || "—" }}</template>
+              </el-table-column>
+              <el-table-column label="参会人数" width="100" align="right">
+                <template #default="{ row }">{{ detailParticipationRoster(row) ? detailParticipationPresent(row) : "—" }}</template>
+              </el-table-column>
+              <el-table-column label="参会率" width="100" align="right">
+                <template #default="{ row }">{{ participationRate(detailParticipationPresent(row), detailParticipationRoster(row)) }}</template>
               </el-table-column>
               <el-table-column label="积分" width="90" align="right">
                 <template #default="{ row }">{{ row.total_points ?? "—" }}</template>
@@ -459,6 +613,11 @@ async function openActivityDetail(row: any) {
 }
 .page-head span {
   color: #d4eaf2;
+}
+.head-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .summary {
   display: grid;
@@ -529,6 +688,15 @@ async function openActivityDetail(row: any) {
 .review-breakdown {
   margin: 16px 0;
 }
+.rate-definition {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--el-fill-color-lighter);
+  border-radius: 8px;
+}
 .rate-low {
   color: var(--el-color-danger);
   font-weight: 600;
@@ -574,6 +742,11 @@ async function openActivityDetail(row: any) {
   font-size: 16px;
 }
 @media (max-width: 900px) {
+  .page-head,
+  .head-filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

@@ -288,10 +288,16 @@ export type AttendanceEventGroup = {
   status: string;
   org_unit_id: string;
   org_name: string;
+  org_unit_type?: string;
   study_org_unit_id?: string;
+  class_name?: string | null;
   session_count: number;
   record_count: number;
   present_count: number;
+  class_member_count: number;
+  class_present_count: number;
+  region_member_count: number;
+  region_present_count: number;
 };
 
 export type AttendanceSession = {
@@ -307,6 +313,10 @@ export type AttendanceSession = {
   status: string;
   record_count: number;
   present_count: number;
+  class_member_count: number;
+  class_present_count: number;
+  region_member_count: number;
+  region_present_count: number;
   total_points?: number | string | null;
 };
 
