@@ -1,9 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { ElMessage, type UploadFile, type UploadFiles } from "element-plus";
 import {
+  ElMessage,
+  ElMessageBox,
+  type UploadFile,
+  type UploadFiles
+} from "element-plus";
+import {
+  applyRenewalImport,
+  getRenewalCycles,
   getRenewalOverview,
   previewRenewalImport,
+  type RenewalCycle,
   type RenewalImportSample,
   type RenewalImportSummary,
   type RenewalOverviewRow
@@ -15,6 +23,7 @@ const year = ref(2026);
 const loading = ref(false);
 const importing = ref(false);
 const rows = ref<RenewalOverviewRow[]>([]);
+const cycles = ref<RenewalCycle[]>([]);
 const renewalFile = ref<File>();
 const masterFile = ref<File>();
 const batchId = ref<number>();
@@ -80,11 +89,17 @@ const matchLabel = (status: string) =>
     INVALID: "数据不完整"
   })[status] ?? status;
 
+const cycleStatusLabel = (status: string) => statusLabel(status);
+
 async function load() {
   loading.value = true;
   try {
-    const response = await getRenewalOverview(year.value);
-    rows.value = response.data.rows;
+    const [overviewResponse, cycleResponse] = await Promise.all([
+      getRenewalOverview(year.value),
+      getRenewalCycles(year.value)
+    ]);
+    rows.value = overviewResponse.data.rows;
+    cycles.value = cycleResponse.data;
   } finally {
     loading.value = false;
   }
@@ -123,6 +138,43 @@ async function previewImport() {
     ElMessage.error(
       error?.response?.data?.detail ?? "导入预检失败，请检查工作簿格式"
     );
+  } finally {
+    importing.value = false;
+  }
+}
+
+async function applyImport() {
+  if (!batchId.value) return;
+  let confirmation = "";
+  try {
+    const prompt = await ElMessageBox.prompt(
+      "仅导入已成功关联真实学员的记录；未匹配和待复核记录不会写入。请输入：确认正式导入续费周期",
+      "确认正式导入",
+      {
+        confirmButtonText: "执行导入",
+        cancelButtonText: "取消",
+        type: "warning",
+        inputValidator: value =>
+          value === "确认正式导入续费周期" || "确认文字不匹配"
+      }
+    );
+    confirmation = prompt.value;
+  } catch {
+    return;
+  }
+  importing.value = true;
+  try {
+    const response = await applyRenewalImport(
+      batchId.value,
+      year.value,
+      confirmation
+    );
+    ElMessage.success(
+      `正式导入完成：新增 ${response.data.created} 条，更新 ${response.data.updated} 条`
+    );
+    await load();
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail ?? "正式导入失败");
   } finally {
     importing.value = false;
   }
@@ -255,9 +307,14 @@ onMounted(load);
         <div class="card-title">
           <div>
             <h2>预检结果 · 批次 #{{ batchId }}</h2>
-            <p>以下结果仅用于核对，确认正式导入功能将在下一步启用</p>
+            <p>以下结果用于核对；只有已关联真实学员的记录才允许正式导入</p>
           </div>
-          <el-tag type="warning">待业务确认</el-tag>
+          <div class="result-actions">
+            <el-tag type="warning">待业务确认</el-tag>
+            <el-button type="warning" :loading="importing" @click="applyImport">
+              正式导入已匹配记录
+            </el-button>
+          </div>
         </div>
       </template>
       <div class="result-summary">
@@ -282,6 +339,31 @@ onMounted(load);
           <template #default="{ row }">{{ statusLabel(row.proposed_status) }}</template>
         </el-table-column>
         <el-table-column prop="assistance_note" label="需要协助" min-width="180" show-overflow-tooltip />
+      </el-table>
+    </el-card>
+
+    <el-card shadow="never" class="cycle-card">
+      <template #header>
+        <div class="card-title">
+          <div>
+            <h2>续费跟进台账</h2>
+            <p>正式导入后显示真实学员、续费归属、责任人和当前跟进状态。</p>
+          </div>
+        </div>
+      </template>
+      <el-table :data="cycles" stripe empty-text="暂无正式续费周期">
+        <el-table-column prop="member_name" label="学员" min-width="120" />
+        <el-table-column prop="org_name" label="续费归属" min-width="150" />
+        <el-table-column label="到期月" width="100">
+          <template #default="{ row }">{{ row.due_month }}月</template>
+        </el-table-column>
+        <el-table-column label="状态" min-width="130">
+          <template #default="{ row }">{{ cycleStatusLabel(row.status) }}</template>
+        </el-table-column>
+        <el-table-column prop="assigned_user_name" label="责任人" min-width="130">
+          <template #default="{ row }">{{ row.assigned_user_name || "待分配" }}</template>
+        </el-table-column>
+        <el-table-column prop="updated_at" label="最近更新" min-width="180" />
       </el-table>
     </el-card>
   </div>

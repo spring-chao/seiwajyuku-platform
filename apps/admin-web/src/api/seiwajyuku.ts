@@ -404,6 +404,36 @@ export type RenewalImportSample = {
   issue_code?: string;
 };
 
+export type RenewalCycle = {
+  id: number;
+  member_id: number;
+  member_code: string;
+  member_name: string;
+  renewal_year: number;
+  org_unit_id: string;
+  org_name: string;
+  due_month: number;
+  phase: string;
+  status: string;
+  result?: string;
+  assigned_user_id?: number;
+  assigned_user_name?: string;
+  completed_at?: string;
+  updated_at: string;
+};
+
+export type RenewalFollowup = {
+  id: number;
+  followed_at: string;
+  followed_by?: number;
+  channel: string;
+  summary: string;
+  intention?: string;
+  needs_support: number;
+  next_action?: string;
+  next_followup_at?: string;
+};
+
 export const getFollowupTasks = (status?: string) =>
   http.request<{ success: boolean; data: FollowupTask[] }>(
     "get",
@@ -840,3 +870,60 @@ export const previewRenewalImport = (
     headers: { "Content-Type": "multipart/form-data" }
   });
 };
+
+export const getRenewalCycles = (year: number, status?: string) =>
+  http.request<{ success: boolean; data: RenewalCycle[] }>(
+    "get",
+    "/api/v1/renewals/cycles",
+    { params: { year, ...(status ? { status } : {}) } }
+  );
+
+export const applyRenewalImport = (
+  batchId: number,
+  renewalYear: number,
+  confirmation: string
+) =>
+  http.request<{
+    success: boolean;
+    data: { created: number; updated: number; skipped: number };
+  }>("post", `/api/v1/renewals/imports/${batchId}/apply`, {
+    data: { renewal_year: renewalYear, confirmation }
+  });
+
+export const updateRenewalCycle = (
+  cycleId: number,
+  data: {
+    status?: string;
+    phase?: string;
+    result?: string;
+    assigned_user_id?: number;
+  }
+) =>
+  http.request<{ success: boolean; data: { id: number } }>(
+    "patch",
+    `/api/v1/renewals/cycles/${cycleId}`,
+    { data }
+  );
+
+export const getRenewalFollowups = (cycleId: number) =>
+  http.request<{ success: boolean; data: RenewalFollowup[] }>(
+    "get",
+    `/api/v1/renewals/cycles/${cycleId}/followups`
+  );
+
+export const createRenewalFollowup = (
+  cycleId: number,
+  data: {
+    channel: string;
+    summary: string;
+    intention?: string;
+    needs_support?: boolean;
+    next_action?: string;
+    next_followup_at?: string;
+  }
+) =>
+  http.request<{ success: boolean; data: { id: number } }>(
+    "post",
+    `/api/v1/renewals/cycles/${cycleId}/followups`,
+    { data }
+  );
