@@ -1,5 +1,5 @@
 -- 0014: keep renewal preview source data encrypted at rest.
--- Existing previews are intentionally redacted; they must be re-uploaded if
+-- Existing previews are intentionally redacted and must be re-uploaded if
 -- the original workbook is still needed for a new review batch.
 ALTER TABLE renewal_import_batches ADD COLUMN preview_ciphertext LONGTEXT NULL;
 UPDATE renewal_import_batches
