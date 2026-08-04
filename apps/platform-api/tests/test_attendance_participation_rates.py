@@ -121,6 +121,15 @@ class AttendanceParticipationRateTests(unittest.TestCase):
                             now,
                         ),
                     )
+                if activity_type == "CLASS_MEETING":
+                    execute(
+                        connection,
+                        "INSERT INTO attendance_records"
+                        "(attendance_session_id, external_record_id, member_id, member_code_snapshot, name_snapshot, "
+                        "participant_type, score_eligible, attendance_status, received_at, created_at, updated_at) "
+                        "VALUES (?, ?, NULL, NULL, '参会率测试非塾生嘉宾', 'GUEST', 0, 'PRESENT', ?, ?, ?)",
+                        (session_id, f"{external_id}-guest-1", now, now, now),
+                    )
                 if activity_type.startswith("CENTER_"):
                     execute(
                         connection,
@@ -152,6 +161,10 @@ class AttendanceParticipationRateTests(unittest.TestCase):
             (2, 1),
         )
         self.assertEqual(
+            (class_row["record_count"], class_row["present_count"]),
+            (3, 2),
+        )
+        self.assertEqual(
             (report_row["region_member_count"], report_row["region_present_count"]),
             (3, 2),
         )
@@ -163,6 +176,7 @@ class AttendanceParticipationRateTests(unittest.TestCase):
         session = response["data"]["sessions"][0]
         self.assertEqual(session["class_member_count"], 2)
         self.assertEqual(session["class_present_count"], 1)
+        self.assertEqual((session["record_count"], session["present_count"]), (3, 2))
 
     @staticmethod
     def _detail_rows(response: dict) -> list[dict]:
