@@ -8,6 +8,7 @@ from typing import Any
 
 from openpyxl import load_workbook
 
+from app.core.privacy import encrypt_text, phone_hash
 from app.db import execute, fetch_all, transaction
 from app.services.iam import accessible_org_ids
 
@@ -81,6 +82,32 @@ def _master_index(path: Path) -> tuple[dict[str, list[dict]], dict[tuple[str, st
         workbook.close()
 
 
+def _linked_member_id(
+    phone: str,
+    name: str,
+    org_id: str | None,
+    by_phone_hash: dict[str, list[dict[str, Any]]],
+    by_name_org: dict[tuple[str, str], list[dict[str, Any]]],
+) -> int | None:
+    """Resolve a preview row to one existing production member, if unique."""
+    if phone:
+        try:
+            candidates = by_phone_hash.get(phone_hash(phone), [])
+        except ValueError:
+            candidates = []
+        if len(candidates) == 1:
+            return int(candidates[0]["id"])
+        if org_id:
+            scoped = [row for row in candidates if row["org_unit_id"] == org_id]
+            if len(scoped) == 1:
+                return int(scoped[0]["id"])
+    if name and org_id:
+        candidates = by_name_org.get((name, org_id), [])
+        if len(candidates) == 1:
+            return int(candidates[0]["id"])
+    return None
+
+
 def preview_workbook(path: str | Path, master_path: str | Path | None = None) -> dict[str, Any]:
     source = Path(path)
     workbook = load_workbook(source, data_only=True, read_only=True)
@@ -94,8 +121,13 @@ def preview_workbook(path: str | Path, master_path: str | Path | None = None) ->
             raise ValueError("续费基数表缺少姓名、分中心或2025年缴费月份列")
         col = {name: index for index, name in enumerate(headers)}
         master_by_phone, master_by_name_center = _master_index(Path(master_path)) if master_path else ({}, {})
-        existing = fetch_all("SELECT id, name, org_unit_id, phone_hash FROM members") if not master_path else []
-        by_name_org = {(row["name"], row["org_unit_id"]): row for row in existing}
+        existing = fetch_all("SELECT id, name, org_unit_id, phone_hash FROM members")
+        by_phone_hash: dict[str, list[dict[str, Any]]] = {}
+        by_name_org: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for row in existing:
+            if row["phone_hash"]:
+                by_phone_hash.setdefault(row["phone_hash"], []).append(row)
+            by_name_org.setdefault((row["name"], row["org_unit_id"]), []).append(row)
         rows: list[dict[str, Any]] = []
         summary = {"total": 0, "matched": 0, "needs_review": 0, "invalid": 0, "assistance_review": 0}
         for row_no, values in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
@@ -113,7 +145,11 @@ def preview_workbook(path: str | Path, master_path: str | Path | None = None) ->
             source_phone = _phone(values[col["手机号码"]]) if "手机号码" in col else ""
             master_phone = master_by_phone.get(source_phone, []) if source_phone else []
             master_name = master_by_name_center.get((_clean(name), _clean(center_name)), []) if name and center_name else []
-            member = by_name_org.get((name, org_id)) if name and org_id else None
+            existing_members = by_name_org.get((name, org_id), []) if name and org_id else []
+            member = existing_members[0] if len(existing_members) == 1 else None
+            linked_member_id = _linked_member_id(
+                source_phone, _clean(name), org_id, by_phone_hash, by_name_org
+            )
             if not name or not org_id or not due_month:
                 match_status, issue = "INVALID", "MISSING_REQUIRED_FIELD"
                 summary["invalid"] += 1
@@ -138,7 +174,8 @@ def preview_workbook(path: str | Path, master_path: str | Path | None = None) ->
             if assistance:
                 summary["assistance_review"] += 1
             rows.append({"row_no": row_no, "name": name, "org_unit_id": org_id, "center_name": reporting_name, "source_center_name": center_name, "class_name": class_name,
-                         "member_id": member.get("id") if member else None, "master_source_row": member.get("source_row") if member else None, "due_month": due_month,
+                         "member_id": linked_member_id or (member.get("id") if member else None),
+                         "master_source_row": member.get("source_row") if member else None, "due_month": due_month,
                          "match_status": match_status, "issue_code": issue, "proposed_status": _status(note),
                          "history_note": note, "assistance_note": assistance, "raw": raw})
         return {"source_name": source.name, "source_sha256": _hash(source), "summary": summary, "rows": rows}
@@ -148,12 +185,43 @@ def preview_workbook(path: str | Path, master_path: str | Path | None = None) ->
 
 def save_preview(preview: dict[str, Any], actor_user_id: int) -> int:
     now = datetime.now(UTC).isoformat()
+    encrypted_preview = encrypt_text(
+        json.dumps(preview, ensure_ascii=False, default=str)
+    )
+    redacted_preview = {
+        "redacted": True,
+        "source_sha256": preview["source_sha256"],
+        "summary": preview["summary"],
+        "row_count": len(preview["rows"]),
+    }
     with transaction() as connection:
         batch_id = execute(connection, "INSERT INTO renewal_import_batches(source_name, source_sha256, status, preview_json, created_by, created_at) VALUES (?, ?, 'PREVIEWED', ?, ?, ?)",
-                           (preview["source_name"], preview["source_sha256"], json.dumps(preview, ensure_ascii=False, default=str), actor_user_id, now)).lastrowid
+                           (preview["source_name"], preview["source_sha256"], json.dumps(redacted_preview, ensure_ascii=False), actor_user_id, now)).lastrowid
+        execute(
+            connection,
+            "UPDATE renewal_import_batches SET preview_ciphertext=? WHERE id=?",
+            (encrypted_preview, batch_id),
+        )
         for row in preview["rows"]:
-            execute(connection, "INSERT INTO renewal_import_staging(batch_id,row_no,match_status,member_id,org_unit_id,due_month,proposed_status,history_note,assistance_note,raw_json,issue_code,created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (batch_id, row["row_no"], row["match_status"], row["member_id"], row["org_unit_id"], row["due_month"], row["proposed_status"], row["history_note"], row["assistance_note"], json.dumps(row["raw"], ensure_ascii=False, default=str), row["issue_code"], now))
+            raw_json = json.dumps(row["raw"], ensure_ascii=False, default=str)
+            history_note = row.get("history_note") or None
+            assistance_note = row.get("assistance_note") or None
+            execute(
+                connection,
+                "INSERT INTO renewal_import_staging("
+                "batch_id,row_no,match_status,member_id,org_unit_id,due_month,proposed_status,"
+                "history_note,assistance_note,raw_json,issue_code,created_at,"
+                "history_note_ciphertext,assistance_note_ciphertext,raw_json_ciphertext) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, '{}', ?, ?, ?, ?, ?)",
+                (
+                    batch_id, row["row_no"], row["match_status"], row["member_id"],
+                    row["org_unit_id"], row["due_month"], row["proposed_status"],
+                    row["issue_code"], now,
+                    encrypt_text(history_note) if history_note else None,
+                    encrypt_text(assistance_note) if assistance_note else None,
+                    encrypt_text(raw_json),
+                ),
+            )
         return batch_id
 
 

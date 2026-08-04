@@ -3,8 +3,24 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+from app.core.privacy import decrypt_text, phone_hash
 from app.db import fetch_one
-from app.services.renewals import save_preview
+from app.services.renewals import _linked_member_id, save_preview
+
+
+def test_linked_member_id_prefers_unique_production_phone_match() -> None:
+    phone = "13800138000"
+    assert _linked_member_id(
+        phone,
+        "主档学员",
+        "org-wujiang",
+        {
+            phone_hash(phone): [
+                {"id": 42, "name": "生产学员", "org_unit_id": "org-wujiang"}
+            ]
+        },
+        {},
+    ) == 42
 
 
 def test_save_preview_serializes_excel_datetime() -> None:
@@ -37,8 +53,19 @@ def test_save_preview_serializes_excel_datetime() -> None:
     batch_id = save_preview(preview, actor_user_id=1)
 
     row = fetch_one(
-        "SELECT preview_json FROM renewal_import_batches WHERE id=?",
+        "SELECT preview_json, preview_ciphertext FROM renewal_import_batches WHERE id=?",
         (batch_id,),
     )
     saved = json.loads(row["preview_json"])
-    assert saved["rows"][0]["raw"]["缴费日期"] == "2025-07-01 00:00:00"
+    assert saved["redacted"] is True
+    encrypted = json.loads(decrypt_text(row["preview_ciphertext"]))
+    assert encrypted["rows"][0]["raw"]["缴费日期"] == "2025-07-01 00:00:00"
+    staging = fetch_one(
+        "SELECT history_note, assistance_note, raw_json, raw_json_ciphertext "
+        "FROM renewal_import_staging WHERE batch_id=?",
+        (batch_id,),
+    )
+    assert staging["history_note"] is None
+    assert staging["assistance_note"] is None
+    assert staging["raw_json"] == "{}"
+    assert json.loads(decrypt_text(staging["raw_json_ciphertext"]))["缴费日期"] == "2025-07-01 00:00:00"
