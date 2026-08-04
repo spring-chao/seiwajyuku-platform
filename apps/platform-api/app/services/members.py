@@ -502,6 +502,144 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     return member_id
 
 
+def merge_members(
+    actor_user_id: int,
+    survivor_member_id: int,
+    duplicate_member_id: int,
+    reason: str,
+) -> int:
+    reason = reason.strip()
+    if survivor_member_id == duplicate_member_id:
+        raise ValueError("主档与重复档案不能是同一条记录")
+    if len(reason) < 6:
+        raise ValueError("档案合并必须填写至少6个字符的人工确认理由")
+    members = fetch_all(
+        "SELECT id, member_code, name, org_unit_id, status, phone_masked, company_name, "
+        "notes FROM members WHERE id IN (?, ?)",
+        (survivor_member_id, duplicate_member_id),
+    )
+    by_id = {row["id"]: row for row in members}
+    survivor = by_id.get(survivor_member_id)
+    duplicate = by_id.get(duplicate_member_id)
+    if not survivor or not duplicate:
+        raise ValueError("主档或重复档案不存在")
+    allowed = accessible_org_ids(actor_user_id)
+    for member in (survivor, duplicate):
+        try:
+            resolve_member_scope(member["id"], member["org_unit_id"], allowed)
+        except PermissionError as exc:
+            raise PermissionError("两个档案都必须在当前组织授权范围内") from exc
+
+    if fetch_one(
+        "SELECT 1 FROM member_identities WHERE member_id=?",
+        (survivor_member_id,),
+    ) and fetch_one(
+        "SELECT 1 FROM member_identities WHERE member_id=?",
+        (duplicate_member_id,),
+    ):
+        raise ValueError("两个档案都已绑定身份，不能自动合并，请先处理身份绑定")
+    if fetch_one(
+        "SELECT 1 FROM renewal_cycles d JOIN renewal_cycles s "
+        "ON s.renewal_year=d.renewal_year WHERE d.member_id=? AND s.member_id=? LIMIT 1",
+        (duplicate_member_id, survivor_member_id),
+    ):
+        raise ValueError("两个档案存在相同年度续费周期，不能自动合并")
+    if fetch_one(
+        "SELECT 1 FROM member_membership_periods d JOIN member_membership_periods s "
+        "ON s.membership_year=d.membership_year WHERE d.member_id=? AND s.member_id=? LIMIT 1",
+        (duplicate_member_id, survivor_member_id),
+    ):
+        raise ValueError("两个档案存在相同年度会籍记录，不能自动合并")
+
+    now = datetime.now(UTC).isoformat()
+    before = {
+        "survivor": {
+            key: survivor[key]
+            for key in ("id", "member_code", "name", "org_unit_id", "status", "phone_masked")
+        },
+        "duplicate": {
+            key: duplicate[key]
+            for key in ("id", "member_code", "name", "org_unit_id", "status", "phone_masked")
+        },
+    }
+    with transaction() as connection:
+        duplicate_relations = execute(
+            connection,
+            "SELECT id, org_unit_id, relation_type FROM member_org_relations WHERE member_id=?",
+            (duplicate_member_id,),
+        ).fetchall()
+        for relation in duplicate_relations:
+            existing = execute(
+                connection,
+                "SELECT id FROM member_org_relations WHERE member_id=? AND org_unit_id=? "
+                "AND relation_type=? LIMIT 1",
+                (survivor_member_id, relation["org_unit_id"], relation["relation_type"]),
+            ).fetchone()
+            if existing:
+                execute(connection, "DELETE FROM member_org_relations WHERE id=?", (relation["id"],))
+            else:
+                execute(
+                    connection,
+                    "UPDATE member_org_relations SET member_id=?, source_type='MEMBER_MERGE', updated_at=? WHERE id=?",
+                    (survivor_member_id, now, relation["id"]),
+                )
+
+        for table in (
+            "attendance_records", "attendance_score_records", "followup_tasks",
+            "followup_records", "enterprise_visit_records", "renewal_import_staging",
+            "renewal_cycles", "contact_access_logs", "member_change_history",
+        ):
+            execute(
+                connection,
+                f"UPDATE {table} SET member_id=? WHERE member_id=?",
+                (survivor_member_id, duplicate_member_id),
+            )
+        execute(
+            connection,
+            "UPDATE member_identities SET member_id=? WHERE member_id=?",
+            (survivor_member_id, duplicate_member_id),
+        )
+        execute(
+            connection,
+            "UPDATE member_membership_periods SET member_id=? WHERE member_id=?",
+            (survivor_member_id, duplicate_member_id),
+        )
+        merged_note = f"档案已合并至 {survivor['member_code']}：{reason}"
+        execute(
+            connection,
+            "UPDATE members SET status='INACTIVE', notes=?, updated_at=? WHERE id=?",
+            (merged_note, now, duplicate_member_id),
+        )
+        after = {
+            "survivor_member_id": survivor_member_id,
+            "duplicate_member_id": duplicate_member_id,
+            "migrated_relations": len(duplicate_relations),
+            "status": "INACTIVE",
+        }
+        execute(
+            connection,
+            "INSERT INTO member_merge_history(survivor_member_id, duplicate_member_id, reason, "
+            "before_json, after_json, merged_by, merged_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                survivor_member_id, duplicate_member_id, reason,
+                json.dumps(before, ensure_ascii=False, default=str),
+                json.dumps(after, ensure_ascii=False, default=str), actor_user_id, now,
+            ),
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="members.merge",
+            resource_type="member",
+            resource_id=str(survivor_member_id),
+            org_unit_id=survivor["org_unit_id"],
+            purpose=reason,
+            before=before,
+            after=after,
+        )
+    return survivor_member_id
+
+
 def list_members(
     user_id: int,
     org_unit_id: str | None = None,

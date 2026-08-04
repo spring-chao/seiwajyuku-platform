@@ -73,6 +73,11 @@ class MemberUpdatePayload(BaseModel):
     group_org_unit_id: str | None = None
 
 
+class MemberMergePayload(BaseModel):
+    survivor_member_id: int
+    reason: str = Field(min_length=6, max_length=1000)
+
+
 class SensitiveExportPayload(BaseModel):
     purpose: str = Field(min_length=6, max_length=1000)
     second_confirmed: bool
@@ -109,6 +114,31 @@ def edit_member(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": {"id": member_id}}
+
+
+@router.post("/members/{member_id}/merge")
+def merge_member(
+    member_id: int,
+    payload: MemberMergePayload,
+    user: dict = Depends(require_permission("members:manage")),
+) -> dict:
+    from app.services.members import merge_members
+
+    try:
+        merge_members(
+            user["id"], payload.survivor_member_id, member_id, payload.reason
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        "success": True,
+        "data": {
+            "survivor_member_id": payload.survivor_member_id,
+            "merged_member_id": member_id,
+        },
+    }
 
 
 @router.get("/members")

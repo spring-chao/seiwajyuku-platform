@@ -10,7 +10,7 @@ from app.db import execute, fetch_one, transaction
 from app.main import app
 from app.services.iam import create_user, user_context
 from app.services.followups import create_task, list_tasks
-from app.services.members import create_member, list_members, update_member
+from app.services.members import create_member, list_members, merge_members, update_member
 
 
 class IamIsolationTests(unittest.TestCase):
@@ -244,6 +244,31 @@ class IamIsolationTests(unittest.TestCase):
         self.assertIsNone(member["phone_hash"])
         self.assertIsNone(member["phone_masked"])
         self.assertIsNotNone(relation)
+
+    def test_member_merge_requires_reason_and_preserves_audit(self) -> None:
+        admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+        survivor_id = create_member(
+            admin["id"], member_code="MERGE-SURVIVOR-001", name="合并主档",
+            org_unit_id="org-a", development_org_unit_id=None, phone="13500135003",
+        )
+        duplicate_id = create_member(
+            admin["id"], member_code="MERGE-DUPLICATE-001", name="合并重复档",
+            org_unit_id="org-a", development_org_unit_id=None, phone="13500135004",
+        )
+        with self.assertRaisesRegex(ValueError, "至少6个字符"):
+            merge_members(admin["id"], survivor_id, duplicate_id, "太短")
+        merge_members(admin["id"], survivor_id, duplicate_id, "手机号和姓名已人工核对，保留主档")
+        duplicate = fetch_one(
+            "SELECT status, notes FROM members WHERE id=?", (duplicate_id,)
+        )
+        self.assertEqual(duplicate["status"], "INACTIVE")
+        self.assertIn("MERGE-SURVIVOR-001", duplicate["notes"])
+        merge_log = fetch_one(
+            "SELECT survivor_member_id, duplicate_member_id FROM member_merge_history "
+            "WHERE duplicate_member_id=?",
+            (duplicate_id,),
+        )
+        self.assertEqual(merge_log["survivor_member_id"], survivor_id)
 
 
 if __name__ == "__main__":
