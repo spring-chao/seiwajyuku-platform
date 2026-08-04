@@ -230,13 +230,17 @@ def _run_attendance_validation() -> dict:
     if member_scores != expected:
         raise AssertionError({"expected": expected, "actual": member_scores})
     unmatched = fetch_all(
-        "SELECT ar.id, sr.id AS score_id "
+        "SELECT ar.id, ar.attendance_status, sr.id AS score_id "
         "FROM attendance_records ar "
         "LEFT JOIN attendance_score_records sr "
         "ON sr.attendance_record_id=ar.id "
-        "WHERE ar.attendance_status='UNMATCHED'"
+        "WHERE ar.member_id IS NULL"
     )
-    if len(unmatched) != 3 or any(row["score_id"] is not None for row in unmatched):
+    if (
+        len(unmatched) != 3
+        or any(row["score_id"] is not None for row in unmatched)
+        or any(row["attendance_status"] != "PRESENT" for row in unmatched)
+    ):
         raise AssertionError(unmatched)
     return {
         "first_sync": first_sync,
