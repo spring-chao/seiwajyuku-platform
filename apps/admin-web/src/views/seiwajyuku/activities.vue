@@ -496,18 +496,6 @@ async function openActivityDetail(row: any) {
               <strong>{{ activityTypeLabel(detail.group.activity_type) }}</strong>
             </div>
             <div>
-              <span>签到记录</span>
-              <strong>{{ detail.group.record_count }}</strong>
-            </div>
-            <div>
-              <span>已签到记录</span>
-              <strong>{{ detail.group.present_count }}</strong>
-            </div>
-            <div>
-              <span>签到率</span>
-              <strong>{{ recordAttendanceRate(detail.group.present_count, detail.group.record_count) }}</strong>
-            </div>
-            <div>
               <span>参会口径</span>
               <strong>{{ participationScopeLabel(detail.group) }}</strong>
             </div>
@@ -532,7 +520,7 @@ async function openActivityDetail(row: any) {
           <section class="detail-section">
             <div class="detail-section__heading">
               <h3>场次汇总</h3>
-              <span>同时展示签到率与参会率；班级活动按班级组织 ID，报告会等大型活动按分中心组织 ID 统计</span>
+              <span>报名、应参会、参会人数及两种比例统一展示；班级活动按班级组织 ID，报告会等大型活动按分中心组织 ID 统计</span>
             </div>
             <el-table :data="detail.sessions" size="small" stripe class="activity-table">
               <el-table-column prop="session_name" label="场次" min-width="180">
@@ -540,11 +528,6 @@ async function openActivityDetail(row: any) {
               </el-table-column>
               <el-table-column label="计划时间" width="150">
                 <template #default="{ row }">{{ formatDateTime(row.scheduled_start_at) }}</template>
-              </el-table-column>
-              <el-table-column prop="record_count" label="签到记录" width="100" align="right" />
-              <el-table-column prop="present_count" label="已签到记录" width="110" align="right" />
-              <el-table-column label="签到率" width="100" align="right">
-                <template #default="{ row }">{{ recordAttendanceRate(row.present_count, row.record_count) }}</template>
               </el-table-column>
               <el-table-column label="报名人数" width="100" align="right">
                 <template #default="{ row }">{{ row.record_count }}</template>
