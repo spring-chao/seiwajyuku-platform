@@ -28,6 +28,9 @@ class SystemApiTests(unittest.TestCase):
                 "production": False,
                 "production_mutations_allowed": False,
                 "deployment_read_only": False,
+                "identity_authorization_enabled": True,
+                "identity_admin_writes_enabled": True,
+                "volunteer_service_invitations_enabled": True,
             },
         )
 

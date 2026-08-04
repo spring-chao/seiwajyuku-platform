@@ -28,4 +28,7 @@ def environment() -> dict[str, str | bool]:
         "production": settings.is_production,
         "production_mutations_allowed": settings.allow_production_mutations,
         "deployment_read_only": settings.deployment_read_only,
+        "identity_authorization_enabled": settings.identity_authorization_enabled,
+        "identity_admin_writes_enabled": settings.identity_admin_writes_enabled,
+        "volunteer_service_invitations_enabled": settings.volunteer_service_invitations_enabled,
     }
