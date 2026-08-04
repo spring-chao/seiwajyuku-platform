@@ -553,44 +553,72 @@ def list_members(
 def reveal_contact(
     *, member_id: int, task_id: int, actor_user_id: int, purpose: str, client_reference: str | None
 ) -> dict[str, str]:
+    def record_attempt(result: str, task: dict[str, Any] | None = None) -> None:
+        with transaction() as connection:
+            write_audit(
+                connection,
+                actor_user_id=actor_user_id,
+                action="members.contact.reveal",
+                resource_type="member",
+                resource_id=str(member_id),
+                org_unit_id=task["org_unit_id"] if task else None,
+                purpose=purpose,
+                result=result,
+                after={
+                    "task_id": task_id,
+                    "client_reference": client_reference,
+                },
+            )
+            if task and fetch_one("SELECT id FROM members WHERE id=?", (member_id,)):
+                execute(
+                    connection,
+                    "INSERT INTO contact_access_logs(task_id, member_id, actor_user_id, purpose, "
+                    "result, client_reference, accessed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        task_id, member_id, actor_user_id, purpose, result,
+                        client_reference, datetime.now(UTC).isoformat(),
+                    ),
+                )
+
     purpose = purpose.strip()
     if len(purpose) < 4:
+        record_attempt("DENIED_INVALID_PURPOSE")
         raise ValueError("必须填写本次联系用途")
     task = fetch_one(
         "SELECT id, member_id, org_unit_id, assigned_user_id, status, due_at FROM followup_tasks WHERE id=?",
         (task_id,),
     )
     if not task or task["member_id"] != member_id:
+        record_attempt("DENIED_TASK_MISMATCH", task)
         raise PermissionError("联系任务与学长不匹配")
     now = datetime.now(UTC)
     if task["assigned_user_id"] != actor_user_id or task["status"] not in {"OPEN", "IN_PROGRESS"}:
+        record_attempt("DENIED_TASK_OWNER_OR_STATUS", task)
         raise PermissionError("只有当前有效任务责任人可以查看")
     from app.services.followup_invitations import is_primary_assignee
 
     if not is_primary_assignee(task_id, actor_user_id):
+        record_attempt("DENIED_INVITATION", task)
         raise PermissionError("接受服务邀请后才可以查看本次联系信息")
     if task["due_at"] and _as_utc(task["due_at"]) < now:
+        record_attempt("DENIED_EXPIRED", task)
         raise PermissionError("联系任务已过期")
     allowed = accessible_org_ids(actor_user_id)
     if allowed is not None and task["org_unit_id"] not in allowed:
+        record_attempt("DENIED_ORG_SCOPE", task)
         raise PermissionError("任务不在组织授权范围内")
     member = fetch_one(
         "SELECT id, name, phone_ciphertext, phone_masked FROM members WHERE id=?", (member_id,)
     )
     if not member or not member["phone_ciphertext"]:
+        record_attempt("DENIED_NO_PHONE", task)
         raise ValueError("学长没有可用联系方式")
-    phone = decrypt_text(member["phone_ciphertext"])
-    with transaction() as connection:
-        write_audit(
-            connection,
-            actor_user_id=actor_user_id,
-            action="members.contact.reveal",
-            resource_type="member",
-            resource_id=str(member_id),
-            org_unit_id=task["org_unit_id"],
-            purpose=purpose,
-            after={"task_id": task_id, "phone": member["phone_masked"]},
-        )
+    try:
+        phone = decrypt_text(member["phone_ciphertext"])
+    except ValueError:
+        record_attempt("DECRYPTION_FAILED", task)
+        raise
+    record_attempt("SUCCESS", task)
     return {"name": member["name"], "phone": phone, "expires_in": "60秒"}
 
 

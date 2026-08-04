@@ -180,6 +180,18 @@ class PrivacyIsolationTests(unittest.TestCase):
             "WHERE resource_type IN ('member', 'member_export')"
         )
         self.assertNotIn("13800138000", str(logs))
+        contact_logs = fetch_all(
+            "SELECT result, client_reference FROM contact_access_logs WHERE member_id=?",
+            (self.member_id,),
+        )
+        self.assertIn(
+            {"result": "SUCCESS", "client_reference": "privacy-test"},
+            contact_logs,
+        )
+        self.assertIn(
+            {"result": "DENIED_TASK_OWNER_OR_STATUS", "client_reference": "privacy-test-denied"},
+            contact_logs,
+        )
 
     def test_sensitive_export_isolated_and_watermarked(self) -> None:
         with self.assertRaises(PermissionError):

@@ -16,6 +16,7 @@ import {
   applyDirectClassWorkbook,
   applyFullClassRosterOrganization,
   applyFullClassRosterRelations,
+  updateMember,
   previewDirectClassWorkbook,
   previewFullClassRosterWorkbook,
   type DirectClassPreflight,
@@ -29,6 +30,7 @@ defineOptions({ name: "MemberManagement" });
 const loading = ref(false);
 const saving = ref(false);
 const dialogVisible = ref(false);
+const editingMemberId = ref<number>();
 const preflightVisible = ref(false);
 const preflightLoading = ref(false);
 const preflightFiles = ref<UploadUserFile[]>([]);
@@ -148,6 +150,8 @@ const form = reactive({
   profit_margin: "",
   notes: ""
 });
+const memberStatusLabel = (status: string) =>
+  ({ ACTIVE: "在册", INACTIVE: "停用", SUSPENDED: "暂停" })[status] ?? status;
 const rules: FormRules = {
   name: [{ required: true, message: "请输入姓名", trigger: "blur" }],
   org_unit_id: [{ required: true, message: "请选择分中心", trigger: "change" }],
@@ -182,6 +186,7 @@ async function load() {
 }
 
 function openCreate() {
+  editingMemberId.value = undefined;
   Object.assign(form, {
     name: "",
     org_unit_id: selectedOrg.value,
@@ -214,38 +219,88 @@ function openCreate() {
   dialogVisible.value = true;
 }
 
+function openEdit(row: any) {
+  editingMemberId.value = row.id;
+  const classOrgId =
+    classOrgs.value.find(item => item.name === row.class_name)?.id ?? "";
+  Object.assign(form, {
+    name: row.name,
+    org_unit_id: row.org_unit_id,
+    phone: "",
+    company_name: "",
+    gender: "",
+    district: "",
+    company_address: "",
+    class_name: "",
+    group_name: "",
+    class_org_unit_id: classOrgId,
+    group_org_unit_id:
+      orgs.value.find(
+        item => item.name === row.group_name && item.parent_id === classOrgId
+      )?.id ?? "",
+    birthday: "",
+    join_date: "",
+    study_start_date: "",
+    membership_years: undefined,
+    renewal_month: "",
+    status: row.status,
+    position: "",
+    referrer: "",
+    referrer_center: "",
+    industry_category: "",
+    industry: "",
+    company_products: "",
+    annual_sales: "",
+    company_size: "",
+    profit_margin: "",
+    notes: ""
+  });
+  dialogVisible.value = true;
+}
+
 async function submit() {
   if (!(await formRef.value?.validate())) return;
   saving.value = true;
   try {
-    await createMember({
-      name: form.name.trim(),
-      org_unit_id: form.org_unit_id,
-      phone: form.phone.trim(),
-      company_name: form.company_name.trim() || undefined,
-      gender: form.gender || undefined,
-      district: form.district.trim() || undefined,
-      company_address: form.company_address.trim() || undefined,
-      class_org_unit_id: form.class_org_unit_id || undefined,
-      group_org_unit_id: form.group_org_unit_id || undefined,
-      birthday: form.birthday || undefined,
-      join_date: form.join_date || undefined,
-      study_start_date: form.study_start_date || undefined,
-      membership_years: form.membership_years,
-      renewal_month: form.renewal_month || undefined,
-      status: form.status,
-      position: form.position.trim() || undefined,
-      referrer: form.referrer.trim() || undefined,
-      referrer_center: form.referrer_center.trim() || undefined,
-      industry_category: form.industry_category.trim() || undefined,
-      industry: form.industry.trim() || undefined,
-      company_products: form.company_products.trim() || undefined,
-      annual_sales: form.annual_sales.trim() || undefined,
-      company_size: form.company_size.trim() || undefined,
-      profit_margin: form.profit_margin.trim() || undefined,
-      notes: form.notes.trim() || undefined
-    });
-    ElMessage.success("学员已创建，手机号已加密保存");
+    if (editingMemberId.value) {
+      await updateMember(editingMemberId.value, {
+        name: form.name.trim(),
+        org_unit_id: form.org_unit_id,
+        status: form.status,
+        class_org_unit_id: form.class_org_unit_id || null,
+        group_org_unit_id: form.group_org_unit_id || null
+      });
+      ElMessage.success("学员档案已更新，变更已记录");
+    } else {
+      await createMember({
+        name: form.name.trim(),
+        org_unit_id: form.org_unit_id,
+        phone: form.phone.trim(),
+        company_name: form.company_name.trim() || undefined,
+        gender: form.gender || undefined,
+        district: form.district.trim() || undefined,
+        company_address: form.company_address.trim() || undefined,
+        class_org_unit_id: form.class_org_unit_id || undefined,
+        group_org_unit_id: form.group_org_unit_id || undefined,
+        birthday: form.birthday || undefined,
+        join_date: form.join_date || undefined,
+        study_start_date: form.study_start_date || undefined,
+        membership_years: form.membership_years,
+        renewal_month: form.renewal_month || undefined,
+        status: form.status,
+        position: form.position.trim() || undefined,
+        referrer: form.referrer.trim() || undefined,
+        referrer_center: form.referrer_center.trim() || undefined,
+        industry_category: form.industry_category.trim() || undefined,
+        industry: form.industry.trim() || undefined,
+        company_products: form.company_products.trim() || undefined,
+        annual_sales: form.annual_sales.trim() || undefined,
+        company_size: form.company_size.trim() || undefined,
+        profit_margin: form.profit_margin.trim() || undefined,
+        notes: form.notes.trim() || undefined
+      });
+      ElMessage.success("学员已创建，手机号已加密保存");
+    }
     dialogVisible.value = false;
     await load();
   } catch (error) {
@@ -437,7 +492,7 @@ onMounted(load);
         <el-input
           v-model="keyword"
           clearable
-          placeholder="搜索姓名、编号、企业或手机后四位"
+          placeholder="搜索姓名、编号或手机后四位"
         />
         <span class="result-count">共 {{ filteredRows.length }} 人</span>
       </div>
@@ -455,8 +510,13 @@ onMounted(load);
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'">
-              {{ row.status === "ACTIVE" ? "在册" : row.status }}
+              {{ memberStatusLabel(row.status) }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="canManage" label="操作" width="90" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -753,7 +813,7 @@ onMounted(load);
 
     <el-dialog
       v-model="dialogVisible"
-      title="新增学员"
+      :title="editingMemberId ? '编辑学员' : '新增学员'"
       width="1180px"
       class="member-dialog"
     >
@@ -914,7 +974,7 @@ onMounted(load);
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="submit">
-          加密保存
+          {{ editingMemberId ? "保存变更" : "加密保存" }}
         </el-button>
       </template>
     </el-dialog>
