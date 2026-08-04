@@ -320,6 +320,13 @@ export type AttendanceSession = {
   total_points?: number | string | null;
 };
 
+export type AttendanceClassParticipation = {
+  class_org_unit_id: string;
+  class_name: string;
+  class_member_count: number;
+  class_present_count: number;
+};
+
 export type AttendanceEventGroupDetail = {
   group: AttendanceEventGroup & {
     external_group_id: string;
@@ -328,6 +335,7 @@ export type AttendanceEventGroupDetail = {
     updated_at: string;
   };
   sessions: AttendanceSession[];
+  class_breakdown: AttendanceClassParticipation[];
 };
 
 export type AttendanceRecord = {

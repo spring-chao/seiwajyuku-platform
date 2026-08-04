@@ -11,6 +11,7 @@ import {
   getAttendanceSyncStatus,
   type AttendanceEventGroup,
   type AttendanceEventGroupDetail,
+  type AttendanceClassParticipation,
   type AttendanceRecord,
   type AttendanceReconciliationBreakdownRow,
   type AttendanceReconciliationQueueRow,
@@ -39,6 +40,9 @@ const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detail = ref<AttendanceEventGroupDetail | null>(null);
 const detailRecords = ref<AttendanceRecord[]>([]);
+const detailClassBreakdown = computed<AttendanceClassParticipation[]>(() =>
+  detail.value?.class_breakdown || []
+);
 type ParticipationFilter = "AUTO" | "CLASS" | "REGION";
 const participationFilter = ref<ParticipationFilter>("AUTO");
 
@@ -516,6 +520,27 @@ async function openActivityDetail(row: any) {
               <strong class="detail-rate">{{ participationRateValue(detail.group) === null ? "—" : participationRate(participationPresentCount(detail.group), participationRosterCount(detail.group)) }}</strong>
             </div>
           </div>
+
+          <section v-if="detailClassBreakdown.length" class="detail-section">
+            <div class="detail-section__heading">
+              <h3>班级参会率明细</h3>
+              <span>报告会按分中心汇总；此处可继续查看分中心内各班级的在册学员参会情况</span>
+            </div>
+            <el-table :data="detailClassBreakdown" size="small" stripe class="activity-table">
+              <el-table-column prop="class_name" label="班级" min-width="220" />
+              <el-table-column label="应参会人数" width="120" align="right">
+                <template #default="{ row }">{{ row.class_member_count }}</template>
+              </el-table-column>
+              <el-table-column label="已签到学员" width="120" align="right">
+                <template #default="{ row }">{{ row.class_present_count }}</template>
+              </el-table-column>
+              <el-table-column label="班级参会率" width="130" align="right">
+                <template #default="{ row }">
+                  {{ participationRate(row.class_present_count, row.class_member_count) }}
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
 
           <section class="detail-section">
             <div class="detail-section__heading">

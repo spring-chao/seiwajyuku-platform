@@ -579,7 +579,50 @@ def event_group_detail(
         "ORDER BY s.session_order",
         (group_id,),
     )
-    return {"success": True, "data": {"group": group, "sessions": sessions}}
+    class_breakdown: list[dict] = []
+    if not group.get("study_org_unit_id"):
+        class_breakdown = fetch_all(
+            "SELECT class_org.id AS class_org_unit_id, class_org.name AS class_name, "
+            "COUNT(DISTINCT cm.id) AS class_member_count, "
+            "COUNT(DISTINCT CASE WHEN r.attendance_status IN ('PRESENT','MANUAL_PRESENT') "
+            "THEN r.member_id END) AS class_present_count "
+            "FROM org_units class_org "
+            "JOIN member_org_relations class_rel "
+            "ON class_rel.org_unit_id=class_org.id "
+            "AND class_rel.relation_type='STUDY_CLASS' "
+            "AND (class_rel.valid_from IS NULL OR class_rel.valid_from<=?) "
+            "AND (class_rel.valid_until IS NULL OR class_rel.valid_until>=?) "
+            "JOIN members cm ON cm.id=class_rel.member_id AND cm.status='ACTIVE' "
+            "JOIN member_org_relations region_rel "
+            "ON region_rel.member_id=cm.id "
+            "AND region_rel.relation_type='PRIMARY_REGION' "
+            "AND region_rel.org_unit_id=? "
+            "AND (region_rel.valid_from IS NULL OR region_rel.valid_from<=?) "
+            "AND (region_rel.valid_until IS NULL OR region_rel.valid_until>=?) "
+            "LEFT JOIN attendance_records r "
+            "ON r.member_id=cm.id AND r.participant_type='MEMBER' "
+            "AND r.attendance_session_id IN "
+            "(SELECT s.id FROM attendance_sessions s WHERE s.event_group_id=?) "
+            "WHERE class_org.unit_type='CLASS' AND class_org.is_active=1 "
+            "GROUP BY class_org.id, class_org.name "
+            "ORDER BY class_org.name, class_org.id",
+            (
+                group["event_date"],
+                group["event_date"],
+                group["org_unit_id"],
+                group["event_date"],
+                group["event_date"],
+                group_id,
+            ),
+        )
+    return {
+        "success": True,
+        "data": {
+            "group": group,
+            "sessions": sessions,
+            "class_breakdown": class_breakdown,
+        },
+    }
 
 
 @router.get("/records")

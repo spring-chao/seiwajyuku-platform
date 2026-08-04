@@ -178,6 +178,20 @@ class AttendanceParticipationRateTests(unittest.TestCase):
         self.assertEqual(session["class_present_count"], 1)
         self.assertEqual((session["record_count"], session["present_count"]), (3, 2))
 
+        report_response = event_group_detail(
+            self.group_ids[1], user={"id": self.admin["id"]}
+        )
+        report_breakdown = report_response["data"]["class_breakdown"]
+        self.assertEqual(len(report_breakdown), 1)
+        self.assertEqual(report_breakdown[0]["class_name"], "参会率测试班")
+        self.assertEqual(
+            (
+                report_breakdown[0]["class_member_count"],
+                report_breakdown[0]["class_present_count"],
+            ),
+            (2, 1),
+        )
+
     @staticmethod
     def _detail_rows(response: dict) -> list[dict]:
         rows = response["data"]
