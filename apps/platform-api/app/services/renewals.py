@@ -9,7 +9,8 @@ from typing import Any
 from openpyxl import load_workbook
 
 from app.core.privacy import encrypt_text, phone_hash
-from app.db import execute, fetch_all, transaction
+from app.db import execute, fetch_all, fetch_one, transaction
+from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids
 
 
@@ -223,6 +224,207 @@ def save_preview(preview: dict[str, Any], actor_user_id: int) -> int:
                 ),
             )
         return batch_id
+
+
+def apply_preview(batch_id: int, actor_user_id: int, renewal_year: int, confirmation: str) -> dict[str, int]:
+    if confirmation != "确认正式导入续费周期":
+        raise PermissionError("确认文字不匹配，已禁止正式导入")
+    batch = fetch_one(
+        "SELECT id, status, source_name FROM renewal_import_batches WHERE id=?",
+        (batch_id,),
+    )
+    if not batch:
+        raise ValueError("续费预检批次不存在")
+    if batch["status"] != "PREVIEWED":
+        raise ValueError("该批次已处理，不能重复正式导入")
+    allowed = accessible_org_ids(actor_user_id)
+    rows = fetch_all(
+        "SELECT id, member_id, org_unit_id, due_month, proposed_status FROM renewal_import_staging "
+        "WHERE batch_id=? AND member_id IS NOT NULL AND org_unit_id IS NOT NULL",
+        (batch_id,),
+    )
+    if allowed is not None:
+        rows = [row for row in rows if row["org_unit_id"] in allowed]
+    now = datetime.now(UTC).isoformat()
+    created = 0
+    updated = 0
+    with transaction() as connection:
+        for row in rows:
+            existing = execute(
+                connection,
+                "SELECT id FROM renewal_cycles WHERE member_id=? AND renewal_year=?",
+                (row["member_id"], renewal_year),
+            ).fetchone()
+            if existing:
+                execute(
+                    connection,
+                    "UPDATE renewal_cycles SET org_unit_id=?, due_month=?, status=?, "
+                    "source_batch_id=?, updated_at=? WHERE id=?",
+                    (
+                        row["org_unit_id"], row["due_month"], row["proposed_status"],
+                        batch_id, now, existing["id"],
+                    ),
+                )
+                updated += 1
+            else:
+                cycle_id = execute(
+                    connection,
+                    "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, "
+                    "status, source_batch_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        row["member_id"], renewal_year, row["org_unit_id"], row["due_month"],
+                        row["proposed_status"], batch_id, now, now,
+                    ),
+                ).lastrowid
+                execute(
+                    connection,
+                    "INSERT INTO renewal_status_history(renewal_cycle_id, from_status, to_status, "
+                    "reason, changed_by, created_at) VALUES (?, NULL, ?, ?, ?, ?)",
+                    (cycle_id, row["proposed_status"], "续费名单正式导入", actor_user_id, now),
+                )
+                created += 1
+        execute(
+            connection,
+            "UPDATE renewal_import_batches SET status='APPLIED', applied_at=? WHERE id=?",
+            (now, batch_id),
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="renewals.import.apply",
+            resource_type="renewal_import_batch",
+            resource_id=str(batch_id),
+            purpose="续费名单正式导入",
+            after={"renewal_year": renewal_year, "created": created, "updated": updated},
+        )
+    return {"created": created, "updated": updated, "skipped": len(rows) - created - updated}
+
+
+def list_cycles(user_id: int, year: int = 2026, status: str | None = None) -> list[dict[str, Any]]:
+    rows = fetch_all(
+        "SELECT c.id, c.member_id, m.member_code, m.name AS member_name, c.renewal_year, "
+        "c.org_unit_id, o.name AS org_name, c.due_month, c.phase, c.status, c.result, "
+        "c.assigned_user_id, u.display_name AS assigned_user_name, c.completed_at, c.updated_at "
+        "FROM renewal_cycles c JOIN members m ON m.id=c.member_id JOIN org_units o ON o.id=c.org_unit_id "
+        "LEFT JOIN app_users u ON u.id=c.assigned_user_id WHERE c.renewal_year=? "
+        + ("AND c.status=? " if status else "")
+        + "ORDER BY c.due_month, c.id",
+        (year, status) if status else (year,),
+    )
+    allowed = accessible_org_ids(user_id)
+    if allowed is not None:
+        rows = [row for row in rows if row["org_unit_id"] in allowed]
+    return rows
+
+
+def update_cycle(
+    cycle_id: int,
+    actor_user_id: int,
+    *,
+    status: str | None = None,
+    phase: str | None = None,
+    result: str | None = None,
+    assigned_user_id: int | None = None,
+) -> None:
+    cycle = fetch_one("SELECT * FROM renewal_cycles WHERE id=?", (cycle_id,))
+    if not cycle:
+        raise ValueError("续费周期不存在")
+    allowed = accessible_org_ids(actor_user_id)
+    if allowed is not None and cycle["org_unit_id"] not in allowed:
+        raise PermissionError("续费周期不在组织授权范围内")
+    if assigned_user_id is not None:
+        assignee_allowed = accessible_org_ids(assigned_user_id)
+        if assignee_allowed is not None and cycle["org_unit_id"] not in assignee_allowed:
+            raise ValueError("责任人不在续费归属组织范围内")
+    fields = {key: value for key, value in {
+        "status": status, "phase": phase, "result": result,
+        "assigned_user_id": assigned_user_id,
+    }.items() if value is not None}
+    if not fields:
+        raise ValueError("至少提供一项续费周期变更")
+    now = datetime.now(UTC).isoformat()
+    fields["updated_at"] = now
+    if status in {"RENEWED", "NOT_RENEWING", "EXITED"}:
+        fields["completed_at"] = now
+    with transaction() as connection:
+        assignments = ", ".join(f"{key}=?" for key in fields)
+        execute(connection, f"UPDATE renewal_cycles SET {assignments} WHERE id=?", (*fields.values(), cycle_id))
+        if status and status != cycle["status"]:
+            execute(
+                connection,
+                "INSERT INTO renewal_status_history(renewal_cycle_id, from_status, to_status, "
+                "changed_by, created_at) VALUES (?, ?, ?, ?, ?)",
+                (cycle_id, cycle["status"], status, actor_user_id, now),
+            )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="renewals.cycle.update",
+            resource_type="renewal_cycle",
+            resource_id=str(cycle_id),
+            org_unit_id=cycle["org_unit_id"],
+            after=fields,
+        )
+
+
+def add_followup(
+    cycle_id: int,
+    actor_user_id: int,
+    *,
+    channel: str,
+    summary: str,
+    intention: str | None = None,
+    needs_support: bool = False,
+    next_action: str | None = None,
+    next_followup_at: str | None = None,
+) -> int:
+    cycle = fetch_one("SELECT id, org_unit_id FROM renewal_cycles WHERE id=?", (cycle_id,))
+    if not cycle:
+        raise ValueError("续费周期不存在")
+    allowed = accessible_org_ids(actor_user_id)
+    if allowed is not None and cycle["org_unit_id"] not in allowed:
+        raise PermissionError("续费周期不在组织授权范围内")
+    if channel.strip().upper() not in {"PHONE", "WECHAT", "MEETING", "VISIT", "OTHER"}:
+        raise ValueError("不支持的联系渠道")
+    if len(summary.strip()) < 4:
+        raise ValueError("跟进摘要至少填写4个字符")
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        followup_id = execute(
+            connection,
+            "INSERT INTO renewal_followups(renewal_cycle_id, followed_at, followed_by, channel, "
+            "summary, intention, needs_support, next_action, next_followup_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                cycle_id, now, actor_user_id, channel.strip().upper(), summary.strip(),
+                intention, 1 if needs_support else 0, next_action, next_followup_at, now,
+            ),
+        ).lastrowid
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="renewals.followup.create",
+            resource_type="renewal_cycle",
+            resource_id=str(cycle_id),
+            org_unit_id=cycle["org_unit_id"],
+            after={"followup_id": followup_id, "channel": channel.strip().upper()},
+        )
+        return followup_id
+
+
+def list_followups(cycle_id: int, actor_user_id: int) -> list[dict[str, Any]]:
+    cycle = fetch_one("SELECT org_unit_id FROM renewal_cycles WHERE id=?", (cycle_id,))
+    if not cycle:
+        raise ValueError("续费周期不存在")
+    allowed = accessible_org_ids(actor_user_id)
+    if allowed is not None and cycle["org_unit_id"] not in allowed:
+        raise PermissionError("续费周期不在组织授权范围内")
+    return fetch_all(
+        "SELECT id, followed_at, followed_by, channel, summary, intention, needs_support, "
+        "next_action, next_followup_at FROM renewal_followups WHERE renewal_cycle_id=? "
+        "ORDER BY followed_at DESC, id DESC",
+        (cycle_id,),
+    )
 
 
 def list_overview(user_id: int, year: int = 2026) -> dict[str, Any]:

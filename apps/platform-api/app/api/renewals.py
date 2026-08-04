@@ -4,15 +4,55 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel, Field
 
 from app.api.auth import require_permission
-from app.services.renewals import list_overview, preview_workbook, save_preview
+from app.services.renewals import (
+    add_followup,
+    apply_preview,
+    list_cycles,
+    list_followups,
+    list_overview,
+    preview_workbook,
+    save_preview,
+    update_cycle,
+)
 
 router = APIRouter(prefix="/api/v1/renewals", tags=["renewals"])
+
+
+class RenewalApplyPayload(BaseModel):
+    renewal_year: int = Field(ge=2020, le=2100)
+    confirmation: str
+
+
+class RenewalCycleUpdatePayload(BaseModel):
+    status: str | None = None
+    phase: str | None = None
+    result: str | None = None
+    assigned_user_id: int | None = None
+
+
+class RenewalFollowupPayload(BaseModel):
+    channel: str
+    summary: str = Field(min_length=4, max_length=4000)
+    intention: str | None = Field(default=None, max_length=64)
+    needs_support: bool = False
+    next_action: str | None = Field(default=None, max_length=4000)
+    next_followup_at: str | None = None
 
 @router.get("/overview")
 def overview(year: int = 2026, user: dict = Depends(require_permission("renewals:read"))) -> dict:
     return {"success": True, "data": list_overview(user["id"], year)}
+
+
+@router.get("/cycles")
+def cycles(
+    year: int = 2026,
+    status: str | None = None,
+    user: dict = Depends(require_permission("renewals:read")),
+) -> dict:
+    return {"success": True, "data": list_cycles(user["id"], year, status)}
 
 @router.post("/imports/preview")
 async def import_preview(
@@ -31,3 +71,62 @@ async def import_preview(
         except ValueError as exc: raise HTTPException(400, str(exc)) from exc
     batch_id = save_preview(preview, user["id"])
     return {"success": True, "data": {"batch_id": batch_id, "summary": preview["summary"], "samples": preview["rows"][:50]}}
+
+
+@router.post("/imports/{batch_id}/apply")
+def apply_import(
+    batch_id: int,
+    payload: RenewalApplyPayload,
+    user: dict = Depends(require_permission("renewals:manage")),
+) -> dict:
+    try:
+        data = apply_preview(batch_id, user["id"], payload.renewal_year, payload.confirmation)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.patch("/cycles/{cycle_id}")
+def edit_cycle(
+    cycle_id: int,
+    payload: RenewalCycleUpdatePayload,
+    user: dict = Depends(require_permission("renewals:manage")),
+) -> dict:
+    try:
+        update_cycle(cycle_id, user["id"], **payload.model_dump(exclude_unset=True))
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": {"id": cycle_id}}
+
+
+@router.get("/cycles/{cycle_id}/followups")
+def cycle_followups(
+    cycle_id: int,
+    user: dict = Depends(require_permission("renewals:read")),
+) -> dict:
+    try:
+        data = list_followups(cycle_id, user["id"])
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/cycles/{cycle_id}/followups")
+def create_cycle_followup(
+    cycle_id: int,
+    payload: RenewalFollowupPayload,
+    user: dict = Depends(require_permission("renewals:manage")),
+) -> dict:
+    try:
+        followup_id = add_followup(cycle_id, user["id"], **payload.model_dump())
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": {"id": followup_id}}
