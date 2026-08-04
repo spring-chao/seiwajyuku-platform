@@ -115,6 +115,15 @@ def create_member(
             "phone_masked": None,
         }
     )
+    if fields["phone_hash"]:
+        duplicate = fetch_one(
+            "SELECT member_code FROM members WHERE phone_hash=? LIMIT 1",
+            (fields["phone_hash"],),
+        )
+        if duplicate:
+            raise ValueError(
+                f"手机号已存在学员档案（{duplicate['member_code']}），请先人工核对或执行档案合并"
+            )
     now = datetime.now(UTC).isoformat()
     member_code = (member_code or "").strip() or (
         f"MEM-{datetime.now(UTC):%Y%m%d%H%M%S}-{secrets.token_hex(2).upper()}"

@@ -97,6 +97,17 @@ class PrivacyIsolationTests(unittest.TestCase):
         value = datetime(2026, 7, 27, 9, 30)
         self.assertEqual(_as_utc(value), value.replace(tzinfo=UTC))
 
+    def test_duplicate_phone_is_rejected_before_second_member_profile(self) -> None:
+        with self.assertRaisesRegex(ValueError, "手机号已存在学员档案"):
+            create_member(
+                self.admin["id"],
+                member_code="PRIVACY-DUPLICATE-001",
+                name="重复手机号测试学长",
+                org_unit_id="privacy-center",
+                development_org_unit_id=None,
+                phone="13800138000",
+            )
+
     def test_regional_manager_detail_returns_masked_phone(self) -> None:
         """get_member_detail now returns masked phone, not full phone.
 
