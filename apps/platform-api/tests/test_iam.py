@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.api.attendance import list_event_groups
 from app.db import execute, fetch_one, transaction
 from app.main import app
-from app.services.iam import create_user
+from app.services.iam import create_user, user_context
 from app.services.members import create_member, list_members
 
 
@@ -88,6 +88,25 @@ class IamIsolationTests(unittest.TestCase):
             },
         )
         self.assertEqual(forbidden.status_code, 403)
+
+    def test_identity_first_account_can_start_without_legacy_roles_or_scopes(self) -> None:
+        response = self.client.post(
+            "/api/v1/iam/users",
+            headers=self.admin_headers,
+            json={
+                "username": "identity-first-account",
+                "display_name": "身份优先测试账号",
+                "password": "identity-first-password",
+                "roles": [],
+                "scopes": [],
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        user_id = response.json()["data"]["id"]
+        context = user_context(user_id)
+        self.assertEqual(context["roles"], [])
+        self.assertEqual(context["permissions"], [])
+        self.assertEqual(context["scopes"], [])
 
     def test_class_scope_can_access_member_through_formal_relation(self) -> None:
         admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")

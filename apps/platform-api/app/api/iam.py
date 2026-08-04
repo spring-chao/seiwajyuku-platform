@@ -20,8 +20,12 @@ class UserCreatePayload(BaseModel):
     username: str = Field(min_length=3, max_length=128)
     display_name: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=10, max_length=256)
-    roles: list[str] = Field(min_length=1)
-    scopes: list[ScopePayload] = Field(min_length=1)
+    # Identity-first accounts may intentionally start without a legacy role.
+    # Their permissions come from a dated employment/appointment assignment.
+    roles: list[str] = Field(default_factory=list)
+    # Identity-first accounts also start with no legacy data-scope grant; the
+    # dated employment service-responsibility rows provide their scope.
+    scopes: list[ScopePayload] = Field(default_factory=list)
 
 
 @router.post("/iam/users")
@@ -66,4 +70,3 @@ def audit_logs(
         (limit,),
     )
     return {"success": True, "data": rows}
-

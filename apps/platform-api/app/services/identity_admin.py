@@ -11,6 +11,10 @@ from app.services.iam import PERMISSIONS, ROLE_NAMES, ROLE_PERMISSIONS
 
 
 POSITION_KEYS = {
+    # Compatibility position retained for the named 苏州塾运营管理员 role.
+    # It carries the existing operations_admin permission template while the
+    # account remains governed by the dated employment record.
+    "operations_admin",
     "ops_center_director",
     "ops_center_operations",
     "ops_center_learning",
@@ -233,7 +237,8 @@ def create_employment(
     actor_user_id: int,
     user_id: int,
     *,
-    position_key: str,
+    position_keys: list[str] | None = None,
+    position_key: str | None = None,
     started_on: str,
     ended_on: str | None,
     service_responsibilities: list[dict[str, str]],
@@ -242,7 +247,15 @@ def create_employment(
 ) -> int:
     _feature_gate(write=True)
     source, note = _validate_confirmation(source_reference, confirmation_note)
-    if position_key not in POSITION_KEYS:
+    normalized_positions: list[str] = []
+    for key in list(position_keys or []) + ([position_key] if position_key else []):
+        normalized = key.strip()
+        if normalized and normalized not in normalized_positions:
+            normalized_positions.append(normalized)
+    if not normalized_positions:
+        raise ValueError("至少指定一个运营中心岗位")
+    unknown_positions = [key for key in normalized_positions if key not in POSITION_KEYS]
+    if unknown_positions:
         raise ValueError("未知运营中心岗位")
     start = _as_datetime(started_on, "入职时间")
     end = _as_datetime(ended_on, "离职时间") if ended_on else None
@@ -288,13 +301,23 @@ def create_employment(
             (person_id, status, started_on, ended_on, source, now, now),
         )
         employment_id = cursor.lastrowid
-        execute(
-            connection,
-            "INSERT INTO operations_position_assignments"
-            "(employment_id, position_key, valid_from, valid_until, status, "
-            "source_reference, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (employment_id, position_key, started_on, ended_on, status, source, now, now),
-        )
+        for normalized_position in normalized_positions:
+            execute(
+                connection,
+                "INSERT INTO operations_position_assignments"
+                "(employment_id, position_key, valid_from, valid_until, status, "
+                "source_reference, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    employment_id,
+                    normalized_position,
+                    started_on,
+                    ended_on,
+                    status,
+                    source,
+                    now,
+                    now,
+                ),
+            )
         for scope_type, org_unit_id in normalized_responsibilities:
             execute(
                 connection,
@@ -323,7 +346,7 @@ def create_employment(
             purpose=note,
             after={
                 "user_id": user_id,
-                "position_key": position_key,
+                "position_keys": normalized_positions,
                 "started_on": started_on,
                 "ended_on": ended_on,
                 "service_responsibilities": [

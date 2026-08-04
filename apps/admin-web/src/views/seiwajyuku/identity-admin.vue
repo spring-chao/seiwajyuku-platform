@@ -21,6 +21,7 @@ defineOptions({ name: "IdentityAdmin" });
 type DialogMode = "initialize" | "employment" | "volunteer" | "technical";
 
 const positionLabels: Record<string, string> = {
+  operations_admin: "苏州塾运营管理员",
   ops_center_director: "运营中心负责人",
   ops_center_operations: "分中心运营专员",
   ops_center_learning: "学习践行专员",

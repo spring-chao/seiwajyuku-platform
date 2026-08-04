@@ -124,7 +124,8 @@ export const initializeAccountIdentity = (
 export const createAccountEmployment = (
   userId: number,
   data: Confirmation & {
-    position_key: string;
+    position_key?: string;
+    position_keys?: string[];
     started_on: string;
     ended_on?: string;
     service_responsibilities: Array<{

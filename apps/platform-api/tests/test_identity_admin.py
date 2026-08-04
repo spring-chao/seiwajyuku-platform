@@ -226,6 +226,64 @@ class IdentityAdminTests(unittest.TestCase):
             }.issubset(actions)
         )
 
+    def test_02b_supports_multiple_positions_under_one_employment(self) -> None:
+        now = datetime.now(UTC)
+        with transaction() as connection:
+            cursor = execute(
+                connection,
+                "INSERT INTO app_users(username, display_name, password_hash, is_active, "
+                "created_at, updated_at) VALUES "
+                "('identity-multi-position-account', '盛和塾', ?, 1, ?, ?)",
+                (hash_password("identity-multi-position-password"), now.isoformat(), now.isoformat()),
+            )
+            user_id = cursor.lastrowid
+        self._initialize(user_id, "approved-multi-position-link-001")
+        response = self.client.post(
+            f"/api/v1/identity-admin/accounts/{user_id}/employments",
+            headers=self.admin_headers,
+            json={
+                "position_keys": [
+                    "operations_admin",
+                    "ops_center_operations",
+                    "ops_center_data",
+                    "ops_center_administration",
+                ],
+                "started_on": (now - timedelta(minutes=1)).isoformat(),
+                "ended_on": (now + timedelta(days=1)).isoformat(),
+                "service_responsibilities": [
+                    {"org_unit_id": "identity-admin-center", "scope_type": "SUBTREE"}
+                ],
+                "source_reference": "approved-multi-position-employment-001",
+                "confirmation_note": "已确认四个岗位属于同一运营中心雇佣并受统一期限约束",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        employment_id = response.json()["data"]["id"]
+        positions = fetch_all(
+            "SELECT position_key FROM operations_position_assignments "
+            "WHERE employment_id=? ORDER BY position_key",
+            (employment_id,),
+        )
+        self.assertEqual(
+            [row["position_key"] for row in positions],
+            [
+                "operations_admin",
+                "ops_center_administration",
+                "ops_center_data",
+                "ops_center_operations",
+            ],
+        )
+        context = user_context(user_id)
+        self.assertEqual(
+            set(context["roles"]),
+            {
+                "operations_admin",
+                "ops_center_administration",
+                "ops_center_data",
+                "ops_center_operations",
+            },
+        )
+
     def test_03_technical_admin_can_manage_identity_without_business_access(self) -> None:
         self._initialize(
             self.technical_user_id, "approved-technical-person-link-001"

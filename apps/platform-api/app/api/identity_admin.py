@@ -30,7 +30,10 @@ class ServiceResponsibilityPayload(BaseModel):
 
 
 class EmploymentPayload(ConfirmationPayload):
-    position_key: str = Field(min_length=3, max_length=64)
+    # ``position_key`` remains for backwards compatibility.  New identity
+    # accounts can hold several position templates under one employment.
+    position_key: str | None = Field(default=None, min_length=3, max_length=64)
+    position_keys: list[str] = Field(default_factory=list, max_length=16)
     started_on: str
     ended_on: str | None = None
     service_responsibilities: list[ServiceResponsibilityPayload] = Field(
@@ -109,6 +112,9 @@ def add_employment(
     actor: dict = Depends(require_permission("iam:manage")),
 ) -> dict:
     values = payload.model_dump()
+    if payload.position_key:
+        values["position_keys"] = [payload.position_key, *payload.position_keys]
+    values.pop("position_key", None)
     values["service_responsibilities"] = [
         item.model_dump() for item in payload.service_responsibilities
     ]

@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS operations_position_assignments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     employment_id INTEGER NOT NULL REFERENCES operations_employments(id) ON DELETE CASCADE,
     position_key TEXT NOT NULL CHECK (position_key IN (
+        'operations_admin',
         'ops_center_director',
         'ops_center_operations',
         'ops_center_learning',

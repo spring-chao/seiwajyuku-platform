@@ -287,6 +287,15 @@ def _run_identity_validation() -> dict:
             "'mysql-staging-validation', ?, ?)",
             (employment.lastrowid, active_from, now, now),
         )
+        for position_key in ("ops_center_data", "ops_center_administration"):
+            execute(
+                connection,
+                "INSERT INTO operations_position_assignments"
+                "(employment_id, position_key, valid_from, status, source_reference, "
+                "created_at, updated_at) VALUES (?, ?, ?, 'ACTIVE', "
+                "'mysql-staging-validation', ?, ?)",
+                (employment.lastrowid, position_key, active_from, now, now),
+            )
         execute(
             connection,
             "INSERT INTO employee_service_responsibilities"
@@ -331,7 +340,11 @@ def _run_identity_validation() -> dict:
                 ),
             )
     context = user_context(1)
-    if "ops_center_learning" not in context["roles"]:
+    if not {
+        "ops_center_learning",
+        "ops_center_data",
+        "ops_center_administration",
+    }.issubset(context["roles"]):
         raise AssertionError(context)
     if "attendance:adjudicate" not in context["permissions"]:
         raise AssertionError(context)
