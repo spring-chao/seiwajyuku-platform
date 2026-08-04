@@ -117,3 +117,23 @@ jobs:
             -e "SELECT CONCAT((SELECT COUNT(*) FROM schema_migrations),':',(SELECT COUNT(*) FROM member_org_relations),':',(SELECT COUNT(*) FROM attendance_score_records),':',(SELECT COUNT(*) FROM operating_institutions));")"
           test "$source_counts" = "12:4:3:4"
           test "$restore_counts" = "$source_counts"
+      - name: Verify MySQL rollback preserves legacy data
+        run: |
+          docker exec -i "${{ job.services.mysql.id }}" \
+            mysql -uroot -pci-root-password seiwajyuku_restore \
+            < migrations/rollback/mysql/0012_followup_service_invitations.down.sql
+          docker exec -i "${{ job.services.mysql.id }}" \
+            mysql -uroot -pci-root-password seiwajyuku_restore \
+            < migrations/rollback/mysql/0011_identity_appointments.down.sql
+          new_tables="$(docker exec "${{ job.services.mysql.id }}" \
+            mysql -N -uroot -pci-root-password seiwajyuku_restore \
+            -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('operating_institutions','person_profiles','account_person_links','operations_employments','operations_position_assignments','employee_service_responsibilities','volunteer_appointments','technical_admin_assignments','followup_service_invitations','followup_collaborators');")"
+          legacy_tables="$(docker exec "${{ job.services.mysql.id }}" \
+            mysql -N -uroot -pci-root-password seiwajyuku_restore \
+            -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('members','member_org_relations','attendance_records','attendance_score_records','followup_tasks','audit_logs');")"
+          legacy_counts="$(docker exec "${{ job.services.mysql.id }}" \
+            mysql -N -uroot -pci-root-password seiwajyuku_restore \
+            -e "SELECT CONCAT((SELECT COUNT(*) FROM member_org_relations),':',(SELECT COUNT(*) FROM attendance_score_records));")"
+          test "$new_tables" = "0"
+          test "$legacy_tables" = "6"
+          test "$legacy_counts" = "4:3"
