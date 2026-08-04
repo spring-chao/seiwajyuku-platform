@@ -37,6 +37,26 @@ class PrivacyIsolationTests(unittest.TestCase):
                     "'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
                     ("隐私测试中心", now, now),
                 )
+            if not execute(
+                connection, "SELECT id FROM org_units WHERE id='privacy-class'"
+            ).fetchone():
+                execute(
+                    connection,
+                    "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, "
+                    "created_at, updated_at) VALUES ('privacy-class', 'PRIVACY_CLASS', ?, "
+                    "'CLASS', 'privacy-center', 1, ?, ?)",
+                    ("圆融一班", now, now),
+                )
+            if not execute(
+                connection, "SELECT id FROM org_units WHERE id='privacy-group'"
+            ).fetchone():
+                execute(
+                    connection,
+                    "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, "
+                    "created_at, updated_at) VALUES ('privacy-group', 'PRIVACY_GROUP', ?, "
+                    "'GROUP', 'privacy-class', 1, ?, ?)",
+                    ("圆梦组", now, now),
+                )
         cls.regional_user_id = create_user(
             cls.admin["id"],
             username="privacy-regional",
@@ -191,8 +211,8 @@ class PrivacyIsolationTests(unittest.TestCase):
             gender="MALE",
             district="吴江区",
             company_address="测试地址",
-            class_name="圆融一班",
-            group_name="圆梦组",
+            class_org_unit_id="privacy-class",
+            group_org_unit_id="privacy-group",
             birthday="1988-08-08",
             join_date="2024-01-01",
             study_start_date="2024-01-01",

@@ -152,6 +152,8 @@ export type Member = {
   company_address?: string;
   class_name?: string;
   group_name?: string;
+  class_org_unit_id?: string;
+  group_org_unit_id?: string;
   birthday?: string;
   join_date?: string;
   study_start_date?: string;
@@ -428,6 +430,8 @@ export const createMember = (data: {
   company_address?: string;
   class_name?: string;
   group_name?: string;
+  class_org_unit_id?: string;
+  group_org_unit_id?: string;
   birthday?: string;
   join_date?: string;
   study_start_date?: string;

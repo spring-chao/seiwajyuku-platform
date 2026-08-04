@@ -69,6 +69,8 @@ def create_member(
     company_address: str | None = None,
     class_name: str | None = None,
     group_name: str | None = None,
+    class_org_unit_id: str | None = None,
+    group_org_unit_id: str | None = None,
     birthday: str | None = None,
     join_date: str | None = None,
     study_start_date: str | None = None,
@@ -141,6 +143,67 @@ def create_member(
         if financial_data
         else None
     )
+    class_org_id: str | None = None
+    if class_org_unit_id:
+        class_org = fetch_one(
+            "SELECT id, name, unit_type, parent_id, is_active FROM org_units WHERE id=?",
+            (class_org_unit_id,),
+        )
+        if (
+            not class_org
+            or not class_org["is_active"]
+            or class_org["unit_type"] not in {"CLASS", "SPECIAL_COHORT"}
+        ):
+            raise ValueError("班级组织不存在、已停用或类型不正确")
+        if class_org["parent_id"] not in {org_unit_id, "org-suzhou"}:
+            raise ValueError("班级不属于所选分中心")
+        class_org_id = class_org["id"]
+        class_name = class_org["name"]
+    elif class_name and class_name.strip():
+        class_matches = fetch_all(
+            "SELECT id, name, unit_type, parent_id FROM org_units "
+            "WHERE is_active=1 AND name=? AND unit_type IN ('CLASS', 'SPECIAL_COHORT')",
+            (class_name.strip(),),
+        )
+        if len(class_matches) != 1:
+            raise ValueError("班级文本无法唯一匹配正式组织，请改用班级组织ID")
+        if class_matches[0]["parent_id"] not in {org_unit_id, "org-suzhou"}:
+            raise ValueError("班级不属于所选分中心")
+        class_org_id = class_matches[0]["id"]
+        class_name = class_matches[0]["name"]
+    group_org_id: str | None = None
+    if group_org_unit_id:
+        group_org = fetch_one(
+            "SELECT id, name, unit_type, parent_id, is_active FROM org_units WHERE id=?",
+            (group_org_unit_id,),
+        )
+        if (
+            not group_org
+            or not group_org["is_active"]
+            or group_org["unit_type"] != "GROUP"
+        ):
+            raise ValueError("小组组织不存在、已停用或类型不正确")
+        if not class_org_id:
+            raise ValueError("小组必须同时选择所属班级")
+        if group_org["parent_id"] != class_org_id:
+            raise ValueError("小组不属于所选班级")
+        group_org_id = group_org["id"]
+        group_name = group_org["name"]
+    elif group_name and group_name.strip():
+        group_sql = (
+            "SELECT id, name FROM org_units WHERE is_active=1 AND unit_type='GROUP' "
+            "AND name=?"
+        )
+        group_params: tuple[Any, ...] = (group_name.strip(),)
+        if not class_org_id:
+            raise ValueError("小组必须同时选择所属班级")
+        group_sql += " AND parent_id=?"
+        group_params += (class_org_id,)
+        group_matches = fetch_all(group_sql, group_params)
+        if len(group_matches) != 1:
+            raise ValueError("小组文本无法唯一匹配正式组织，请改用小组组织ID")
+        group_org_id = group_matches[0]["id"]
+        group_name = group_matches[0]["name"]
     with transaction() as connection:
         cursor = execute(
             connection,
@@ -170,38 +233,18 @@ def create_member(
                 ("DEVELOPMENT_RELATION", development_org_unit_id, True)
             )
 
-        class_org_id: str | None = None
-        if class_name and class_name.strip():
-            class_matches = execute(
-                connection,
-                "SELECT id, unit_type FROM org_units "
-                "WHERE is_active=1 AND name=? "
-                "AND unit_type IN ('CLASS', 'SPECIAL_COHORT')",
-                (class_name.strip(),),
-            ).fetchall()
-            if len(class_matches) == 1:
-                class_org_id = class_matches[0]["id"]
-                relation_type = (
-                    "SPECIAL_COHORT"
-                    if class_matches[0]["unit_type"] == "SPECIAL_COHORT"
-                    else "STUDY_CLASS"
-                )
-                relations.append((relation_type, class_org_id, True))
-
-        if group_name and group_name.strip():
-            group_sql = (
-                "SELECT id FROM org_units WHERE is_active=1 "
-                "AND unit_type='GROUP' AND name=?"
+        if class_org_id:
+            class_org = execute(
+                connection, "SELECT unit_type FROM org_units WHERE id=?", (class_org_id,)
+            ).fetchone()
+            relation_type = (
+                "SPECIAL_COHORT"
+                if class_org["unit_type"] == "SPECIAL_COHORT"
+                else "STUDY_CLASS"
             )
-            group_params: tuple[Any, ...] = (group_name.strip(),)
-            if class_org_id:
-                group_sql += " AND parent_id=?"
-                group_params += (class_org_id,)
-            group_matches = execute(
-                connection, group_sql, group_params
-            ).fetchall()
-            if len(group_matches) == 1:
-                relations.append(("STUDY_GROUP", group_matches[0]["id"], True))
+            relations.append((relation_type, class_org_id, True))
+        if group_org_id:
+            relations.append(("STUDY_GROUP", group_org_id, True))
 
         for relation_type, relation_org_id, is_primary in relations:
             execute(

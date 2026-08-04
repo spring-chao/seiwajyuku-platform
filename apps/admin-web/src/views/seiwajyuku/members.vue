@@ -97,6 +97,18 @@ const canManage = computed(() =>
 const centerOrgs = computed(() =>
   orgs.value.filter(item => item.unit_type === "REGIONAL_CENTER")
 );
+const classOrgs = computed(() =>
+  orgs.value.filter(
+    item =>
+      ["CLASS", "SPECIAL_COHORT"].includes(item.unit_type) &&
+      (item.parent_id === form.org_unit_id || item.parent_id === "org-suzhou")
+  )
+);
+const groupOrgs = computed(() =>
+  orgs.value.filter(
+    item => item.unit_type === "GROUP" && item.parent_id === form.class_org_unit_id
+  )
+);
 const filteredRows = computed(() => {
   const term = keyword.value.trim().toLowerCase();
   if (!term) return rows.value;
@@ -117,6 +129,8 @@ const form = reactive({
   company_address: "",
   class_name: "",
   group_name: "",
+  class_org_unit_id: "",
+  group_org_unit_id: "",
   birthday: "",
   join_date: "",
   study_start_date: "",
@@ -178,6 +192,8 @@ function openCreate() {
     company_address: "",
     class_name: "",
     group_name: "",
+    class_org_unit_id: "",
+    group_org_unit_id: "",
     birthday: "",
     join_date: "",
     study_start_date: "",
@@ -210,8 +226,8 @@ async function submit() {
       gender: form.gender || undefined,
       district: form.district.trim() || undefined,
       company_address: form.company_address.trim() || undefined,
-      class_name: form.class_name.trim() || undefined,
-      group_name: form.group_name.trim() || undefined,
+      class_org_unit_id: form.class_org_unit_id || undefined,
+      group_org_unit_id: form.group_org_unit_id || undefined,
       birthday: form.birthday || undefined,
       join_date: form.join_date || undefined,
       study_start_date: form.study_start_date || undefined,
@@ -783,8 +799,21 @@ onMounted(load);
               <el-option label="其他/未说明" value="UNSPECIFIED" />
             </el-select>
           </el-form-item>
-          <el-form-item label="班级">
-            <el-input v-model="form.class_name" />
+          <el-form-item label="班级组织">
+            <el-select
+              v-model="form.class_org_unit_id"
+              clearable
+              filterable
+              placeholder="请选择正式班级"
+              @change="form.group_org_unit_id = ''"
+            >
+              <el-option
+                v-for="org in classOrgs"
+                :key="org.id"
+                :label="org.name"
+                :value="org.id"
+              />
+            </el-select>
           </el-form-item>
           <el-form-item label="行业分类">
             <el-input v-model="form.industry_category" />
@@ -797,8 +826,21 @@ onMounted(load);
               placeholder="YYYY-MM-DD"
             />
           </el-form-item>
-          <el-form-item label="组名">
-            <el-input v-model="form.group_name" />
+          <el-form-item label="小组组织">
+            <el-select
+              v-model="form.group_org_unit_id"
+              clearable
+              filterable
+              :disabled="!form.class_org_unit_id"
+              placeholder="请选择正式小组"
+            >
+              <el-option
+                v-for="org in groupOrgs"
+                :key="org.id"
+                :label="org.name"
+                :value="org.id"
+              />
+            </el-select>
           </el-form-item>
           <el-form-item label="行业">
             <el-input v-model="form.industry" />

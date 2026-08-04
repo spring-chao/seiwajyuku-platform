@@ -146,7 +146,7 @@ class IamIsolationTests(unittest.TestCase):
             org_unit_id="org-a",
             development_org_unit_id=None,
             phone="13500135000",
-            class_name="圆融一班",
+            class_org_unit_id="class-a",
         )
         primary_relation = fetch_one(
             "SELECT id FROM member_org_relations "
