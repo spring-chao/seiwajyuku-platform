@@ -171,6 +171,15 @@ export type Member = {
   sensitivity_level: string;
 };
 
+export type MemberChangeHistory = {
+  id: number;
+  change_type: string;
+  before_json: string;
+  after_json: string;
+  changed_by?: number;
+  changed_at: string;
+};
+
 export type OrgUnit = {
   id: string;
   unit_code: string;
@@ -446,6 +455,12 @@ export const getMembers = (orgUnitId?: string) =>
     "get",
     "/api/v1/members",
     { params: orgUnitId ? { org_unit_id: orgUnitId } : undefined }
+  );
+
+export const getMemberChangeHistory = (memberId: number) =>
+  http.request<{ success: boolean; data: MemberChangeHistory[] }>(
+    "get",
+    `/api/v1/members/${memberId}/change-history`
   );
 
 export const createMember = (data: {

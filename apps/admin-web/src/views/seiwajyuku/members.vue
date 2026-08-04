@@ -16,12 +16,14 @@ import {
   applyDirectClassWorkbook,
   applyFullClassRosterOrganization,
   applyFullClassRosterRelations,
+  getMemberChangeHistory,
   updateMember,
   previewDirectClassWorkbook,
   previewFullClassRosterWorkbook,
   type DirectClassPreflight,
   type FullClassRosterPreflight,
   type Member,
+  type MemberChangeHistory,
   type OrgUnit
 } from "@/api/seiwajyuku";
 
@@ -30,6 +32,10 @@ defineOptions({ name: "MemberManagement" });
 const loading = ref(false);
 const saving = ref(false);
 const dialogVisible = ref(false);
+const historyVisible = ref(false);
+const historyLoading = ref(false);
+const historyMember = ref<Member>();
+const historyRows = ref<MemberChangeHistory[]>([]);
 const editingMemberId = ref<number>();
 const preflightVisible = ref(false);
 const preflightLoading = ref(false);
@@ -95,6 +101,9 @@ const orgs = ref<OrgUnit[]>([]);
 const formRef = ref<FormInstance>();
 const canManage = computed(() =>
   useUserStoreHook().permissions.includes("members:manage")
+);
+const canViewHistory = computed(() =>
+  useUserStoreHook().permissions.includes("members:detail_view")
 );
 const centerOrgs = computed(() =>
   orgs.value.filter(item => item.unit_type === "REGIONAL_CENTER")
@@ -256,6 +265,76 @@ function openEdit(row: any) {
     notes: ""
   });
   dialogVisible.value = true;
+}
+
+function parseHistoryValue(value: string) {
+  try {
+    return JSON.parse(value || "{}") as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function historyLabel(key: string) {
+  return ({
+    name: "姓名",
+    org_unit_id: "所属分中心",
+    development_org_unit_id: "发展归属",
+    status: "状态",
+    phone_masked: "手机号（脱敏）",
+    company_name: "公司名称",
+    notes: "备注",
+    class_name: "班级",
+    group_name: "小组"
+  } as Record<string, string>)[key] ?? key;
+}
+
+function historyValue(key: string, value: unknown) {
+  if (value === null || value === undefined || value === "") return "无";
+  if (key.endsWith("org_unit_id")) {
+    return orgs.value.find(item => item.id === String(value))?.name ?? String(value);
+  }
+  if (key === "status") return memberStatusLabel(String(value));
+  return String(value);
+}
+
+function historySummary(item: any) {
+  const before = parseHistoryValue(item.before_json);
+  const after = parseHistoryValue(item.after_json);
+  const keys = [
+    "name",
+    "org_unit_id",
+    "development_org_unit_id",
+    "status",
+    "phone_masked",
+    "company_name",
+    "notes",
+    "class_name",
+    "group_name"
+  ];
+  const changes = keys
+    .filter(key => JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null))
+    .map(key => `${historyLabel(key)}：${historyValue(key, before[key])} → ${historyValue(key, after[key])}`);
+  return changes.length ? changes.join("；") : "已记录变更（字段无差异）";
+}
+
+function historyTypeLabel(type: string) {
+  return ({ PROFILE_UPDATE: "档案更新", MERGE: "档案合并" } as Record<string, string>)[type] ?? type;
+}
+
+async function openHistory(row: any) {
+  historyMember.value = row;
+  historyRows.value = [];
+  historyVisible.value = true;
+  historyLoading.value = true;
+  try {
+    historyRows.value = (await getMemberChangeHistory(row.id)).data;
+  } catch (error) {
+    historyVisible.value = false;
+    ElMessage.error(errorText(error));
+  } finally {
+    historyLoading.value = false;
+  }
 }
 
 async function submit() {
@@ -514,9 +593,14 @@ onMounted(load);
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="canManage" label="操作" width="90" fixed="right">
+        <el-table-column v-if="canManage || canViewHistory" label="操作" width="170" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="canManage" link type="primary" @click="openEdit(row)">
+              编辑
+            </el-button>
+            <el-button v-if="canViewHistory" link type="primary" @click="openHistory(row)">
+              变更历史
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -976,6 +1060,44 @@ onMounted(load);
         <el-button type="primary" :loading="saving" @click="submit">
           {{ editingMemberId ? "保存变更" : "加密保存" }}
         </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="historyVisible"
+      :title="`${historyMember?.name ?? '学员'} · 变更历史`"
+      width="920px"
+      class="history-dialog"
+    >
+      <el-alert
+        title="只读审计记录"
+        description="这里显示学员状态、分中心、班级、小组及档案字段的变更，不提供直接修改入口。"
+        type="info"
+        :closable="false"
+        show-icon
+      />
+      <el-table
+        v-loading="historyLoading"
+        :data="historyRows"
+        stripe
+        empty-text="暂无变更记录"
+        class="history-table"
+      >
+        <el-table-column label="时间" width="190">
+          <template #default="{ row }">{{ row.changed_at }}</template>
+        </el-table-column>
+        <el-table-column label="变更类型" width="130">
+          <template #default="{ row }">
+            <el-tag type="info">{{ historyTypeLabel(row.change_type) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="变更内容" min-width="520">
+          <template #default="{ row }">{{ historySummary(row) }}</template>
+        </el-table-column>
+        <el-table-column prop="changed_by" label="操作人" width="100" />
+      </el-table>
+      <template #footer>
+        <el-button @click="historyVisible = false">关闭</el-button>
       </template>
     </el-dialog>
   </div>
