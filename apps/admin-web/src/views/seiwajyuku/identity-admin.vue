@@ -85,6 +85,9 @@ const filteredRows = computed(() => {
       row.display_name.toLowerCase().includes(query)
   );
 });
+function accountRoleLabel(row: any) {
+  return row.username === "admin" ? "平台最高管理账号" : "待按业务确认";
+}
 const writesEnabled = computed(() => catalog.value?.writes_enabled === true);
 const dialogTitle = computed(() => {
   const name = activeAccount.value?.display_name || "";
@@ -244,7 +247,7 @@ onMounted(load);
       <div>
         <p>最小权限与可审计授权</p>
         <h1>身份与任职管理</h1>
-        <span>自然人、专职雇佣、服务责任、志工任职和技术职责分别记录。</span>
+        <span>自然人、专职雇佣、服务责任、志工任职和技术职责分别记录；admin 为平台最高管理账号。</span>
       </div>
       <el-input v-model="keyword" clearable placeholder="搜索账号或姓名" />
     </section>
@@ -352,6 +355,13 @@ onMounted(load);
         </el-table-column>
         <el-table-column prop="display_name" label="人员" min-width="120" />
         <el-table-column prop="username" label="账号" min-width="150" />
+        <el-table-column label="账号角色" min-width="180">
+          <template #default="{ row }">
+            <el-tag :type="row.username === 'admin' ? 'danger' : 'info'" effect="plain">
+              {{ accountRoleLabel(row) }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="自然人关联" min-width="185">
           <template #default="{ row }">
             <el-tag :type="row.person_id ? 'success' : 'warning'">
