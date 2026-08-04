@@ -10,7 +10,7 @@ from app.db import execute, fetch_one, transaction
 from app.main import app
 from app.services.iam import create_user, user_context
 from app.services.followups import create_task, list_tasks
-from app.services.members import create_member, list_members
+from app.services.members import create_member, list_members, update_member
 
 
 class IamIsolationTests(unittest.TestCase):
@@ -109,6 +109,24 @@ class IamIsolationTests(unittest.TestCase):
                 development_org_unit_id="org-b",
                 phone="13500135001",
             )
+        member_id = create_member(
+            admin["id"],
+            member_code="UPDATE-SCOPE-001",
+            name="档案变更范围测试学员",
+            org_unit_id="org-a",
+            development_org_unit_id=None,
+            phone="13500135002",
+        )
+        update_member(regional, member_id, {"status": "SUSPENDED"})
+        updated = fetch_one("SELECT status FROM members WHERE id=?", (member_id,))
+        self.assertEqual(updated["status"], "SUSPENDED")
+        with self.assertRaisesRegex(PermissionError, "授权范围外"):
+            update_member(regional, member_id, {"org_unit_id": "org-b"})
+        history = fetch_one(
+            "SELECT change_type FROM member_change_history WHERE member_id=?",
+            (member_id,),
+        )
+        self.assertEqual(history["change_type"], "PROFILE_UPDATE")
 
     def test_identity_first_account_can_start_without_legacy_roles_or_scopes(self) -> None:
         response = self.client.post(

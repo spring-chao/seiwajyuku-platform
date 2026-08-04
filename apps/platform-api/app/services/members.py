@@ -278,6 +278,230 @@ def create_member(
         return member_id
 
 
+def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -> int:
+    """Update a member profile and its formal organization relations atomically."""
+    current = fetch_one(
+        "SELECT id, name, org_unit_id, development_org_unit_id, status, phone_masked, "
+        "company_name, notes, class_name, group_name FROM members WHERE id=?",
+        (member_id,),
+    )
+    if not current:
+        raise ValueError("学员不存在")
+    if not updates:
+        raise ValueError("至少提供一项需要修改的字段")
+    allowed_fields = {
+        "name", "status", "phone", "company_name", "notes",
+        "org_unit_id", "development_org_unit_id", "class_org_unit_id",
+        "group_org_unit_id",
+    }
+    unknown = set(updates) - allowed_fields
+    if unknown:
+        raise ValueError(f"不支持修改字段：{','.join(sorted(unknown))}")
+    allowed = accessible_org_ids(actor_user_id)
+    try:
+        resolve_member_scope(member_id, current["org_unit_id"], allowed)
+    except PermissionError as exc:
+        raise PermissionError("学员不在组织授权范围内") from exc
+
+    target_org = updates.get("org_unit_id", current["org_unit_id"])
+    target_org_row = fetch_one(
+        "SELECT unit_type, is_active FROM org_units WHERE id=?", (target_org,)
+    )
+    if not target_org_row or not target_org_row["is_active"]:
+        raise ValueError("所属分中心不存在或已停用")
+    if allowed is not None and target_org not in allowed:
+        raise PermissionError("不能将学员转入授权范围外的分中心")
+
+    target_development = updates.get(
+        "development_org_unit_id", current["development_org_unit_id"]
+    )
+    if target_development:
+        development = fetch_one(
+            "SELECT unit_type, is_active FROM org_units WHERE id=?",
+            (target_development,),
+        )
+        if not development or not development["is_active"]:
+            raise ValueError("发展组织不存在或已停用")
+        if development["unit_type"] not in {"ROOT", "REGIONAL_CENTER"}:
+            raise ValueError("发展组织必须是根节点或分中心")
+        if allowed is not None and target_development not in allowed:
+            raise PermissionError("不能将学员关联到授权范围外的发展组织")
+
+    relations = fetch_all(
+        "SELECT relation_type, org_unit_id FROM member_org_relations "
+        "WHERE member_id=? AND (valid_until IS NULL OR valid_until>=?)",
+        (member_id, datetime.now(UTC).isoformat()),
+    )
+    relation_by_type = {row["relation_type"]: row["org_unit_id"] for row in relations}
+    class_key_changed = "class_org_unit_id" in updates
+    group_key_changed = "group_org_unit_id" in updates
+    target_class = (
+        updates.get("class_org_unit_id")
+        if class_key_changed
+        else relation_by_type.get("STUDY_CLASS")
+        or relation_by_type.get("SPECIAL_COHORT")
+    )
+    target_group = (
+        updates.get("group_org_unit_id")
+        if group_key_changed
+        else relation_by_type.get("STUDY_GROUP")
+    )
+    if class_key_changed and not group_key_changed:
+        target_group = None
+    class_row = None
+    if target_class:
+        class_row = fetch_one(
+            "SELECT id, name, unit_type, parent_id, is_active FROM org_units WHERE id=?",
+            (target_class,),
+        )
+        if (
+            not class_row
+            or not class_row["is_active"]
+            or class_row["unit_type"] not in {"CLASS", "SPECIAL_COHORT"}
+        ):
+            raise ValueError("班级组织不存在、已停用或类型不正确")
+        if class_row["parent_id"] not in {target_org, "org-suzhou"}:
+            raise ValueError("班级不属于所选分中心")
+    group_row = None
+    if target_group:
+        group_row = fetch_one(
+            "SELECT id, name, unit_type, parent_id, is_active FROM org_units WHERE id=?",
+            (target_group,),
+        )
+        if (
+            not group_row
+            or not group_row["is_active"]
+            or group_row["unit_type"] != "GROUP"
+        ):
+            raise ValueError("小组组织不存在、已停用或类型不正确")
+        if not class_row:
+            raise ValueError("小组必须同时选择所属班级")
+        if group_row["parent_id"] != class_row["id"]:
+            raise ValueError("小组不属于所选班级")
+
+    phone_fields: dict[str, str | None] = {}
+    if "phone" in updates:
+        phone = updates["phone"]
+        phone_fields = (
+            protected_phone(phone)
+            if phone and str(phone).strip()
+            else {
+                "phone_ciphertext": None,
+                "phone_hash": None,
+                "phone_last4": None,
+                "phone_masked": None,
+            }
+        )
+        if phone_fields["phone_hash"]:
+            duplicate = fetch_one(
+                "SELECT member_code FROM members WHERE phone_hash=? AND id<>? LIMIT 1",
+                (phone_fields["phone_hash"], member_id),
+            )
+            if duplicate:
+                raise ValueError(
+                    f"手机号已存在其他学员档案（{duplicate['member_code']}），请先人工核对或执行档案合并"
+                )
+
+    before = {
+        key: current[key]
+        for key in (
+            "name", "org_unit_id", "development_org_unit_id", "status",
+            "phone_masked", "company_name", "notes", "class_name", "group_name",
+        )
+    }
+    now = datetime.now(UTC).isoformat()
+    column_values: dict[str, Any] = {}
+    for key in ("name", "status", "company_name", "notes"):
+        if key in updates:
+            column_values[key] = updates[key]
+    if "org_unit_id" in updates:
+        column_values["org_unit_id"] = target_org
+    if "development_org_unit_id" in updates:
+        column_values["development_org_unit_id"] = target_development
+    if class_key_changed:
+        column_values["class_name"] = class_row["name"] if class_row else None
+        column_values["group_name"] = group_row["name"] if group_row else None
+    elif group_key_changed:
+        column_values["group_name"] = group_row["name"] if group_row else None
+    column_values.update(phone_fields)
+    column_values["updated_at"] = now
+    with transaction() as connection:
+        assignments = ", ".join(f"{key}=?" for key in column_values)
+        execute(
+            connection,
+            f"UPDATE members SET {assignments} WHERE id=?",
+            (*column_values.values(), member_id),
+        )
+
+        desired_relations = {
+            "PRIMARY_REGION": target_org,
+            "DEVELOPMENT_RELATION": target_development,
+        }
+        if class_key_changed:
+            desired_relations["STUDY_CLASS"] = (
+                target_class if class_row and class_row["unit_type"] == "CLASS" else None
+            )
+            desired_relations["SPECIAL_COHORT"] = (
+                target_class if class_row and class_row["unit_type"] == "SPECIAL_COHORT" else None
+            )
+            desired_relations["STUDY_GROUP"] = target_group
+        elif group_key_changed:
+            desired_relations["STUDY_GROUP"] = target_group
+        for relation_type, desired_org in desired_relations.items():
+            existing = execute(
+                connection,
+                "SELECT id FROM member_org_relations WHERE member_id=? AND relation_type=? LIMIT 1",
+                (member_id, relation_type),
+            ).fetchone()
+            if desired_org:
+                if existing:
+                    execute(
+                        connection,
+                        "UPDATE member_org_relations SET org_unit_id=?, is_primary=1, "
+                        "valid_from=NULL, valid_until=NULL, source_type='MEMBER_UPDATE', updated_at=? WHERE id=?",
+                        (desired_org, now, existing["id"]),
+                    )
+                else:
+                    execute(
+                        connection,
+                        "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, "
+                        "is_primary, source_type, created_at, updated_at) VALUES (?, ?, ?, 1, 'MEMBER_UPDATE', ?, ?)",
+                        (member_id, desired_org, relation_type, now, now),
+                    )
+            elif existing:
+                execute(
+                    connection,
+                    "UPDATE member_org_relations SET is_primary=0, valid_until=?, "
+                    "source_type='MEMBER_UPDATE', updated_at=? WHERE id=?",
+                    (now, now, existing["id"]),
+                )
+        after = {
+            **before,
+            **{key: value for key, value in column_values.items() if key != "updated_at"},
+            "phone_masked": phone_fields.get("phone_masked", current["phone_masked"]),
+            "class_org_unit_id": target_class,
+            "group_org_unit_id": target_group,
+        }
+        execute(
+            connection,
+            "INSERT INTO member_change_history(member_id, change_type, before_json, after_json, changed_by, changed_at) "
+            "VALUES (?, 'PROFILE_UPDATE', ?, ?, ?, ?)",
+            (member_id, json.dumps(before, ensure_ascii=False, default=str),
+             json.dumps(after, ensure_ascii=False, default=str), actor_user_id, now),
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="members.update",
+            resource_type="member",
+            resource_id=str(member_id),
+            org_unit_id=target_org,
+            before=before,
+            after=after,
+        )
+    return member_id
+
+
 def list_members(
     user_id: int,
     org_unit_id: str | None = None,

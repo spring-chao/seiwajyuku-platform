@@ -17,7 +17,7 @@ from app.services.members import (
     reveal_contact,
 )
 from app.services.iam import accessible_org_ids
-from app.db import fetch_one
+from app.db import fetch_all, fetch_one
 
 
 router = APIRouter(prefix="/api/v1", tags=["members-privacy"])
@@ -61,6 +61,18 @@ class ContactAccessPayload(BaseModel):
     client_reference: str | None = Field(default=None, max_length=255)
 
 
+class MemberUpdatePayload(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    status: str | None = Field(default=None, pattern="^(ACTIVE|INACTIVE|SUSPENDED)$")
+    phone: str | None = Field(default=None, pattern=r"^$|^1\d{10}$")
+    company_name: str | None = Field(default=None, max_length=500)
+    notes: str | None = Field(default=None, max_length=4000)
+    org_unit_id: str | None = None
+    development_org_unit_id: str | None = None
+    class_org_unit_id: str | None = None
+    group_org_unit_id: str | None = None
+
+
 class SensitiveExportPayload(BaseModel):
     purpose: str = Field(min_length=6, max_length=1000)
     second_confirmed: bool
@@ -73,6 +85,25 @@ def add_member(
 ) -> dict:
     try:
         member_id = create_member(user["id"], **payload.model_dump())
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": {"id": member_id}}
+
+
+@router.patch("/members/{member_id}")
+def edit_member(
+    member_id: int,
+    payload: MemberUpdatePayload,
+    user: dict = Depends(require_permission("members:manage")),
+) -> dict:
+    from app.services.members import update_member
+
+    try:
+        update_member(
+            user["id"], member_id, payload.model_dump(exclude_unset=True)
+        )
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:
@@ -126,6 +157,24 @@ def member_detail(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": data}
+
+
+@router.get("/members/{member_id}/change-history")
+def member_change_history(
+    member_id: int,
+    user: dict = Depends(require_permission("members:detail_view")),
+) -> dict:
+    member = fetch_one("SELECT org_unit_id FROM members WHERE id=?", (member_id,))
+    if not member:
+        raise HTTPException(404, "学员不存在")
+    if not can_access_member(member_id, member["org_unit_id"], accessible_org_ids(user["id"])):
+        raise HTTPException(403, "学员不在组织授权范围内")
+    rows = fetch_all(
+        "SELECT id, change_type, before_json, after_json, changed_by, changed_at "
+        "FROM member_change_history WHERE member_id=? ORDER BY changed_at DESC, id DESC",
+        (member_id,),
+    )
+    return {"success": True, "data": rows}
 
 
 @router.post("/members/{member_id}/enterprise-detail")

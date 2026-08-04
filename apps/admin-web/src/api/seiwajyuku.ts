@@ -709,6 +709,26 @@ export const getAttendanceSyncStatus = () =>
     "/api/v1/attendance/sync/status"
   );
 
+export const updateMember = (
+  memberId: number,
+  data: {
+    name?: string;
+    status?: string;
+    phone?: string | null;
+    company_name?: string | null;
+    notes?: string | null;
+    org_unit_id?: string;
+    development_org_unit_id?: string | null;
+    class_org_unit_id?: string | null;
+    group_org_unit_id?: string | null;
+  }
+) =>
+  http.request<{ success: boolean; data: { id: number } }>(
+    "patch",
+    `/api/v1/members/${memberId}`,
+    { data }
+  );
+
 export const getAttendanceEventGroupDetail = (groupId: number) =>
   http.request<{ success: boolean; data: AttendanceEventGroupDetail }>(
     "get",
