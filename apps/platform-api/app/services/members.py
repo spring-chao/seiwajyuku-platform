@@ -797,6 +797,208 @@ def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
     return dict(member)
 
 
+def get_member_timeline(
+    member_id: int, actor_user_id: int, *, limit: int = 100
+) -> dict[str, Any]:
+    """Return a privacy-safe, read-only service timeline for one member.
+
+    Timeline entries intentionally contain event metadata only. Follow-up notes,
+    renewal summaries and enterprise visit narratives remain behind their own
+    task/cycle permissions and are never copied into this aggregate response.
+    """
+    user = user_context(actor_user_id)
+    if not user or "members:detail_view" not in user["permissions"]:
+        raise PermissionError("当前角色不能查看学长服务时间线")
+    member = fetch_one(
+        "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, m.phone_masked, "
+        "m.class_name, m.group_name, m.status "
+        "FROM members m JOIN org_units o ON o.id=m.org_unit_id WHERE m.id=?",
+        (member_id,),
+    )
+    if not member:
+        raise ValueError("学长不存在")
+    allowed = accessible_org_ids(actor_user_id)
+    if not can_access_member(member_id, member["org_unit_id"], allowed):
+        raise PermissionError("学长不在组织授权范围内")
+
+    def timestamp(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.astimezone(UTC).isoformat()
+        return str(value)
+
+    events: list[dict[str, Any]] = []
+    changes = fetch_all(
+        "SELECT id, change_type, changed_by, changed_at FROM member_change_history "
+        "WHERE member_id=? ORDER BY changed_at DESC, id DESC",
+        (member_id,),
+    )
+    for row in changes:
+        events.append(
+            {
+                "id": f"member-change-{row['id']}",
+                "event_type": "PROFILE_CHANGE",
+                "occurred_at": timestamp(row["changed_at"]),
+                "title": "学员档案变更",
+                "status": row["change_type"],
+                "actor_id": row["changed_by"],
+            }
+        )
+
+    if "members:read" in user["permissions"]:
+        attendance_rows = fetch_all(
+            "SELECT ar.id, ar.attendance_status, ar.checked_at, ar.participant_type, "
+            "s.session_code, s.session_name, g.event_date, g.title, g.activity_type "
+            "FROM attendance_records ar "
+            "JOIN attendance_sessions s ON s.id=ar.attendance_session_id "
+            "JOIN attendance_event_groups g ON g.id=s.event_group_id "
+            "WHERE ar.member_id=? ORDER BY COALESCE(ar.checked_at, g.event_date) DESC, ar.id DESC",
+            (member_id,),
+        )
+        for row in attendance_rows:
+            events.append(
+                {
+                    "id": f"attendance-{row['id']}",
+                    "event_type": "ATTENDANCE",
+                    "occurred_at": timestamp(row["checked_at"] or row["event_date"]),
+                    "title": row["title"] or "签到活动",
+                    "status": row["attendance_status"],
+                    "channel": row["session_name"] or row["session_code"],
+                    "activity_type": row["activity_type"],
+                    "participant_type": row["participant_type"],
+                }
+            )
+
+    if "followups:manage" in user["permissions"]:
+        task_rows = fetch_all(
+            "SELECT id, org_unit_id, task_type, status, confidentiality_level, "
+            "assigned_user_id, created_at, due_at, updated_at "
+            "FROM followup_tasks WHERE member_id=? ORDER BY created_at DESC, id DESC",
+            (member_id,),
+        )
+        from app.services.followup_invitations import can_participate
+
+        visible_task_ids: list[int] = []
+        for row in task_rows:
+            if row["confidentiality_level"] == "ASSIGNEE" and not can_participate(
+                row["id"], actor_user_id
+            ):
+                continue
+            visible_task_ids.append(row["id"])
+            events.append(
+                {
+                    "id": f"followup-task-{row['id']}",
+                    "event_type": "FOLLOWUP_TASK",
+                    "occurred_at": timestamp(row["created_at"]),
+                    "title": "关怀服务事项",
+                    "status": row["status"],
+                    "channel": row["task_type"],
+                    "due_at": timestamp(row["due_at"]),
+                    "updated_at": timestamp(row["updated_at"]),
+                }
+            )
+        if visible_task_ids:
+            placeholders = ",".join("?" for _ in visible_task_ids)
+            record_rows = fetch_all(
+                "SELECT id, channel, contacted_at, outcome_code FROM followup_records "
+                f"WHERE member_id=? AND task_id IN ({placeholders}) "
+                "ORDER BY contacted_at DESC, id DESC",
+                (member_id, *visible_task_ids),
+            )
+            for row in record_rows:
+                events.append(
+                    {
+                        "id": f"followup-record-{row['id']}",
+                        "event_type": "FOLLOWUP_RECORD",
+                        "occurred_at": timestamp(row["contacted_at"]),
+                        "title": "关怀服务记录",
+                        "status": row["outcome_code"],
+                        "channel": row["channel"],
+                    }
+                )
+            visit_rows = fetch_all(
+                "SELECT id, visited_at, location_type FROM enterprise_visit_records "
+                f"WHERE member_id=? AND task_id IN ({placeholders}) "
+                "ORDER BY visited_at DESC, id DESC",
+                (member_id, *visible_task_ids),
+            )
+            for row in visit_rows:
+                events.append(
+                    {
+                        "id": f"enterprise-visit-{row['id']}",
+                        "event_type": "ENTERPRISE_VISIT",
+                        "occurred_at": timestamp(row["visited_at"]),
+                        "title": "企业走访",
+                        "status": "已记录",
+                        "channel": row["location_type"],
+                    }
+                )
+
+    if "renewals:read" in user["permissions"]:
+        cycle_rows = fetch_all(
+            "SELECT c.id, c.renewal_year, c.org_unit_id, c.due_month, c.phase, c.status, "
+            "c.completed_at, c.updated_at FROM renewal_cycles c WHERE c.member_id=? "
+            "ORDER BY c.renewal_year DESC, c.id DESC",
+            (member_id,),
+        )
+        visible_cycle_ids: list[int] = []
+        for row in cycle_rows:
+            if allowed is not None and row["org_unit_id"] not in allowed:
+                continue
+            visible_cycle_ids.append(row["id"])
+            events.append(
+                {
+                    "id": f"renewal-cycle-{row['id']}",
+                    "event_type": "RENEWAL_CYCLE",
+                    "occurred_at": timestamp(row["updated_at"]),
+                    "title": "续费周期",
+                    "status": row["status"],
+                    "channel": f"{row['renewal_year']}年{row['due_month']}月",
+                    "phase": row["phase"],
+                }
+            )
+        if visible_cycle_ids:
+            placeholders = ",".join("?" for _ in visible_cycle_ids)
+            renewal_rows = fetch_all(
+                "SELECT id, followed_at, channel FROM renewal_followups "
+                f"WHERE renewal_cycle_id IN ({placeholders}) ORDER BY followed_at DESC, id DESC",
+                tuple(visible_cycle_ids),
+            )
+            for row in renewal_rows:
+                events.append(
+                    {
+                        "id": f"renewal-followup-{row['id']}",
+                        "event_type": "RENEWAL_FOLLOWUP",
+                        "occurred_at": timestamp(row["followed_at"]),
+                        "title": "续费跟进",
+                        "status": "已记录",
+                        "channel": row["channel"],
+                    }
+                )
+
+    events.sort(key=lambda item: (item.get("occurred_at") or "", item["id"]), reverse=True)
+    visible_events = events[: max(1, min(limit, 200))]
+    summary: dict[str, int] = {}
+    for event in events:
+        summary[event["event_type"]] = summary.get(event["event_type"], 0) + 1
+    with transaction() as connection:
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="members.timeline.view",
+            resource_type="member",
+            resource_id=str(member_id),
+            org_unit_id=member["org_unit_id"],
+            after={"event_count": len(visible_events)},
+        )
+    return {
+        "member": dict(member),
+        "summary": summary,
+        "events": visible_events,
+    }
+
+
 def get_member_enterprise_detail(
     member_id: int, actor_user_id: int, purpose: str
 ) -> dict[str, Any]:

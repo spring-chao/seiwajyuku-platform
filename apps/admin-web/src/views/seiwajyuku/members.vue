@@ -17,6 +17,7 @@ import {
   applyFullClassRosterOrganization,
   applyFullClassRosterRelations,
   getMemberChangeHistory,
+  getMemberTimeline,
   updateMember,
   previewDirectClassWorkbook,
   previewFullClassRosterWorkbook,
@@ -24,6 +25,7 @@ import {
   type FullClassRosterPreflight,
   type Member,
   type MemberChangeHistory,
+  type MemberTimeline,
   type OrgUnit
 } from "@/api/seiwajyuku";
 
@@ -36,6 +38,9 @@ const historyVisible = ref(false);
 const historyLoading = ref(false);
 const historyMember = ref<Member>();
 const historyRows = ref<MemberChangeHistory[]>([]);
+const timelineVisible = ref(false);
+const timelineLoading = ref(false);
+const timeline = ref<MemberTimeline>();
 const editingMemberId = ref<number>();
 const preflightVisible = ref(false);
 const preflightLoading = ref(false);
@@ -322,6 +327,68 @@ function historyTypeLabel(type: string) {
   return ({ PROFILE_UPDATE: "档案更新", MERGE: "档案合并" } as Record<string, string>)[type] ?? type;
 }
 
+function timelineTypeLabel(type: string) {
+  return ({
+    PROFILE_CHANGE: "档案变更",
+    ATTENDANCE: "签到记录",
+    FOLLOWUP_TASK: "关怀事项",
+    FOLLOWUP_RECORD: "关怀记录",
+    ENTERPRISE_VISIT: "企业走访",
+    RENEWAL_CYCLE: "续费周期",
+    RENEWAL_FOLLOWUP: "续费跟进"
+  } as Record<string, string>)[type] ?? type;
+}
+
+function timelineStatusLabel(status?: string) {
+  if (!status) return "—";
+  return ({
+    PRESENT: "已签到",
+    MANUAL_PRESENT: "人工确认签到",
+    ABSENT: "未签到",
+    LEAVE: "请假",
+    OPEN: "开放",
+    IN_PROGRESS: "进行中",
+    CLOSED: "已关闭",
+    PENDING_FIRST_CONTACT: "待首次联系",
+    RENEWED: "已续费",
+    NOT_RENEWING: "不续费",
+    EXITED: "已退出",
+    PROFILE_UPDATE: "档案更新",
+    已记录: "已记录"
+  } as Record<string, string>)[status] ?? status;
+}
+
+function timelineSummaryLabel(type: string) {
+  return ({
+    PROFILE_CHANGE: "档案变更",
+    ATTENDANCE: "签到记录",
+    FOLLOWUP_TASK: "关怀事项",
+    FOLLOWUP_RECORD: "关怀记录",
+    ENTERPRISE_VISIT: "企业走访",
+    RENEWAL_CYCLE: "续费周期",
+    RENEWAL_FOLLOWUP: "续费跟进"
+  } as Record<string, string>)[type] ?? type;
+}
+
+function formatTimelineTime(value?: string) {
+  if (!value) return "—";
+  return value.replace("T", " ").replace("+00:00", "");
+}
+
+async function openTimeline(row: any) {
+  timeline.value = undefined;
+  timelineVisible.value = true;
+  timelineLoading.value = true;
+  try {
+    timeline.value = (await getMemberTimeline(row.id)).data;
+  } catch (error) {
+    timelineVisible.value = false;
+    ElMessage.error(errorText(error));
+  } finally {
+    timelineLoading.value = false;
+  }
+}
+
 async function openHistory(row: any) {
   historyMember.value = row;
   historyRows.value = [];
@@ -593,10 +660,13 @@ onMounted(load);
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="canManage || canViewHistory" label="操作" width="170" fixed="right">
+        <el-table-column v-if="canManage || canViewHistory" label="操作" width="270" fixed="right">
           <template #default="{ row }">
             <el-button v-if="canManage" link type="primary" @click="openEdit(row)">
               编辑
+            </el-button>
+            <el-button v-if="canViewHistory" link type="primary" @click="openTimeline(row)">
+              档案时间线
             </el-button>
             <el-button v-if="canViewHistory" link type="primary" @click="openHistory(row)">
               变更历史
@@ -1100,6 +1170,66 @@ onMounted(load);
         <el-button @click="historyVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="timelineVisible"
+      :title="`${timeline?.member.name ?? '学员'} · 档案与服务时间线`"
+      width="1120px"
+      class="timeline-dialog"
+    >
+      <div v-loading="timelineLoading">
+        <template v-if="timeline">
+          <el-descriptions :column="4" border class="timeline-profile">
+            <el-descriptions-item label="姓名">{{ timeline.member.name }}</el-descriptions-item>
+            <el-descriptions-item label="分中心">{{ timeline.member.org_name }}</el-descriptions-item>
+            <el-descriptions-item label="班级">{{ timeline.member.class_name || "—" }}</el-descriptions-item>
+            <el-descriptions-item label="小组">{{ timeline.member.group_name || "—" }}</el-descriptions-item>
+            <el-descriptions-item label="手机号（脱敏）">{{ timeline.member.phone_masked || "—" }}</el-descriptions-item>
+            <el-descriptions-item label="状态">{{ memberStatusLabel(timeline.member.status) }}</el-descriptions-item>
+          </el-descriptions>
+
+          <div class="timeline-summary">
+            <el-tag
+              v-for="(count, type) in timeline.summary"
+              :key="type"
+              type="info"
+            >
+              {{ timelineSummaryLabel(type) }}：{{ count }}
+            </el-tag>
+          </div>
+
+          <el-table
+            :data="timeline.events"
+            stripe
+            empty-text="暂无服务记录"
+            class="timeline-table"
+            max-height="480"
+          >
+            <el-table-column label="时间" width="190">
+              <template #default="{ row }">{{ formatTimelineTime(row.occurred_at) }}</template>
+            </el-table-column>
+            <el-table-column label="记录类型" width="130">
+              <template #default="{ row }">
+                <el-tag type="info">{{ timelineTypeLabel(row.event_type) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="title" label="事项" min-width="220" />
+            <el-table-column label="状态" width="150">
+              <template #default="{ row }">{{ timelineStatusLabel(row.status) }}</template>
+            </el-table-column>
+            <el-table-column label="场次/渠道" width="150">
+              <template #default="{ row }">{{ row.channel || "—" }}</template>
+            </el-table-column>
+          </el-table>
+          <p class="form-hint timeline-hint">
+            时间线只显示受权限控制的事件摘要；服务原文、企业资料和完整联系方式仍需进入对应业务页面并按用途审计。
+          </p>
+        </template>
+      </div>
+      <template #footer>
+        <el-button @click="timelineVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1176,6 +1306,21 @@ onMounted(load);
 }
 .result-alert {
   margin-top: 4px;
+}
+.timeline-profile {
+  margin-bottom: 18px;
+}
+.timeline-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.timeline-table {
+  width: 100%;
+}
+.timeline-hint {
+  margin: 14px 0 0;
 }
 :global(.member-dialog) {
   max-width: calc(100vw - 40px);

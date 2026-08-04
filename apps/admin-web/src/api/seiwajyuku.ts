@@ -180,6 +180,37 @@ export type MemberChangeHistory = {
   changed_at: string;
 };
 
+export type MemberTimelineEvent = {
+  id: string;
+  event_type: string;
+  occurred_at?: string;
+  title: string;
+  status?: string;
+  channel?: string;
+  activity_type?: string;
+  participant_type?: string;
+  due_at?: string;
+  updated_at?: string;
+  phase?: string;
+  actor_id?: number;
+};
+
+export type MemberTimeline = {
+  member: Pick<
+    Member,
+    | "id"
+    | "name"
+    | "org_unit_id"
+    | "org_name"
+    | "phone_masked"
+    | "class_name"
+    | "group_name"
+    | "status"
+  >;
+  summary: Record<string, number>;
+  events: MemberTimelineEvent[];
+};
+
 export type OrgUnit = {
   id: string;
   unit_code: string;
@@ -461,6 +492,13 @@ export const getMemberChangeHistory = (memberId: number) =>
   http.request<{ success: boolean; data: MemberChangeHistory[] }>(
     "get",
     `/api/v1/members/${memberId}/change-history`
+  );
+
+export const getMemberTimeline = (memberId: number, limit = 100) =>
+  http.request<{ success: boolean; data: MemberTimeline }>(
+    "get",
+    `/api/v1/members/${memberId}/timeline`,
+    { params: { limit } }
   );
 
 export const createMember = (data: {

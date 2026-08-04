@@ -12,6 +12,7 @@ from app.services.members import (
     download_sensitive_export,
     get_member_detail,
     get_member_enterprise_detail,
+    get_member_timeline,
     list_members,
     normal_export_csv,
     reveal_contact,
@@ -205,6 +206,21 @@ def member_change_history(
         (member_id,),
     )
     return {"success": True, "data": rows}
+
+
+@router.get("/members/{member_id}/timeline")
+def member_timeline(
+    member_id: int,
+    limit: int = Query(default=100, ge=1, le=200),
+    user: dict = Depends(require_permission("members:detail_view")),
+) -> dict:
+    try:
+        data = get_member_timeline(member_id, user["id"], limit=limit)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.post("/members/{member_id}/enterprise-detail")

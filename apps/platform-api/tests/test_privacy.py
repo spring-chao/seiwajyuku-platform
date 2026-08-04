@@ -13,6 +13,7 @@ from app.services.members import (
     download_sensitive_export,
     get_member_detail,
     get_member_enterprise_detail,
+    get_member_timeline,
     list_members,
     normal_export_csv,
     reveal_contact,
@@ -142,6 +143,16 @@ class PrivacyIsolationTests(unittest.TestCase):
         self.assertNotIn("company_products", profile)
         self.assertNotIn("notes", profile)
         self.assertEqual(profile["name"], "隐私测试学长")
+
+    def test_member_timeline_is_scoped_and_metadata_only(self) -> None:
+        timeline = get_member_timeline(self.member_id, self.regional_user_id)
+        self.assertEqual(timeline["member"]["phone_masked"], "138****8000")
+        self.assertNotIn("phone_ciphertext", timeline["member"])
+        self.assertIn("FOLLOWUP_TASK", timeline["summary"])
+        self.assertTrue(any(item["event_type"] == "FOLLOWUP_TASK" for item in timeline["events"]))
+        serialized = str(timeline)
+        self.assertNotIn("13800138000", serialized)
+        self.assertNotIn("确认近期经营支持需求", serialized)
 
     def test_enterprise_detail_requires_purpose_without_revealing_phone(self) -> None:
         """Enterprise details stay separate from task-based phone access."""
