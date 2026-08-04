@@ -103,6 +103,23 @@ class IdentityAdminTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()["data"]["person_id"]
 
+    def test_catalog_exposes_read_only_permission_matrix(self) -> None:
+        response = self.client.get(
+            "/api/v1/identity-admin/catalog", headers=self.admin_headers
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        matrix = response.json()["data"]["permission_matrix"]
+        by_role = {item["role_key"]: item for item in matrix}
+        self.assertIn("system_admin", by_role)
+        self.assertIn("technical_admin", by_role)
+        technical_permissions = {
+            item["permission_key"]
+            for item in by_role["technical_admin"]["permissions"]
+        }
+        self.assertIn("iam:manage", technical_permissions)
+        self.assertNotIn("members:read", technical_permissions)
+        self.assertNotIn("exports:sensitive", technical_permissions)
+
     def test_01_write_gate_blocks_without_explicit_enablement(self) -> None:
         with patch.dict(
             os.environ, {"IDENTITY_ADMIN_WRITES_ENABLED": "false"}

@@ -6,6 +6,15 @@ export type IdentityCatalog = {
   scope_types: Array<"UNIT" | "SUBTREE">;
   terminal_statuses: Array<"SUSPENDED" | "ENDED" | "REVOKED">;
   writes_enabled: boolean;
+  permission_matrix: Array<{
+    role_key: string;
+    role_name: string;
+    permissions: Array<{
+      permission_key: string;
+      permission_name: string;
+      sensitive_level: "INTERNAL" | "SENSITIVE" | "RESTRICTED";
+    }>;
+  }>;
 };
 
 export type IdentityOrgOption = {

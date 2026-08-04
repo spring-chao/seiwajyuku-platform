@@ -7,6 +7,7 @@ from uuid import uuid4
 from app.core.settings import get_settings
 from app.db import execute, fetch_all, transaction
 from app.services.audit import write_audit
+from app.services.iam import PERMISSIONS, ROLE_NAMES, ROLE_PERMISSIONS
 
 
 POSITION_KEYS = {
@@ -103,6 +104,21 @@ def catalogs() -> dict[str, Any]:
         "scope_types": ["UNIT", "SUBTREE"],
         "terminal_statuses": sorted(TERMINAL_STATUSES),
         "writes_enabled": settings.identity_admin_writes_enabled,
+        "permission_matrix": [
+            {
+                "role_key": role_key,
+                "role_name": ROLE_NAMES[role_key],
+                "permissions": [
+                    {
+                        "permission_key": permission_key,
+                        "permission_name": PERMISSIONS[permission_key][0],
+                        "sensitive_level": PERMISSIONS[permission_key][1],
+                    }
+                    for permission_key in sorted(ROLE_PERMISSIONS[role_key])
+                ],
+            }
+            for role_key in ROLE_NAMES
+        ],
     }
 
 

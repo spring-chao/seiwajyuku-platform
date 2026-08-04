@@ -89,6 +89,17 @@ function accountRoleLabel(row: any) {
   return row.username === "admin" ? "平台最高管理账号" : "待按业务确认";
 }
 const writesEnabled = computed(() => catalog.value?.writes_enabled === true);
+const permissionMatrix = computed(() => catalog.value?.permission_matrix || []);
+const permissionLevelLabels: Record<string, string> = {
+  INTERNAL: "内部",
+  SENSITIVE: "敏感",
+  RESTRICTED: "受限"
+};
+const permissionLevelTypes: Record<string, "info" | "warning" | "danger"> = {
+  INTERNAL: "info",
+  SENSITIVE: "warning",
+  RESTRICTED: "danger"
+};
 const dialogTitle = computed(() => {
   const name = activeAccount.value?.display_name || "";
   return {
@@ -273,6 +284,49 @@ onMounted(load);
       :closable="false"
       show-icon
     />
+
+    <el-card v-if="!unavailableMessage" shadow="never" class="permission-card">
+      <template #header>
+        <div class="card-heading">
+          <div>
+            <strong>权限矩阵（只读）</strong>
+            <p>展示角色模板的最小权限边界；实际授权仍受有效期、组织范围和服务端校验共同约束。</p>
+          </div>
+          <el-tag type="info" effect="plain">不改变现有授权</el-tag>
+        </div>
+      </template>
+      <el-table
+        :data="permissionMatrix"
+        stripe
+        size="small"
+        max-height="420"
+        empty-text="暂无权限模板"
+      >
+        <el-table-column prop="role_name" label="角色模板" min-width="190" />
+        <el-table-column prop="role_key" label="内部键" min-width="190" />
+        <el-table-column label="权限项" min-width="480">
+          <template #default="{ row }">
+            <div class="permission-tags">
+              <el-tooltip
+                v-for="permission in row.permissions"
+                :key="permission.permission_key"
+                :content="`${permission.permission_key} · ${permission.permission_name}`"
+                placement="top"
+              >
+                <el-tag
+                  size="small"
+                  effect="plain"
+                  :type="permissionLevelTypes[permission.sensitive_level] || 'info'"
+                >
+                  {{ permission.permission_name }} ·
+                  {{ permissionLevelLabels[permission.sensitive_level] || permission.sensitive_level }}
+                </el-tag>
+              </el-tooltip>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
 
     <el-card v-if="!unavailableMessage" shadow="never">
       <el-table :data="filteredRows" stripe empty-text="暂无账号">
@@ -542,6 +596,26 @@ onMounted(load);
   padding: 14px;
   background: var(--el-fill-color-light);
   border-radius: 12px;
+}
+.permission-card {
+  overflow: hidden;
+}
+.card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.card-heading p {
+  margin: 6px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  font-weight: 400;
+}
+.permission-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .assignment-grid h3 {
   margin: 0 0 12px;
