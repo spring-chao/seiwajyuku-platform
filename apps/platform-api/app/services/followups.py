@@ -7,6 +7,7 @@ from typing import Any
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
+from app.services.members import resolve_member_scope
 
 
 CHANNELS = {"PHONE", "WECHAT", "MEETING", "VISIT", "COURSE", "OTHER"}
@@ -84,11 +85,12 @@ def create_task(
     if not member:
         raise ValueError("学长不存在")
     allowed = accessible_org_ids(actor_user_id)
-    if allowed is not None and member["org_unit_id"] not in allowed:
-        raise PermissionError("不能为组织授权范围外的学长创建任务")
+    task_org_unit_id = resolve_member_scope(member_id, member["org_unit_id"], allowed)
     assignee_allowed = accessible_org_ids(assigned_user_id)
-    if assignee_allowed is not None and member["org_unit_id"] not in assignee_allowed:
-        raise ValueError("任务责任人没有该学长所属组织的数据权限")
+    try:
+        resolve_member_scope(member_id, member["org_unit_id"], assignee_allowed)
+    except PermissionError as exc:
+        raise ValueError("任务责任人没有该学员正式组织关系的数据权限") from exc
     if confidentiality_level not in {"ASSIGNEE", "ORG_MANAGERS"}:
         raise ValueError("未知保密级别")
     if invitation_mode and not invitation_valid_until:
@@ -106,7 +108,7 @@ def create_task(
             "assigned_user_id, status, confidentiality_level, due_at, created_by, created_at, "
             "updated_at) VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)",
             (
-                member_id, member["org_unit_id"], task_type.strip().upper(),
+                member_id, task_org_unit_id, task_type.strip().upper(),
                 service_purpose, assigned_user_id, confidentiality_level,
                 due_at, actor_user_id, now, now,
             ),
@@ -119,7 +121,7 @@ def create_task(
                 connection,
                 task={
                     "id": task_id,
-                    "org_unit_id": member["org_unit_id"],
+                    "org_unit_id": task_org_unit_id,
                     "created_by": actor_user_id,
                     "assigned_user_id": assigned_user_id,
                 },
@@ -136,7 +138,7 @@ def create_task(
             action="followups.task.create",
             resource_type="followup_task",
             resource_id=str(task_id),
-            org_unit_id=member["org_unit_id"],
+            org_unit_id=task_org_unit_id,
             after={
                 "member_id": member_id,
                 "phone": member["phone_masked"],

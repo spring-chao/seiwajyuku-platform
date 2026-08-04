@@ -23,22 +23,36 @@ def _as_utc(value: str | datetime) -> datetime:
 def can_access_member(
     member_id: int, primary_org_id: str, allowed: set[str] | None
 ) -> bool:
-    if allowed is None:
-        return True
-    if primary_org_id in allowed:
-        return True
-    if not allowed:
+    try:
+        resolve_member_scope(member_id, primary_org_id, allowed)
+    except PermissionError:
         return False
+    return True
+
+
+def resolve_member_scope(
+    member_id: int, primary_org_id: str, allowed: set[str] | None
+) -> str:
+    """Resolve the formal member relation used to scope a task or contact."""
+    if allowed is None or primary_org_id in allowed:
+        return primary_org_id
+    if not allowed:
+        raise PermissionError("学员不在组织授权范围内")
     placeholders = ",".join("?" for _ in allowed)
     now = datetime.now(UTC).isoformat()
     relation = fetch_one(
-        "SELECT 1 AS allowed FROM member_org_relations "
+        "SELECT org_unit_id FROM member_org_relations "
         f"WHERE member_id=? AND org_unit_id IN ({placeholders}) "
         "AND (valid_from IS NULL OR valid_from<=?) "
-        "AND (valid_until IS NULL OR valid_until>=?) LIMIT 1",
+        "AND (valid_until IS NULL OR valid_until>=?) "
+        "ORDER BY CASE relation_type "
+        "WHEN 'STUDY_GROUP' THEN 1 WHEN 'STUDY_CLASS' THEN 2 "
+        "WHEN 'DEVELOPMENT_RELATION' THEN 3 ELSE 4 END, id LIMIT 1",
         (member_id, *sorted(allowed), now, now),
     )
-    return relation is not None
+    if not relation:
+        raise PermissionError("学员不在组织授权范围内")
+    return relation["org_unit_id"]
 
 
 def create_member(
@@ -75,6 +89,22 @@ def create_member(
     allowed = accessible_org_ids(actor_user_id)
     if allowed is not None and org_unit_id not in allowed:
         raise PermissionError("不能在授权组织之外创建学长")
+    primary_org = fetch_one(
+        "SELECT unit_type, is_active FROM org_units WHERE id=?", (org_unit_id,)
+    )
+    if not primary_org or not primary_org["is_active"]:
+        raise ValueError("所属分中心不存在或已停用")
+    if development_org_unit_id:
+        development_org = fetch_one(
+            "SELECT unit_type, is_active FROM org_units WHERE id=?",
+            (development_org_unit_id,),
+        )
+        if not development_org or not development_org["is_active"]:
+            raise ValueError("发展组织不存在或已停用")
+        if development_org["unit_type"] not in {"ROOT", "REGIONAL_CENTER"}:
+            raise ValueError("发展组织必须是根节点或分中心")
+        if allowed is not None and development_org_unit_id not in allowed:
+            raise PermissionError("不能将学长关联到授权范围外的发展组织")
     fields: dict[str, str | None] = (
         protected_phone(phone)
         if phone and phone.strip()
@@ -196,16 +226,23 @@ def create_member(
         return member_id
 
 
-def list_members(user_id: int, org_unit_id: str | None = None) -> list[dict[str, Any]]:
+def list_members(
+    user_id: int,
+    org_unit_id: str | None = None,
+    *,
+    include_company_name: bool = False,
+) -> list[dict[str, Any]]:
+    """Return the minimum member summary needed for list views.
+
+    Company name is retained only for the explicitly authorized normal export
+    path; it is never part of the ordinary list response.
+    """
     params: list[Any] = []
+    company_column = ", m.company_name" if include_company_name else ""
     sql = (
         "SELECT m.id, m.member_code, m.name, m.org_unit_id, o.name AS org_name, "
-        "m.development_org_unit_id, m.status, m.phone_masked, m.phone_last4, "
-        "m.company_name, m.gender, m.district, m.company_address, m.class_name, "
-        "m.group_name, m.birthday, m.join_date, m.study_start_date, m.membership_years, "
-        "m.renewal_month, m.position, m.referrer, m.referrer_center, "
-        "m.industry_category, m.industry, m.company_products, m.company_size, m.notes, "
-        "m.enterprise_stage, m.sensitivity_level "
+        "m.status, m.phone_masked, m.phone_last4, m.class_name, m.group_name"
+        f"{company_column} "
         "FROM members m JOIN org_units o ON o.id=m.org_unit_id"
     )
     if org_unit_id:
@@ -295,8 +332,7 @@ def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
         "m.phone_masked, m.phone_last4, "
         "m.gender, m.birthday, m.district, m.class_name, m.group_name, m.join_date, "
         "m.study_start_date, m.membership_years, m.renewal_month, m.status, m.position, "
-        "m.referrer, m.referrer_center, m.company_name, m.company_address, "
-        "m.industry_category, m.industry, m.company_products, m.company_size, m.notes "
+        "m.referrer, m.referrer_center "
         "FROM members m "
         "JOIN org_units o ON o.id=m.org_unit_id WHERE m.id=?",
         (member_id,),
@@ -375,7 +411,7 @@ def get_member_enterprise_detail(
 
 
 def normal_export_csv(user_id: int) -> str:
-    rows = list_members(user_id)
+    rows = list_members(user_id, include_company_name=True)
     output = io.StringIO()
     writer = csv.DictWriter(
         output,

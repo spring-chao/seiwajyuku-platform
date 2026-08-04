@@ -101,7 +101,7 @@ const filteredRows = computed(() => {
   const term = keyword.value.trim().toLowerCase();
   if (!term) return rows.value;
   return rows.value.filter(item =>
-    [item.name, item.member_code, item.company_name, item.phone_last4]
+    [item.name, item.member_code, item.phone_last4]
       .filter(Boolean)
       .some(value => String(value).toLowerCase().includes(term))
   );
@@ -434,9 +434,6 @@ onMounted(load);
         </el-table-column>
         <el-table-column prop="group_name" label="组名" min-width="110">
           <template #default="{ row }">{{ row.group_name || "—" }}</template>
-        </el-table-column>
-        <el-table-column prop="company_name" label="企业" min-width="180">
-          <template #default="{ row }">{{ row.company_name || "—" }}</template>
         </el-table-column>
         <el-table-column prop="phone_masked" label="手机号（脱敏）" min-width="150" />
         <el-table-column label="状态" width="100">

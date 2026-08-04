@@ -85,6 +85,10 @@ class PrivacyIsolationTests(unittest.TestCase):
         member = next(row for row in rows if row["id"] == self.member_id)
         self.assertEqual(member["phone_masked"], "138****8000")
         self.assertNotIn("phone_ciphertext", member)
+        self.assertNotIn("company_name", member)
+        self.assertNotIn("birthday", member)
+        self.assertNotIn("notes", member)
+        self.assertNotIn("sensitivity_level", member)
         content = normal_export_csv(self.regional_user_id)
         self.assertIn("138****8000", content)
         self.assertNotIn("13800138000", content)
@@ -103,6 +107,9 @@ class PrivacyIsolationTests(unittest.TestCase):
         self.assertNotIn("phone_ciphertext", profile)
         self.assertNotIn("phone", profile)  # No full phone in basic detail
         self.assertNotIn("annual_sales", profile)  # No financial data in basic detail
+        self.assertNotIn("company_address", profile)
+        self.assertNotIn("company_products", profile)
+        self.assertNotIn("notes", profile)
         self.assertEqual(profile["name"], "隐私测试学长")
 
     def test_enterprise_detail_requires_purpose_without_revealing_phone(self) -> None:

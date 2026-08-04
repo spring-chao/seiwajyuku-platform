@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -9,6 +9,7 @@ from app.api.attendance import list_event_groups
 from app.db import execute, fetch_one, transaction
 from app.main import app
 from app.services.iam import create_user, user_context
+from app.services.followups import create_task, list_tasks
 from app.services.members import create_member, list_members
 
 
@@ -89,6 +90,26 @@ class IamIsolationTests(unittest.TestCase):
         )
         self.assertEqual(forbidden.status_code, 403)
 
+    def test_regional_manager_cannot_set_development_relation_outside_scope(self) -> None:
+        admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+        regional = create_user(
+            admin["id"],
+            username="regional-development-guard",
+            display_name="发展关系越权测试",
+            password="regional-development-password",
+            roles=["regional_manager"],
+            scopes=[{"scope_type": "SUBTREE", "org_unit_id": "org-a"}],
+        )
+        with self.assertRaisesRegex(PermissionError, "授权范围外"):
+            create_member(
+                regional,
+                member_code="DEVELOPMENT-OUTSIDE-001",
+                name="越权发展关系学员",
+                org_unit_id="org-a",
+                development_org_unit_id="org-b",
+                phone="13500135001",
+            )
+
     def test_identity_first_account_can_start_without_legacy_roles_or_scopes(self) -> None:
         response = self.client.post(
             "/api/v1/iam/users",
@@ -143,6 +164,18 @@ class IamIsolationTests(unittest.TestCase):
         self.assertIsNotNone(class_relation)
         visible_ids = {row["id"] for row in list_members(counselor_id)}
         self.assertIn(member_id, visible_ids)
+        task_id = create_task(
+            counselor_id,
+            member_id=member_id,
+            task_type="CARE",
+            service_purpose="班主任关怀权限一致性测试",
+            assigned_user_id=counselor_id,
+            due_at=(datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        )
+        visible_tasks = list_tasks(counselor_id, "OPEN")
+        self.assertIn(task_id, {row["id"] for row in visible_tasks})
+        task = fetch_one("SELECT org_unit_id FROM followup_tasks WHERE id=?", (task_id,))
+        self.assertEqual(task["org_unit_id"], "class-a")
         now = datetime.now(UTC).isoformat()
         with transaction() as connection:
             execute(
