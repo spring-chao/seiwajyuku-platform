@@ -64,7 +64,7 @@ const activeAccount = ref<IdentityAccount>();
 const form = reactive({
   source_reference: "",
   confirmation_note: "",
-  position_key: "",
+  position_keys: [] as string[],
   started_on: "",
   ended_on: "",
   responsibility_org_unit_id: "",
@@ -119,7 +119,7 @@ function resetForm() {
   Object.assign(form, {
     source_reference: "",
     confirmation_note: "",
-    position_key: "",
+    position_keys: [],
     started_on: dayjs().format("YYYY-MM-DDTHH:mm:ss"),
     ended_on: "",
     responsibility_org_unit_id: "",
@@ -179,7 +179,7 @@ async function submit() {
     } else if (dialogMode.value === "employment") {
       await createAccountEmployment(account.id, {
         ...confirmation,
-        position_key: form.position_key,
+        position_keys: form.position_keys,
         started_on: form.started_on,
         ended_on: form.ended_on || undefined,
         service_responsibilities: form.responsibility_org_unit_id
@@ -460,7 +460,14 @@ onMounted(load);
       <el-form :model="form" label-position="top">
         <template v-if="dialogMode === 'employment'">
           <el-form-item label="运营中心岗位">
-            <el-select v-model="form.position_key" placeholder="请选择已确认岗位">
+            <el-select
+              v-model="form.position_keys"
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
+              clearable
+              placeholder="请选择一个或多个已确认岗位"
+            >
               <el-option
                 v-for="key in catalog?.position_keys || []"
                 :key="key"
