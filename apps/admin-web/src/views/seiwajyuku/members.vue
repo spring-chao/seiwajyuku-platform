@@ -1213,6 +1213,36 @@ onMounted(load);
             <el-descriptions-item label="状态">{{ memberStatusLabel(timeline.member.status) }}</el-descriptions-item>
           </el-descriptions>
 
+          <section class="service-signals">
+            <div class="service-signals__head">
+              <div>
+                <h3>服务提示（只读）</h3>
+                <p>只依据明确数据规则提示待核对事项，不评价学长，也不用于排名。</p>
+              </div>
+              <el-tag type="info" effect="plain">规则版本 1.0</el-tag>
+            </div>
+            <div v-if="timeline.service_signals.length" class="service-signals__grid">
+              <article
+                v-for="signal in timeline.service_signals"
+                :key="signal.code"
+                class="service-signal"
+              >
+                <el-tag
+                  :type="signal.attention_level === 'ACTION_REQUIRED' ? 'warning' : 'info'"
+                  effect="light"
+                >
+                  {{ signal.attention_level === "ACTION_REQUIRED" ? "待处理" : "待核对" }}
+                </el-tag>
+                <div>
+                  <strong>{{ signal.title }}</strong>
+                  <p>{{ signal.message }}</p>
+                  <small>{{ signal.action_hint }}</small>
+                </div>
+              </article>
+            </div>
+            <el-empty v-else description="当前没有需要提示的事项" :image-size="52" />
+          </section>
+
           <div class="timeline-summary">
             <el-tag
               v-for="(count, type) in timeline.summary"
@@ -1335,6 +1365,45 @@ onMounted(load);
 .timeline-profile {
   margin-bottom: 18px;
 }
+.service-signals {
+  padding: 16px;
+  margin-bottom: 18px;
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px;
+}
+.service-signals__head {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.service-signals__head h3,
+.service-signals__head p,
+.service-signal p {
+  margin: 0;
+}
+.service-signals__head p,
+.service-signal small {
+  color: var(--el-text-color-secondary);
+}
+.service-signals__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.service-signal {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  background: var(--el-bg-color);
+  border-radius: 10px;
+}
+.service-signal p {
+  margin: 4px 0;
+}
 .timeline-summary {
   display: flex;
   flex-wrap: wrap;
@@ -1364,6 +1433,9 @@ onMounted(load);
   }
   .form-grid .full {
     grid-column: auto;
+  }
+  .service-signals__grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

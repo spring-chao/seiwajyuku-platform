@@ -154,6 +154,17 @@ class PrivacyIsolationTests(unittest.TestCase):
         serialized = str(timeline)
         self.assertNotIn("13800138000", serialized)
         self.assertNotIn("确认近期经营支持需求", serialized)
+        self.assertTrue(
+            any(
+                item["code"] == "STUDY_CLASS_RELATION_REVIEW"
+                for item in timeline["service_signals"]
+            )
+        )
+        self.assertTrue(
+            all(item["rule_version"] == "member-service-signals/1.0" for item in timeline["service_signals"])
+        )
+        self.assertNotIn("score", serialized.lower())
+        self.assertNotIn("rank", serialized.lower())
 
     def test_member_change_history_is_redacted_and_audited(self) -> None:
         now = datetime.now(UTC).isoformat()
