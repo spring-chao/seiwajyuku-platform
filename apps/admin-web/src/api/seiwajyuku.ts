@@ -197,6 +197,16 @@ export type MemberTimelineEvent = {
   source_system?: string;
 };
 
+export type MemberServiceSignal = {
+  code: string;
+  title: string;
+  message: string;
+  attention_level: "ACTION_REQUIRED" | "REVIEW";
+  action_hint: string;
+  rule_version: string;
+  evidence: Record<string, boolean | number | string>;
+};
+
 export type MemberTimeline = {
   member: Pick<
     Member,
@@ -210,6 +220,7 @@ export type MemberTimeline = {
     | "status"
   >;
   summary: Record<string, number>;
+  service_signals: MemberServiceSignal[];
   events: MemberTimelineEvent[];
 };
 

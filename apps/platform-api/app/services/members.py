@@ -1076,6 +1076,11 @@ def get_member_timeline(
     summary: dict[str, int] = {}
     for event in events:
         summary[event["event_type"]] = summary.get(event["event_type"], 0) + 1
+    from app.services.member_service_signals import build_member_service_signals
+
+    service_signals = build_member_service_signals(
+        dict(member), actor_user_id, set(user["permissions"]), allowed
+    )
     with transaction() as connection:
         write_audit(
             connection,
@@ -1084,11 +1089,15 @@ def get_member_timeline(
             resource_type="member",
             resource_id=str(member_id),
             org_unit_id=member["org_unit_id"],
-            after={"event_count": len(visible_events)},
+            after={
+                "event_count": len(visible_events),
+                "service_signal_count": len(service_signals),
+            },
         )
     return {
         "member": dict(member),
         "summary": summary,
+        "service_signals": service_signals,
         "events": visible_events,
     }
 
