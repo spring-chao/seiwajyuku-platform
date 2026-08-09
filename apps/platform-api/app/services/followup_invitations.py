@@ -210,7 +210,19 @@ def list_my_invitations(user_id: int) -> list[dict[str, Any]]:
     )
     allowed = accessible_org_ids(user_id)
     if allowed is not None:
-        rows = [row for row in rows if row["org_unit_id"] in allowed]
+        from app.services.members import resolve_member_scope
+
+        visible_rows = []
+        for row in rows:
+            if row["org_unit_id"] in allowed:
+                visible_rows.append(row)
+                continue
+            try:
+                resolve_member_scope(row["member_id"], row["org_unit_id"], allowed)
+            except PermissionError:
+                continue
+            visible_rows.append(row)
+        rows = visible_rows
     now = datetime.now(UTC)
     for row in rows:
         if row["status"] in PENDING_STATES and _as_utc(row["valid_until"]) <= now:
