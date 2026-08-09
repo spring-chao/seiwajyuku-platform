@@ -228,6 +228,65 @@ class FollowupInvitationTests(unittest.TestCase):
         self.assertTrue(row["can_record"])
         self.assertFalse(row["can_close"])
 
+    def test_class_scoped_volunteer_can_see_center_task_by_member_relation(self) -> None:
+        now = datetime.now(UTC).isoformat()
+        with transaction() as connection:
+            if not execute(
+                connection,
+                "SELECT id FROM org_units WHERE id=?",
+                ("invite-class-a",),
+            ).fetchone():
+                execute(
+                    connection,
+                    "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, "
+                    "is_active, created_at, updated_at) VALUES (?, ?, ?, 'CLASS', ?, 1, ?, ?)",
+                    (
+                        "invite-class-a",
+                        "INVITE_CLASS_A",
+                        "邀请试点班级 A",
+                        "invite-center-a",
+                        now,
+                        now,
+                    ),
+                )
+        class_volunteer_id = create_user(
+            self.admin_id,
+            username="invitation-class-volunteer",
+            display_name="班级范围志工",
+            password="invitation-class-volunteer-password",
+            roles=["regional_manager"],
+            scopes=[{"scope_type": "UNIT", "org_unit_id": "invite-class-a"}],
+        )
+        class_member_id = create_member(
+            self.admin_id,
+            member_code="INVITATION-CLASS-MEMBER-001",
+            name="班级范围邀请学员",
+            org_unit_id="invite-center-a",
+            development_org_unit_id=None,
+            phone="13800138002",
+            class_org_unit_id="invite-class-a",
+        )
+        task_id = create_task(
+            self.admin_id,
+            member_id=class_member_id,
+            task_type="CARE",
+            service_purpose="验证班级范围志工可以收到服务邀请",
+            assigned_user_id=self.primary_id,
+            due_at=(datetime.now(UTC) + timedelta(days=5)).isoformat(),
+        )
+        invitation_id = create_invitation(
+            task_id,
+            self.admin_id,
+            invited_user_id=class_volunteer_id,
+            invitation_type="ASSIGNEE",
+            invitation_message="请在授权班级范围内参与本次服务",
+            proposed_due_at=None,
+            valid_until=(datetime.now(UTC) + timedelta(days=2)).isoformat(),
+        )
+        invitations = list_my_invitations(class_volunteer_id)
+        self.assertTrue(any(row["id"] == invitation_id for row in invitations))
+        accept_invitation(invitation_id, class_volunteer_id)
+
     def test_scope_and_feature_gate_are_enforced(self) -> None:
         task_id, _ = self._task_with_invitation()
         with self.assertRaisesRegex(ValueError, "任职范围"):
