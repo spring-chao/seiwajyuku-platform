@@ -215,12 +215,15 @@ def _ensure_member(actor_user_id: int) -> int:
         actor_user_id,
         member_code="PILOT-MEMBER-001",
         name="隔离试点学长",
-        org_unit_id="pilot-class",
+        # The primary organization is the regional center.  Class and group
+        # membership must be supplied through formal organization IDs rather
+        # than by pretending the class is the member's primary center.
+        org_unit_id="pilot-center",
         development_org_unit_id="pilot-center",
         phone="13000000000",
         company_name="隔离试点企业",
-        class_name="隔离试点班级",
-        group_name="隔离试点小组",
+        class_org_unit_id="pilot-class",
+        group_org_unit_id="pilot-group",
         notes="纯合成数据，不对应真实个人或企业",
     )
 
