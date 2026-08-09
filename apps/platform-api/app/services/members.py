@@ -944,6 +944,26 @@ def get_member_timeline(
                 }
             )
 
+        legacy_activity_rows = fetch_all(
+            "SELECT id, activity_type, occurred_on, participation_status, title, "
+            "duration_minutes, source_system FROM member_activity_facts "
+            "WHERE member_id=? ORDER BY occurred_on DESC, id DESC",
+            (member_id,),
+        )
+        for row in legacy_activity_rows:
+            events.append(
+                {
+                    "id": f"legacy-activity-{row['id']}",
+                    "event_type": "LEARNING_ACTIVITY",
+                    "occurred_at": timestamp(row["occurred_on"]),
+                    "title": row["title"] or "历史学习活动",
+                    "status": row["participation_status"],
+                    "channel": row["activity_type"],
+                    "duration_minutes": row["duration_minutes"],
+                    "source_system": row["source_system"],
+                }
+            )
+
     if "followups:manage" in user["permissions"]:
         task_rows = fetch_all(
             "SELECT id, org_unit_id, task_type, status, confidentiality_level, "

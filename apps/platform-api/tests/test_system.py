@@ -1,7 +1,7 @@
 import unittest
 
 from fastapi.testclient import TestClient
-from app.main import app
+from app.main import app, read_only_request_allowed
 
 
 class SystemApiTests(unittest.TestCase):
@@ -32,6 +32,14 @@ class SystemApiTests(unittest.TestCase):
                 "identity_admin_writes_enabled": True,
                 "volunteer_service_invitations_enabled": True,
             },
+        )
+
+    def test_legacy_merge_preview_is_read_only_but_apply_is_not(self) -> None:
+        self.assertTrue(
+            read_only_request_allowed("POST", "/api/v1/legacy-operations/preview")
+        )
+        self.assertFalse(
+            read_only_request_allowed("POST", "/api/v1/legacy-operations/apply")
         )
 
 

@@ -193,6 +193,8 @@ export type MemberTimelineEvent = {
   updated_at?: string;
   phase?: string;
   actor_id?: number;
+  duration_minutes?: number;
+  source_system?: string;
 };
 
 export type MemberTimeline = {

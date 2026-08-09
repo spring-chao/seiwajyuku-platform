@@ -16,6 +16,7 @@ from app.api.followups import router as followups_router
 from app.api.iam import router as iam_router
 from app.api.identity_admin import router as identity_admin_router
 from app.api.integrations import router as integrations_router
+from app.api.legacy_operations import router as legacy_operations_router
 from app.api.imports import router as imports_router
 from app.api.direct_class_preflight import router as direct_class_preflight_router
 from app.api.direct_class_import import router as direct_class_import_router
@@ -42,6 +43,9 @@ READ_ONLY_ALLOWED_POST_PATHS = frozenset({
     # endpoint must remain ephemeral there: it parses and compares the two
     # workbooks without creating an import batch or staging rows.
     "/api/v1/renewals/imports/preview",
+    # Legacy-system preview is memory-only and stores neither the uploaded
+    # bundle nor its member activity facts. The apply endpoint remains blocked.
+    "/api/v1/legacy-operations/preview",
     # The scheduled attendance pull is a key-authenticated integration write,
     # not a migration or administrative data-management write. Keeping this
     # path available preserves the existing weekday sync while all other POST
@@ -117,5 +121,6 @@ app.include_router(renewals_router)
 app.include_router(members_router)
 app.include_router(followups_router)
 app.include_router(integrations_router)
+app.include_router(legacy_operations_router)
 app.include_router(checkin_rosters_router)
 app.include_router(attendance_router)

@@ -115,11 +115,12 @@ jobs:
           restore_counts="$(docker exec "${{ job.services.mysql.id }}" \
             mysql -N -uroot -pci-root-password seiwajyuku_restore \
             -e "SELECT CONCAT((SELECT COUNT(*) FROM schema_migrations),':',(SELECT COUNT(*) FROM member_org_relations),':',(SELECT COUNT(*) FROM attendance_score_records),':',(SELECT COUNT(*) FROM operating_institutions));")"
-          test "$source_counts" = "17:4:3:4"
+          test "$source_counts" = "18:4:3:4"
           test "$restore_counts" = "$source_counts"
       - name: Verify MySQL rollback preserves legacy data
         run: |
           for rollback in \
+            migrations/rollback/mysql/0018_legacy_member_activity_facts.down.sql \
             migrations/rollback/mysql/0017_member_merge_history.down.sql \
             migrations/rollback/mysql/0016_member_change_history.down.sql \
             migrations/rollback/mysql/0015_member_phone_unique.down.sql \
@@ -132,7 +133,7 @@ jobs:
           done
           new_tables="$(docker exec "${{ job.services.mysql.id }}" \
             mysql -N -uroot -pci-root-password seiwajyuku_restore \
-            -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('operating_institutions','person_profiles','account_person_links','operations_employments','operations_position_assignments','employee_service_responsibilities','volunteer_appointments','technical_admin_assignments','followup_service_invitations','followup_collaborators','member_change_history','member_merge_history');")"
+            -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('operating_institutions','person_profiles','account_person_links','operations_employments','operations_position_assignments','employee_service_responsibilities','volunteer_appointments','technical_admin_assignments','followup_service_invitations','followup_collaborators','member_change_history','member_merge_history','member_activity_facts');")"
           legacy_tables="$(docker exec "${{ job.services.mysql.id }}" \
             mysql -N -uroot -pci-root-password seiwajyuku_restore \
             -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('members','member_org_relations','attendance_records','attendance_score_records','followup_tasks','audit_logs');")"
