@@ -797,6 +797,80 @@ def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
     return dict(member)
 
 
+def get_member_change_history(
+    member_id: int, actor_user_id: int
+) -> list[dict[str, Any]]:
+    """Return privacy-safe member changes and audit the read.
+
+    Change snapshots are an internal persistence detail and can contain notes or
+    enterprise fields.  The ordinary history view only needs the fields that
+    explain identity, status and formal organization changes, so it must not
+    return the stored JSON blobs verbatim.
+    """
+    user = user_context(actor_user_id)
+    if not user or "members:detail_view" not in user["permissions"]:
+        raise PermissionError("当前角色不能查看学长变更历史")
+    member = fetch_one(
+        "SELECT id, org_unit_id FROM members WHERE id=?",
+        (member_id,),
+    )
+    if not member:
+        raise ValueError("学长不存在")
+    allowed = accessible_org_ids(actor_user_id)
+    if not can_access_member(member_id, member["org_unit_id"], allowed):
+        raise PermissionError("学长不在组织授权范围内")
+
+    safe_fields = {
+        "name",
+        "org_unit_id",
+        "development_org_unit_id",
+        "status",
+        "phone_masked",
+        "class_name",
+        "group_name",
+        "class_org_unit_id",
+        "group_org_unit_id",
+    }
+
+    def safe_snapshot(value: Any) -> dict[str, Any]:
+        try:
+            parsed = json.loads(value or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return {key: parsed[key] for key in safe_fields if key in parsed}
+
+    rows = fetch_all(
+        "SELECT id, change_type, before_json, after_json, changed_by, changed_at "
+        "FROM member_change_history WHERE member_id=? ORDER BY changed_at DESC, id DESC",
+        (member_id,),
+    )
+    result = [
+        {
+            **row,
+            "before_json": json.dumps(
+                safe_snapshot(row["before_json"]), ensure_ascii=False, default=str
+            ),
+            "after_json": json.dumps(
+                safe_snapshot(row["after_json"]), ensure_ascii=False, default=str
+            ),
+        }
+        for row in rows
+    ]
+    with transaction() as connection:
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="members.change_history.view",
+            resource_type="member",
+            resource_id=str(member_id),
+            org_unit_id=member["org_unit_id"],
+            after={"change_count": len(result), "fields": "privacy_safe_history"},
+        )
+    return result
+
+
 def get_member_timeline(
     member_id: int, actor_user_id: int, *, limit: int = 100
 ) -> dict[str, Any]:
