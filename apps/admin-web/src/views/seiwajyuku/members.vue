@@ -1149,7 +1149,7 @@ onMounted(load);
     >
       <el-alert
         title="只读审计记录"
-        description="这里显示学员状态、分中心、班级、小组及档案字段的变更，不提供直接修改入口。"
+        description="这里显示学员状态、分中心、班级、小组及档案字段的变更，不提供直接修改入口；初始导入不会生成历史，首次编辑后才会记录。"
         type="info"
         :closable="false"
         show-icon
@@ -1158,7 +1158,7 @@ onMounted(load);
         v-loading="historyLoading"
         :data="historyRows"
         stripe
-        empty-text="暂无变更记录"
+        empty-text="暂无变更记录；初始导入不会生成历史，首次编辑后才会记录"
         class="history-table"
       >
         <el-table-column label="时间" width="190">
