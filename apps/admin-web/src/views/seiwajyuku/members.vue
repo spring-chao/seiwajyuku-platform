@@ -339,6 +339,7 @@ function timelineTypeLabel(type: string) {
   return ({
     PROFILE_CHANGE: "档案变更",
     ATTENDANCE: "签到记录",
+    LEARNING_ACTIVITY: "学习活动",
     FOLLOWUP_TASK: "关怀事项",
     FOLLOWUP_RECORD: "关怀记录",
     ENTERPRISE_VISIT: "企业走访",
@@ -353,6 +354,8 @@ function timelineStatusLabel(status?: string) {
     PRESENT: "已签到",
     MANUAL_PRESENT: "人工确认签到",
     ABSENT: "未签到",
+    COMPLETED: "已完成",
+    RECORDED: "已记录",
     LEAVE: "请假",
     OPEN: "开放",
     IN_PROGRESS: "进行中",
@@ -370,12 +373,26 @@ function timelineSummaryLabel(type: string) {
   return ({
     PROFILE_CHANGE: "档案变更",
     ATTENDANCE: "签到记录",
+    LEARNING_ACTIVITY: "学习活动",
     FOLLOWUP_TASK: "关怀事项",
     FOLLOWUP_RECORD: "关怀记录",
     ENTERPRISE_VISIT: "企业走访",
     RENEWAL_CYCLE: "续费周期",
     RENEWAL_FOLLOWUP: "续费跟进"
   } as Record<string, string>)[type] ?? type;
+}
+
+function timelineChannelLabel(channel?: string) {
+  if (!channel) return "—";
+  return ({
+    GROUP_SESSION: "小组学习会",
+    CLASS_SESSION: "班级学习会",
+    COURSE: "课程",
+    REPORT_MEETING: "报告会",
+    STUDY_TOUR: "游学",
+    READING_CHECKIN: "读书打卡",
+    READING_SHARE: "读书分享"
+  } as Record<string, string>)[channel] ?? channel;
 }
 
 function formatTimelineTime(value?: string) {
@@ -1226,7 +1243,7 @@ onMounted(load);
               <template #default="{ row }">{{ timelineStatusLabel(row.status) }}</template>
             </el-table-column>
             <el-table-column label="场次/渠道" width="150">
-              <template #default="{ row }">{{ row.channel || "—" }}</template>
+              <template #default="{ row }">{{ timelineChannelLabel(row.channel) }}</template>
             </el-table-column>
           </el-table>
           <p class="form-hint timeline-hint">
