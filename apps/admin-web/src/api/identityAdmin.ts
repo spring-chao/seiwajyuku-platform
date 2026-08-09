@@ -105,6 +105,17 @@ export const getIdentityAccounts = () =>
     "/api/v1/identity-admin/accounts"
   );
 
+export const createIdentityUser = (data: {
+  username: string;
+  display_name: string;
+  password: string;
+}) =>
+  http.request<{ success: boolean; data: { id: number } }>(
+    "post",
+    "/api/v1/iam/users",
+    { data: { ...data, roles: [], scopes: [] } }
+  );
+
 export const getIdentityOrgOptions = () =>
   http.request<{ success: boolean; data: IdentityOrgOption[] }>(
     "get",
@@ -118,6 +129,16 @@ export const initializeAccountIdentity = (
   http.request<{ success: boolean; data: { person_id: string } }>(
     "post",
     `/api/v1/identity-admin/accounts/${userId}/initialize`,
+    { data }
+  );
+
+export const changeIdentityAccountStatus = (
+  userId: number,
+  data: { status: "ACTIVE" | "SUSPENDED"; reason: string }
+) =>
+  http.request<{ success: boolean; data: { id: number; status: string } }>(
+    "post",
+    `/api/v1/identity-admin/accounts/${userId}/status`,
     { data }
   );
 

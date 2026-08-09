@@ -38,6 +38,10 @@ READ_ONLY_ALLOWED_POST_PATHS = frozenset({
     "/api/v1/auth/refresh",
     "/api/v1/class-roster-preflight/preview",
     "/api/v1/direct-class-preflight/preview",
+    # Renewal matching is also allowed in read-only production, but the
+    # endpoint must remain ephemeral there: it parses and compares the two
+    # workbooks without creating an import batch or staging rows.
+    "/api/v1/renewals/imports/preview",
     # The scheduled attendance pull is a key-authenticated integration write,
     # not a migration or administrative data-management write. Keeping this
     # path available preserves the existing weekday sync while all other POST

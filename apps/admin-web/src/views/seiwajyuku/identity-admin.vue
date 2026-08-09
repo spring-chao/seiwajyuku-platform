@@ -3,10 +3,12 @@ import { computed, onMounted, reactive, ref } from "vue";
 import dayjs from "dayjs";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
+  changeIdentityAccountStatus,
   changeIdentityAssignmentStatus,
   createAccountEmployment,
   createAccountTechnicalAssignment,
   createAccountVolunteerAppointment,
+  createIdentityUser,
   getIdentityAccounts,
   getIdentityCatalog,
   getIdentityOrgOptions,
@@ -58,8 +60,16 @@ const rows = ref<IdentityAccount[]>([]);
 const orgs = ref<IdentityOrgOption[]>([]);
 const catalog = ref<IdentityCatalog>();
 const dialogVisible = ref(false);
+const accountDialogVisible = ref(false);
 const dialogMode = ref<DialogMode>("initialize");
 const activeAccount = ref<IdentityAccount>();
+const accountSaving = ref(false);
+
+const accountForm = reactive({
+  username: "盛和塾",
+  display_name: "盛和塾",
+  password: ""
+});
 
 const form = reactive({
   source_reference: "",
@@ -86,8 +96,25 @@ const filteredRows = computed(() => {
       row.display_name.toLowerCase().includes(query)
   );
 });
-function accountRoleLabel(row: any) {
-  return row.username === "admin" ? "平台最高管理账号" : "待按业务确认";
+function accountRoleLabels(row: any) {
+  if (row.username === "admin") return ["平台最高管理账号"];
+  const labels = new Set<string>();
+  for (const employment of row.employments || []) {
+    if (["ENDED", "REVOKED"].includes(employment.status)) continue;
+    for (const position of employment.positions || []) {
+      if (["ENDED", "REVOKED"].includes(position.status)) continue;
+      labels.add(positionLabels[position.position_key] || position.position_key);
+    }
+  }
+  for (const appointment of row.volunteer_appointments || []) {
+    if (["ENDED", "REVOKED"].includes(appointment.status)) continue;
+    labels.add(appointmentLabels[appointment.appointment_key] || appointment.appointment_key);
+  }
+  for (const assignment of row.technical_assignments || []) {
+    if (["ENDED", "REVOKED"].includes(assignment.status)) continue;
+    labels.add("技术管理职责");
+  }
+  return labels.size ? [...labels] : ["待按业务确认"];
 }
 const writesEnabled = computed(() => catalog.value?.writes_enabled === true);
 const permissionMatrix = computed(() => catalog.value?.permission_matrix || []);
@@ -131,6 +158,49 @@ function resetForm() {
     ends_at: dayjs().add(1, "year").format("YYYY-MM-DDTHH:mm:ss"),
     assignment_purpose: ""
   });
+}
+
+function openAccountDialog() {
+  accountForm.username = "盛和塾";
+  accountForm.display_name = "盛和塾";
+  accountForm.password = `Temp-${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`;
+  accountDialogVisible.value = true;
+}
+
+async function createAccount() {
+  if (!accountForm.username.trim() || accountForm.username.trim().length < 3) {
+    ElMessage.error("账号至少填写 3 个字符");
+    return;
+  }
+  if (!accountForm.display_name.trim() || accountForm.password.length < 10) {
+    ElMessage.error("请填写人员名称，并确保临时密码至少 10 个字符");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      "仅创建无旧角色、无组织范围的身份账号；后续由身份与任职流程配置岗位。",
+      "确认创建账号",
+      {
+        confirmButtonText: "创建并继续",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+    accountSaving.value = true;
+    await createIdentityUser({
+      username: accountForm.username.trim(),
+      display_name: accountForm.display_name.trim(),
+      password: accountForm.password
+    });
+    ElMessage.success("账号已创建，可在下方继续确认自然人并建立雇佣");
+    accountDialogVisible.value = false;
+    await load();
+  } catch (error: any) {
+    if (error === "cancel" || error === "close") return;
+    ElMessage.error(errorText(error));
+  } finally {
+    accountSaving.value = false;
+  }
 }
 
 async function load() {
@@ -246,6 +316,33 @@ async function changeStatus(
   }
 }
 
+async function changeAccountStatus(row: any) {
+  const targetStatus = row.is_active ? "SUSPENDED" : "ACTIVE";
+  const label = targetStatus === "SUSPENDED" ? "停用账号" : "重新启用账号";
+  try {
+    const { value } = await ElMessageBox.prompt(
+      "本操作会写入审计；停用账号会立即使现有登录会话失效。请填写业务原因。",
+      label,
+      {
+        inputPlaceholder: "至少 6 个字符",
+        inputValidator: value => value.trim().length >= 6 || "原因至少填写 6 个字符",
+        confirmButtonText: `确认${label}`,
+        cancelButtonText: "取消",
+        type: targetStatus === "SUSPENDED" ? "warning" : "info"
+      }
+    );
+    await changeIdentityAccountStatus(row.id, {
+      status: targetStatus,
+      reason: value.trim()
+    });
+    ElMessage.success(`账号已${targetStatus === "SUSPENDED" ? "停用" : "重新启用"}并写入审计`);
+    await load();
+  } catch (error: any) {
+    if (error === "cancel" || error === "close") return;
+    ElMessage.error(errorText(error));
+  }
+}
+
 function canChange(status: string) {
   return writesEnabled.value && !["ENDED", "REVOKED"].includes(status);
 }
@@ -261,7 +358,12 @@ onMounted(load);
         <h1>身份与任职管理</h1>
         <span>自然人、专职雇佣、服务责任、志工任职和技术职责分别记录；admin 为平台最高管理账号。</span>
       </div>
-      <el-input v-model="keyword" clearable placeholder="搜索账号或姓名" />
+      <div class="page-actions">
+        <el-input v-model="keyword" clearable placeholder="搜索账号或姓名" />
+        <el-button v-if="writesEnabled" type="primary" @click="openAccountDialog">
+          新增账号
+        </el-button>
+      </div>
     </section>
 
     <el-alert
@@ -412,9 +514,16 @@ onMounted(load);
         <el-table-column prop="username" label="账号" min-width="150" />
         <el-table-column label="账号角色" min-width="180">
           <template #default="{ row }">
-            <el-tag :type="row.username === 'admin' ? 'danger' : 'info'" effect="plain">
-              {{ accountRoleLabel(row) }}
-            </el-tag>
+            <div class="account-role-tags">
+              <el-tag
+                v-for="label in accountRoleLabels(row)"
+                :key="label"
+                :type="row.username === 'admin' ? 'danger' : label === '待按业务确认' ? 'warning' : 'info'"
+                effect="plain"
+              >
+                {{ label }}
+              </el-tag>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="自然人关联" min-width="185">
@@ -435,26 +544,61 @@ onMounted(load);
               v-if="!row.person_id"
               link
               type="primary"
-              :disabled="!writesEnabled"
+              :disabled="!writesEnabled || !row.is_active"
               @click="openDialog('initialize', row)"
             >
               确认自然人
             </el-button>
             <template v-else>
-              <el-button link :disabled="!writesEnabled" @click="openDialog('employment', row)">
+              <el-button link :disabled="!writesEnabled || !row.is_active" @click="openDialog('employment', row)">
                 建立雇佣
               </el-button>
-              <el-button link :disabled="!writesEnabled" @click="openDialog('volunteer', row)">
+              <el-button link :disabled="!writesEnabled || !row.is_active" @click="openDialog('volunteer', row)">
                 建立志工任职
               </el-button>
-              <el-button link :disabled="!writesEnabled" @click="openDialog('technical', row)">
+              <el-button link :disabled="!writesEnabled || !row.is_active" @click="openDialog('technical', row)">
                 建立技术任期
               </el-button>
             </template>
+            <el-button
+              v-if="row.username !== 'admin'"
+              link
+              :type="row.is_active ? 'danger' : 'success'"
+              :disabled="!writesEnabled"
+              @click="changeAccountStatus(row)"
+            >
+              {{ row.is_active ? "停用账号" : "重新启用" }}
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-dialog v-model="accountDialogVisible" title="新增身份账号" width="520px">
+      <el-alert
+        title="新账号默认不授予旧角色和组织范围；岗位权限必须通过本页的身份与任职流程建立。"
+        type="info"
+        :closable="false"
+        show-icon
+      />
+      <el-form :model="accountForm" label-position="top" class="account-form">
+        <el-form-item label="统一用户名">
+          <el-input v-model="accountForm.username" maxlength="128" />
+        </el-form-item>
+        <el-form-item label="人员名称">
+          <el-input v-model="accountForm.display_name" maxlength="255" />
+        </el-form-item>
+        <el-form-item label="临时初始密码">
+          <el-input v-model="accountForm.password" type="password" show-password />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="accountDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="accountSaving" @click="createAccount">
+          创建并刷新账号列表
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="680px">
       <el-form :model="form" label-position="top">
@@ -594,6 +738,11 @@ onMounted(load);
 .page-head :deep(.el-input) {
   width: 260px;
 }
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .assignment-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -619,6 +768,11 @@ onMounted(load);
   color: var(--el-text-color-secondary);
   font-size: 13px;
   font-weight: 400;
+}
+.account-role-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 .permission-tags {
   display: flex;
@@ -650,6 +804,9 @@ onMounted(load);
 .form-grid :deep(.el-date-editor),
 form :deep(.el-select) {
   width: 100%;
+}
+.account-form {
+  margin-top: 18px;
 }
 @media (max-width: 900px) {
   .page-head,
