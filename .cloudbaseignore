@@ -1,5 +1,6 @@
 .git
 .github
+.codex-tmp
 .venv
 .pytest_cache
 artifacts
