@@ -10,6 +10,7 @@ from app.services.members import (
     create_sensitive_export,
     can_access_member,
     download_sensitive_export,
+    get_member_change_history,
     get_member_detail,
     get_member_enterprise_detail,
     get_member_timeline,
@@ -195,17 +196,13 @@ def member_change_history(
     member_id: int,
     user: dict = Depends(require_permission("members:detail_view")),
 ) -> dict:
-    member = fetch_one("SELECT org_unit_id FROM members WHERE id=?", (member_id,))
-    if not member:
-        raise HTTPException(404, "学员不存在")
-    if not can_access_member(member_id, member["org_unit_id"], accessible_org_ids(user["id"])):
-        raise HTTPException(403, "学员不在组织授权范围内")
-    rows = fetch_all(
-        "SELECT id, change_type, before_json, after_json, changed_by, changed_at "
-        "FROM member_change_history WHERE member_id=? ORDER BY changed_at DESC, id DESC",
-        (member_id,),
-    )
-    return {"success": True, "data": rows}
+    try:
+        data = get_member_change_history(member_id, user["id"])
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.get("/members/{member_id}/timeline")

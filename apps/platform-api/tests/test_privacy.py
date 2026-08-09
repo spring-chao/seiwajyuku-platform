@@ -12,6 +12,7 @@ from app.services.members import (
     create_sensitive_export,
     download_sensitive_export,
     get_member_detail,
+    get_member_change_history,
     get_member_enterprise_detail,
     get_member_timeline,
     list_members,
@@ -153,6 +154,35 @@ class PrivacyIsolationTests(unittest.TestCase):
         serialized = str(timeline)
         self.assertNotIn("13800138000", serialized)
         self.assertNotIn("确认近期经营支持需求", serialized)
+
+    def test_member_change_history_is_redacted_and_audited(self) -> None:
+        now = datetime.now(UTC).isoformat()
+        with transaction() as connection:
+            execute(
+                connection,
+                "INSERT INTO member_change_history(member_id, change_type, before_json, "
+                "after_json, changed_by, changed_at) VALUES (?, 'PROFILE_UPDATE', ?, ?, ?, ?)",
+                (
+                    self.member_id,
+                    '{"status":"ACTIVE","notes":"内部关怀备注","company_name":"敏感企业"}',
+                    '{"status":"SUSPENDED","notes":"不可经普通历史接口返回","company_name":"敏感企业"}',
+                    self.admin["id"],
+                    now,
+                ),
+            )
+        history = get_member_change_history(self.member_id, self.regional_user_id)
+        serialized = str(history)
+        self.assertIn("SUSPENDED", serialized)
+        self.assertNotIn("内部关怀备注", serialized)
+        self.assertNotIn("不可经普通历史接口返回", serialized)
+        self.assertNotIn("敏感企业", serialized)
+        audit = fetch_one(
+            "SELECT action, after_json FROM audit_logs WHERE actor_user_id=? "
+            "AND resource_type='member' AND resource_id=? ORDER BY id DESC LIMIT 1",
+            (self.regional_user_id, str(self.member_id)),
+        )
+        self.assertEqual(audit["action"], "members.change_history.view")
+        self.assertIn("privacy_safe_history", audit["after_json"])
 
     def test_enterprise_detail_requires_purpose_without_revealing_phone(self) -> None:
         """Enterprise details stay separate from task-based phone access."""
