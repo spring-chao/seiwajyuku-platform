@@ -121,6 +121,7 @@ def create_task(
                 connection,
                 task={
                     "id": task_id,
+                    "member_id": member_id,
                     "org_unit_id": task_org_unit_id,
                     "created_by": actor_user_id,
                     "assigned_user_id": assigned_user_id,

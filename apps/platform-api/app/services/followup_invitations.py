@@ -33,7 +33,12 @@ def invitation_capabilities() -> dict[str, bool]:
     }
 
 
-def validate_invitee(invited_user_id: int, org_unit_id: str) -> dict[str, Any]:
+def validate_invitee(
+    invited_user_id: int,
+    org_unit_id: str,
+    *,
+    member_id: int | None = None,
+) -> dict[str, Any]:
     user = fetch_one(
         "SELECT id, display_name, is_active FROM app_users WHERE id=?",
         (invited_user_id,),
@@ -45,7 +50,21 @@ def validate_invitee(invited_user_id: int, org_unit_id: str) -> dict[str, Any]:
         raise ValueError("受邀人当前任职不包含本服务事项权限")
     allowed = accessible_org_ids(invited_user_id)
     if allowed is not None and org_unit_id not in allowed:
-        raise ValueError("受邀人的有效任职范围不包含该学长所属组织")
+        # A task is normally scoped to the member's primary center, while a
+        # class/group volunteer may be appointed only to a formal child
+        # relation.  When the task carries its member id, resolve that formal
+        # relation instead of requiring the volunteer to hold center-wide
+        # scope.  This keeps invitation checks consistent with member/task
+        # visibility checks and prevents a class-scoped invitation from being
+        # rejected merely because the task is stored at center level.
+        if member_id is None:
+            raise ValueError("受邀人的有效任职范围不包含该学长所属组织")
+        from app.services.members import resolve_member_scope
+
+        try:
+            resolve_member_scope(member_id, org_unit_id, allowed)
+        except PermissionError as exc:
+            raise ValueError("受邀人的有效任职范围不包含该学长所属组织") from exc
     return user
 
 
@@ -65,7 +84,11 @@ def insert_invitation(
         raise ValueError("未知邀请类型")
     if _as_utc(valid_until) <= datetime.now(UTC):
         raise ValueError("邀请有效期必须晚于当前时间")
-    validate_invitee(invited_user_id, task["org_unit_id"])
+    validate_invitee(
+        invited_user_id,
+        task["org_unit_id"],
+        member_id=task.get("member_id"),
+    )
     active = execute(
         connection,
         "SELECT id FROM followup_service_invitations "
@@ -197,7 +220,7 @@ def list_my_invitations(user_id: int) -> list[dict[str, Any]]:
 
 def _invitation_for_response(invitation_id: int, actor_user_id: int) -> dict[str, Any]:
     invitation = fetch_one(
-        "SELECT i.*, t.org_unit_id, t.status AS task_status "
+        "SELECT i.*, t.member_id, t.org_unit_id, t.status AS task_status "
         "FROM followup_service_invitations i "
         "JOIN followup_tasks t ON t.id=i.task_id WHERE i.id=?",
         (invitation_id,),
@@ -212,7 +235,11 @@ def _invitation_for_response(invitation_id: int, actor_user_id: int) -> dict[str
         raise ValueError("该服务邀请已过有效期")
     if invitation["task_status"] not in {"OPEN", "IN_PROGRESS"}:
         raise ValueError("服务事项已结束")
-    validate_invitee(actor_user_id, invitation["org_unit_id"])
+    validate_invitee(
+        actor_user_id,
+        invitation["org_unit_id"],
+        member_id=invitation["member_id"],
+    )
     return invitation
 
 
