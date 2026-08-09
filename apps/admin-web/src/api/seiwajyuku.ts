@@ -429,6 +429,9 @@ export type RenewalImportSummary = {
   needs_review: number;
   invalid: number;
   assistance_review: number;
+  production_linked: number;
+  production_unlinked: number;
+  importable: number;
 };
 
 export type RenewalImportSample = {
@@ -792,6 +795,13 @@ export const getAttendanceSyncStatus = () =>
     "/api/v1/attendance/sync/status"
   );
 
+export const getRenewalAssignees = (orgUnitId?: string) =>
+  http.request<{ success: boolean; data: FollowupAssignee[] }>(
+    "get",
+    "/api/v1/renewals/assignees",
+    { params: orgUnitId ? { org_unit_id: orgUnitId } : undefined }
+  );
+
 export const updateMember = (
   memberId: number,
   data: {
@@ -913,9 +923,13 @@ export const previewRenewalImport = (
   return http.request<{
     success: boolean;
     data: {
-      batch_id: number;
+      batch_id: number | null;
+      persisted: boolean;
       summary: RenewalImportSummary;
-      samples: RenewalImportSample[];
+      review_rows: RenewalImportSample[];
+      assistance_rows: RenewalImportSample[];
+      matched_samples: RenewalImportSample[];
+      issue_summary: Record<string, number>;
     };
   }>("post", "/api/v1/renewals/imports/preview", {
     data,

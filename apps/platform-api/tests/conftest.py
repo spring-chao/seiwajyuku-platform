@@ -18,3 +18,12 @@ os.environ.setdefault("IDENTITY_AUTHORIZATION_ENABLED", "true")
 os.environ.setdefault("IDENTITY_ADMIN_WRITES_ENABLED", "true")
 os.environ.setdefault("VOLUNTEER_SERVICE_INVITATIONS_ENABLED", "true")
 os.environ.setdefault("BOOTSTRAP_ADMIN_PASSWORD", "test-admin-password")
+
+
+def pytest_sessionstart(session) -> None:
+    """Give every test selection the same isolated schema and IAM baseline."""
+    from app.migrations import run_migrations
+    from app.services.iam import seed_iam
+
+    run_migrations()
+    seed_iam()

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import {
   ElMessage,
   ElMessageBox,
@@ -8,9 +8,15 @@ import {
 } from "element-plus";
 import {
   applyRenewalImport,
+  createRenewalFollowup,
+  getRenewalAssignees,
   getRenewalCycles,
+  getRenewalFollowups,
   getRenewalOverview,
   previewRenewalImport,
+  updateRenewalCycle,
+  type RenewalFollowup,
+  type FollowupAssignee,
   type RenewalCycle,
   type RenewalImportSample,
   type RenewalImportSummary,
@@ -27,8 +33,34 @@ const cycles = ref<RenewalCycle[]>([]);
 const renewalFile = ref<File>();
 const masterFile = ref<File>();
 const batchId = ref<number>();
+const previewPersisted = ref(false);
 const importSummary = ref<RenewalImportSummary>();
-const samples = ref<RenewalImportSample[]>([]);
+const reviewRows = ref<RenewalImportSample[]>([]);
+const assistanceRows = ref<RenewalImportSample[]>([]);
+const matchedSamples = ref<RenewalImportSample[]>([]);
+const issueSummary = ref<Record<string, number>>({});
+const activePreviewQueue = ref("review");
+const cycleDetailVisible = ref(false);
+const cycleDetailLoading = ref(false);
+const cycleSaving = ref(false);
+const followupSaving = ref(false);
+const selectedCycle = ref<RenewalCycle>();
+const followups = ref<RenewalFollowup[]>([]);
+const cycleAssignees = ref<FollowupAssignee[]>([]);
+const cycleForm = reactive({
+  status: "",
+  phase: "",
+  result: "",
+  assigned_user_id: undefined as number | undefined
+});
+const followupForm = reactive({
+  channel: "PHONE",
+  summary: "",
+  intention: "",
+  needs_support: false,
+  next_action: "",
+  next_followup_at: ""
+});
 
 const centerNames = computed(() => [
   ...new Set(rows.value.map(item => item.org_name))
@@ -88,8 +120,35 @@ const matchLabel = (status: string) =>
     NEEDS_REVIEW: "待人工确认",
     INVALID: "数据不完整"
   })[status] ?? status;
+const issueLabel = (code?: string) =>
+  ({
+    MASTER_PHONE_DUPLICATE: "主档手机号重复",
+    MASTER_NAME_CENTER_DUPLICATE: "主档姓名和分中心重复",
+    MEMBER_NOT_MATCHED: "未匹配到学员主档",
+    MISSING_REQUIRED_FIELD: "缺少必要字段"
+  })[code ?? ""] ?? code ?? "—";
+const previewRows = computed(() =>
+  activePreviewQueue.value === "review"
+    ? reviewRows.value
+    : activePreviewQueue.value === "assistance"
+      ? assistanceRows.value
+      : matchedSamples.value
+);
 
 const cycleStatusLabel = (status: string) => statusLabel(status);
+const channelLabel = (channel: string) =>
+  ({ PHONE: "电话", WECHAT: "微信", MEETING: "面谈", VISIT: "走访", OTHER: "其他" })[
+    channel
+  ] ?? channel;
+const cycleStatusOptions = [
+  ["PENDING_FIRST_CONTACT", "待首次联系"],
+  ["CONTACTED_WAITING_REPLY", "已联系待回复"],
+  ["IN_COMMUNICATION", "沟通中"],
+  ["RENEWED", "已续费"],
+  ["NOT_RENEWING", "明确不续费"],
+  ["DEFERRED", "延期/暂停"],
+  ["EXITED", "已退出"]
+] as const;
 
 async function load() {
   loading.value = true;
@@ -130,10 +189,19 @@ async function previewImport() {
       renewalFile.value,
       masterFile.value
     );
-    batchId.value = response.data.batch_id;
+    batchId.value = response.data.batch_id ?? undefined;
+    previewPersisted.value = response.data.persisted;
     importSummary.value = response.data.summary;
-    samples.value = response.data.samples;
-    ElMessage.success("匹配预检完成，数据尚未写入正式续费周期");
+    reviewRows.value = response.data.review_rows;
+    assistanceRows.value = response.data.assistance_rows;
+    matchedSamples.value = response.data.matched_samples;
+    issueSummary.value = response.data.issue_summary;
+    activePreviewQueue.value = reviewRows.value.length ? "review" : "assistance";
+    ElMessage.success(
+      response.data.persisted
+        ? "匹配预检完成，数据尚未写入正式续费周期"
+        : "只读匹配预检完成，未保存批次或写入任何数据"
+    );
   } catch (error: any) {
     ElMessage.error(
       error?.response?.data?.detail ?? "导入预检失败，请检查工作簿格式"
@@ -170,13 +238,97 @@ async function applyImport() {
       confirmation
     );
     ElMessage.success(
-      `正式导入完成：新增 ${response.data.created} 条，更新 ${response.data.updated} 条`
+      `正式导入完成：新增 ${response.data.created} 条，更新 ${response.data.updated} 条，跳过 ${response.data.skipped} 条`
     );
     await load();
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.detail ?? "正式导入失败");
   } finally {
     importing.value = false;
+  }
+}
+
+function resetFollowupForm() {
+  Object.assign(followupForm, {
+    channel: "PHONE",
+    summary: "",
+    intention: "",
+    needs_support: false,
+    next_action: "",
+    next_followup_at: ""
+  });
+}
+
+async function openCycleDetail(cycle: any) {
+  selectedCycle.value = cycle;
+  Object.assign(cycleForm, {
+    status: cycle.status,
+    phase: cycle.phase || "",
+    result: cycle.result || "",
+    assigned_user_id: cycle.assigned_user_id
+  });
+  resetFollowupForm();
+  followups.value = [];
+  cycleAssignees.value = [];
+  cycleDetailVisible.value = true;
+  cycleDetailLoading.value = true;
+  try {
+    const [followupResponse, assigneeResponse] = await Promise.all([
+      getRenewalFollowups(cycle.id),
+      getRenewalAssignees(cycle.org_unit_id)
+    ]);
+    followups.value = followupResponse.data;
+    cycleAssignees.value = assigneeResponse.data;
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail ?? "加载跟进记录失败");
+  } finally {
+    cycleDetailLoading.value = false;
+  }
+}
+
+async function saveCycleDetail() {
+  if (!selectedCycle.value) return;
+  cycleSaving.value = true;
+  try {
+    await updateRenewalCycle(selectedCycle.value.id, {
+      status: cycleForm.status,
+      phase: cycleForm.phase || undefined,
+      result: cycleForm.result || undefined,
+      assigned_user_id: cycleForm.assigned_user_id
+    });
+    ElMessage.success("续费周期已更新并写入审计");
+    const cycleId = selectedCycle.value.id;
+    await load();
+    selectedCycle.value = cycles.value.find(item => item.id === cycleId);
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail ?? "续费周期更新失败");
+  } finally {
+    cycleSaving.value = false;
+  }
+}
+
+async function submitFollowup() {
+  if (!selectedCycle.value || followupForm.summary.trim().length < 4) {
+    ElMessage.warning("请填写至少 4 个字符的跟进摘要");
+    return;
+  }
+  followupSaving.value = true;
+  try {
+    await createRenewalFollowup(selectedCycle.value.id, {
+      channel: followupForm.channel,
+      summary: followupForm.summary.trim(),
+      intention: followupForm.intention.trim() || undefined,
+      needs_support: followupForm.needs_support,
+      next_action: followupForm.next_action.trim() || undefined,
+      next_followup_at: followupForm.next_followup_at.trim() || undefined
+    });
+    ElMessage.success("跟进记录已保存并写入审计");
+    followups.value = (await getRenewalFollowups(selectedCycle.value.id)).data;
+    resetFollowupForm();
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail ?? "跟进记录保存失败");
+  } finally {
+    followupSaving.value = false;
   }
 }
 
@@ -306,12 +458,27 @@ onMounted(load);
       <template #header>
         <div class="card-title">
           <div>
-            <h2>预检结果 · 批次 #{{ batchId }}</h2>
-            <p>以下结果用于核对；只有已关联真实学员的记录才允许正式导入</p>
+            <h2>
+              {{ previewPersisted ? `预检结果 · 批次 #${batchId}` : "只读预检结果" }}
+            </h2>
+            <p>
+              {{
+                previewPersisted
+                  ? "以下结果用于核对；只有已关联真实学员的记录才允许正式导入"
+                  : "本次结果仅在当前页面展示，未保存批次，也未写入任何续费数据"
+              }}
+            </p>
           </div>
           <div class="result-actions">
-            <el-tag type="warning">待业务确认</el-tag>
-            <el-button type="warning" :loading="importing" @click="applyImport">
+            <el-tag :type="previewPersisted ? 'warning' : 'success'">
+              {{ previewPersisted ? "待业务确认" : "只读核对" }}
+            </el-tag>
+            <el-button
+              v-if="previewPersisted"
+              type="warning"
+              :loading="importing"
+              @click="applyImport"
+            >
               正式导入已匹配记录
             </el-button>
           </div>
@@ -319,12 +486,30 @@ onMounted(load);
       </template>
       <div class="result-summary">
         <span>总计 <b>{{ importSummary.total }}</b></span>
-        <span>自动匹配 <b>{{ importSummary.matched }}</b></span>
+        <span>主档匹配 <b>{{ importSummary.matched }}</b></span>
+        <span>已关联生产学员 <b>{{ importSummary.production_linked }}</b></span>
+        <span>正式导入候选 <b>{{ importSummary.importable }}</b></span>
+        <span>未关联生产学员 <b>{{ importSummary.production_unlinked }}</b></span>
         <span>待确认 <b>{{ importSummary.needs_review }}</b></span>
         <span>无效数据 <b>{{ importSummary.invalid }}</b></span>
         <span>需要协助 <b>{{ importSummary.assistance_review }}</b></span>
       </div>
-      <el-table :data="samples" stripe max-height="430">
+      <div v-if="Object.keys(issueSummary).length" class="issue-summary">
+        <el-tag
+          v-for="(count, code) in issueSummary"
+          :key="code"
+          type="warning"
+          effect="plain"
+        >
+          {{ issueLabel(code) }}：{{ count }}
+        </el-tag>
+      </div>
+      <el-tabs v-model="activePreviewQueue" class="preview-tabs">
+        <el-tab-pane :label="`待确认/无效（${reviewRows.length}）`" name="review" />
+        <el-tab-pane :label="`需要协助（${assistanceRows.length}）`" name="assistance" />
+        <el-tab-pane :label="`自动匹配样本（${matchedSamples.length}）`" name="matched" />
+      </el-tabs>
+      <el-table :data="previewRows" stripe max-height="430" empty-text="当前队列暂无记录">
         <el-table-column prop="row_no" label="Excel行" width="86" />
         <el-table-column prop="name" label="学员" min-width="100" />
         <el-table-column prop="center_name" label="续费归属" min-width="135" />
@@ -334,6 +519,9 @@ onMounted(load);
         </el-table-column>
         <el-table-column label="匹配结果" min-width="130">
           <template #default="{ row }">{{ matchLabel(row.match_status) }}</template>
+        </el-table-column>
+        <el-table-column label="复核原因" min-width="160">
+          <template #default="{ row }">{{ issueLabel(row.issue_code) }}</template>
         </el-table-column>
         <el-table-column label="建议状态" min-width="130">
           <template #default="{ row }">{{ statusLabel(row.proposed_status) }}</template>
@@ -351,6 +539,15 @@ onMounted(load);
           </div>
         </div>
       </template>
+      <el-alert
+        v-if="!cycles.length"
+        class="cycle-empty-alert"
+        title="续费跟进工作台已上线，当前年度尚未导入正式续费周期"
+        description="完成名单融合预检并正式导入后，这里会显示责任人、状态、阶段、结果和“查看/跟进”操作；当前页面不会生成演示数据。"
+        type="info"
+        :closable="false"
+        show-icon
+      />
       <el-table :data="cycles" stripe empty-text="暂无正式续费周期">
         <el-table-column prop="member_name" label="学员" min-width="120" />
         <el-table-column prop="org_name" label="续费归属" min-width="150" />
@@ -364,8 +561,113 @@ onMounted(load);
           <template #default="{ row }">{{ row.assigned_user_name || "待分配" }}</template>
         </el-table-column>
         <el-table-column prop="updated_at" label="最近更新" min-width="180" />
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openCycleDetail(row)">
+              查看/跟进
+            </el-button>
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
+
+    <el-dialog
+      v-model="cycleDetailVisible"
+      :title="`${selectedCycle?.member_name ?? '续费周期'} · 跟进详情`"
+      width="820px"
+    >
+      <div v-loading="cycleDetailLoading" class="cycle-detail">
+        <el-descriptions v-if="selectedCycle" :column="3" border>
+          <el-descriptions-item label="续费归属">{{ selectedCycle.org_name }}</el-descriptions-item>
+          <el-descriptions-item label="到期月份">{{ selectedCycle.due_month }}月</el-descriptions-item>
+          <el-descriptions-item label="学员编号">{{ selectedCycle.member_code }}</el-descriptions-item>
+        </el-descriptions>
+        <el-form :model="cycleForm" inline class="cycle-edit-form">
+          <el-form-item label="状态">
+            <el-select v-model="cycleForm.status" style="width: 170px">
+              <el-option
+                v-for="item in cycleStatusOptions"
+                :key="item[0]"
+                :label="item[1]"
+                :value="item[0]"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="阶段">
+            <el-input v-model="cycleForm.phase" placeholder="如：首次联系" />
+          </el-form-item>
+          <el-form-item label="结果">
+            <el-input v-model="cycleForm.result" placeholder="简要记录结果" />
+          </el-form-item>
+          <el-form-item label="责任人">
+            <el-select
+              v-model="cycleForm.assigned_user_id"
+              placeholder="选择续费归属范围内的责任人"
+              style="width: 220px"
+            >
+              <el-option
+                v-for="user in cycleAssignees"
+                :key="user.id"
+                :label="user.display_name"
+                :value="user.id"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="cycleSaving" @click="saveCycleDetail">
+              保存周期状态
+            </el-button>
+          </el-form-item>
+        </el-form>
+
+        <el-divider content-position="left">新增跟进</el-divider>
+        <el-form :model="followupForm" label-position="top" class="followup-form">
+          <el-form-item label="联系渠道">
+            <el-select v-model="followupForm.channel" style="width: 150px">
+              <el-option label="电话" value="PHONE" />
+              <el-option label="微信" value="WECHAT" />
+              <el-option label="面谈" value="MEETING" />
+              <el-option label="走访" value="VISIT" />
+              <el-option label="其他" value="OTHER" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="跟进摘要" required>
+            <el-input v-model="followupForm.summary" type="textarea" :rows="2" maxlength="4000" />
+          </el-form-item>
+          <el-form-item label="意愿">
+            <el-input v-model="followupForm.intention" maxlength="64" />
+          </el-form-item>
+          <el-form-item label="下一步行动">
+            <el-input v-model="followupForm.next_action" maxlength="4000" />
+          </el-form-item>
+          <el-form-item label="下次跟进时间">
+            <el-input v-model="followupForm.next_followup_at" placeholder="YYYY-MM-DD HH:mm" />
+          </el-form-item>
+          <el-form-item label="需要协助">
+            <el-switch v-model="followupForm.needs_support" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="success" :loading="followupSaving" @click="submitFollowup">
+              保存跟进记录
+            </el-button>
+          </el-form-item>
+        </el-form>
+
+        <el-divider content-position="left">历史跟进</el-divider>
+        <el-table :data="followups" stripe empty-text="暂无跟进记录">
+          <el-table-column prop="followed_at" label="时间" min-width="160" />
+          <el-table-column label="渠道" width="90">
+            <template #default="{ row }">{{ channelLabel(row.channel) }}</template>
+          </el-table-column>
+          <el-table-column prop="summary" label="摘要" min-width="240" show-overflow-tooltip />
+          <el-table-column prop="intention" label="意愿" min-width="120" />
+          <el-table-column prop="next_action" label="下一步" min-width="180" show-overflow-tooltip />
+          <el-table-column label="协助" width="80">
+            <template #default="{ row }">{{ row.needs_support ? "需要" : "—" }}</template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </el-dialog>
   </div>
 </template>
 

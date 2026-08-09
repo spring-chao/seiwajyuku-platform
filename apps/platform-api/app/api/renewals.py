@@ -2,18 +2,24 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from zipfile import BadZipFile
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from openpyxl.utils.exceptions import InvalidFileException
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_permission
+from app.core.settings import get_settings
 from app.services.renewals import (
     add_followup,
     apply_preview,
+    list_assignees,
     list_cycles,
     list_followups,
     list_overview,
+    preview_result_view,
     preview_workbook,
+    rollback_import,
     save_preview,
     update_cycle,
 )
@@ -23,6 +29,10 @@ router = APIRouter(prefix="/api/v1/renewals", tags=["renewals"])
 
 class RenewalApplyPayload(BaseModel):
     renewal_year: int = Field(ge=2020, le=2100)
+    confirmation: str
+
+
+class RenewalRollbackPayload(BaseModel):
     confirmation: str
 
 
@@ -54,6 +64,18 @@ def cycles(
 ) -> dict:
     return {"success": True, "data": list_cycles(user["id"], year, status)}
 
+
+@router.get("/assignees")
+def assignees(
+    org_unit_id: str | None = None,
+    user: dict = Depends(require_permission("renewals:manage")),
+) -> dict:
+    try:
+        data = list_assignees(user["id"], org_unit_id)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    return {"success": True, "data": data}
+
 @router.post("/imports/preview")
 async def import_preview(
     renewal_file: UploadFile = File(...), master_file: UploadFile = File(...),
@@ -67,10 +89,21 @@ async def import_preview(
     with tempfile.TemporaryDirectory(prefix="seiwajyuku-renewal-") as directory:
         path = Path(directory) / "renewals.xlsx"; master_path = Path(directory) / "master.xlsx"
         path.write_bytes(content); master_path.write_bytes(master_content)
-        try: preview = preview_workbook(path, master_path)
-        except ValueError as exc: raise HTTPException(400, str(exc)) from exc
-    batch_id = save_preview(preview, user["id"])
-    return {"success": True, "data": {"batch_id": batch_id, "summary": preview["summary"], "samples": preview["rows"][:50]}}
+        try:
+            preview = preview_workbook(path, master_path)
+        except (ValueError, InvalidFileException, BadZipFile) as exc:
+            raise HTTPException(400, str(exc)) from exc
+    read_only = get_settings().deployment_read_only
+    batch_id = None if read_only else save_preview(preview, user["id"])
+    result = preview_result_view(preview)
+    return {
+        "success": True,
+        "data": {
+            "batch_id": batch_id,
+            "persisted": not read_only,
+            **result,
+        },
+    }
 
 
 @router.post("/imports/{batch_id}/apply")
@@ -81,6 +114,21 @@ def apply_import(
 ) -> dict:
     try:
         data = apply_preview(batch_id, user["id"], payload.renewal_year, payload.confirmation)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/imports/{batch_id}/rollback")
+def rollback_import_batch(
+    batch_id: int,
+    payload: RenewalRollbackPayload,
+    user: dict = Depends(require_permission("renewals:manage")),
+) -> dict:
+    try:
+        data = rollback_import(batch_id, user["id"], payload.confirmation)
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:

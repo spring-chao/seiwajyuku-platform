@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from app.api.auth import require_permission
 from app.services.identity_admin import (
     catalogs,
+    change_account_status,
     change_assignment_status,
     create_employment,
     create_technical_assignment,
@@ -60,6 +61,11 @@ class StatusChangePayload(BaseModel):
     reason: str = Field(min_length=6, max_length=1000)
 
 
+class AccountStatusPayload(BaseModel):
+    status: str = Field(pattern="^(ACTIVE|SUSPENDED)$")
+    reason: str = Field(min_length=6, max_length=1000)
+
+
 def _call(function, *args, **kwargs):
     try:
         return function(*args, **kwargs)
@@ -103,6 +109,16 @@ def initialize_account_identity(
         **payload.model_dump(),
     )
     return {"success": True, "data": {"person_id": person_id}}
+
+
+@router.post("/accounts/{user_id}/status")
+def update_account_status(
+    user_id: int,
+    payload: AccountStatusPayload,
+    actor: dict = Depends(require_permission("iam:manage")),
+) -> dict:
+    _call(change_account_status, actor["id"], user_id, **payload.model_dump())
+    return {"success": True, "data": {"id": user_id, "status": payload.status}}
 
 
 @router.post("/accounts/{user_id}/employments")

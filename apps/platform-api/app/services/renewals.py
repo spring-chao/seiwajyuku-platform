@@ -11,13 +11,55 @@ from openpyxl import load_workbook
 from app.core.privacy import encrypt_text, phone_hash
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
-from app.services.iam import accessible_org_ids
+from app.services.iam import accessible_org_ids, user_context
 
 
 CENTER_IDS = {
     "姑苏相城分中心": "org-gusu", "昆山分中心": "org-kunshan", "吴江分中心": "org-wujiang",
     "新吴分中心": "org-xinwu", "园区分中心": "org-yuanqu", "张家港分中心": "org-zhangjiagang",
 }
+
+MASTER_HEADER_ALIASES = {
+    "姓名": ("姓名", "名字", "name"),
+    "手机号码": ("手机号码", "手机号", "phone"),
+    "所在分中心": ("所在分中心", "所属分中心", "center"),
+}
+IMPORTABLE_MATCH_STATUSES = frozenset(
+    {"MASTER_PHONE_EXACT", "MASTER_NAME_CENTER_EXACT", "MATCHED"}
+)
+PREVIEW_ROW_FIELDS = (
+    "row_no",
+    "name",
+    "center_name",
+    "class_name",
+    "due_month",
+    "match_status",
+    "issue_code",
+    "proposed_status",
+    "history_note",
+    "assistance_note",
+)
+
+
+def list_assignees(actor_user_id: int, org_unit_id: str | None = None) -> list[dict[str, Any]]:
+    """Return active users who can manage renewals in the requested org scope."""
+    actor_allowed = accessible_org_ids(actor_user_id)
+    if org_unit_id and actor_allowed is not None and org_unit_id not in actor_allowed:
+        raise PermissionError("组织不在当前用户授权范围内")
+    rows = fetch_all(
+        "SELECT id, username, display_name FROM app_users WHERE is_active=1 ORDER BY display_name, id"
+    )
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        context = user_context(row["id"])
+        if not context or "renewals:manage" not in context["permissions"]:
+            continue
+        if org_unit_id:
+            assignee_allowed = accessible_org_ids(row["id"])
+            if assignee_allowed is not None and org_unit_id not in assignee_allowed:
+                continue
+        result.append(row)
+    return result
 
 
 def _hash(path: Path) -> str:
@@ -56,6 +98,18 @@ def _clean(value: Any) -> str:
     return str(value or "").strip().replace("\n", "").replace(" ", "")
 
 
+def _master_columns(headers: list[str]) -> dict[str, int]:
+    normalized = {_clean(name).lower(): index for index, name in enumerate(headers)}
+    columns: dict[str, int] = {}
+    for canonical, aliases in MASTER_HEADER_ALIASES.items():
+        for alias in aliases:
+            index = normalized.get(_clean(alias).lower())
+            if index is not None:
+                columns[canonical] = index
+                break
+    return columns
+
+
 def _phone(value: Any) -> str:
     return "".join(char for char in _clean(value) if char.isdigit())[-11:]
 
@@ -67,14 +121,19 @@ def _master_index(path: Path) -> tuple[dict[str, list[dict]], dict[tuple[str, st
             raise ValueError("主档案缺少“2026 新在册表”工作表")
         sheet = workbook["2026 新在册表"]
         headers = [_clean(cell.value) for cell in next(sheet.iter_rows(min_row=1, max_row=1))]
-        col = {name: index for index, name in enumerate(headers)}
+        col = _master_columns(headers)
         required = {"姓名", "手机号码", "所在分中心"}
         if not required.issubset(col):
-            raise ValueError("主档案缺少姓名、手机号码或所在分中心列")
+            missing = "、".join(sorted(required - set(col)))
+            raise ValueError(f"主档案缺少必要列：{missing}")
         by_phone: dict[str, list[dict]] = {}; by_name_center: dict[tuple[str, str], list[dict]] = {}
         for row_no, values in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
-            record = {headers[i]: values[i] for i in range(len(headers)) if values[i] not in (None, "")}
-            record["source_row"] = row_no
+            record = {
+                "姓名": values[col["姓名"]],
+                "手机号码": values[col["手机号码"]],
+                "所在分中心": values[col["所在分中心"]],
+                "source_row": row_no,
+            }
             phone = _phone(record.get("手机号码")); key = (_clean(record.get("姓名")), _clean(record.get("所在分中心")))
             if phone: by_phone.setdefault(phone, []).append(record)
             if all(key): by_name_center.setdefault(key, []).append(record)
@@ -130,7 +189,16 @@ def preview_workbook(path: str | Path, master_path: str | Path | None = None) ->
                 by_phone_hash.setdefault(row["phone_hash"], []).append(row)
             by_name_org.setdefault((row["name"], row["org_unit_id"]), []).append(row)
         rows: list[dict[str, Any]] = []
-        summary = {"total": 0, "matched": 0, "needs_review": 0, "invalid": 0, "assistance_review": 0}
+        summary = {
+            "total": 0,
+            "matched": 0,
+            "needs_review": 0,
+            "invalid": 0,
+            "assistance_review": 0,
+            "production_linked": 0,
+            "production_unlinked": 0,
+            "importable": 0,
+        }
         for row_no, values in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
             name = str(values[col["名字"]] or "").strip()
             center_name = str(values[col["所在分中心"]] or "").strip()
@@ -179,9 +247,48 @@ def preview_workbook(path: str | Path, master_path: str | Path | None = None) ->
                          "master_source_row": member.get("source_row") if member else None, "due_month": due_month,
                          "match_status": match_status, "issue_code": issue, "proposed_status": _status(note),
                          "history_note": note, "assistance_note": assistance, "raw": raw})
+        summary["production_linked"] = sum(
+            row["member_id"] is not None for row in rows
+        )
+        summary["importable"] = sum(
+            row["member_id"] is not None
+            and row["match_status"] in IMPORTABLE_MATCH_STATUSES
+            for row in rows
+        )
+        summary["production_unlinked"] = sum(
+            row["member_id"] is None
+            and row["match_status"] in IMPORTABLE_MATCH_STATUSES
+            for row in rows
+        )
         return {"source_name": source.name, "source_sha256": _hash(source), "summary": summary, "rows": rows}
     finally:
         workbook.close()
+
+
+def preview_result_view(preview: dict[str, Any]) -> dict[str, Any]:
+    """Return the complete review queues without exposing raw workbook rows."""
+    rows = [
+        {field: row.get(field) for field in PREVIEW_ROW_FIELDS}
+        for row in preview["rows"]
+    ]
+    review_rows = [
+        row for row in rows if row["match_status"] in {"NEEDS_REVIEW", "INVALID"}
+    ]
+    assistance_rows = [row for row in rows if row.get("assistance_note")]
+    matched_samples = [
+        row for row in rows if row["match_status"] in IMPORTABLE_MATCH_STATUSES
+    ][:20]
+    issue_summary: dict[str, int] = {}
+    for row in review_rows:
+        code = row.get("issue_code") or "UNKNOWN"
+        issue_summary[code] = issue_summary.get(code, 0) + 1
+    return {
+        "summary": preview["summary"],
+        "review_rows": review_rows,
+        "assistance_rows": assistance_rows,
+        "matched_samples": matched_samples,
+        "issue_summary": issue_summary,
+    }
 
 
 def save_preview(preview: dict[str, Any], actor_user_id: int) -> int:
@@ -238,51 +345,76 @@ def apply_preview(batch_id: int, actor_user_id: int, renewal_year: int, confirma
     if batch["status"] != "PREVIEWED":
         raise ValueError("该批次已处理，不能重复正式导入")
     allowed = accessible_org_ids(actor_user_id)
+    staged_total = fetch_one(
+        "SELECT COUNT(*) AS count FROM renewal_import_staging WHERE batch_id=?",
+        (batch_id,),
+    )["count"]
+    placeholders = ",".join("?" for _ in IMPORTABLE_MATCH_STATUSES)
     rows = fetch_all(
         "SELECT id, member_id, org_unit_id, due_month, proposed_status FROM renewal_import_staging "
-        "WHERE batch_id=? AND member_id IS NOT NULL AND org_unit_id IS NOT NULL",
-        (batch_id,),
+        f"WHERE batch_id=? AND member_id IS NOT NULL AND org_unit_id IS NOT NULL "
+        f"AND match_status IN ({placeholders})",
+        (batch_id, *sorted(IMPORTABLE_MATCH_STATUSES)),
     )
     if allowed is not None:
         rows = [row for row in rows if row["org_unit_id"] in allowed]
+    if not rows:
+        raise ValueError("没有已关联生产学员且通过匹配门禁的可导入记录")
+    # A renewal workbook can contain more than one eligible line for the same
+    # production member (for example, a duplicated source line or a corrected
+    # due month).  renewal_cycles deliberately has a unique member/year key;
+    # importing the raw staging rows would therefore abort the whole batch on
+    # the second line.  Keep the first staging line deterministically and count
+    # later lines as skipped.  The precheck remains read-only and the batch
+    # audit records the deduplication count for manual follow-up.
+    unique_rows: list[dict[str, Any]] = []
+    seen_member_ids: set[int] = set()
+    duplicate_skipped = 0
+    for row in rows:
+        member_id = int(row["member_id"])
+        if member_id in seen_member_ids:
+            duplicate_skipped += 1
+            continue
+        seen_member_ids.add(member_id)
+        unique_rows.append(row)
+    rows = unique_rows
+    member_ids = sorted(seen_member_ids)
+    member_placeholders = ",".join("?" for _ in member_ids)
+    existing_count = fetch_one(
+        f"SELECT COUNT(*) AS count FROM renewal_cycles WHERE renewal_year=? "
+        f"AND member_id IN ({member_placeholders})",
+        (renewal_year, *member_ids),
+    )["count"]
+    if existing_count:
+        raise ValueError(
+            "目标年度已存在续费周期，首次整批导入已停止；请先生成差异确认包"
+        )
     now = datetime.now(UTC).isoformat()
     created = 0
-    updated = 0
     with transaction() as connection:
         for row in rows:
-            existing = execute(
+            cycle_id = execute(
                 connection,
-                "SELECT id FROM renewal_cycles WHERE member_id=? AND renewal_year=?",
-                (row["member_id"], renewal_year),
-            ).fetchone()
-            if existing:
-                execute(
-                    connection,
-                    "UPDATE renewal_cycles SET org_unit_id=?, due_month=?, status=?, "
-                    "source_batch_id=?, updated_at=? WHERE id=?",
-                    (
-                        row["org_unit_id"], row["due_month"], row["proposed_status"],
-                        batch_id, now, existing["id"],
-                    ),
-                )
-                updated += 1
-            else:
-                cycle_id = execute(
-                    connection,
-                    "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, "
-                    "status, source_batch_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        row["member_id"], renewal_year, row["org_unit_id"], row["due_month"],
-                        row["proposed_status"], batch_id, now, now,
-                    ),
-                ).lastrowid
-                execute(
-                    connection,
-                    "INSERT INTO renewal_status_history(renewal_cycle_id, from_status, to_status, "
-                    "reason, changed_by, created_at) VALUES (?, NULL, ?, ?, ?, ?)",
-                    (cycle_id, row["proposed_status"], "续费名单正式导入", actor_user_id, now),
-                )
-                created += 1
+                "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, "
+                "status, source_batch_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    row["member_id"], renewal_year, row["org_unit_id"], row["due_month"],
+                    row["proposed_status"], batch_id, now, now,
+                ),
+            ).lastrowid
+            execute(
+                connection,
+                "INSERT INTO renewal_status_history(renewal_cycle_id, from_status, to_status, "
+                "reason, changed_by, created_at) VALUES (?, NULL, ?, ?, ?, ?)",
+                (
+                    cycle_id,
+                    row["proposed_status"],
+                    f"续费名单正式导入（批次 #{batch_id}）",
+                    actor_user_id,
+                    now,
+                ),
+            )
+            created += 1
         execute(
             connection,
             "UPDATE renewal_import_batches SET status='APPLIED', applied_at=? WHERE id=?",
@@ -295,9 +427,87 @@ def apply_preview(batch_id: int, actor_user_id: int, renewal_year: int, confirma
             resource_type="renewal_import_batch",
             resource_id=str(batch_id),
             purpose="续费名单正式导入",
-            after={"renewal_year": renewal_year, "created": created, "updated": updated},
+            after={
+                "renewal_year": renewal_year,
+                "created": created,
+                "updated": 0,
+                "duplicate_staging_rows_skipped": duplicate_skipped,
+            },
         )
-    return {"created": created, "updated": updated, "skipped": len(rows) - created - updated}
+    return {
+        "created": created,
+        "updated": 0,
+        "skipped": staged_total - len(rows),
+    }
+
+
+def rollback_import(
+    batch_id: int,
+    actor_user_id: int,
+    confirmation: str,
+) -> dict[str, int]:
+    if confirmation != "确认回滚续费导入批次":
+        raise PermissionError("确认文字不匹配，已禁止回滚")
+    batch = fetch_one(
+        "SELECT id, status, applied_at FROM renewal_import_batches WHERE id=?",
+        (batch_id,),
+    )
+    if not batch:
+        raise ValueError("续费导入批次不存在")
+    if batch["status"] != "APPLIED":
+        raise ValueError("只有已正式导入且未回滚的批次可以回滚")
+    cycles = fetch_all(
+        "SELECT id, org_unit_id, created_at, updated_at FROM renewal_cycles "
+        "WHERE source_batch_id=? ORDER BY id",
+        (batch_id,),
+    )
+    allowed = accessible_org_ids(actor_user_id)
+    if allowed is not None and any(
+        cycle["org_unit_id"] not in allowed for cycle in cycles
+    ):
+        raise PermissionError("批次包含当前账号授权范围外的续费周期")
+    if any(cycle["created_at"] != cycle["updated_at"] for cycle in cycles):
+        raise ValueError("批次中的续费周期已被修改，必须先人工生成联合回滚清单")
+    cycle_ids = [cycle["id"] for cycle in cycles]
+    if cycle_ids:
+        placeholders = ",".join("?" for _ in cycle_ids)
+        followup_count = fetch_one(
+            f"SELECT COUNT(*) AS count FROM renewal_followups "
+            f"WHERE renewal_cycle_id IN ({placeholders})",
+            tuple(cycle_ids),
+        )["count"]
+        if followup_count:
+            raise ValueError("批次中的续费周期已有跟进记录，禁止自动回滚")
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        if cycle_ids:
+            placeholders = ",".join("?" for _ in cycle_ids)
+            execute(
+                connection,
+                f"DELETE FROM renewal_status_history WHERE renewal_cycle_id IN ({placeholders})",
+                tuple(cycle_ids),
+            )
+            execute(
+                connection,
+                f"DELETE FROM renewal_cycles WHERE id IN ({placeholders})",
+                tuple(cycle_ids),
+            )
+        execute(
+            connection,
+            "UPDATE renewal_import_batches SET status='ROLLED_BACK' WHERE id=?",
+            (batch_id,),
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="renewals.import.rollback",
+            resource_type="renewal_import_batch",
+            resource_id=str(batch_id),
+            purpose="续费名单整批回滚",
+            before={"status": "APPLIED", "cycle_count": len(cycle_ids)},
+            after={"status": "ROLLED_BACK", "rolled_back_at": now},
+        )
+    return {"deleted_cycles": len(cycle_ids)}
 
 
 def list_cycles(user_id: int, year: int = 2026, status: str | None = None) -> list[dict[str, Any]]:
@@ -333,6 +543,12 @@ def update_cycle(
     if allowed is not None and cycle["org_unit_id"] not in allowed:
         raise PermissionError("续费周期不在组织授权范围内")
     if assigned_user_id is not None:
+        assignee = fetch_one("SELECT id, is_active FROM app_users WHERE id=?", (assigned_user_id,))
+        if not assignee or not assignee["is_active"]:
+            raise ValueError("责任人账号当前不可用")
+        assignee_context = user_context(assigned_user_id)
+        if not assignee_context or "renewals:manage" not in assignee_context["permissions"]:
+            raise ValueError("责任人当前没有续费运营权限")
         assignee_allowed = accessible_org_ids(assigned_user_id)
         if assignee_allowed is not None and cycle["org_unit_id"] not in assignee_allowed:
             raise ValueError("责任人不在续费归属组织范围内")

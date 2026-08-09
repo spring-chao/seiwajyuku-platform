@@ -17,6 +17,11 @@ from app.services.followup_invitations import (
 )
 from app.services.followups import add_followup_record, create_task, list_tasks
 from app.services.iam import seed_iam, user_context
+from app.services.renewals import (
+    add_followup as add_renewal_followup,
+    list_assignees as list_renewal_assignees,
+    update_cycle,
+)
 
 from backfill_member_org_relations import apply_candidates, build_candidates
 
@@ -287,7 +292,11 @@ def _run_identity_validation() -> dict:
             "'mysql-staging-validation', ?, ?)",
             (employment.lastrowid, active_from, now, now),
         )
-        for position_key in ("ops_center_data", "ops_center_administration"):
+        for position_key in (
+            "ops_center_data",
+            "ops_center_administration",
+            "ops_center_finance",
+        ):
             execute(
                 connection,
                 "INSERT INTO operations_position_assignments"
@@ -354,6 +363,63 @@ def _run_identity_validation() -> dict:
         "language_context": context["language_context"],
         "roles": context["roles"],
         "sensitive_business_access": "members:enterprise_view" in context["permissions"],
+    }
+
+
+def _run_renewal_validation() -> dict:
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with transaction() as connection:
+        cycle_id = execute(
+            connection,
+            "INSERT INTO renewal_cycles"
+            "(member_id, renewal_year, org_unit_id, due_month, status, created_at, updated_at) "
+            "VALUES (1, 2031, 'r1', 7, 'PENDING_FIRST_CONTACT', ?, ?)",
+            (now, now),
+        ).lastrowid
+    candidates = list_renewal_assignees(1, "r1")
+    if 1 not in {row["id"] for row in candidates}:
+        raise AssertionError({"renewal_assignees": candidates})
+    update_cycle(
+        cycle_id,
+        1,
+        status="IN_COMMUNICATION",
+        phase="首次联系",
+        assigned_user_id=1,
+    )
+    followup_id = add_renewal_followup(
+        cycle_id,
+        1,
+        channel="PHONE",
+        summary="MySQL 续费责任链路验证",
+        intention="继续沟通",
+        next_action="安排下一次联系",
+    )
+    cycle = fetch_all(
+        "SELECT status, phase, assigned_user_id FROM renewal_cycles WHERE id=?",
+        (cycle_id,),
+    )[0]
+    if cycle != {
+        "status": "IN_COMMUNICATION",
+        "phase": "首次联系",
+        "assigned_user_id": 1,
+    }:
+        raise AssertionError({"renewal_cycle": cycle})
+    history = fetch_all(
+        "SELECT to_status FROM renewal_status_history WHERE renewal_cycle_id=?",
+        (cycle_id,),
+    )
+    audit = fetch_all(
+        "SELECT action FROM audit_logs WHERE resource_type='renewal_cycle' AND resource_id=?",
+        (str(cycle_id),),
+    )
+    if not history or not any(row["action"] == "renewals.cycle.update" for row in audit):
+        raise AssertionError({"status_history": history, "audit": audit})
+    return {
+        "cycle_id": cycle_id,
+        "assigned_user_id": cycle["assigned_user_id"],
+        "status": cycle["status"],
+        "followup_id": followup_id,
+        "audit_count": len(audit),
     }
 
 
@@ -460,6 +526,7 @@ def main() -> int:
         },
         "attendance": _run_attendance_validation(),
         "identity_authorization": _run_identity_validation(),
+        "renewals": _run_renewal_validation(),
         "followup_invitations": _run_followup_invitation_validation(),
     }
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))

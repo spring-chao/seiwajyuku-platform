@@ -284,6 +284,55 @@ class IdentityAdminTests(unittest.TestCase):
             },
         )
 
+    def test_02c_account_suspension_revokes_sessions_and_protects_admin(self) -> None:
+        now = datetime.now(UTC).isoformat()
+        with transaction() as connection:
+            cursor = execute(
+                connection,
+                "INSERT INTO app_users(username, display_name, password_hash, is_active, "
+                "created_at, updated_at) VALUES "
+                "('identity-account-status', '账号停用测试', ?, 1, ?, ?)",
+                (hash_password("identity-account-status-password"), now, now),
+            )
+            user_id = cursor.lastrowid
+        login = self.client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "identity-account-status",
+                "password": "identity-account-status-password",
+            },
+        )
+        self.assertEqual(login.status_code, 200, login.text)
+        token = login.json()["data"]["access_token"]
+        suspended = self.client.post(
+            f"/api/v1/identity-admin/accounts/{user_id}/status",
+            headers=self.admin_headers,
+            json={"status": "SUSPENDED", "reason": "测试结束后回收临时账号"},
+        )
+        self.assertEqual(suspended.status_code, 200, suspended.text)
+        self.assertEqual(
+            fetch_one("SELECT is_active FROM app_users WHERE id=?", (user_id,))["is_active"],
+            0,
+        )
+        self.assertEqual(
+            self.client.get(
+                "/api/v1/me", headers={"Authorization": f"Bearer {token}"}
+            ).status_code,
+            401,
+        )
+        audit = fetch_one(
+            "SELECT action FROM audit_logs WHERE resource_type='app_user' "
+            "AND resource_id=? ORDER BY id DESC LIMIT 1",
+            (str(user_id),),
+        )
+        self.assertEqual(audit["action"], "identity.account.status_change")
+        protected = self.client.post(
+            "/api/v1/identity-admin/accounts/1/status",
+            headers=self.admin_headers,
+            json={"status": "SUSPENDED", "reason": "不应停用平台最高管理账号"},
+        )
+        self.assertEqual(protected.status_code, 400, protected.text)
+
     def test_03_technical_admin_can_manage_identity_without_business_access(self) -> None:
         self._initialize(
             self.technical_user_id, "approved-technical-person-link-001"

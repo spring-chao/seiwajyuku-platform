@@ -235,8 +235,16 @@ function openCreate() {
 
 function openEdit(row: any) {
   editingMemberId.value = row.id;
+  // Resolve the class against the member's own center rather than the
+  // currently selected form center.  Otherwise editing a member from a
+  // different center can silently clear the class/group relationship.
   const classOrgId =
-    classOrgs.value.find(item => item.name === row.class_name)?.id ?? "";
+    orgs.value.find(
+      item =>
+        item.name === row.class_name &&
+        ["CLASS", "SPECIAL_COHORT"].includes(item.unit_type) &&
+        (item.parent_id === row.org_unit_id || item.parent_id === "org-suzhou")
+    )?.id ?? "";
   Object.assign(form, {
     name: row.name,
     org_unit_id: row.org_unit_id,

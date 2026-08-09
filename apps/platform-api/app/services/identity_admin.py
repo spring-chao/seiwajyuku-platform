@@ -233,6 +233,56 @@ def initialize_person_link(
     return person_id
 
 
+def change_account_status(
+    actor_user_id: int,
+    user_id: int,
+    *,
+    status: str,
+    reason: str,
+) -> None:
+    """Suspend or reactivate an account with an audit trail."""
+    _feature_gate(write=True)
+    status = status.upper().strip()
+    reason = reason.strip()
+    if status not in {"ACTIVE", "SUSPENDED"}:
+        raise ValueError("账号状态只能是 ACTIVE 或 SUSPENDED")
+    if len(reason) < 6:
+        raise ValueError("账号状态变更原因至少填写 6 个字符")
+    if actor_user_id == user_id and status == "SUSPENDED":
+        raise ValueError("不能停用当前登录账号")
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        user = execute(
+            connection,
+            "SELECT id, username, is_active FROM app_users WHERE id=?",
+            (user_id,),
+        ).fetchone()
+        if not user:
+            raise ValueError("账号不存在")
+        settings = get_settings()
+        if user["username"] == settings.bootstrap_admin_username and status == "SUSPENDED":
+            raise ValueError("平台最高管理账号不可停用")
+        next_active = 1 if status == "ACTIVE" else 0
+        if int(user["is_active"]) == next_active:
+            raise ValueError("账号已经处于目标状态")
+        execute(
+            connection,
+            "UPDATE app_users SET is_active=?, token_version=token_version+1, updated_at=? "
+            "WHERE id=?",
+            (next_active, now, user_id),
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="identity.account.status_change",
+            resource_type="app_user",
+            resource_id=str(user_id),
+            purpose=reason,
+            before={"is_active": int(user["is_active"])},
+            after={"is_active": next_active, "status": status},
+        )
+
+
 def create_employment(
     actor_user_id: int,
     user_id: int,
