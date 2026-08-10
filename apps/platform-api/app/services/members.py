@@ -1076,11 +1076,18 @@ def get_member_timeline(
     summary: dict[str, int] = {}
     for event in events:
         summary[event["event_type"]] = summary.get(event["event_type"], 0) + 1
-    from app.services.member_service_signals import build_member_service_signals
+    from app.core.settings import get_settings
+    from app.services.member_service_signals import (
+        attach_latest_feedback,
+        build_member_service_signals,
+    )
 
     service_signals = build_member_service_signals(
         dict(member), actor_user_id, set(user["permissions"]), allowed
     )
+    feedback_enabled = get_settings().member_service_signal_feedback_enabled
+    if feedback_enabled:
+        attach_latest_feedback(member_id, service_signals)
     with transaction() as connection:
         write_audit(
             connection,
@@ -1097,9 +1104,108 @@ def get_member_timeline(
     return {
         "member": dict(member),
         "summary": summary,
+        "service_signal_feedback_enabled": feedback_enabled,
         "service_signals": service_signals,
         "events": visible_events,
     }
+
+
+def record_member_service_signal_feedback(
+    member_id: int,
+    actor_user_id: int,
+    *,
+    signal_code: str,
+    rule_version: str,
+    feedback_status: str,
+) -> dict[str, Any]:
+    """Append feedback with the current privacy-safe rule evidence snapshot."""
+    from app.core.settings import get_settings
+    from app.services.member_service_signals import build_member_service_signals
+
+    settings = get_settings()
+    if not settings.member_service_signal_feedback_enabled:
+        raise PermissionError("学员服务提示反馈尚未启用")
+    user = user_context(actor_user_id)
+    if not user or "members:manage" not in user["permissions"]:
+        raise PermissionError("当前角色不能提交学员服务提示反馈")
+    status = feedback_status.strip().upper()
+    allowed_statuses = {"CONFIRMED_VALID", "NOT_APPLICABLE", "DATA_CORRECTED"}
+    if status not in allowed_statuses:
+        raise ValueError("不支持的服务提示反馈状态")
+
+    member = fetch_one(
+        "SELECT id, name, org_unit_id, phone_masked, class_name, status "
+        "FROM members WHERE id=?",
+        (member_id,),
+    )
+    if not member:
+        raise ValueError("学长不存在")
+    allowed = accessible_org_ids(actor_user_id)
+    if not can_access_member(member_id, member["org_unit_id"], allowed):
+        raise PermissionError("学长不在组织授权范围内")
+
+    current_signals = build_member_service_signals(
+        dict(member), actor_user_id, set(user["permissions"]), allowed
+    )
+    signal = next(
+        (
+            item
+            for item in current_signals
+            if item["code"] == signal_code and item["rule_version"] == rule_version
+        ),
+        None,
+    )
+    if signal is None:
+        raise ValueError("服务提示已失效或规则版本已变化，请刷新后重试")
+
+    now = datetime.now(UTC).isoformat()
+    evidence_json = json.dumps(
+        signal["evidence"], ensure_ascii=False, sort_keys=True, default=str
+    )
+    with transaction() as connection:
+        previous = execute(
+            connection,
+            "SELECT feedback_status FROM member_service_signal_feedback "
+            "WHERE member_id=? AND signal_code=? AND rule_version=? "
+            "ORDER BY created_at DESC, id DESC LIMIT 1",
+            (member_id, signal_code, rule_version),
+        ).fetchone()
+        cursor = execute(
+            connection,
+            "INSERT INTO member_service_signal_feedback"
+            "(member_id, org_unit_id, signal_code, rule_version, feedback_status, "
+            "evidence_json, actor_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                member_id,
+                member["org_unit_id"],
+                signal_code,
+                rule_version,
+                status,
+                evidence_json,
+                actor_user_id,
+                now,
+            ),
+        )
+        feedback_id = cursor.lastrowid
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="members.service_signal.feedback",
+            resource_type="member_service_signal_feedback",
+            resource_id=str(feedback_id),
+            org_unit_id=member["org_unit_id"],
+            before={
+                "status": previous["feedback_status"] if previous else None,
+            },
+            after={
+                "member_id": member_id,
+                "signal_code": signal_code,
+                "rule_version": rule_version,
+                "status": status,
+                "evidence_fields": sorted(signal["evidence"]),
+            },
+        )
+    return {"id": feedback_id, "status": status, "created_at": now}
 
 
 def get_member_enterprise_detail(

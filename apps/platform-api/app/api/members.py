@@ -16,6 +16,7 @@ from app.services.members import (
     get_member_timeline,
     list_members,
     normal_export_csv,
+    record_member_service_signal_feedback,
     reveal_contact,
 )
 from app.services.iam import accessible_org_ids
@@ -83,6 +84,13 @@ class MemberMergePayload(BaseModel):
 class SensitiveExportPayload(BaseModel):
     purpose: str = Field(min_length=6, max_length=1000)
     second_confirmed: bool
+
+
+class MemberServiceSignalFeedbackPayload(BaseModel):
+    rule_version: str = Field(min_length=1, max_length=64)
+    status: str = Field(
+        pattern="^(CONFIRMED_VALID|NOT_APPLICABLE|DATA_CORRECTED)$"
+    )
 
 
 @router.post("/members")
@@ -213,6 +221,28 @@ def member_timeline(
 ) -> dict:
     try:
         data = get_member_timeline(member_id, user["id"], limit=limit)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/members/{member_id}/service-signals/{signal_code}/feedback")
+def member_service_signal_feedback(
+    member_id: int,
+    signal_code: str,
+    payload: MemberServiceSignalFeedbackPayload,
+    user: dict = Depends(require_permission("members:manage")),
+) -> dict:
+    try:
+        data = record_member_service_signal_feedback(
+            member_id,
+            user["id"],
+            signal_code=signal_code,
+            rule_version=payload.rule_version,
+            feedback_status=payload.status,
+        )
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:

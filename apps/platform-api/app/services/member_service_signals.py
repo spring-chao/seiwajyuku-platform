@@ -164,3 +164,35 @@ def build_member_service_signals(
     priority = {"ACTION_REQUIRED": 0, "REVIEW": 1}
     signals.sort(key=lambda item: (priority.get(item["attention_level"], 9), item["code"]))
     return signals
+
+
+def attach_latest_feedback(
+    member_id: int, signals: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Attach only the newest append-only feedback for each active rule version."""
+    if not signals:
+        return signals
+    rows = fetch_all(
+        "SELECT id, signal_code, rule_version, feedback_status, created_at "
+        "FROM member_service_signal_feedback WHERE member_id=? "
+        "ORDER BY created_at DESC, id DESC",
+        (member_id,),
+    )
+    latest: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (row["signal_code"], row["rule_version"])
+        if key not in latest:
+            latest[key] = {
+                "id": row["id"],
+                "status": row["feedback_status"],
+                "created_at": (
+                    row["created_at"].isoformat()
+                    if isinstance(row["created_at"], datetime)
+                    else str(row["created_at"])
+                ),
+            }
+    for signal in signals:
+        signal["latest_feedback"] = latest.get(
+            (signal["code"], signal["rule_version"])
+        )
+    return signals

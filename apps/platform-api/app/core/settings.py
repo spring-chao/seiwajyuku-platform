@@ -33,6 +33,7 @@ class Settings:
     identity_admin_writes_enabled: bool = False
     volunteer_service_invitations_enabled: bool = False
     class_roster_org_import_enabled: bool = False
+    member_service_signal_feedback_enabled: bool = False
 
     @property
     def is_production(self) -> bool:
@@ -68,6 +69,12 @@ class Settings:
             and not self.allow_production_mutations
         ):
             raise RuntimeError("生产志工服务邀请写入未获批准")
+        if (
+            self.is_production
+            and self.member_service_signal_feedback_enabled
+            and not self.allow_production_mutations
+        ):
+            raise RuntimeError("生产学员服务提示反馈写入未获批准")
 
 
 def get_settings() -> Settings:
@@ -98,6 +105,9 @@ def get_settings() -> Settings:
         ),
         class_roster_org_import_enabled=_bool(
             "CLASS_ROSTER_ORG_IMPORT_ENABLED"
+        ),
+        member_service_signal_feedback_enabled=_bool(
+            "MEMBER_SERVICE_SIGNAL_FEEDBACK_ENABLED"
         ),
         signin_api_base_url=os.getenv("SIGNIN_API_BASE_URL", "").strip(),
         signin_service_api_key=os.getenv("SIGNIN_SERVICE_API_KEY", "").strip(),
