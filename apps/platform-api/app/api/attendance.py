@@ -11,9 +11,14 @@ Endpoints:
 from __future__ import annotations
 
 import hmac
+import re
+from io import BytesIO
 from datetime import UTC, datetime
 from typing import Literal
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
+from openpyxl.styles import Font
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_permission
@@ -463,6 +468,111 @@ def list_event_groups(
     return {"success": True, "data": rows}
 
 
+def _session_display_title(title: str | None, session_name: str | None, session_code: str) -> str:
+    """Build a stable, human-readable title for one attendance session.
+
+    The source system groups several sessions under one event title.  Keep the
+    source title intact for traceability, but remove a trailing session suffix
+    before appending the canonical session label so each list row is distinct.
+    """
+    source_title = (title or "未命名活动").strip()
+    label_map = {
+        "MORNING": "上午",
+        "AM": "上午",
+        "AFTERNOON": "下午",
+        "PM": "下午",
+        "EVENING": "空巴",
+        "KONPA": "空巴",
+        "KONPAI": "空巴",
+    }
+    label = (session_name or "").strip() or label_map.get(session_code.upper(), session_code)
+    base = re.sub(
+        r"\s*[-－—·]\s*(?:上午|下午|晚上?空巴|空巴|AM|PM|MORNING|AFTERNOON|EVENING|KONPA)\s*$",
+        "",
+        source_title,
+        flags=re.IGNORECASE,
+    ).strip()
+    if not label or label in base:
+        return source_title
+    return f"{base} · {label}"
+
+
+@router.get("/activity-sessions")
+def list_activity_sessions(
+    month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
+    org_unit_id: str | None = None,
+    user: dict = Depends(require_permission("members:read")),
+) -> dict:
+    """List one row per attendance session with session-scoped statistics."""
+    params: list = []
+    sql = (
+        "SELECT eg.id, eg.source_key, eg.external_group_id, eg.title, eg.event_date, "
+        "eg.activity_type, eg.status, eg.org_unit_id, o.name AS org_name, "
+        "o.unit_type AS org_unit_type, eg.study_org_unit_id, class_org.name AS class_name, "
+        "s.id AS session_id, s.session_code, s.session_name, s.session_order, "
+        "s.scheduled_start_at, s.scheduled_end_at, s.status AS session_status, "
+        "1 AS session_count, "
+        "(SELECT COUNT(*) FROM attendance_records r WHERE r.attendance_session_id=s.id) AS record_count, "
+        "(SELECT COUNT(*) FROM attendance_records r WHERE r.attendance_session_id=s.id "
+        "AND r.attendance_status IN ('PRESENT','MANUAL_PRESENT')) AS present_count, "
+        "(SELECT COUNT(DISTINCT mor.member_id) FROM member_org_relations mor "
+        "JOIN members cm ON cm.id=mor.member_id WHERE mor.relation_type='STUDY_CLASS' "
+        "AND mor.org_unit_id=eg.study_org_unit_id AND cm.status='ACTIVE' "
+        "AND (mor.valid_from IS NULL OR mor.valid_from<=eg.event_date) "
+        "AND (mor.valid_until IS NULL OR mor.valid_until>=eg.event_date)) AS class_member_count, "
+        "(SELECT COUNT(DISTINCT r.member_id) FROM attendance_records r "
+        "JOIN member_org_relations mor ON mor.member_id=r.member_id "
+        "AND mor.relation_type='STUDY_CLASS' AND mor.org_unit_id=eg.study_org_unit_id "
+        "AND (mor.valid_from IS NULL OR mor.valid_from<=eg.event_date) "
+        "AND (mor.valid_until IS NULL OR mor.valid_until>=eg.event_date) "
+        "WHERE r.attendance_session_id=s.id AND r.member_id IS NOT NULL "
+        "AND r.participant_type='MEMBER' "
+        "AND r.attendance_status IN ('PRESENT','MANUAL_PRESENT')) AS class_present_count, "
+        "(SELECT COUNT(DISTINCT mor.member_id) FROM member_org_relations mor "
+        "JOIN members rm ON rm.id=mor.member_id WHERE mor.relation_type='PRIMARY_REGION' "
+        "AND mor.org_unit_id=eg.org_unit_id AND rm.status='ACTIVE' "
+        "AND (mor.valid_from IS NULL OR mor.valid_from<=eg.event_date) "
+        "AND (mor.valid_until IS NULL OR mor.valid_until>=eg.event_date)) AS region_member_count, "
+        "(SELECT COUNT(DISTINCT r.member_id) FROM attendance_records r "
+        "JOIN member_org_relations mor ON mor.member_id=r.member_id "
+        "AND mor.relation_type='PRIMARY_REGION' AND mor.org_unit_id=eg.org_unit_id "
+        "AND (mor.valid_from IS NULL OR mor.valid_from<=eg.event_date) "
+        "AND (mor.valid_until IS NULL OR mor.valid_until>=eg.event_date) "
+        "WHERE r.attendance_session_id=s.id AND r.member_id IS NOT NULL "
+        "AND r.participant_type='MEMBER' "
+        "AND r.attendance_status IN ('PRESENT','MANUAL_PRESENT')) AS region_present_count "
+        "FROM attendance_event_groups eg "
+        "JOIN attendance_sessions s ON s.event_group_id=eg.id "
+        "JOIN org_units o ON o.id=eg.org_unit_id "
+        "LEFT JOIN org_units class_org ON class_org.id=eg.study_org_unit_id "
+        "WHERE 1=1"
+    )
+    if month:
+        sql += " AND substr(eg.event_date, 1, 7)=?"
+        params.append(month)
+    if org_unit_id:
+        sql += " AND eg.org_unit_id=?"
+        params.append(org_unit_id)
+    allowed = accessible_org_ids(user["id"])
+    if allowed is not None:
+        if not allowed:
+            return {"success": True, "data": []}
+        placeholders = ",".join("?" for _ in allowed)
+        sql += (
+            f" AND (eg.org_unit_id IN ({placeholders}) "
+            f"OR eg.study_org_unit_id IN ({placeholders}))"
+        )
+        params.extend(sorted(allowed))
+        params.extend(sorted(allowed))
+    sql += " ORDER BY eg.event_date DESC, eg.id DESC, s.session_order, s.id"
+    rows = fetch_all(sql, tuple(params))
+    for row in rows:
+        row["display_title"] = _session_display_title(
+            row.get("title"), row.get("session_name"), str(row["session_code"])
+        )
+    return {"success": True, "data": rows}
+
+
 @router.get("/event-groups/{group_id}")
 def event_group_detail(
     group_id: int,
@@ -623,6 +733,122 @@ def event_group_detail(
             "class_breakdown": class_breakdown,
         },
     }
+
+
+@router.get("/event-groups/{group_id}/records.xlsx")
+def download_event_group_records(
+    group_id: int,
+    session_id: int | None = None,
+    user: dict = Depends(require_permission("members:read")),
+) -> StreamingResponse:
+    """Download a privacy-minimized Excel workbook of read-only sign-in details."""
+    group = fetch_one(
+        "SELECT id, title, event_date, org_unit_id, study_org_unit_id "
+        "FROM attendance_event_groups WHERE id=?",
+        (group_id,),
+    )
+    if not group:
+        raise HTTPException(404, "活动组不存在")
+    allowed = accessible_org_ids(user["id"])
+    if not _org_is_allowed(
+        group["org_unit_id"], group.get("study_org_unit_id"), allowed
+    ):
+        raise HTTPException(403, "不在组织授权范围内")
+    params: list = [group_id]
+    session_clause = ""
+    if session_id is not None:
+        session = fetch_one(
+            "SELECT id FROM attendance_sessions WHERE id=? AND event_group_id=?",
+            (session_id, group_id),
+        )
+        if not session:
+            raise HTTPException(404, "活动场次不存在")
+        session_clause = " AND s.id=?"
+        params.append(session_id)
+
+    sql = (
+        "SELECT r.name_snapshot, r.member_code_snapshot, r.participant_type, "
+        "r.attendance_status, r.checked_at, r.checkin_source, s.session_code, "
+        "s.session_name, eg.title, eg.event_date "
+        "FROM attendance_records r "
+        "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
+        "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
+        "WHERE eg.id=?" + session_clause
+    )
+    if allowed is not None:
+        if not allowed:
+            rows = []
+        else:
+            placeholders = ",".join("?" for _ in allowed)
+            sql += (
+                f" AND (eg.org_unit_id IN ({placeholders}) "
+                f"OR eg.study_org_unit_id IN ({placeholders}))"
+            )
+            params.extend(sorted(allowed))
+            params.extend(sorted(allowed))
+            sql += " ORDER BY eg.event_date DESC, s.session_order, r.name_snapshot"
+            rows = fetch_all(sql, tuple(params))
+    else:
+        sql += " ORDER BY eg.event_date DESC, s.session_order, r.name_snapshot"
+        rows = fetch_all(sql, tuple(params))
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "签到明细"
+    headers = [
+        "活动",
+        "活动日期",
+        "场次",
+        "姓名",
+        "学员编号",
+        "参与类型",
+        "签到状态",
+        "签到时间",
+        "签到来源",
+    ]
+    sheet.append(headers)
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    participant_labels = {"MEMBER": "学员", "GUEST": "嘉宾", "OBSERVER": "旁听"}
+    status_labels = {
+        "PRESENT": "已签到",
+        "MANUAL_PRESENT": "人工确认",
+        "ABSENT": "未签到",
+        "LEAVE": "请假",
+        "INVALIDATED": "已作废",
+        "UNMATCHED": "待匹配",
+    }
+    for row in rows:
+        sheet.append(
+            [
+                _session_display_title(
+                    row.get("title"), row.get("session_name"), str(row["session_code"])
+                ),
+                row.get("event_date") or "",
+                row.get("session_name") or row.get("session_code") or "",
+                row.get("name_snapshot") or "",
+                row.get("member_code_snapshot") or "",
+                participant_labels.get(str(row.get("participant_type") or ""), row.get("participant_type") or ""),
+                status_labels.get(str(row.get("attendance_status") or ""), row.get("attendance_status") or ""),
+                row.get("checked_at") or "",
+                row.get("checkin_source") or "",
+            ]
+        )
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = sheet.dimensions
+    for column in sheet.columns:
+        width = min(max(max(len(str(cell.value or "")) for cell in column) + 2, 10), 36)
+        sheet.column_dimensions[column[0].column_letter].width = width
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    suffix = f"-{session_id}" if session_id is not None else "-all"
+    filename = f"attendance-details-{group_id}{suffix}.xlsx"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/records")

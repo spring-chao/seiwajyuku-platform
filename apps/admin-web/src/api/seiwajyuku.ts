@@ -355,6 +355,18 @@ export type AttendanceEventGroup = {
   region_present_count: number;
 };
 
+export type AttendanceActivityRow = AttendanceEventGroup & {
+  external_group_id?: string;
+  session_id: number;
+  session_code: string;
+  session_name?: string | null;
+  session_order: number;
+  scheduled_start_at?: string | null;
+  scheduled_end_at?: string | null;
+  session_status?: string;
+  display_title?: string;
+};
+
 export type AttendanceSession = {
   id: number;
   event_group_id: number;
@@ -802,6 +814,13 @@ export const getAttendanceEventGroups = (month?: string) =>
     { params: month ? { month } : undefined }
   );
 
+export const getAttendanceActivityRows = (month?: string) =>
+  http.request<{ success: boolean; data: AttendanceActivityRow[] }>(
+    "get",
+    "/api/v1/attendance/activity-sessions",
+    { params: month ? { month } : undefined }
+  );
+
 export const getAttendanceSyncStatus = () =>
   http.request<{ success: boolean; data: AttendanceSyncStatus }>(
     "get",
@@ -841,11 +860,29 @@ export const getAttendanceEventGroupDetail = (groupId: number) =>
     `/api/v1/attendance/event-groups/${groupId}`
   );
 
-export const getAttendanceRecords = (eventGroupId: number) =>
+export const getAttendanceRecords = (eventGroupId: number, sessionId?: number) =>
   http.request<{ success: boolean; data: AttendanceRecord[] }>(
     "get",
     "/api/v1/attendance/records",
-    { params: { event_group_id: eventGroupId } }
+    {
+      params: {
+        event_group_id: eventGroupId,
+        ...(sessionId ? { session_id: sessionId } : {})
+      }
+    }
+  );
+
+export const downloadAttendanceRecords = (
+  eventGroupId: number,
+  sessionId?: number
+) =>
+  http.request<Blob>(
+    "get",
+    `/api/v1/attendance/event-groups/${eventGroupId}/records.xlsx`,
+    {
+      params: sessionId ? { session_id: sessionId } : undefined,
+      responseType: "blob"
+    }
   );
 
 export type AttendanceReconciliationItem = {

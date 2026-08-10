@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import dayjs from "dayjs";
+import { ElMessage } from "element-plus";
 import {
-  getAttendanceEventGroups,
+  getAttendanceActivityRows,
   getAttendanceEventGroupDetail,
   getAttendanceRecords,
+  downloadAttendanceRecords,
   getAttendanceReconciliationBreakdown,
   getAttendanceReconciliationQueue,
   getAttendanceReconciliationSummary,
   getAttendanceSyncStatus,
-  type AttendanceEventGroup,
+  type AttendanceActivityRow,
   type AttendanceEventGroupDetail,
   type AttendanceClassParticipation,
   type AttendanceRecord,
@@ -23,7 +25,7 @@ defineOptions({ name: "ActivityAdmin" });
 
 const loading = ref(false);
 const month = ref(dayjs().format("YYYY-MM"));
-const rows = ref<AttendanceEventGroup[]>([]);
+const rows = ref<AttendanceActivityRow[]>([]);
 const syncStatus = ref<AttendanceSyncStatus | null>(null);
 const reconciliationItems = ref<AttendanceReconciliationItem[]>([]);
 const reviewRows = ref<AttendanceReconciliationQueueRow[]>([]);
@@ -38,11 +40,21 @@ const reviewIssue = ref<AttendanceReconciliationItem["key"]>(
 );
 const detailVisible = ref(false);
 const detailLoading = ref(false);
+const detailSessionId = ref<number | null>(null);
+const detailDisplayTitle = ref("");
+const downloadingRecords = ref(false);
 const detail = ref<AttendanceEventGroupDetail | null>(null);
 const detailRecords = ref<AttendanceRecord[]>([]);
 const detailClassBreakdown = computed<AttendanceClassParticipation[]>(() =>
   detail.value?.class_breakdown || []
 );
+const detailSummary = computed<any>(() => {
+  if (!detail.value) return null;
+  const session = detail.value.sessions.find(
+    session => session.id === detailSessionId.value
+  );
+  return session ? { ...detail.value.group, ...session } : detail.value.group;
+});
 type ParticipationFilter = "AUTO" | "CLASS" | "REGION";
 const participationFilter = ref<ParticipationFilter>("AUTO");
 
@@ -230,7 +242,7 @@ async function load() {
   loading.value = true;
   try {
     const [eventResponse, syncResponse, reconciliationResponse] = await Promise.all([
-      getAttendanceEventGroups(month.value),
+      getAttendanceActivityRows(month.value),
       getAttendanceSyncStatus(),
       getAttendanceReconciliationSummary()
     ]);
@@ -275,15 +287,44 @@ async function openActivityDetail(row: any) {
   detailLoading.value = true;
   detail.value = null;
   detailRecords.value = [];
+  detailSessionId.value = row.session_id || null;
+  detailDisplayTitle.value = row.display_title || row.title || "未命名活动";
   try {
     const [detailResponse, recordsResponse] = await Promise.all([
       getAttendanceEventGroupDetail(row.id),
-      getAttendanceRecords(row.id)
+      getAttendanceRecords(row.id, row.session_id)
     ]);
     detail.value = detailResponse.data;
     detailRecords.value = recordsResponse.data;
   } finally {
     detailLoading.value = false;
+  }
+}
+
+async function downloadDetailRecords() {
+  if (!detail.value) return;
+  downloadingRecords.value = true;
+  try {
+    const response = await downloadAttendanceRecords(
+      detail.value.group.id,
+      detailSessionId.value || undefined
+    );
+    const blob = response instanceof Blob
+      ? response
+      : new Blob([response], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `签到明细-${detail.value.group.event_date}${detailSessionId.value ? `-${detailSessionId.value}` : "-全部场次"}.xlsx`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    ElMessage.success("签到明细 Excel 已下载");
+  } finally {
+    downloadingRecords.value = false;
   }
 }
 </script>
@@ -320,7 +361,7 @@ async function openActivityDetail(row: any) {
     />
 
     <section class="summary">
-      <el-statistic title="活动场组" :value="visibleRows.length" />
+      <el-statistic title="活动场次" :value="visibleRows.length" />
       <el-statistic title="签到记录" :value="totalEligible" />
       <el-statistic title="已签到记录" :value="totalCompleted" />
       <el-statistic
@@ -374,11 +415,13 @@ async function openActivityDetail(row: any) {
 
     <el-card shadow="never">
       <div class="rate-definition">
-        报名人数 = 签到报名记录数；参会人数 = 正常签到人数（含人工确认和非塾生）；应参会人数 = 对应班级或分中心在册人数。签到率 = 参会人数 ÷ 报名人数；班级活动参会率 = 参会人数 ÷ 本班应参会人数，报告会等大型活动参会率 = 参会人数 ÷ 分中心应参会人数。
+        每一行对应一个签到场次。报名人数 = 该场次签到报名记录数；参会人数 = 该场次正常签到人数（含人工确认和非塾生）；应参会人数 = 对应班级或分中心在册人数。签到率 = 参会人数 ÷ 报名人数；班级活动参会率 = 参会人数 ÷ 本班应参会人数，报告会等大型活动参会率 = 参会人数 ÷ 分中心应参会人数。
       </div>
       <el-table :data="visibleRows" stripe class="activity-table">
         <el-table-column prop="event_date" label="活动日期" min-width="130" />
-        <el-table-column prop="title" label="活动" min-width="180" />
+        <el-table-column label="活动" min-width="220">
+          <template #default="{ row }">{{ row.display_title || row.title || "未命名活动" }}</template>
+        </el-table-column>
         <el-table-column prop="class_name" label="所属班级" min-width="130">
           <template #default="{ row }">{{ row.class_name || "—" }}</template>
         </el-table-column>
@@ -388,7 +431,9 @@ async function openActivityDetail(row: any) {
             {{ activityTypeLabel(row.activity_type) }}
           </template>
         </el-table-column>
-        <el-table-column prop="session_count" label="场次数" width="90" align="right" />
+        <el-table-column label="场次" min-width="110">
+          <template #default="{ row }">{{ row.session_name || row.session_code }}</template>
+        </el-table-column>
         <el-table-column label="参会口径" width="100">
           <template #default="{ row }">{{ participationScopeLabel(row) }}</template>
         </el-table-column>
@@ -471,7 +516,7 @@ async function openActivityDetail(row: any) {
 
     <el-dialog
       v-model="detailVisible"
-      :title="detail ? `活动明细 · ${detail.group.title || '未命名活动'}` : '活动明细'"
+      :title="detail ? `活动明细 · ${detailDisplayTitle || detail.group.title || '未命名活动'}` : '活动明细'"
       width="1120px"
       top="5vh"
       class="activity-detail-dialog"
@@ -501,23 +546,23 @@ async function openActivityDetail(row: any) {
             </div>
             <div>
               <span>报名人数</span>
-              <strong>{{ detail.group.record_count }}</strong>
+              <strong>{{ detailSummary.record_count }}</strong>
             </div>
             <div>
               <span>应参会人数</span>
-              <strong>{{ participationRosterCount(detail.group) || "—" }}</strong>
+              <strong>{{ participationRosterCount(detailSummary) || "—" }}</strong>
             </div>
             <div>
               <span>参会人数</span>
-              <strong>{{ detail.group.present_count }}</strong>
+              <strong>{{ detailSummary.present_count }}</strong>
             </div>
             <div>
               <span>签到率</span>
-              <strong>{{ recordAttendanceRate(detail.group.present_count, detail.group.record_count) }}</strong>
+              <strong>{{ recordAttendanceRate(detailSummary.present_count, detailSummary.record_count) }}</strong>
             </div>
             <div>
               <span>参会率</span>
-              <strong class="detail-rate">{{ participationRateValue(detail.group) === null ? "—" : participationRate(participationPresentCount(detail.group), participationRosterCount(detail.group)) }}</strong>
+              <strong class="detail-rate">{{ participationRateValue(detailSummary) === null ? "—" : participationRate(participationPresentCount(detailSummary), participationRosterCount(detailSummary)) }}</strong>
             </div>
           </div>
 
@@ -578,7 +623,18 @@ async function openActivityDetail(row: any) {
           <section class="detail-section">
             <div class="detail-section__heading">
               <h3>签到明细</h3>
-              <span>只读展示姓名、学员编号、签到状态和时间，不提供修改入口</span>
+              <div class="detail-section__actions">
+                <span>只读展示姓名、学员编号、签到状态和时间，不提供修改入口</span>
+                <el-button
+                  type="primary"
+                  plain
+                  size="small"
+                  :loading="downloadingRecords"
+                  @click="downloadDetailRecords"
+                >
+                  下载签到明细 Excel
+                </el-button>
+              </div>
             </div>
             <el-table :data="detailRecords" size="small" stripe max-height="380">
               <el-table-column prop="name_snapshot" label="姓名" min-width="120" />
@@ -775,6 +831,13 @@ async function openActivityDetail(row: any) {
   gap: 12px;
   margin-bottom: 10px;
 }
+.detail-section__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 1;
+  gap: 12px;
+}
 .detail-section__heading h3 {
   margin: 0;
   color: var(--el-text-color-primary);
@@ -798,6 +861,10 @@ async function openActivityDetail(row: any) {
   .reconciliation-grid,
   .detail-overview {
     grid-template-columns: 1fr;
+  }
+  .detail-section__actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>
