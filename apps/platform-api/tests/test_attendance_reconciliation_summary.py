@@ -29,3 +29,12 @@ def test_reconciliation_summary_returns_aggregate_counts_only():
             {"key": "active_members_expected_no_study_group", "count": 22},
         ],
     }
+
+
+def test_reconciliation_summary_scopes_counts_to_selected_activity_month():
+    with patch("app.api.attendance.fetch_one", return_value={"count": 1}) as fetch_one_mock:
+        _attendance_reconciliation_summary("2026-08")
+
+    statements = [call.args[0] for call in fetch_one_mock.call_args_list]
+    assert any("substr(eg.event_date, 1, 7)=?" in statement for statement in statements)
+    assert all(call.args[1] == ("2026-08",) for call in fetch_one_mock.call_args_list)

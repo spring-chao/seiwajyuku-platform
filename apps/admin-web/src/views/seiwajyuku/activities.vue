@@ -230,6 +230,21 @@ function formatDateTime(value?: string | null) {
   return value ? dayjs(value).format("MM-DD HH:mm") : "—";
 }
 
+function checkedAtLabel(row: Pick<AttendanceRecord, "checked_at" | "checked_at_review_status">) {
+  return row.checked_at_review_status === "TIME_BEFORE_CHECKIN_START"
+    ? "待核对"
+    : formatDateTime(row.checked_at);
+}
+
+function attendanceFlagLabel(value?: number | null, finalPoints?: number | string | null) {
+  if (finalPoints === null || finalPoints === undefined) return "—";
+  return Number(value) ? "是" : "否";
+}
+
+function attendancePointsLabel(value?: number | string | null) {
+  return value === null || value === undefined ? "—" : String(value);
+}
+
 function reconciliationTagType(item: AttendanceReconciliationItem) {
   return item.key === "active_members_expected_no_study_group"
     ? "success"
@@ -244,7 +259,7 @@ async function load() {
     const [eventResponse, syncResponse, reconciliationResponse] = await Promise.all([
       getAttendanceActivityRows(month.value),
       getAttendanceSyncStatus(),
-      getAttendanceReconciliationSummary()
+      getAttendanceReconciliationSummary(month.value)
     ]);
     rows.value = eventResponse.data;
     syncStatus.value = syncResponse.data;
@@ -262,10 +277,11 @@ async function loadReviewQueue() {
     const [queueResponse, breakdownResponse] = await Promise.all([
       getAttendanceReconciliationQueue({
         issue: reviewIssue.value,
+        month: month.value,
         limit: reviewPageSize,
         offset: (reviewPage.value - 1) * reviewPageSize
       }),
-      getAttendanceReconciliationBreakdown(reviewIssue.value)
+      getAttendanceReconciliationBreakdown(reviewIssue.value, month.value)
     ]);
     reviewRows.value = queueResponse.data.rows;
     reviewTotal.value = queueResponse.data.total;
@@ -624,7 +640,7 @@ async function downloadDetailRecords() {
             <div class="detail-section__heading">
               <h3>签到明细</h3>
               <div class="detail-section__actions">
-                <span>只读展示姓名、学员编号、签到状态和时间，不提供修改入口</span>
+                <span>只读展示签到状态、时间、迟到、早退和积分，不提供修改入口</span>
                 <el-button
                   type="primary"
                   plain
@@ -653,7 +669,16 @@ async function downloadDetailRecords() {
                 </template>
               </el-table-column>
               <el-table-column label="签到时间" width="150">
-                <template #default="{ row }">{{ formatDateTime(row.checked_at) }}</template>
+                <template #default="{ row }">{{ checkedAtLabel(row) }}</template>
+              </el-table-column>
+              <el-table-column label="迟到" width="80">
+                <template #default="{ row }">{{ attendanceFlagLabel(row.is_late, row.final_points) }}</template>
+              </el-table-column>
+              <el-table-column label="早退" width="80">
+                <template #default="{ row }">{{ attendanceFlagLabel(row.is_early_leave, row.final_points) }}</template>
+              </el-table-column>
+              <el-table-column label="积分" width="80">
+                <template #default="{ row }">{{ attendancePointsLabel(row.final_points) }}</template>
               </el-table-column>
             </el-table>
           </section>
