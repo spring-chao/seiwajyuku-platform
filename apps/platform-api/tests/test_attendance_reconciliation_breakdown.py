@@ -19,3 +19,13 @@ def test_reconciliation_breakdown_is_aggregate_only():
         },
     }
     assert "COUNT(*)" in fetch_all_mock.call_args.args[0]
+
+
+def test_reconciliation_breakdown_scopes_to_selected_month():
+    with patch("app.api.attendance.fetch_all", return_value=[]) as fetch_all_mock:
+        reconciliation_breakdown(
+            issue="unmatched_attendance_records", month="2026-08", user={"id": 1}
+        )
+
+    assert "substr(eg.event_date, 1, 7)=?" in fetch_all_mock.call_args.args[0]
+    assert fetch_all_mock.call_args.args[1] == ("2026-08",)

@@ -119,26 +119,56 @@ def _write_failure_alert_if_threshold_reached() -> None:
         )
 
 
-def _attendance_reconciliation_summary() -> dict:
+def _member_activity_month_clause(month: str | None) -> tuple[str, tuple[str, ...]]:
+    """Limit member-quality review to members appearing in the selected event month."""
+    if not month:
+        return "", ()
+    return (
+        " AND EXISTS (SELECT 1 FROM attendance_records ar "
+        "JOIN attendance_sessions mas ON mas.id=ar.attendance_session_id "
+        "JOIN attendance_event_groups meg ON meg.id=mas.event_group_id "
+        "WHERE ar.member_id=m.id AND substr(meg.event_date, 1, 7)=?)",
+        (month,),
+    )
+
+
+def _execute_count(statement: str, params: tuple = ()) -> int:
+    row = fetch_one(statement, params) if params else fetch_one(statement)
+    return int((row or {"count": 0})["count"] or 0)
+
+
+def _attendance_reconciliation_summary(month: str | None = None) -> dict:
     """Return only review workload counts; never expose attendance snapshots."""
+    member_month_clause, member_month_params = _member_activity_month_clause(month)
+    unmatched_month_clause = " AND substr(eg.event_date, 1, 7)=?" if month else ""
     queries = {
         "unmatched_attendance_records": (
-            "SELECT COUNT(*) AS count FROM attendance_records "
-            "WHERE attendance_status='UNMATCHED' OR member_id IS NULL"
+            "SELECT COUNT(*) AS count FROM attendance_records ar "
+            "JOIN attendance_sessions s ON s.id=ar.attendance_session_id "
+            "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
+            "WHERE (ar.attendance_status='UNMATCHED' OR ar.member_id IS NULL)"
+            + unmatched_month_clause,
+            (month,) if month else (),
         ),
         "active_members_missing_phone_hash": (
             "SELECT COUNT(*) AS count FROM members "
             "WHERE status='ACTIVE' AND (phone_hash IS NULL OR phone_hash='')"
+            + (member_month_clause.replace("m.id", "members.id") if month else ""),
+            member_month_params,
         ),
         "active_members_missing_primary_region": (
             "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
             "AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
             "WHERE r.member_id=m.id AND r.relation_type='PRIMARY_REGION')"
+            + member_month_clause,
+            member_month_params,
         ),
         "active_members_missing_study_class": (
             "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
             "AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
             "WHERE r.member_id=m.id AND r.relation_type='STUDY_CLASS')"
+            + member_month_clause,
+            member_month_params,
         ),
         "active_members_missing_study_group": (
             "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
@@ -146,6 +176,8 @@ def _attendance_reconciliation_summary() -> dict:
             "WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') "
             "AND NOT (COALESCE(m.class_name,'') IN ('先锋班','神仙班') "
             "OR COALESCE(m.notes,'') LIKE '%目前不读书%')"
+            + member_month_clause,
+            member_month_params,
         ),
         "active_members_expected_no_study_group": (
             "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
@@ -153,6 +185,8 @@ def _attendance_reconciliation_summary() -> dict:
             "WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') "
             "AND (COALESCE(m.class_name,'') IN ('先锋班','神仙班') "
             "OR COALESCE(m.notes,'') LIKE '%目前不读书%')"
+            + member_month_clause,
+            member_month_params,
         ),
     }
     return {
@@ -161,9 +195,9 @@ def _attendance_reconciliation_summary() -> dict:
         "items": [
             {
                 "key": key,
-                "count": int((fetch_one(statement) or {"count": 0})["count"] or 0),
+                "count": _execute_count(statement, params),
             }
-            for key, statement in queries.items()
+            for key, (statement, params) in queries.items()
         ],
     }
 
@@ -248,10 +282,12 @@ def sync_status(
 
 @router.get("/reconciliation-summary")
 def reconciliation_summary(
+    month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
     user: dict = Depends(require_permission("members:read")),
 ) -> dict:
     """Return privacy-safe aggregate workload for manual data review."""
-    return {"success": True, "data": _attendance_reconciliation_summary()}
+    month = month if isinstance(month, str) else None
+    return {"success": True, "data": _attendance_reconciliation_summary(month)}
 
 
 @router.get("/reconciliation-queue")
@@ -263,69 +299,92 @@ def reconciliation_queue(
         "active_members_missing_study_class",
         "active_members_missing_study_group",
     ] = "unmatched_attendance_records",
+    month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     user: dict = Depends(require_permission("members:detail_view")),
 ) -> dict:
     """Return a paged read-only queue for authorized manual review."""
+    month = month if isinstance(month, str) else None
+    member_month_clause, member_month_params = _member_activity_month_clause(month)
+    unmatched_month_clause = " AND substr(eg.event_date, 1, 7)=?" if month else ""
     queries = {
         "unmatched_attendance_records": {
-            "count": "SELECT COUNT(*) AS count FROM attendance_records "
-            "WHERE attendance_status='UNMATCHED' OR member_id IS NULL",
+            "count": "SELECT COUNT(*) AS count FROM attendance_records r "
+            "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
+            "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
+            "WHERE (r.attendance_status='UNMATCHED' OR r.member_id IS NULL)"
+            + unmatched_month_clause,
+            "count_params": (month,) if month else (),
             "rows": "SELECT r.id, r.member_code_snapshot, r.name_snapshot, "
             "r.attendance_status, r.checked_at, s.session_name, "
             "eg.title, eg.event_date, eg.org_unit_id, eg.study_org_unit_id "
             "FROM attendance_records r JOIN attendance_sessions s "
             "ON s.id=r.attendance_session_id JOIN attendance_event_groups eg "
-            "ON eg.id=s.event_group_id WHERE r.attendance_status='UNMATCHED' "
-            "OR r.member_id IS NULL ORDER BY eg.event_date DESC, r.id DESC",
+            "ON eg.id=s.event_group_id WHERE (r.attendance_status='UNMATCHED' "
+            "OR r.member_id IS NULL)"
+            + unmatched_month_clause
+            + " ORDER BY eg.event_date DESC, r.id DESC",
+            "row_params": (month,) if month else (),
         },
         "active_members_missing_phone_hash": {
             "count": "SELECT COUNT(*) AS count FROM members "
-            "WHERE status='ACTIVE' AND (phone_hash IS NULL OR phone_hash='')",
+            "WHERE status='ACTIVE' AND (phone_hash IS NULL OR phone_hash='')"
+            + (member_month_clause.replace("m.id", "members.id") if month else ""),
+            "count_params": member_month_params,
             "rows": "SELECT id, member_code AS member_code_snapshot, name AS name_snapshot, "
             "status AS attendance_status, NULL AS checked_at, NULL AS session_name, "
             "NULL AS title, NULL AS event_date, org_unit_id, development_org_unit_id AS study_org_unit_id "
             "FROM members WHERE status='ACTIVE' AND (phone_hash IS NULL OR phone_hash='') "
-            "ORDER BY id DESC",
+            + (member_month_clause.replace("m.id", "members.id") if month else "")
+            + " ORDER BY id DESC",
+            "row_params": member_month_params,
         },
         "active_members_missing_primary_region": {
             "count": "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
             "AND NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id "
-            "AND r.relation_type='PRIMARY_REGION')",
+            "AND r.relation_type='PRIMARY_REGION')" + member_month_clause,
+            "count_params": member_month_params,
             "rows": "SELECT m.id, m.member_code AS member_code_snapshot, m.name AS name_snapshot, "
             "m.status AS attendance_status, NULL AS checked_at, NULL AS session_name, NULL AS title, "
             "NULL AS event_date, m.org_unit_id, m.development_org_unit_id AS study_org_unit_id "
             "FROM members m WHERE m.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
-            "WHERE r.member_id=m.id AND r.relation_type='PRIMARY_REGION') ORDER BY m.id DESC",
+            "WHERE r.member_id=m.id AND r.relation_type='PRIMARY_REGION')" + member_month_clause
+            + " ORDER BY m.id DESC",
+            "row_params": member_month_params,
         },
         "active_members_missing_study_class": {
             "count": "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
             "AND NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id "
-            "AND r.relation_type='STUDY_CLASS')",
+            "AND r.relation_type='STUDY_CLASS')" + member_month_clause,
+            "count_params": member_month_params,
             "rows": "SELECT m.id, m.member_code AS member_code_snapshot, m.name AS name_snapshot, "
             "m.status AS attendance_status, NULL AS checked_at, NULL AS session_name, NULL AS title, "
             "NULL AS event_date, m.org_unit_id, m.development_org_unit_id AS study_org_unit_id "
             "FROM members m WHERE m.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
-            "WHERE r.member_id=m.id AND r.relation_type='STUDY_CLASS') ORDER BY m.id DESC",
+            "WHERE r.member_id=m.id AND r.relation_type='STUDY_CLASS')" + member_month_clause
+            + " ORDER BY m.id DESC",
+            "row_params": member_month_params,
         },
         "active_members_missing_study_group": {
             "count": "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
             "AND NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id "
-            "AND r.relation_type='STUDY_GROUP')",
+            "AND r.relation_type='STUDY_GROUP')" + member_month_clause,
+            "count_params": member_month_params,
             "rows": "SELECT m.id, m.member_code AS member_code_snapshot, m.name AS name_snapshot, "
             "m.status AS attendance_status, NULL AS checked_at, NULL AS session_name, NULL AS title, "
             "NULL AS event_date, m.org_unit_id, m.development_org_unit_id AS study_org_unit_id "
             "FROM members m WHERE m.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
             "WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') "
             "AND NOT (COALESCE(m.class_name,'') IN ('先锋班','神仙班') "
-            "OR COALESCE(m.notes,'') LIKE '%目前不读书%') ORDER BY m.id DESC",
+            "OR COALESCE(m.notes,'') LIKE '%目前不读书%')" + member_month_clause
+            + " ORDER BY m.id DESC",
+            "row_params": member_month_params,
         },
     }[issue]
-    total = int((fetch_one(queries["count"]) or {"count": 0})["count"] or 0)
-    rows = fetch_all(
-        f"{queries['rows']} LIMIT ? OFFSET ?", (limit, offset)
-    )
+    total = _execute_count(queries["count"], queries["count_params"])
+    row_params = (*queries["row_params"], limit, offset)
+    rows = fetch_all(f"{queries['rows']} LIMIT ? OFFSET ?", row_params)
     return {
         "success": True,
         "data": {
@@ -349,30 +408,41 @@ def reconciliation_breakdown(
         "active_members_missing_study_class",
         "active_members_missing_study_group",
     ] = "unmatched_attendance_records",
+    month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
     user: dict = Depends(require_permission("members:read")),
 ) -> dict:
     """Return aggregate issue distribution by primary operating organization."""
+    month = month if isinstance(month, str) else None
     if issue == "unmatched_attendance_records":
-        rows = fetch_all(
+        statement = (
             "SELECT eg.org_unit_id, o.name AS org_name, COUNT(*) AS count "
             "FROM attendance_records r JOIN attendance_sessions s ON s.id=r.attendance_session_id "
             "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
             "JOIN org_units o ON o.id=eg.org_unit_id "
-            "WHERE r.attendance_status='UNMATCHED' OR r.member_id IS NULL "
-            "GROUP BY eg.org_unit_id, o.name ORDER BY count DESC, eg.org_unit_id"
+            "WHERE (r.attendance_status='UNMATCHED' OR r.member_id IS NULL) "
+            + ("AND substr(eg.event_date, 1, 7)=? " if month else "")
+            + "GROUP BY eg.org_unit_id, o.name ORDER BY count DESC, eg.org_unit_id"
         )
+        rows = fetch_all(statement, (month,)) if month else fetch_all(statement)
     else:
+        member_month_clause, member_month_params = _member_activity_month_clause(month)
         conditions = {
             "active_members_missing_phone_hash": "m.phone_hash IS NULL OR m.phone_hash=''",
             "active_members_missing_primary_region": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='PRIMARY_REGION')",
             "active_members_missing_study_class": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='STUDY_CLASS')",
             "active_members_missing_study_group": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') AND NOT (COALESCE(m.class_name,'') IN ('先锋班','神仙班') OR COALESCE(m.notes,'') LIKE '%目前不读书%')",
         }
-        rows = fetch_all(
+        statement = (
             "SELECT m.org_unit_id, o.name AS org_name, COUNT(*) AS count "
             "FROM members m JOIN org_units o ON o.id=m.org_unit_id "
             "WHERE m.status='ACTIVE' AND (" + conditions[issue] + ") "
-            "GROUP BY m.org_unit_id, o.name ORDER BY count DESC, m.org_unit_id"
+            + member_month_clause
+            + "GROUP BY m.org_unit_id, o.name ORDER BY count DESC, m.org_unit_id"
+        )
+        rows = (
+            fetch_all(statement, member_month_params)
+            if member_month_params
+            else fetch_all(statement)
         )
     return {
         "success": True,
@@ -495,6 +565,44 @@ def _session_display_title(title: str | None, session_name: str | None, session_
     if not label or label in base:
         return source_title
     return f"{base} · {label}"
+
+
+def _as_comparable_datetime(value: object | None) -> datetime | None:
+    """Parse a database/source timestamp without changing the stored source fact."""
+    if value in (None, ""):
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(UTC).replace(tzinfo=None)
+    return parsed
+
+
+def _apply_checkin_time_display_policy(row: dict) -> dict:
+    """Fail closed for a check-in time before the explicit check-in opening.
+
+    The source snapshot remains untouched.  An invalid source time is not shown
+    to operators or exported as a genuine check-in time; it is marked for data
+    review instead.  We only compare with an explicit check-in opening, because
+    a scheduled start alone does not rule out an approved early arrival.
+    """
+    display = dict(row)
+    checked_at = _as_comparable_datetime(row.get("checked_at"))
+    checkin_start = _as_comparable_datetime(row.get("checkin_start_at"))
+    if checked_at and checkin_start and checked_at < checkin_start:
+        display["checked_at"] = None
+        display["checked_at_review_status"] = "TIME_BEFORE_CHECKIN_START"
+    else:
+        display["checked_at_review_status"] = None
+    return display
+
+
+def _attendance_flag_label(value: object | None, score_present: bool) -> str:
+    if not score_present:
+        return "—"
+    return "是" if bool(value) else "否"
 
 
 @router.get("/activity-sessions")
@@ -768,11 +876,13 @@ def download_event_group_records(
 
     sql = (
         "SELECT r.name_snapshot, r.member_code_snapshot, r.participant_type, "
-        "r.attendance_status, r.checked_at, r.checkin_source, s.session_code, "
-        "s.session_name, eg.title, eg.event_date "
+        "r.attendance_status, r.checked_at, s.session_code, s.session_name, "
+        "s.checkin_start_at, eg.title, eg.event_date, sr.final_points, sr.is_late, "
+        "sr.is_early_leave, sr.id AS score_record_id "
         "FROM attendance_records r "
         "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
         "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
+        "LEFT JOIN attendance_score_records sr ON sr.attendance_record_id=r.id "
         "WHERE eg.id=?" + session_clause
     )
     if allowed is not None:
@@ -804,7 +914,9 @@ def download_event_group_records(
         "参与类型",
         "签到状态",
         "签到时间",
-        "签到来源",
+        "迟到",
+        "早退",
+        "积分",
     ]
     sheet.append(headers)
     for cell in sheet[1]:
@@ -818,7 +930,9 @@ def download_event_group_records(
         "INVALIDATED": "已作废",
         "UNMATCHED": "待匹配",
     }
-    for row in rows:
+    for source_row in rows:
+        row = _apply_checkin_time_display_policy(source_row)
+        score_present = row.get("score_record_id") is not None
         sheet.append(
             [
                 _session_display_title(
@@ -830,8 +944,10 @@ def download_event_group_records(
                 row.get("member_code_snapshot") or "",
                 participant_labels.get(str(row.get("participant_type") or ""), row.get("participant_type") or ""),
                 status_labels.get(str(row.get("attendance_status") or ""), row.get("attendance_status") or ""),
-                row.get("checked_at") or "",
-                row.get("checkin_source") or "",
+                "待核对" if row.get("checked_at_review_status") else row.get("checked_at") or "",
+                _attendance_flag_label(row.get("is_late"), score_present),
+                _attendance_flag_label(row.get("is_early_leave"), score_present),
+                row.get("final_points") if score_present else "—",
             ]
         )
     sheet.freeze_panes = "A2"
@@ -866,9 +982,9 @@ def list_records(
     sql = (
         "SELECT r.id, r.attendance_session_id, r.member_id, r.member_code_snapshot, "
         "r.name_snapshot, r.participant_type, r.score_eligible, r.attendance_status, "
-        "r.checked_at, r.checkin_source, s.session_code, s.session_name, "
+        "r.checked_at, r.checkin_source, s.session_code, s.session_name, s.checkin_start_at, "
         "eg.title, eg.event_date, eg.org_unit_id, eg.study_org_unit_id, "
-        "sr.final_points, sr.is_late, sr.is_early_leave "
+        "sr.final_points, sr.is_late, sr.is_early_leave, sr.id AS score_record_id "
         "FROM attendance_records r "
         "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
         "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
@@ -907,7 +1023,10 @@ def list_records(
         params.extend(sorted(allowed))
 
     sql += " ORDER BY eg.event_date DESC, s.session_order, r.name_snapshot"
-    rows = fetch_all(sql, tuple(params))
+    rows = [
+        _apply_checkin_time_display_policy(row)
+        for row in fetch_all(sql, tuple(params))
+    ]
     return {"success": True, "data": rows}
 
 

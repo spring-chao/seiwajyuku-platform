@@ -231,8 +231,8 @@ class AttendanceParticipationRateTests(unittest.TestCase):
             session = execute(
                 connection,
                 "INSERT INTO attendance_sessions"
-                "(event_group_id, external_session_id, session_code, session_name, session_order, status, created_at, updated_at) "
-                "VALUES (?, 'activity-session-test-konpa', 'KONPA', '空巴', 2, 'ACTIVE', ?, ?)",
+                "(event_group_id, external_session_id, session_code, session_name, session_order, checkin_start_at, status, created_at, updated_at) "
+                "VALUES (?, 'activity-session-test-konpa', 'KONPA', '空巴', 2, '2026-08-05 19:00:00', 'ACTIVE', ?, ?)",
                 (group_id, now, now),
             )
             session_id = session.lastrowid
@@ -240,8 +240,8 @@ class AttendanceParticipationRateTests(unittest.TestCase):
                 connection,
                 "INSERT INTO attendance_records"
                 "(attendance_session_id, external_record_id, member_id, member_code_snapshot, name_snapshot, "
-                "participant_type, score_eligible, attendance_status, received_at, created_at, updated_at) "
-                "VALUES (?, 'activity-session-konpa-guest', NULL, NULL, '场次测试嘉宾', 'GUEST', 0, 'PRESENT', ?, ?, ?)",
+                "participant_type, score_eligible, attendance_status, checked_at, received_at, created_at, updated_at) "
+                "VALUES (?, 'activity-session-konpa-guest', NULL, NULL, '场次测试嘉宾', 'GUEST', 0, 'PRESENT', '2026-08-05 00:43:00', ?, ?, ?)",
                 (session_id, now, now, now),
             )
 
@@ -264,9 +264,10 @@ class AttendanceParticipationRateTests(unittest.TestCase):
         sheet = workbook["签到明细"]
         self.assertEqual(
             [cell.value for cell in next(sheet.iter_rows())],
-            ["活动", "活动日期", "场次", "姓名", "学员编号", "参与类型", "签到状态", "签到时间", "签到来源"],
+            ["活动", "活动日期", "场次", "姓名", "学员编号", "参与类型", "签到状态", "签到时间", "迟到", "早退", "积分"],
         )
         self.assertEqual(sheet.max_row, 2)
+        self.assertEqual(list(sheet.iter_rows(values_only=True))[1][7:], ("待核对", "—", "—", "—"))
 
     @staticmethod
     def _detail_rows(response: dict) -> list[dict]:

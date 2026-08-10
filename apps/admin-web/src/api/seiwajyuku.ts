@@ -415,6 +415,7 @@ export type AttendanceRecord = {
   score_eligible: number;
   attendance_status: string;
   checked_at?: string | null;
+  checked_at_review_status?: "TIME_BEFORE_CHECKIN_START" | null;
   checkin_source?: string | null;
   session_code: string;
   session_name?: string | null;
@@ -896,7 +897,7 @@ export type AttendanceReconciliationItem = {
   count: number;
 };
 
-export const getAttendanceReconciliationSummary = () =>
+export const getAttendanceReconciliationSummary = (month?: string) =>
   http.request<{
     success: boolean;
     data: {
@@ -904,7 +905,9 @@ export const getAttendanceReconciliationSummary = () =>
       write_enabled: false;
       items: AttendanceReconciliationItem[];
     };
-  }>("get", "/api/v1/attendance/reconciliation-summary");
+  }>("get", "/api/v1/attendance/reconciliation-summary", {
+    params: month ? { month } : undefined
+  });
 
 export type AttendanceReconciliationQueueRow = {
   id: number;
@@ -921,6 +924,7 @@ export type AttendanceReconciliationQueueRow = {
 
 export const getAttendanceReconciliationQueue = (params?: {
   issue?: AttendanceReconciliationItem["key"];
+  month?: string;
   limit?: number;
   offset?: number;
 }) =>
@@ -944,7 +948,8 @@ export type AttendanceReconciliationBreakdownRow = {
 };
 
 export const getAttendanceReconciliationBreakdown = (
-  issue: AttendanceReconciliationItem["key"]
+  issue: AttendanceReconciliationItem["key"],
+  month?: string
 ) =>
   http.request<{
     success: boolean;
@@ -954,7 +959,7 @@ export const getAttendanceReconciliationBreakdown = (
       rows: AttendanceReconciliationBreakdownRow[];
     };
   }>("get", "/api/v1/attendance/reconciliation-breakdown", {
-    params: { issue }
+    params: { issue, ...(month ? { month } : {}) }
   });
 
 export const getRenewalOverview = (year: number) =>
