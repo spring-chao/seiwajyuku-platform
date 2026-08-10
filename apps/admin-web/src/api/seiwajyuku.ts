@@ -205,7 +205,17 @@ export type MemberServiceSignal = {
   action_hint: string;
   rule_version: string;
   evidence: Record<string, boolean | number | string>;
+  latest_feedback?: {
+    id: number;
+    status: MemberServiceSignalFeedbackStatus;
+    created_at: string;
+  } | null;
 };
+
+export type MemberServiceSignalFeedbackStatus =
+  | "CONFIRMED_VALID"
+  | "NOT_APPLICABLE"
+  | "DATA_CORRECTED";
 
 export type MemberTimeline = {
   member: Pick<
@@ -220,6 +230,7 @@ export type MemberTimeline = {
     | "status"
   >;
   summary: Record<string, number>;
+  service_signal_feedback_enabled: boolean;
   service_signals: MemberServiceSignal[];
   events: MemberTimelineEvent[];
 };
@@ -528,6 +539,23 @@ export const getMemberTimeline = (memberId: number, limit = 100) =>
     "get",
     `/api/v1/members/${memberId}/timeline`,
     { params: { limit } }
+  );
+
+export const submitMemberServiceSignalFeedback = (
+  memberId: number,
+  signalCode: string,
+  data: {
+    rule_version: string;
+    status: MemberServiceSignalFeedbackStatus;
+  }
+) =>
+  http.request<{
+    success: boolean;
+    data: { id: number; status: MemberServiceSignalFeedbackStatus; created_at: string };
+  }>(
+    "post",
+    `/api/v1/members/${memberId}/service-signals/${signalCode}/feedback`,
+    { data }
   );
 
 export const createMember = (data: {

@@ -31,6 +31,7 @@ class SystemApiTests(unittest.TestCase):
                 "identity_authorization_enabled": True,
                 "identity_admin_writes_enabled": True,
                 "volunteer_service_invitations_enabled": True,
+                "member_service_signal_feedback_enabled": True,
             },
         )
 
@@ -40,6 +41,11 @@ class SystemApiTests(unittest.TestCase):
         )
         self.assertFalse(
             read_only_request_allowed("POST", "/api/v1/legacy-operations/apply")
+        )
+        self.assertFalse(
+            read_only_request_allowed(
+                "POST", "/api/v1/members/1/service-signals/CONTACT_INFO_REVIEW/feedback"
+            )
         )
 
 

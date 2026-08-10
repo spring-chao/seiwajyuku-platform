@@ -31,4 +31,7 @@ def environment() -> dict[str, str | bool]:
         "identity_authorization_enabled": settings.identity_authorization_enabled,
         "identity_admin_writes_enabled": settings.identity_admin_writes_enabled,
         "volunteer_service_invitations_enabled": settings.volunteer_service_invitations_enabled,
+        "member_service_signal_feedback_enabled": (
+            settings.member_service_signal_feedback_enabled
+        ),
     }

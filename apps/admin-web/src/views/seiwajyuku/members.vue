@@ -18,6 +18,7 @@ import {
   applyFullClassRosterRelations,
   getMemberChangeHistory,
   getMemberTimeline,
+  submitMemberServiceSignalFeedback,
   updateMember,
   previewDirectClassWorkbook,
   previewFullClassRosterWorkbook,
@@ -25,6 +26,8 @@ import {
   type FullClassRosterPreflight,
   type Member,
   type MemberChangeHistory,
+  type MemberServiceSignal,
+  type MemberServiceSignalFeedbackStatus,
   type MemberTimeline,
   type OrgUnit
 } from "@/api/seiwajyuku";
@@ -41,6 +44,7 @@ const historyRows = ref<MemberChangeHistory[]>([]);
 const timelineVisible = ref(false);
 const timelineLoading = ref(false);
 const timeline = ref<MemberTimeline>();
+const serviceSignalFeedbackLoading = ref("");
 const editingMemberId = ref<number>();
 const preflightVisible = ref(false);
 const preflightLoading = ref(false);
@@ -398,6 +402,46 @@ function timelineChannelLabel(channel?: string) {
 function formatTimelineTime(value?: string) {
   if (!value) return "—";
   return value.replace("T", " ").replace("+00:00", "");
+}
+
+function serviceSignalFeedbackLabel(status?: MemberServiceSignalFeedbackStatus) {
+  if (!status) return "";
+  return ({
+    CONFIRMED_VALID: "已确认有效",
+    NOT_APPLICABLE: "已标记暂不适用",
+    DATA_CORRECTED: "已反馈数据修正"
+  } as Record<MemberServiceSignalFeedbackStatus, string>)[status];
+}
+
+async function submitServiceSignalFeedback(
+  signal: MemberServiceSignal,
+  status: MemberServiceSignalFeedbackStatus
+) {
+  if (!timeline.value) return;
+  const label = serviceSignalFeedbackLabel(status);
+  try {
+    await ElMessageBox.confirm(
+      `确认将“${signal.title}”反馈为“${label}”？系统会保存当前规则版本和脱敏证据快照。`,
+      "提交服务提示反馈",
+      { type: "warning", confirmButtonText: "确认提交", cancelButtonText: "取消" }
+    );
+  } catch {
+    return;
+  }
+  const loadingKey = `${signal.code}:${status}`;
+  serviceSignalFeedbackLoading.value = loadingKey;
+  try {
+    await submitMemberServiceSignalFeedback(timeline.value.member.id, signal.code, {
+      rule_version: signal.rule_version,
+      status
+    });
+    timeline.value = (await getMemberTimeline(timeline.value.member.id)).data;
+    ElMessage.success("服务提示反馈已保存并记录审计");
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    serviceSignalFeedbackLoading.value = "";
+  }
 }
 
 async function openTimeline(row: any) {
@@ -1216,10 +1260,15 @@ onMounted(load);
           <section class="service-signals">
             <div class="service-signals__head">
               <div>
-                <h3>服务提示（只读）</h3>
-                <p>只依据明确数据规则提示待核对事项，不评价学长，也不用于排名。</p>
+                <h3>服务提示</h3>
+                <p>只依据明确数据规则提示待核对事项，不评价学长，也不用于排名；人工反馈不会自动创建任务。</p>
               </div>
-              <el-tag type="info" effect="plain">规则版本 1.0</el-tag>
+              <el-tag
+                :type="timeline.service_signal_feedback_enabled ? 'success' : 'info'"
+                effect="plain"
+              >
+                {{ timeline.service_signal_feedback_enabled ? "反馈试点已开启" : "规则只读" }}
+              </el-tag>
             </div>
             <div v-if="timeline.service_signals.length" class="service-signals__grid">
               <article
@@ -1237,6 +1286,41 @@ onMounted(load);
                   <strong>{{ signal.title }}</strong>
                   <p>{{ signal.message }}</p>
                   <small>{{ signal.action_hint }}</small>
+                  <div v-if="signal.latest_feedback" class="service-signal__feedback">
+                    <el-tag size="small" type="success" effect="plain">
+                      {{ serviceSignalFeedbackLabel(signal.latest_feedback.status) }}
+                    </el-tag>
+                    <small>{{ formatTimelineTime(signal.latest_feedback.created_at) }}</small>
+                  </div>
+                  <div
+                    v-if="timeline.service_signal_feedback_enabled && canManage"
+                    class="service-signal__actions"
+                  >
+                    <el-button
+                      size="small"
+                      plain
+                      :loading="serviceSignalFeedbackLoading === `${signal.code}:CONFIRMED_VALID`"
+                      @click="submitServiceSignalFeedback(signal, 'CONFIRMED_VALID')"
+                    >
+                      确认有效
+                    </el-button>
+                    <el-button
+                      size="small"
+                      plain
+                      :loading="serviceSignalFeedbackLoading === `${signal.code}:NOT_APPLICABLE`"
+                      @click="submitServiceSignalFeedback(signal, 'NOT_APPLICABLE')"
+                    >
+                      暂不适用
+                    </el-button>
+                    <el-button
+                      size="small"
+                      plain
+                      :loading="serviceSignalFeedbackLoading === `${signal.code}:DATA_CORRECTED`"
+                      @click="submitServiceSignalFeedback(signal, 'DATA_CORRECTED')"
+                    >
+                      数据已修正
+                    </el-button>
+                  </div>
                 </div>
               </article>
             </div>
@@ -1403,6 +1487,17 @@ onMounted(load);
 }
 .service-signal p {
   margin: 4px 0;
+}
+.service-signal__feedback,
+.service-signal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.service-signal__actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 .timeline-summary {
   display: flex;
