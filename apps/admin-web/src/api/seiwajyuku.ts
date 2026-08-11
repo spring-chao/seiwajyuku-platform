@@ -42,10 +42,7 @@ export const getAnnualPlans = () =>
     "/api/v1/annual-plans"
   );
 
-export const getMpDashboard = (params: {
-  plan_id: number;
-  month: number;
-}) =>
+export const getMpDashboard = (params: { plan_id: number; month: number }) =>
   http.request<{
     success: boolean;
     data: {
@@ -213,9 +210,7 @@ export type MemberServiceSignal = {
 };
 
 export type MemberServiceSignalFeedbackStatus =
-  | "CONFIRMED_VALID"
-  | "NOT_APPLICABLE"
-  | "DATA_CORRECTED";
+  "CONFIRMED_VALID" | "NOT_APPLICABLE" | "DATA_CORRECTED";
 
 export type MemberTimeline = {
   member: Pick<
@@ -256,7 +251,10 @@ export type DirectClassPreflight = {
   organization: {
     root_unit_code: string;
     root_match_count: number;
-    development_center_match_counts: { center_name: string; match_count: number }[];
+    development_center_match_counts: {
+      center_name: string;
+      match_count: number;
+    }[];
     direct_class_status: {
       class_name: string;
       active_class_matches: number;
@@ -267,9 +265,15 @@ export type DirectClassPreflight = {
   matching: {
     summary: { status: string; count: number }[];
     no_production_match_by_class: { class_name: string; count: number }[];
-    matched_profile_fields_needing_reconciliation: { field: string; count: number }[];
+    matched_profile_fields_needing_reconciliation: {
+      field: string;
+      count: number;
+    }[];
   };
-  production_existing_direct_class_records: { class_name: string; count: number }[];
+  production_existing_direct_class_records: {
+    class_name: string;
+    count: number;
+  }[];
   issues: { code: string; count: number }[];
   write_gates: string[];
 };
@@ -492,6 +496,12 @@ export type RenewalCycle = {
   renewal_year: number;
   org_unit_id: string;
   org_name: string;
+  member_org_unit_id: string;
+  member_development_org_unit_id?: string;
+  member_class_name?: string;
+  member_group_name?: string;
+  imported_org_unit_id?: string;
+  imported_org_name?: string;
   due_month: number;
   phase: string;
   status: string;
@@ -533,11 +543,9 @@ export const getFollowupTasks = (status?: string) =>
   );
 
 export const getMembers = (orgUnitId?: string) =>
-  http.request<{ success: boolean; data: Member[] }>(
-    "get",
-    "/api/v1/members",
-    { params: orgUnitId ? { org_unit_id: orgUnitId } : undefined }
-  );
+  http.request<{ success: boolean; data: Member[] }>("get", "/api/v1/members", {
+    params: orgUnitId ? { org_unit_id: orgUnitId } : undefined
+  });
 
 export const getMemberChangeHistory = (memberId: number) =>
   http.request<{ success: boolean; data: MemberChangeHistory[] }>(
@@ -562,7 +570,11 @@ export const submitMemberServiceSignalFeedback = (
 ) =>
   http.request<{
     success: boolean;
-    data: { id: number; status: MemberServiceSignalFeedbackStatus; created_at: string };
+    data: {
+      id: number;
+      status: MemberServiceSignalFeedbackStatus;
+      created_at: string;
+    };
   }>(
     "post",
     `/api/v1/members/${memberId}/service-signals/${signalCode}/feedback`,
@@ -684,9 +696,20 @@ export const applyFullClassRosterRelations = (workbook: File) => {
 export const applyDirectClassWorkbook = (workbook: File) => {
   const data = new FormData();
   data.append("workbook", workbook);
-  return http.request<{ success: boolean; data: { batch_id: number; created: number; updated: number; relations: number; notes: number } }>(
-    "post", "/api/v1/direct-class-import/apply", { data, headers: { "Content-Type": "multipart/form-data" }, timeout: 120000 }
-  );
+  return http.request<{
+    success: boolean;
+    data: {
+      batch_id: number;
+      created: number;
+      updated: number;
+      relations: number;
+      notes: number;
+    };
+  }>("post", "/api/v1/direct-class-import/apply", {
+    data,
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 120000
+  });
 };
 
 export const getFollowupAssignees = (orgUnitId?: string) =>
@@ -900,7 +923,10 @@ export const getAttendanceEventGroupDetail = (groupId: number) =>
     `/api/v1/attendance/event-groups/${groupId}`
   );
 
-export const getAttendanceRecords = (eventGroupId: number, sessionId?: number) =>
+export const getAttendanceRecords = (
+  eventGroupId: number,
+  sessionId?: number
+) =>
   http.request<{ success: boolean; data: AttendanceRecord[] }>(
     "get",
     "/api/v1/attendance/records",
@@ -1007,10 +1033,7 @@ export const getRenewalOverview = (year: number) =>
     data: { year: number; rows: RenewalOverviewRow[] };
   }>("get", "/api/v1/renewals/overview", { params: { year } });
 
-export const previewRenewalImport = (
-  renewalFile: File,
-  masterFile: File
-) => {
+export const previewRenewalImport = (renewalFile: File, masterFile: File) => {
   const data = new FormData();
   data.append("renewal_file", renewalFile);
   data.append("master_file", masterFile);

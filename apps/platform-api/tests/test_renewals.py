@@ -17,7 +17,7 @@ from app.api import renewals as renewals_api
 from app.core.privacy import decrypt_text, phone_hash
 from app.db import execute, fetch_one, transaction
 from app.services.iam import create_user
-from app.services.members import create_member
+from app.services.members import create_member, update_member
 from app.services.renewals import (
     _linked_member_id,
     _master_index,
@@ -26,6 +26,7 @@ from app.services.renewals import (
     list_assignees,
     list_cycles,
     list_followups,
+    list_overview,
     preview_result_view,
     rollback_import,
     save_preview,
@@ -226,6 +227,67 @@ def test_list_cycles_defaults_to_remaining_unrenewed_and_supports_filters() -> N
     assert {row["due_month"] for row in all_rows} == {7, 9, 10}
 
 
+def test_renewal_ledger_reads_current_member_management_profile() -> None:
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin is not None
+    now = datetime.now().isoformat()
+    suffix = f"{uuid4().int % 100000000:08d}"
+    primary_org = f"org-renewal-source-primary-{suffix}"
+    development_org = f"org-renewal-source-development-{suffix}"
+    with transaction() as connection:
+        for org_id, code, name in [
+            (primary_org, f"RENEWAL_SOURCE_PRIMARY_{suffix}", "续费主归属测试中心"),
+            (development_org, f"RENEWAL_SOURCE_DEVELOPMENT_{suffix}", "学员管理发展中心"),
+        ]:
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+                (org_id, code, name, now, now),
+            )
+    member_id = create_member(
+        admin["id"],
+        member_code=f"RENEWAL-SOURCE-{suffix}",
+        name="原始姓名",
+        org_unit_id=primary_org,
+        development_org_unit_id=None,
+        phone=f"139{suffix}",
+    )
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, 8, 'IN_COMMUNICATION', ?, ?)",
+            (member_id, datetime.now().year, primary_org, now, now),
+        )
+
+    update_member(
+        admin["id"],
+        member_id,
+        {"name": "数据库维护后姓名", "development_org_unit_id": development_org},
+    )
+
+    rows = list_cycles(
+        admin["id"],
+        datetime.now().year,
+        org_unit_id=development_org,
+        member_name="数据库维护后姓名",
+        renewal_status="ALL",
+        include_past=True,
+    )
+    assert len(rows) == 1
+    assert rows[0]["member_name"] == "数据库维护后姓名"
+    assert rows[0]["org_unit_id"] == development_org
+    assert rows[0]["org_name"] == "学员管理发展中心"
+    assert rows[0]["imported_org_unit_id"] == primary_org
+
+    overview = list_overview(admin["id"], datetime.now().year)
+    assert any(
+        row["org_unit_id"] == development_org and row["count"] >= 1
+        for row in overview["rows"]
+    )
+
+
 def test_linked_member_id_prefers_unique_production_phone_match() -> None:
     phone = "13800138000"
     assert _linked_member_id(
@@ -342,6 +404,57 @@ def test_apply_preview_imports_only_confirmed_production_links() -> None:
     assert fetch_one(
         "SELECT status FROM renewal_import_batches WHERE id=?", (batch_id,)
     )["status"] == "ROLLED_BACK"
+
+
+def test_apply_preview_uses_member_management_development_org() -> None:
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin is not None
+    now = datetime.now().isoformat()
+    suffix = f"{uuid4().int % 100000000:08d}"
+    primary_org = f"org-renewal-import-primary-{suffix}"
+    development_org = f"org-renewal-import-development-{suffix}"
+    with transaction() as connection:
+        for org_id, code, name in [
+            (primary_org, f"RENEWAL_IMPORT_PRIMARY_{suffix}", "Excel旧分中心"),
+            (development_org, f"RENEWAL_IMPORT_DEVELOPMENT_{suffix}", "数据库发展分中心"),
+        ]:
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+                (org_id, code, name, now, now),
+            )
+    member_id = create_member(
+        admin["id"],
+        member_code=f"RENEWAL-IMPORT-SOURCE-{suffix}",
+        name="导入来源学员",
+        org_unit_id=primary_org,
+        development_org_unit_id=development_org,
+        phone=f"138{suffix}",
+    )
+    with transaction() as connection:
+        batch_id = execute(
+            connection,
+            "INSERT INTO renewal_import_batches(source_name, source_sha256, status, preview_json, created_by, created_at) "
+            "VALUES ('initial-renewal.xlsx', ?, 'PREVIEWED', '{}', ?, ?)",
+            ("a" * 64, admin["id"], now),
+        ).lastrowid
+        execute(
+            connection,
+            "INSERT INTO renewal_import_staging(batch_id, row_no, match_status, member_id, org_unit_id, due_month, proposed_status, raw_json, created_at) "
+            "VALUES (?, 2, 'MASTER_PHONE_EXACT', ?, ?, 8, 'IN_COMMUNICATION', '{}', ?)",
+            (batch_id, member_id, primary_org, now),
+        )
+
+    renewal_year = 2098 + uuid4().int % 10
+    result = apply_preview(batch_id, admin["id"], renewal_year, "确认正式导入续费周期")
+    assert result == {"created": 1, "updated": 0, "skipped": 0}
+    cycle = fetch_one(
+        "SELECT org_unit_id FROM renewal_cycles WHERE member_id=? AND renewal_year=?",
+        (member_id, renewal_year),
+    )
+    assert cycle["org_unit_id"] == development_org
+    rollback_import(batch_id, admin["id"], "确认回滚续费导入批次")
 
 
 def test_apply_preview_refuses_to_overwrite_existing_year_cycle() -> None:

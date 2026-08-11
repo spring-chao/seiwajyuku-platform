@@ -51,6 +51,24 @@ PREVIEW_ROW_FIELDS = (
     "assistance_note",
 )
 
+# Renewal attribution is a member-management fact.  A member's development
+# relation is the authoritative center for renewal and regional reporting;
+# the primary member relation is the safe fallback for older profiles that do
+# not yet have a development relation.  The workbook's center is only used
+# during the one-time matching/import flow and is never used for daily reads.
+MEMBER_RENEWAL_ORG_SQL = (
+    "COALESCE(NULLIF(m.development_org_unit_id, ''), m.org_unit_id)"
+)
+
+
+def _cycle_with_member_scope(cycle_id: int) -> dict[str, Any] | None:
+    return fetch_one(
+        "SELECT c.*, "
+        f"{MEMBER_RENEWAL_ORG_SQL} AS member_org_unit_id "
+        "FROM renewal_cycles c JOIN members m ON m.id=c.member_id WHERE c.id=?",
+        (cycle_id,),
+    )
+
 
 def list_assignees(actor_user_id: int, org_unit_id: str | None = None) -> list[dict[str, Any]]:
     """Return active users who can manage renewals in the requested org scope."""
@@ -362,9 +380,12 @@ def apply_preview(batch_id: int, actor_user_id: int, renewal_year: int, confirma
     )["count"]
     placeholders = ",".join("?" for _ in IMPORTABLE_MATCH_STATUSES)
     rows = fetch_all(
-        "SELECT id, member_id, org_unit_id, due_month, proposed_status FROM renewal_import_staging "
-        f"WHERE batch_id=? AND member_id IS NOT NULL AND org_unit_id IS NOT NULL "
-        f"AND match_status IN ({placeholders})",
+        "SELECT s.id, s.member_id, "
+        f"{MEMBER_RENEWAL_ORG_SQL} AS org_unit_id, "
+        "s.due_month, s.proposed_status FROM renewal_import_staging s "
+        "JOIN members m ON m.id=s.member_id "
+        f"WHERE s.batch_id=? AND s.member_id IS NOT NULL AND s.org_unit_id IS NOT NULL "
+        f"AND s.match_status IN ({placeholders})",
         (batch_id, *sorted(IMPORTABLE_MATCH_STATUSES)),
     )
     if allowed is not None:
@@ -468,8 +489,11 @@ def rollback_import(
     if batch["status"] != "APPLIED":
         raise ValueError("只有已正式导入且未回滚的批次可以回滚")
     cycles = fetch_all(
-        "SELECT id, org_unit_id, created_at, updated_at FROM renewal_cycles "
-        "WHERE source_batch_id=? ORDER BY id",
+        "SELECT c.id, "
+        f"{MEMBER_RENEWAL_ORG_SQL} AS org_unit_id, "
+        "c.created_at, c.updated_at FROM renewal_cycles c "
+        "JOIN members m ON m.id=c.member_id "
+        "WHERE c.source_batch_id=? ORDER BY c.id",
         (batch_id,),
     )
     allowed = accessible_org_ids(actor_user_id)
@@ -551,7 +575,7 @@ def list_cycles(
         elif renewal_status != "ALL":
             raise ValueError("是否续费筛选值无效")
     if org_unit_id:
-        conditions.append("c.org_unit_id=?")
+        conditions.append(f"{MEMBER_RENEWAL_ORG_SQL}=?")
         params.append(org_unit_id)
     if due_month is not None:
         if not 1 <= due_month <= 12:
@@ -566,9 +590,15 @@ def list_cycles(
         params.append(f"%{member_name.strip()}%")
     rows = fetch_all(
         "SELECT c.id, c.member_id, m.member_code, m.name AS member_name, c.renewal_year, "
-        "c.org_unit_id, o.name AS org_name, c.due_month, c.phase, c.status, c.result, "
+        f"{MEMBER_RENEWAL_ORG_SQL} AS org_unit_id, o.name AS org_name, "
+        "c.org_unit_id AS imported_org_unit_id, imported_org.name AS imported_org_name, "
+        "m.org_unit_id AS member_org_unit_id, m.development_org_unit_id AS member_development_org_unit_id, "
+        "m.class_name AS member_class_name, m.group_name AS member_group_name, "
+        "c.due_month, c.phase, c.status, c.result, "
         "c.assigned_user_id, u.display_name AS assigned_user_name, c.completed_at, c.updated_at "
-        "FROM renewal_cycles c JOIN members m ON m.id=c.member_id JOIN org_units o ON o.id=c.org_unit_id "
+        "FROM renewal_cycles c JOIN members m ON m.id=c.member_id "
+        f"JOIN org_units o ON o.id={MEMBER_RENEWAL_ORG_SQL} "
+        "LEFT JOIN org_units imported_org ON imported_org.id=c.org_unit_id "
         "LEFT JOIN app_users u ON u.id=c.assigned_user_id WHERE "
         + " AND ".join(conditions)
         + " ORDER BY c.due_month, c.id",
@@ -601,11 +631,11 @@ def update_cycle(
         result = result.strip()
         if len(result) > 64:
             raise ValueError("续费结果不能超过64个字符")
-    cycle = fetch_one("SELECT * FROM renewal_cycles WHERE id=?", (cycle_id,))
+    cycle = _cycle_with_member_scope(cycle_id)
     if not cycle:
         raise ValueError("续费周期不存在")
     allowed = accessible_org_ids(actor_user_id)
-    if allowed is not None and cycle["org_unit_id"] not in allowed:
+    if allowed is not None and cycle["member_org_unit_id"] not in allowed:
         raise PermissionError("续费周期不在组织授权范围内")
     if assigned_user_id is not None:
         assignee = fetch_one("SELECT id, is_active FROM app_users WHERE id=?", (assigned_user_id,))
@@ -615,7 +645,7 @@ def update_cycle(
         if not assignee_context or "renewals:manage" not in assignee_context["permissions"]:
             raise ValueError("责任人当前没有续费运营权限")
         assignee_allowed = accessible_org_ids(assigned_user_id)
-        if assignee_allowed is not None and cycle["org_unit_id"] not in assignee_allowed:
+        if assignee_allowed is not None and cycle["member_org_unit_id"] not in assignee_allowed:
             raise ValueError("责任人不在续费归属组织范围内")
     fields = {key: value for key, value in {
         "status": status, "phase": phase, "result": result,
@@ -645,7 +675,7 @@ def update_cycle(
             action="renewals.cycle.update",
             resource_type="renewal_cycle",
             resource_id=str(cycle_id),
-            org_unit_id=cycle["org_unit_id"],
+            org_unit_id=cycle["member_org_unit_id"],
             after=fields,
         )
 
@@ -661,11 +691,11 @@ def add_followup(
     next_action: str | None = None,
     next_followup_at: str | None = None,
 ) -> int:
-    cycle = fetch_one("SELECT id, org_unit_id FROM renewal_cycles WHERE id=?", (cycle_id,))
+    cycle = _cycle_with_member_scope(cycle_id)
     if not cycle:
         raise ValueError("续费周期不存在")
     allowed = accessible_org_ids(actor_user_id)
-    if allowed is not None and cycle["org_unit_id"] not in allowed:
+    if allowed is not None and cycle["member_org_unit_id"] not in allowed:
         raise PermissionError("续费周期不在组织授权范围内")
     if channel.strip().upper() not in {"PHONE", "WECHAT", "MEETING", "VISIT", "OTHER"}:
         raise ValueError("不支持的联系渠道")
@@ -689,18 +719,18 @@ def add_followup(
             action="renewals.followup.create",
             resource_type="renewal_cycle",
             resource_id=str(cycle_id),
-            org_unit_id=cycle["org_unit_id"],
+            org_unit_id=cycle["member_org_unit_id"],
             after={"followup_id": followup_id, "channel": channel.strip().upper()},
         )
         return followup_id
 
 
 def list_followups(cycle_id: int, actor_user_id: int) -> list[dict[str, Any]]:
-    cycle = fetch_one("SELECT org_unit_id FROM renewal_cycles WHERE id=?", (cycle_id,))
+    cycle = _cycle_with_member_scope(cycle_id)
     if not cycle:
         raise ValueError("续费周期不存在")
     allowed = accessible_org_ids(actor_user_id)
-    if allowed is not None and cycle["org_unit_id"] not in allowed:
+    if allowed is not None and cycle["member_org_unit_id"] not in allowed:
         raise PermissionError("续费周期不在组织授权范围内")
     return fetch_all(
         "SELECT id, followed_at, followed_by, channel, summary, intention, needs_support, "
@@ -712,7 +742,16 @@ def list_followups(cycle_id: int, actor_user_id: int) -> list[dict[str, Any]]:
 
 def list_overview(user_id: int, year: int = 2026) -> dict[str, Any]:
     allowed = accessible_org_ids(user_id)
-    rows = fetch_all("SELECT c.org_unit_id, o.name AS org_name, c.due_month, c.status, COUNT(*) AS count FROM renewal_cycles c JOIN org_units o ON o.id=c.org_unit_id WHERE c.renewal_year=? GROUP BY c.org_unit_id,o.name,c.due_month,c.status", (year,))
+    rows = fetch_all(
+        "SELECT "
+        f"{MEMBER_RENEWAL_ORG_SQL} AS org_unit_id, o.name AS org_name, "
+        "c.due_month, c.status, COUNT(*) AS count "
+        "FROM renewal_cycles c JOIN members m ON m.id=c.member_id "
+        f"JOIN org_units o ON o.id={MEMBER_RENEWAL_ORG_SQL} "
+        "WHERE c.renewal_year=? "
+        f"GROUP BY {MEMBER_RENEWAL_ORG_SQL}, o.name, c.due_month, c.status",
+        (year,),
+    )
     if allowed is not None:
         rows = [row for row in rows if row["org_unit_id"] in allowed]
     return {"year": year, "rows": rows}

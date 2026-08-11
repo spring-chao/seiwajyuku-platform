@@ -1,26 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
+import { ElMessage } from "element-plus";
 import {
-  ElMessage,
-  ElMessageBox,
-  type UploadFile,
-  type UploadFiles
-} from "element-plus";
-import {
-  applyRenewalImport,
   createRenewalFollowup,
   getRenewalAssignees,
   getRenewalCycles,
   getRenewalFollowups,
   getRenewalOverview,
   getSystemEnvironment,
-  previewRenewalImport,
   updateRenewalCycle,
   type RenewalFollowup,
   type FollowupAssignee,
   type RenewalCycle,
-  type RenewalImportSample,
-  type RenewalImportSummary,
   type RenewalOverviewRow
 } from "@/api/seiwajyuku";
 
@@ -28,19 +19,8 @@ defineOptions({ name: "RenewalOperations" });
 
 const year = ref(2026);
 const loading = ref(false);
-const importing = ref(false);
 const rows = ref<RenewalOverviewRow[]>([]);
 const cycles = ref<RenewalCycle[]>([]);
-const renewalFile = ref<File>();
-const masterFile = ref<File>();
-const batchId = ref<number>();
-const previewPersisted = ref(false);
-const importSummary = ref<RenewalImportSummary>();
-const reviewRows = ref<RenewalImportSample[]>([]);
-const assistanceRows = ref<RenewalImportSample[]>([]);
-const matchedSamples = ref<RenewalImportSample[]>([]);
-const issueSummary = ref<Record<string, number>>({});
-const activePreviewQueue = ref("review");
 const cycleDetailVisible = ref(false);
 const cycleDetailLoading = ref(false);
 const cycleSaving = ref(false);
@@ -131,34 +111,15 @@ const statusLabel = (status: string) =>
     EXITED: "已退出"
   })[status] ?? status;
 
-const matchLabel = (status: string) =>
-  ({
-    MASTER_PHONE_EXACT: "手机号匹配",
-    MASTER_NAME_CENTER_EXACT: "姓名+中心匹配",
-    MATCHED: "系统主档匹配",
-    NEEDS_REVIEW: "待人工确认",
-    INVALID: "数据不完整"
-  })[status] ?? status;
-const issueLabel = (code?: string) =>
-  ({
-    MASTER_PHONE_DUPLICATE: "主档手机号重复",
-    MASTER_NAME_CENTER_DUPLICATE: "主档姓名和分中心重复",
-    MEMBER_NOT_MATCHED: "未匹配到学员主档",
-    MISSING_REQUIRED_FIELD: "缺少必要字段"
-  })[code ?? ""] ?? code ?? "—";
-const previewRows = computed(() =>
-  activePreviewQueue.value === "review"
-    ? reviewRows.value
-    : activePreviewQueue.value === "assistance"
-      ? assistanceRows.value
-      : matchedSamples.value
-);
-
 const cycleStatusLabel = (status: string) => statusLabel(status);
 const channelLabel = (channel: string) =>
-  ({ PHONE: "电话", WECHAT: "微信", MEETING: "面谈", VISIT: "走访", OTHER: "其他" })[
-    channel
-  ] ?? channel;
+  ({
+    PHONE: "电话",
+    WECHAT: "微信",
+    MEETING: "面谈",
+    VISIT: "走访",
+    OTHER: "其他"
+  })[channel] ?? channel;
 const cycleStatusOptions = [
   ["PENDING_FIRST_CONTACT", "待首次联系"],
   ["CONTACTED_WAITING_REPLY", "已联系待回复"],
@@ -172,12 +133,18 @@ const cycleStatusOptions = [
 function errorText(error: any, fallback: string) {
   const detail = error?.response?.data?.detail;
   const normalizedDetail = Array.isArray(detail)
-    ? detail.map(item => item?.msg).filter(Boolean).join("；")
+    ? detail
+        .map(item => item?.msg)
+        .filter(Boolean)
+        .join("；")
     : typeof detail === "string"
       ? detail
       : "";
   if (error?.response?.status === 403) {
-    return normalizedDetail || "当前环境处于只读状态，修改不会保存；请先开启已批准的写入窗口";
+    return (
+      normalizedDetail ||
+      "当前环境处于只读状态，修改不会保存；请先开启已批准的写入窗口"
+    );
   }
   return normalizedDetail || fallback;
 }
@@ -226,90 +193,6 @@ function resetFilters() {
   load();
 }
 
-function pickFile(
-  uploadFile: UploadFile,
-  _uploadFiles: UploadFiles,
-  target: "renewal" | "master"
-) {
-  if (!uploadFile.raw) return;
-  if (!uploadFile.name.toLowerCase().endsWith(".xlsx")) {
-    ElMessage.warning("请选择 .xlsx 格式的工作簿");
-    return;
-  }
-  if (target === "renewal") renewalFile.value = uploadFile.raw;
-  else masterFile.value = uploadFile.raw;
-}
-
-async function previewImport() {
-  if (!renewalFile.value || !masterFile.value) {
-    ElMessage.warning("请先分别选择续费名单和最新学员主档案");
-    return;
-  }
-  importing.value = true;
-  try {
-    const response = await previewRenewalImport(
-      renewalFile.value,
-      masterFile.value
-    );
-    batchId.value = response.data.batch_id ?? undefined;
-    previewPersisted.value = response.data.persisted;
-    importSummary.value = response.data.summary;
-    reviewRows.value = response.data.review_rows;
-    assistanceRows.value = response.data.assistance_rows;
-    matchedSamples.value = response.data.matched_samples;
-    issueSummary.value = response.data.issue_summary;
-    activePreviewQueue.value = reviewRows.value.length ? "review" : "assistance";
-    ElMessage.success(
-      response.data.persisted
-        ? "匹配预检完成，数据尚未写入正式续费周期"
-        : "只读匹配预检完成，未保存批次或写入任何数据"
-    );
-  } catch (error: any) {
-    ElMessage.error(
-      error?.response?.data?.detail ?? "导入预检失败，请检查工作簿格式"
-    );
-  } finally {
-    importing.value = false;
-  }
-}
-
-async function applyImport() {
-  if (!batchId.value) return;
-  let confirmation = "";
-  try {
-    const prompt = await ElMessageBox.prompt(
-      "仅导入已成功关联真实学员的记录；未匹配和待复核记录不会写入。请输入：确认正式导入续费周期",
-      "确认正式导入",
-      {
-        confirmButtonText: "执行导入",
-        cancelButtonText: "取消",
-        type: "warning",
-        inputValidator: value =>
-          value === "确认正式导入续费周期" || "确认文字不匹配"
-      }
-    );
-    confirmation = prompt.value;
-  } catch {
-    return;
-  }
-  importing.value = true;
-  try {
-    const response = await applyRenewalImport(
-      batchId.value,
-      year.value,
-      confirmation
-    );
-    ElMessage.success(
-      `正式导入完成：新增 ${response.data.created} 条，更新 ${response.data.updated} 条，跳过 ${response.data.skipped} 条`
-    );
-    await load();
-  } catch (error: any) {
-    ElMessage.error(error?.response?.data?.detail ?? "正式导入失败");
-  } finally {
-    importing.value = false;
-  }
-}
-
 function resetFollowupForm() {
   Object.assign(followupForm, {
     channel: "PHONE",
@@ -347,7 +230,9 @@ async function openCycleDetail(cycle: any) {
     if (assigneeResult.status === "fulfilled") {
       cycleAssignees.value = assigneeResult.value.data;
     } else {
-      ElMessage.warning(errorText(assigneeResult.reason, "责任人列表加载失败，仍可查看跟进记录"));
+      ElMessage.warning(
+        errorText(assigneeResult.reason, "责任人列表加载失败，仍可查看跟进记录")
+      );
     }
   } finally {
     cycleDetailLoading.value = false;
@@ -380,7 +265,8 @@ async function saveCycleDetail() {
       phase: cycleForm.phase,
       result: cycleForm.result,
       assigned_user_id: cycleForm.assigned_user_id,
-      assigned_user_name: assignee?.display_name ?? currentCycle.assigned_user_name
+      assigned_user_name:
+        assignee?.display_name ?? currentCycle.assigned_user_name
     };
   } catch (error: any) {
     ElMessage.error(errorText(error, "续费周期更新失败"));
@@ -477,9 +363,24 @@ onMounted(() => {
           <el-table-column prop="month" label="到期月份" min-width="100">
             <template #default="{ row }">{{ row.month }}月</template>
           </el-table-column>
-          <el-table-column prop="total" label="续费对象" min-width="100" align="right" />
-          <el-table-column prop="renewed" label="已续费" min-width="100" align="right" />
-          <el-table-column prop="attention" label="待推进" min-width="100" align="right" />
+          <el-table-column
+            prop="total"
+            label="续费对象"
+            min-width="100"
+            align="right"
+          />
+          <el-table-column
+            prop="renewed"
+            label="已续费"
+            min-width="100"
+            align="right"
+          />
+          <el-table-column
+            prop="attention"
+            label="待推进"
+            min-width="100"
+            align="right"
+          />
           <el-table-column label="完成率" min-width="130" align="right">
             <template #default="{ row }">
               {{ row.total ? Math.round((row.renewed / row.total) * 100) : 0 }}%
@@ -487,149 +388,35 @@ onMounted(() => {
           </el-table-column>
         </el-table>
       </el-card>
-
-      <el-card shadow="never" class="import-card">
-        <template #header>
-          <div class="card-title">
-            <div>
-              <h2>名单融合预检</h2>
-              <p>先匹配主档案并识别疑点，不会直接覆盖正式数据</p>
-            </div>
-            <el-tag type="success" effect="plain">安全预览</el-tag>
-          </div>
-        </template>
-
-        <div class="upload-list">
-          <div class="upload-row">
-            <div>
-              <b>1. 待续费名单</b>
-              <span>{{ renewalFile?.name ?? "请选择“待续费名单（更新）.xlsx”" }}</span>
-            </div>
-            <el-upload
-              :auto-upload="false"
-              :show-file-list="false"
-              accept=".xlsx"
-              :on-change="(file, files) => pickFile(file, files, 'renewal')"
-            >
-              <el-button>选择文件</el-button>
-            </el-upload>
-          </div>
-          <div class="upload-row">
-            <div>
-              <b>2. 最新学员主档案</b>
-              <span>{{ masterFile?.name ?? "请选择2026年最新学员表" }}</span>
-            </div>
-            <el-upload
-              :auto-upload="false"
-              :show-file-list="false"
-              accept=".xlsx"
-              :on-change="(file, files) => pickFile(file, files, 'master')"
-            >
-              <el-button>选择文件</el-button>
-            </el-upload>
-          </div>
-        </div>
-        <el-button
-          type="primary"
-          class="preview-button"
-          :loading="importing"
-          @click="previewImport"
-        >
-          开始匹配预检
-        </el-button>
-        <p class="import-note">
-          匹配顺序：唯一手机号 → 姓名+六大分中心 → 人工核对。直属学习班级不会改变续费发展归属。
-        </p>
-      </el-card>
     </section>
 
-    <el-card v-if="importSummary" shadow="never" class="result-card">
-      <template #header>
-        <div class="card-title">
-          <div>
-            <h2>
-              {{ previewPersisted ? `预检结果 · 批次 #${batchId}` : "只读预检结果" }}
-            </h2>
-            <p>
-              {{
-                previewPersisted
-                  ? "以下结果用于核对；只有已关联真实学员的记录才允许正式导入"
-                  : "本次结果仅在当前页面展示，未保存批次，也未写入任何续费数据"
-              }}
-            </p>
-          </div>
-          <div class="result-actions">
-            <el-tag :type="previewPersisted ? 'warning' : 'success'">
-              {{ previewPersisted ? "待业务确认" : "只读核对" }}
-            </el-tag>
-            <el-button
-              v-if="previewPersisted"
-              type="warning"
-              :loading="importing"
-              @click="applyImport"
-            >
-              正式导入已匹配记录
-            </el-button>
-          </div>
-        </div>
-      </template>
-      <div class="result-summary">
-        <span>总计 <b>{{ importSummary.total }}</b></span>
-        <span>主档匹配 <b>{{ importSummary.matched }}</b></span>
-        <span>已关联生产学员 <b>{{ importSummary.production_linked }}</b></span>
-        <span>正式导入候选 <b>{{ importSummary.importable }}</b></span>
-        <span>未关联生产学员 <b>{{ importSummary.production_unlinked }}</b></span>
-        <span>待确认 <b>{{ importSummary.needs_review }}</b></span>
-        <span>无效数据 <b>{{ importSummary.invalid }}</b></span>
-        <span>需要协助 <b>{{ importSummary.assistance_review }}</b></span>
-      </div>
-      <div v-if="Object.keys(issueSummary).length" class="issue-summary">
-        <el-tag
-          v-for="(count, code) in issueSummary"
-          :key="code"
-          type="warning"
-          effect="plain"
-        >
-          {{ issueLabel(code) }}：{{ count }}
-        </el-tag>
-      </div>
-      <el-tabs v-model="activePreviewQueue" class="preview-tabs">
-        <el-tab-pane :label="`待确认/无效（${reviewRows.length}）`" name="review" />
-        <el-tab-pane :label="`需要协助（${assistanceRows.length}）`" name="assistance" />
-        <el-tab-pane :label="`自动匹配样本（${matchedSamples.length}）`" name="matched" />
-      </el-tabs>
-      <el-table :data="previewRows" stripe max-height="430" empty-text="当前队列暂无记录">
-        <el-table-column prop="row_no" label="Excel行" width="86" />
-        <el-table-column prop="name" label="学员" min-width="100" />
-        <el-table-column prop="center_name" label="续费归属" min-width="135" />
-        <el-table-column prop="class_name" label="学习班级" min-width="120" />
-        <el-table-column prop="due_month" label="到期月" width="90">
-          <template #default="{ row }">{{ row.due_month ? `${row.due_month}月` : "—" }}</template>
-        </el-table-column>
-        <el-table-column label="匹配结果" min-width="130">
-          <template #default="{ row }">{{ matchLabel(row.match_status) }}</template>
-        </el-table-column>
-        <el-table-column label="复核原因" min-width="160">
-          <template #default="{ row }">{{ issueLabel(row.issue_code) }}</template>
-        </el-table-column>
-        <el-table-column label="建议状态" min-width="130">
-          <template #default="{ row }">{{ statusLabel(row.proposed_status) }}</template>
-        </el-table-column>
-        <el-table-column prop="assistance_note" label="需要协助" min-width="180" show-overflow-tooltip />
-      </el-table>
-    </el-card>
+    <el-alert
+      class="source-alert"
+      title="学员数据唯一来源：学员管理数据库"
+      description="续费台账中的姓名、所属分中心、班级和小组均实时读取学员管理；Excel 只用于首次初始化导入，日常不再从 Excel 提取或查询。学员新增、转中心和资料修改请统一在学员管理完成。"
+      type="success"
+      :closable="false"
+      show-icon
+    />
 
     <el-card shadow="never" class="cycle-card">
       <template #header>
         <div class="card-title">
           <div>
             <h2>续费跟进台账</h2>
-            <p>默认显示当月至12月的未续费学员，可按分中心、月份、是否续费和姓名查询。</p>
+            <p>
+              默认显示当月至12月的未续费学员，可按分中心、月份、是否续费和姓名查询。
+            </p>
           </div>
         </div>
       </template>
       <div class="cycle-filters">
-        <el-select v-model="filters.org_unit_id" clearable placeholder="全部分中心" class="filter-control">
+        <el-select
+          v-model="filters.org_unit_id"
+          clearable
+          placeholder="全部分中心"
+          class="filter-control"
+        >
           <el-option
             v-for="center in centerOptions"
             :key="center.id"
@@ -637,10 +424,24 @@ onMounted(() => {
             :value="center.id"
           />
         </el-select>
-        <el-select v-model="filters.due_month" clearable placeholder="默认当月至12月" class="filter-control">
-          <el-option v-for="month in monthOptions" :key="month" :label="`${month}月`" :value="month" />
+        <el-select
+          v-model="filters.due_month"
+          clearable
+          placeholder="默认当月至12月"
+          class="filter-control"
+        >
+          <el-option
+            v-for="month in monthOptions"
+            :key="month"
+            :label="`${month}月`"
+            :value="month"
+          />
         </el-select>
-        <el-select v-model="filters.renewal_status" class="filter-control" aria-label="是否续费">
+        <el-select
+          v-model="filters.renewal_status"
+          class="filter-control"
+          aria-label="是否续费"
+        >
           <el-option label="未续费" value="UNRENEWED" />
           <el-option label="已续费" value="RENEWED" />
           <el-option label="全部状态" value="ALL" />
@@ -652,7 +453,9 @@ onMounted(() => {
           class="filter-control name-filter"
           @keyup.enter="load"
         />
-        <el-button type="primary" :loading="loading" @click="load">查询</el-button>
+        <el-button type="primary" :loading="loading" @click="load"
+          >查询</el-button
+        >
         <el-button :disabled="loading" @click="resetFilters">重置</el-button>
       </div>
       <el-alert
@@ -666,15 +469,27 @@ onMounted(() => {
       />
       <el-table :data="cycles" stripe empty-text="暂无正式续费周期">
         <el-table-column prop="member_name" label="学员" min-width="120" />
-        <el-table-column prop="org_name" label="续费归属" min-width="150" />
+        <el-table-column
+          prop="org_name"
+          label="学员所属分中心"
+          min-width="150"
+        />
         <el-table-column label="到期月" width="100">
           <template #default="{ row }">{{ row.due_month }}月</template>
         </el-table-column>
         <el-table-column label="状态" min-width="130">
-          <template #default="{ row }">{{ cycleStatusLabel(row.status) }}</template>
+          <template #default="{ row }">{{
+            cycleStatusLabel(row.status)
+          }}</template>
         </el-table-column>
-        <el-table-column prop="assigned_user_name" label="责任人" min-width="130">
-          <template #default="{ row }">{{ row.assigned_user_name || "待分配" }}</template>
+        <el-table-column
+          prop="assigned_user_name"
+          label="责任人"
+          min-width="130"
+        >
+          <template #default="{ row }">{{
+            row.assigned_user_name || "待分配"
+          }}</template>
         </el-table-column>
         <el-table-column prop="updated_at" label="最近更新" min-width="180" />
         <el-table-column label="操作" width="120" fixed="right">
@@ -703,13 +518,29 @@ onMounted(() => {
           class="readonly-alert"
         />
         <el-descriptions v-if="selectedCycle" :column="3" border>
-          <el-descriptions-item label="续费归属">{{ selectedCycle.org_name }}</el-descriptions-item>
-          <el-descriptions-item label="到期月份">{{ selectedCycle.due_month }}月</el-descriptions-item>
-          <el-descriptions-item label="学员编号">{{ selectedCycle.member_code }}</el-descriptions-item>
+          <el-descriptions-item label="学员所属分中心">{{
+            selectedCycle.org_name
+          }}</el-descriptions-item>
+          <el-descriptions-item label="班级">{{
+            selectedCycle.member_class_name || "—"
+          }}</el-descriptions-item>
+          <el-descriptions-item label="小组">{{
+            selectedCycle.member_group_name || "—"
+          }}</el-descriptions-item>
+          <el-descriptions-item label="到期月份"
+            >{{ selectedCycle.due_month }}月</el-descriptions-item
+          >
+          <el-descriptions-item label="学员编号">{{
+            selectedCycle.member_code
+          }}</el-descriptions-item>
         </el-descriptions>
         <el-form :model="cycleForm" inline class="cycle-edit-form">
           <el-form-item label="状态">
-            <el-select v-model="cycleForm.status" :disabled="!writeEnabled" style="width: 170px">
+            <el-select
+              v-model="cycleForm.status"
+              :disabled="!writeEnabled"
+              style="width: 170px"
+            >
               <el-option
                 v-for="item in cycleStatusOptions"
                 :key="item[0]"
@@ -719,10 +550,20 @@ onMounted(() => {
             </el-select>
           </el-form-item>
           <el-form-item label="阶段">
-            <el-input v-model="cycleForm.phase" :disabled="!writeEnabled" maxlength="32" placeholder="如：首次联系" />
+            <el-input
+              v-model="cycleForm.phase"
+              :disabled="!writeEnabled"
+              maxlength="32"
+              placeholder="如：首次联系"
+            />
           </el-form-item>
           <el-form-item label="结果">
-            <el-input v-model="cycleForm.result" :disabled="!writeEnabled" maxlength="64" placeholder="简要记录结果" />
+            <el-input
+              v-model="cycleForm.result"
+              :disabled="!writeEnabled"
+              maxlength="64"
+              placeholder="简要记录结果"
+            />
           </el-form-item>
           <el-form-item label="责任人">
             <el-select
@@ -740,16 +581,29 @@ onMounted(() => {
             </el-select>
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" :loading="cycleSaving" :disabled="!writeEnabled" @click="saveCycleDetail">
+            <el-button
+              type="primary"
+              :loading="cycleSaving"
+              :disabled="!writeEnabled"
+              @click="saveCycleDetail"
+            >
               保存周期状态
             </el-button>
           </el-form-item>
         </el-form>
 
         <el-divider content-position="left">新增跟进</el-divider>
-        <el-form :model="followupForm" label-position="top" class="followup-form">
+        <el-form
+          :model="followupForm"
+          label-position="top"
+          class="followup-form"
+        >
           <el-form-item label="联系渠道">
-            <el-select v-model="followupForm.channel" :disabled="!writeEnabled" style="width: 150px">
+            <el-select
+              v-model="followupForm.channel"
+              :disabled="!writeEnabled"
+              style="width: 150px"
+            >
               <el-option label="电话" value="PHONE" />
               <el-option label="微信" value="WECHAT" />
               <el-option label="面谈" value="MEETING" />
@@ -758,22 +612,48 @@ onMounted(() => {
             </el-select>
           </el-form-item>
           <el-form-item label="跟进摘要" required>
-            <el-input v-model="followupForm.summary" :disabled="!writeEnabled" type="textarea" :rows="2" maxlength="4000" />
+            <el-input
+              v-model="followupForm.summary"
+              :disabled="!writeEnabled"
+              type="textarea"
+              :rows="2"
+              maxlength="4000"
+            />
           </el-form-item>
           <el-form-item label="意愿">
-            <el-input v-model="followupForm.intention" :disabled="!writeEnabled" maxlength="64" />
+            <el-input
+              v-model="followupForm.intention"
+              :disabled="!writeEnabled"
+              maxlength="64"
+            />
           </el-form-item>
           <el-form-item label="下一步行动">
-            <el-input v-model="followupForm.next_action" :disabled="!writeEnabled" maxlength="4000" />
+            <el-input
+              v-model="followupForm.next_action"
+              :disabled="!writeEnabled"
+              maxlength="4000"
+            />
           </el-form-item>
           <el-form-item label="下次跟进时间">
-            <el-input v-model="followupForm.next_followup_at" :disabled="!writeEnabled" placeholder="YYYY-MM-DD HH:mm" />
+            <el-input
+              v-model="followupForm.next_followup_at"
+              :disabled="!writeEnabled"
+              placeholder="YYYY-MM-DD HH:mm"
+            />
           </el-form-item>
           <el-form-item label="需要协助">
-            <el-switch v-model="followupForm.needs_support" :disabled="!writeEnabled" />
+            <el-switch
+              v-model="followupForm.needs_support"
+              :disabled="!writeEnabled"
+            />
           </el-form-item>
           <el-form-item>
-            <el-button type="success" :loading="followupSaving" :disabled="!writeEnabled" @click="submitFollowup">
+            <el-button
+              type="success"
+              :loading="followupSaving"
+              :disabled="!writeEnabled"
+              @click="submitFollowup"
+            >
               保存跟进记录
             </el-button>
           </el-form-item>
@@ -783,13 +663,27 @@ onMounted(() => {
         <el-table :data="followups" stripe empty-text="暂无跟进记录">
           <el-table-column prop="followed_at" label="时间" min-width="160" />
           <el-table-column label="渠道" width="90">
-            <template #default="{ row }">{{ channelLabel(row.channel) }}</template>
+            <template #default="{ row }">{{
+              channelLabel(row.channel)
+            }}</template>
           </el-table-column>
-          <el-table-column prop="summary" label="摘要" min-width="240" show-overflow-tooltip />
+          <el-table-column
+            prop="summary"
+            label="摘要"
+            min-width="240"
+            show-overflow-tooltip
+          />
           <el-table-column prop="intention" label="意愿" min-width="120" />
-          <el-table-column prop="next_action" label="下一步" min-width="180" show-overflow-tooltip />
+          <el-table-column
+            prop="next_action"
+            label="下一步"
+            min-width="180"
+            show-overflow-tooltip
+          />
           <el-table-column label="协助" width="80">
-            <template #default="{ row }">{{ row.needs_support ? "需要" : "—" }}</template>
+            <template #default="{ row }">{{
+              row.needs_support ? "需要" : "—"
+            }}</template>
           </el-table-column>
         </el-table>
       </div>
@@ -864,14 +758,15 @@ onMounted(() => {
 }
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.75fr);
+  grid-template-columns: 1fr;
   gap: 18px;
 }
-.timeline-card,
-.import-card,
-.result-card {
+.timeline-card {
   border-color: #dce9e3;
   border-radius: 16px;
+}
+.source-alert {
+  border: 1px solid #cce9dc;
 }
 .card-title {
   display: flex;
