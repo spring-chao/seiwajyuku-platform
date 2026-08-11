@@ -16,6 +16,7 @@ from app.services.members import (
     get_member_timeline,
     record_member_service_signal_feedback,
 )
+from app.services.member_service_signals import RULE_VERSION, build_member_service_signals
 
 
 class MemberServiceSignalFeedbackTests(unittest.TestCase):
@@ -70,7 +71,7 @@ class MemberServiceSignalFeedbackTests(unittest.TestCase):
             self.member_id,
             self.admin["id"],
             signal_code="CONTACT_INFO_REVIEW",
-            rule_version="member-service-signals/1.0",
+            rule_version=RULE_VERSION,
             feedback_status="NOT_APPLICABLE",
         )
         self.assertEqual(first["status"], "NOT_APPLICABLE")
@@ -78,7 +79,7 @@ class MemberServiceSignalFeedbackTests(unittest.TestCase):
             self.member_id,
             self.admin["id"],
             signal_code="CONTACT_INFO_REVIEW",
-            rule_version="member-service-signals/1.0",
+            rule_version=RULE_VERSION,
             feedback_status="CONFIRMED_VALID",
         )
         self.assertNotEqual(first["id"], second["id"])
@@ -123,7 +124,7 @@ class MemberServiceSignalFeedbackTests(unittest.TestCase):
                 self.member_id,
                 self.admin["id"],
                 signal_code="CONTACT_INFO_REVIEW",
-                rule_version="member-service-signals/1.0",
+            rule_version=RULE_VERSION,
                 feedback_status="IGNORED",
             )
         with self.assertRaisesRegex(ValueError, "规则版本已变化"):
@@ -139,7 +140,7 @@ class MemberServiceSignalFeedbackTests(unittest.TestCase):
                 self.member_id,
                 self.read_only_user_id,
                 signal_code="CONTACT_INFO_REVIEW",
-                rule_version="member-service-signals/1.0",
+            rule_version=RULE_VERSION,
                 feedback_status="CONFIRMED_VALID",
             )
         with self.assertRaisesRegex(PermissionError, "不在组织授权范围"):
@@ -147,7 +148,7 @@ class MemberServiceSignalFeedbackTests(unittest.TestCase):
                 self.member_id,
                 self.outside_manager_id,
                 signal_code="CONTACT_INFO_REVIEW",
-                rule_version="member-service-signals/1.0",
+            rule_version=RULE_VERSION,
                 feedback_status="CONFIRMED_VALID",
             )
         with patch.dict(
@@ -158,7 +159,7 @@ class MemberServiceSignalFeedbackTests(unittest.TestCase):
                     self.member_id,
                     self.admin["id"],
                     signal_code="CONTACT_INFO_REVIEW",
-                    rule_version="member-service-signals/1.0",
+                    rule_version=RULE_VERSION,
                     feedback_status="CONFIRMED_VALID",
                 )
 
@@ -172,6 +173,43 @@ class MemberServiceSignalFeedbackTests(unittest.TestCase):
             timeline = get_member_timeline(self.member_id, self.admin["id"])
         self.assertFalse(timeline["service_signal_feedback_enabled"])
         self.assertTrue(timeline["service_signals"])
+
+    def test_closed_renewal_statuses_do_not_trigger_due_signal(self) -> None:
+        member_id = create_member(
+            self.admin["id"],
+            member_code="SIGNAL-RENEWAL-CLOSED-001",
+            name="续费提示状态测试学员",
+            org_unit_id="signal-feedback-center",
+            development_org_unit_id=None,
+            phone="13800000000",
+        )
+        now = datetime(2026, 8, 11, tzinfo=UTC)
+        with transaction() as connection:
+            for index, status in enumerate(("RENEWED", "NOT_RENEWING", "EXITED"), 1):
+                execute(
+                    connection,
+                    "INSERT INTO renewal_cycles "
+                    "(member_id, renewal_year, org_unit_id, due_month, status, "
+                    "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        member_id,
+                        2020 + index,
+                        "signal-feedback-center",
+                        1,
+                        status,
+                        now.isoformat(),
+                        now.isoformat(),
+                    ),
+                )
+        member = fetch_one("SELECT * FROM members WHERE id=?", (member_id,))
+        signals = build_member_service_signals(
+            member,
+            self.admin["id"],
+            {"renewals:read"},
+            {"signal-feedback-center"},
+            now=now,
+        )
+        self.assertNotIn("RENEWAL_DUE", {item["code"] for item in signals})
 
     def test_sqlite_feedback_schema_has_a_clean_rollback(self) -> None:
         root = Path(__file__).resolve().parents[3]

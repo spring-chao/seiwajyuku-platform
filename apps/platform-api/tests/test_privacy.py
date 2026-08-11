@@ -161,7 +161,7 @@ class PrivacyIsolationTests(unittest.TestCase):
             )
         )
         self.assertTrue(
-            all(item["rule_version"] == "member-service-signals/1.0" for item in timeline["service_signals"])
+            all(item["rule_version"] == "member-service-signals/1.1" for item in timeline["service_signals"])
         )
         self.assertNotIn("score", serialized.lower())
         self.assertNotIn("rank", serialized.lower())
