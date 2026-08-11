@@ -7,6 +7,7 @@ from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from openpyxl import Workbook
@@ -23,6 +24,7 @@ from app.services.renewals import (
     add_followup,
     apply_preview,
     list_assignees,
+    list_cycles,
     list_followups,
     preview_result_view,
     rollback_import,
@@ -149,6 +151,79 @@ def _member_for_renewal_test() -> dict:
         phone="13900139001",
     )
     return fetch_one("SELECT id, org_unit_id FROM members WHERE id=?", (member_id,))
+
+
+def test_list_cycles_defaults_to_remaining_unrenewed_and_supports_filters() -> None:
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin is not None
+    now = datetime.now().isoformat()
+    year = datetime.now().year
+    suffix = f"{uuid4().int % 100000000:08d}"
+    org_id = "org-renewal-filter"
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT OR IGNORE INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+            (org_id, "RENEWAL_FILTER", "续费筛选分中心", now, now),
+        )
+    member_id = create_member(
+        admin["id"],
+        member_code=f"RENEWAL-FILTER-{year}-{suffix}",
+        name="续费筛选张三",
+        org_unit_id=org_id,
+        development_org_unit_id=None,
+        phone=f"139{suffix}",
+    )
+    future_member_id = create_member(
+        admin["id"],
+        member_code=f"RENEWAL-FILTER-FUTURE-{year}-{suffix}",
+        name="续费筛选李四",
+        org_unit_id=org_id,
+        development_org_unit_id=None,
+        phone=f"138{suffix}",
+    )
+    renewed_member_id = create_member(
+        admin["id"],
+        member_code=f"RENEWAL-FILTER-RENEWED-{year}-{suffix}",
+        name="续费筛选王五",
+        org_unit_id=org_id,
+        development_org_unit_id=None,
+        phone=f"137{suffix}",
+    )
+    with transaction() as connection:
+        for member, due_month, status, org_unit in [
+            (member_id, 7, "IN_COMMUNICATION", org_id),
+            (future_member_id, 9, "PENDING_FIRST_CONTACT", org_id),
+            (renewed_member_id, 10, "RENEWED", org_id),
+        ]:
+            execute(
+                connection,
+                "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, status, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (member, year, org_unit, due_month, status, now, now),
+            )
+
+    default_rows = list_cycles(admin["id"], year)
+    assert [row["due_month"] for row in default_rows] == [9]
+    assert default_rows[0]["member_name"] == "续费筛选李四"
+
+    past_rows = list_cycles(
+        admin["id"],
+        year,
+        org_unit_id=org_id,
+        due_month=7,
+        member_name="张三",
+        renewal_status="ALL",
+    )
+    assert len(past_rows) == 1
+    assert past_rows[0]["status"] == "IN_COMMUNICATION"
+
+    renewed_rows = list_cycles(admin["id"], year, renewal_status="RENEWED")
+    assert [row["status"] for row in renewed_rows] == ["RENEWED"]
+
+    all_rows = list_cycles(admin["id"], year, renewal_status="ALL", include_past=True)
+    assert {row["due_month"] for row in all_rows} == {7, 9, 10}
 
 
 def test_linked_member_id_prefers_unique_production_phone_match() -> None:
@@ -338,6 +413,16 @@ def test_renewal_cycle_followup_and_status_update() -> None:
         (str(cycle_id),),
     )
     assert json.loads(audit["after_json"])["assigned_user_id"] == 1
+    update_cycle(cycle_id, 1, status="RENEWED")
+    assert fetch_one(
+        "SELECT completed_at FROM renewal_cycles WHERE id=?", (cycle_id,)
+    )["completed_at"] is not None
+    update_cycle(cycle_id, 1, status="IN_COMMUNICATION")
+    assert fetch_one(
+        "SELECT completed_at FROM renewal_cycles WHERE id=?", (cycle_id,)
+    )["completed_at"] is None
+    with pytest.raises(ValueError, match="不能超过64个字符"):
+        update_cycle(cycle_id, 1, result="超长结果" * 20)
 
 
 def test_renewal_assignee_requires_manage_permission_and_matching_scope() -> None:

@@ -502,6 +502,17 @@ export type RenewalCycle = {
   updated_at: string;
 };
 
+export type SystemEnvironment = {
+  environment: string;
+  production: boolean;
+  production_mutations_allowed: boolean;
+  deployment_read_only: boolean;
+  identity_authorization_enabled: boolean;
+  identity_admin_writes_enabled: boolean;
+  volunteer_service_invitations_enabled: boolean;
+  member_service_signal_feedback_enabled: boolean;
+};
+
 export type RenewalFollowup = {
   id: number;
   followed_at: string;
@@ -1021,12 +1032,25 @@ export const previewRenewalImport = (
   });
 };
 
-export const getRenewalCycles = (year: number, status?: string) =>
+export const getRenewalCycles = (
+  year: number,
+  params: {
+    status?: string;
+    org_unit_id?: string;
+    due_month?: number;
+    member_name?: string;
+    renewal_status?: "UNRENEWED" | "RENEWED" | "ALL";
+    include_past?: boolean;
+  } = {}
+) =>
   http.request<{ success: boolean; data: RenewalCycle[] }>(
     "get",
     "/api/v1/renewals/cycles",
-    { params: { year, ...(status ? { status } : {}) } }
+    { params: { year, ...params } }
   );
+
+export const getSystemEnvironment = () =>
+  http.request<SystemEnvironment>("get", "/api/v1/system/environment");
 
 export const applyRenewalImport = (
   batchId: number,

@@ -27,6 +27,17 @@ MASTER_HEADER_ALIASES = {
 IMPORTABLE_MATCH_STATUSES = frozenset(
     {"MASTER_PHONE_EXACT", "MASTER_NAME_CENTER_EXACT", "MATCHED"}
 )
+RENEWAL_STATUSES = frozenset(
+    {
+        "PENDING_FIRST_CONTACT",
+        "CONTACTED_WAITING_REPLY",
+        "IN_COMMUNICATION",
+        "RENEWED",
+        "NOT_RENEWING",
+        "DEFERRED",
+        "EXITED",
+    }
+)
 PREVIEW_ROW_FIELDS = (
     "row_no",
     "name",
@@ -510,16 +521,58 @@ def rollback_import(
     return {"deleted_cycles": len(cycle_ids)}
 
 
-def list_cycles(user_id: int, year: int = 2026, status: str | None = None) -> list[dict[str, Any]]:
+def list_cycles(
+    user_id: int,
+    year: int = 2026,
+    status: str | None = None,
+    *,
+    org_unit_id: str | None = None,
+    due_month: int | None = None,
+    member_name: str | None = None,
+    renewal_status: str = "UNRENEWED",
+    include_past: bool = False,
+) -> list[dict[str, Any]]:
+    """List renewal cycles with scoped, privacy-safe operational filters.
+
+    The default view is intentionally limited to the current year's remaining
+    months and cycles that are not marked RENEWED. Callers can select a month
+    explicitly or opt into all months for historical review.
+    """
+    conditions = ["c.renewal_year=?"]
+    params: list[Any] = [year]
+    if status:
+        conditions.append("c.status=?")
+        params.append(status)
+    else:
+        if renewal_status == "RENEWED":
+            conditions.append("c.status='RENEWED'")
+        elif renewal_status == "UNRENEWED":
+            conditions.append("c.status<>'RENEWED'")
+        elif renewal_status != "ALL":
+            raise ValueError("是否续费筛选值无效")
+    if org_unit_id:
+        conditions.append("c.org_unit_id=?")
+        params.append(org_unit_id)
+    if due_month is not None:
+        if not 1 <= due_month <= 12:
+            raise ValueError("月份必须在1至12之间")
+        conditions.append("c.due_month=?")
+        params.append(due_month)
+    elif not include_past and year == datetime.now(UTC).year:
+        conditions.append("c.due_month>=? AND c.due_month<=12")
+        params.append(datetime.now(UTC).month)
+    if member_name and member_name.strip():
+        conditions.append("m.name LIKE ?")
+        params.append(f"%{member_name.strip()}%")
     rows = fetch_all(
         "SELECT c.id, c.member_id, m.member_code, m.name AS member_name, c.renewal_year, "
         "c.org_unit_id, o.name AS org_name, c.due_month, c.phase, c.status, c.result, "
         "c.assigned_user_id, u.display_name AS assigned_user_name, c.completed_at, c.updated_at "
         "FROM renewal_cycles c JOIN members m ON m.id=c.member_id JOIN org_units o ON o.id=c.org_unit_id "
-        "LEFT JOIN app_users u ON u.id=c.assigned_user_id WHERE c.renewal_year=? "
-        + ("AND c.status=? " if status else "")
-        + "ORDER BY c.due_month, c.id",
-        (year, status) if status else (year,),
+        "LEFT JOIN app_users u ON u.id=c.assigned_user_id WHERE "
+        + " AND ".join(conditions)
+        + " ORDER BY c.due_month, c.id",
+        tuple(params),
     )
     allowed = accessible_org_ids(user_id)
     if allowed is not None:
@@ -536,6 +589,18 @@ def update_cycle(
     result: str | None = None,
     assigned_user_id: int | None = None,
 ) -> None:
+    if status is not None:
+        status = status.strip().upper()
+        if status not in RENEWAL_STATUSES:
+            raise ValueError("续费状态无效")
+    if phase is not None:
+        phase = phase.strip()
+        if len(phase) > 32:
+            raise ValueError("续费阶段不能超过32个字符")
+    if result is not None:
+        result = result.strip()
+        if len(result) > 64:
+            raise ValueError("续费结果不能超过64个字符")
     cycle = fetch_one("SELECT * FROM renewal_cycles WHERE id=?", (cycle_id,))
     if not cycle:
         raise ValueError("续费周期不存在")
@@ -560,8 +625,10 @@ def update_cycle(
         raise ValueError("至少提供一项续费周期变更")
     now = datetime.now(UTC).isoformat()
     fields["updated_at"] = now
-    if status in {"RENEWED", "NOT_RENEWING", "EXITED"}:
-        fields["completed_at"] = now
+    if status:
+        fields["completed_at"] = (
+            now if status in {"RENEWED", "NOT_RENEWING", "EXITED"} else None
+        )
     with transaction() as connection:
         assignments = ", ".join(f"{key}=?" for key in fields)
         execute(connection, f"UPDATE renewal_cycles SET {assignments} WHERE id=?", (*fields.values(), cycle_id))

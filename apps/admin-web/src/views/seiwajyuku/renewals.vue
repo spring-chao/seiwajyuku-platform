@@ -13,6 +13,7 @@ import {
   getRenewalCycles,
   getRenewalFollowups,
   getRenewalOverview,
+  getSystemEnvironment,
   previewRenewalImport,
   updateRenewalCycle,
   type RenewalFollowup,
@@ -47,6 +48,18 @@ const followupSaving = ref(false);
 const selectedCycle = ref<RenewalCycle>();
 const followups = ref<RenewalFollowup[]>([]);
 const cycleAssignees = ref<FollowupAssignee[]>([]);
+const writeEnabled = ref(true);
+const filters = reactive<{
+  org_unit_id: string;
+  due_month: number | undefined;
+  renewal_status: "UNRENEWED" | "RENEWED" | "ALL";
+  member_name: string;
+}>({
+  org_unit_id: "",
+  due_month: undefined,
+  renewal_status: "UNRENEWED",
+  member_name: ""
+});
 const cycleForm = reactive({
   status: "",
   phase: "",
@@ -65,6 +78,12 @@ const followupForm = reactive({
 const centerNames = computed(() => [
   ...new Set(rows.value.map(item => item.org_name))
 ]);
+const centerOptions = computed(() => {
+  const values = new Map<string, string>();
+  rows.value.forEach(item => values.set(item.org_unit_id, item.org_name));
+  return [...values.entries()].map(([id, name]) => ({ id, name }));
+});
+const monthOptions = Array.from({ length: 12 }, (_, index) => index + 1);
 const total = computed(() =>
   rows.value.reduce((sum, item) => sum + Number(item.count), 0)
 );
@@ -150,18 +169,61 @@ const cycleStatusOptions = [
   ["EXITED", "已退出"]
 ] as const;
 
+function errorText(error: any, fallback: string) {
+  const detail = error?.response?.data?.detail;
+  const normalizedDetail = Array.isArray(detail)
+    ? detail.map(item => item?.msg).filter(Boolean).join("；")
+    : typeof detail === "string"
+      ? detail
+      : "";
+  if (error?.response?.status === 403) {
+    return normalizedDetail || "当前环境处于只读状态，修改不会保存；请先开启已批准的写入窗口";
+  }
+  return normalizedDetail || fallback;
+}
+
+async function loadEnvironment() {
+  try {
+    const response = await getSystemEnvironment();
+    writeEnabled.value = !(
+      response.deployment_read_only ||
+      (response.production && !response.production_mutations_allowed)
+    );
+  } catch {
+    // The endpoint is informational. Keep the controls available in local
+    // development; the server remains the final write gate.
+  }
+}
+
 async function load() {
   loading.value = true;
   try {
     const [overviewResponse, cycleResponse] = await Promise.all([
       getRenewalOverview(year.value),
-      getRenewalCycles(year.value)
+      getRenewalCycles(year.value, {
+        org_unit_id: filters.org_unit_id || undefined,
+        due_month: filters.due_month,
+        renewal_status: filters.renewal_status,
+        member_name: filters.member_name.trim() || undefined
+      })
     ]);
     rows.value = overviewResponse.data.rows;
     cycles.value = cycleResponse.data;
+  } catch (error: any) {
+    ElMessage.error(errorText(error, "续费台账加载失败，请稍后重试"));
   } finally {
     loading.value = false;
   }
+}
+
+function resetFilters() {
+  Object.assign(filters, {
+    org_unit_id: "",
+    due_month: undefined,
+    renewal_status: "UNRENEWED",
+    member_name: ""
+  });
+  load();
 }
 
 function pickFile(
@@ -273,14 +335,20 @@ async function openCycleDetail(cycle: any) {
   cycleDetailVisible.value = true;
   cycleDetailLoading.value = true;
   try {
-    const [followupResponse, assigneeResponse] = await Promise.all([
+    const [followupResult, assigneeResult] = await Promise.allSettled([
       getRenewalFollowups(cycle.id),
       getRenewalAssignees(cycle.org_unit_id)
     ]);
-    followups.value = followupResponse.data;
-    cycleAssignees.value = assigneeResponse.data;
-  } catch (error: any) {
-    ElMessage.error(error?.response?.data?.detail ?? "加载跟进记录失败");
+    if (followupResult.status === "fulfilled") {
+      followups.value = followupResult.value.data;
+    } else {
+      ElMessage.error(errorText(followupResult.reason, "加载跟进记录失败"));
+    }
+    if (assigneeResult.status === "fulfilled") {
+      cycleAssignees.value = assigneeResult.value.data;
+    } else {
+      ElMessage.warning(errorText(assigneeResult.reason, "责任人列表加载失败，仍可查看跟进记录"));
+    }
   } finally {
     cycleDetailLoading.value = false;
   }
@@ -288,6 +356,10 @@ async function openCycleDetail(cycle: any) {
 
 async function saveCycleDetail() {
   if (!selectedCycle.value) return;
+  if (!writeEnabled.value) {
+    ElMessage.warning("当前环境处于只读状态，修改不会保存");
+    return;
+  }
   cycleSaving.value = true;
   try {
     await updateRenewalCycle(selectedCycle.value.id, {
@@ -297,11 +369,21 @@ async function saveCycleDetail() {
       assigned_user_id: cycleForm.assigned_user_id
     });
     ElMessage.success("续费周期已更新并写入审计");
-    const cycleId = selectedCycle.value.id;
+    const currentCycle = selectedCycle.value;
+    const assignee = cycleAssignees.value.find(
+      item => item.id === cycleForm.assigned_user_id
+    );
     await load();
-    selectedCycle.value = cycles.value.find(item => item.id === cycleId);
+    selectedCycle.value = {
+      ...currentCycle,
+      status: cycleForm.status,
+      phase: cycleForm.phase,
+      result: cycleForm.result,
+      assigned_user_id: cycleForm.assigned_user_id,
+      assigned_user_name: assignee?.display_name ?? currentCycle.assigned_user_name
+    };
   } catch (error: any) {
-    ElMessage.error(error?.response?.data?.detail ?? "续费周期更新失败");
+    ElMessage.error(errorText(error, "续费周期更新失败"));
   } finally {
     cycleSaving.value = false;
   }
@@ -310,6 +392,10 @@ async function saveCycleDetail() {
 async function submitFollowup() {
   if (!selectedCycle.value || followupForm.summary.trim().length < 4) {
     ElMessage.warning("请填写至少 4 个字符的跟进摘要");
+    return;
+  }
+  if (!writeEnabled.value) {
+    ElMessage.warning("当前环境处于只读状态，跟进记录不会保存");
     return;
   }
   followupSaving.value = true;
@@ -326,13 +412,16 @@ async function submitFollowup() {
     followups.value = (await getRenewalFollowups(selectedCycle.value.id)).data;
     resetFollowupForm();
   } catch (error: any) {
-    ElMessage.error(error?.response?.data?.detail ?? "跟进记录保存失败");
+    ElMessage.error(errorText(error, "跟进记录保存失败"));
   } finally {
     followupSaving.value = false;
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  loadEnvironment();
+  load();
+});
 </script>
 
 <template>
@@ -535,15 +624,42 @@ onMounted(load);
         <div class="card-title">
           <div>
             <h2>续费跟进台账</h2>
-            <p>正式导入后显示真实学员、续费归属、责任人和当前跟进状态。</p>
+            <p>默认显示当月至12月的未续费学员，可按分中心、月份、是否续费和姓名查询。</p>
           </div>
         </div>
       </template>
+      <div class="cycle-filters">
+        <el-select v-model="filters.org_unit_id" clearable placeholder="全部分中心" class="filter-control">
+          <el-option
+            v-for="center in centerOptions"
+            :key="center.id"
+            :label="center.name"
+            :value="center.id"
+          />
+        </el-select>
+        <el-select v-model="filters.due_month" clearable placeholder="默认当月至12月" class="filter-control">
+          <el-option v-for="month in monthOptions" :key="month" :label="`${month}月`" :value="month" />
+        </el-select>
+        <el-select v-model="filters.renewal_status" class="filter-control" aria-label="是否续费">
+          <el-option label="未续费" value="UNRENEWED" />
+          <el-option label="已续费" value="RENEWED" />
+          <el-option label="全部状态" value="ALL" />
+        </el-select>
+        <el-input
+          v-model="filters.member_name"
+          clearable
+          placeholder="按姓名查询"
+          class="filter-control name-filter"
+          @keyup.enter="load"
+        />
+        <el-button type="primary" :loading="loading" @click="load">查询</el-button>
+        <el-button :disabled="loading" @click="resetFilters">重置</el-button>
+      </div>
       <el-alert
         v-if="!cycles.length"
         class="cycle-empty-alert"
-        title="续费跟进工作台已上线，当前年度尚未导入正式续费周期"
-        description="完成名单融合预检并正式导入后，这里会显示责任人、状态、阶段、结果和“查看/跟进”操作；当前页面不会生成演示数据。"
+        title="当前筛选条件下暂无续费周期"
+        description="可调整分中心、月份、是否续费或姓名后重新查询。"
         type="info"
         :closable="false"
         show-icon
@@ -577,6 +693,15 @@ onMounted(load);
       width="820px"
     >
       <div v-loading="cycleDetailLoading" class="cycle-detail">
+        <el-alert
+          v-if="!writeEnabled"
+          title="当前为只读状态"
+          description="可以查看续费周期和历史跟进，但修改与新增保存已被禁用。"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="readonly-alert"
+        />
         <el-descriptions v-if="selectedCycle" :column="3" border>
           <el-descriptions-item label="续费归属">{{ selectedCycle.org_name }}</el-descriptions-item>
           <el-descriptions-item label="到期月份">{{ selectedCycle.due_month }}月</el-descriptions-item>
@@ -584,7 +709,7 @@ onMounted(load);
         </el-descriptions>
         <el-form :model="cycleForm" inline class="cycle-edit-form">
           <el-form-item label="状态">
-            <el-select v-model="cycleForm.status" style="width: 170px">
+            <el-select v-model="cycleForm.status" :disabled="!writeEnabled" style="width: 170px">
               <el-option
                 v-for="item in cycleStatusOptions"
                 :key="item[0]"
@@ -594,14 +719,15 @@ onMounted(load);
             </el-select>
           </el-form-item>
           <el-form-item label="阶段">
-            <el-input v-model="cycleForm.phase" placeholder="如：首次联系" />
+            <el-input v-model="cycleForm.phase" :disabled="!writeEnabled" maxlength="32" placeholder="如：首次联系" />
           </el-form-item>
           <el-form-item label="结果">
-            <el-input v-model="cycleForm.result" placeholder="简要记录结果" />
+            <el-input v-model="cycleForm.result" :disabled="!writeEnabled" maxlength="64" placeholder="简要记录结果" />
           </el-form-item>
           <el-form-item label="责任人">
             <el-select
               v-model="cycleForm.assigned_user_id"
+              :disabled="!writeEnabled"
               placeholder="选择续费归属范围内的责任人"
               style="width: 220px"
             >
@@ -614,7 +740,7 @@ onMounted(load);
             </el-select>
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" :loading="cycleSaving" @click="saveCycleDetail">
+            <el-button type="primary" :loading="cycleSaving" :disabled="!writeEnabled" @click="saveCycleDetail">
               保存周期状态
             </el-button>
           </el-form-item>
@@ -623,7 +749,7 @@ onMounted(load);
         <el-divider content-position="left">新增跟进</el-divider>
         <el-form :model="followupForm" label-position="top" class="followup-form">
           <el-form-item label="联系渠道">
-            <el-select v-model="followupForm.channel" style="width: 150px">
+            <el-select v-model="followupForm.channel" :disabled="!writeEnabled" style="width: 150px">
               <el-option label="电话" value="PHONE" />
               <el-option label="微信" value="WECHAT" />
               <el-option label="面谈" value="MEETING" />
@@ -632,22 +758,22 @@ onMounted(load);
             </el-select>
           </el-form-item>
           <el-form-item label="跟进摘要" required>
-            <el-input v-model="followupForm.summary" type="textarea" :rows="2" maxlength="4000" />
+            <el-input v-model="followupForm.summary" :disabled="!writeEnabled" type="textarea" :rows="2" maxlength="4000" />
           </el-form-item>
           <el-form-item label="意愿">
-            <el-input v-model="followupForm.intention" maxlength="64" />
+            <el-input v-model="followupForm.intention" :disabled="!writeEnabled" maxlength="64" />
           </el-form-item>
           <el-form-item label="下一步行动">
-            <el-input v-model="followupForm.next_action" maxlength="4000" />
+            <el-input v-model="followupForm.next_action" :disabled="!writeEnabled" maxlength="4000" />
           </el-form-item>
           <el-form-item label="下次跟进时间">
-            <el-input v-model="followupForm.next_followup_at" placeholder="YYYY-MM-DD HH:mm" />
+            <el-input v-model="followupForm.next_followup_at" :disabled="!writeEnabled" placeholder="YYYY-MM-DD HH:mm" />
           </el-form-item>
           <el-form-item label="需要协助">
-            <el-switch v-model="followupForm.needs_support" />
+            <el-switch v-model="followupForm.needs_support" :disabled="!writeEnabled" />
           </el-form-item>
           <el-form-item>
-            <el-button type="success" :loading="followupSaving" @click="submitFollowup">
+            <el-button type="success" :loading="followupSaving" :disabled="!writeEnabled" @click="submitFollowup">
               保存跟进记录
             </el-button>
           </el-form-item>
@@ -760,6 +886,26 @@ onMounted(load);
 .card-title p {
   margin: 0;
   color: #82958d;
+}
+.cycle-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 14px;
+  background: #f5f9f7;
+  border: 1px solid #e2ece7;
+  border-radius: 12px;
+}
+.filter-control {
+  width: 170px;
+}
+.name-filter {
+  width: 200px;
+}
+.readonly-alert {
+  margin-bottom: 16px;
 }
 .upload-list {
   display: grid;
