@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from zipfile import BadZipFile
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from openpyxl.utils.exceptions import InvalidFileException
 from pydantic import BaseModel, Field
 
@@ -37,9 +37,9 @@ class RenewalRollbackPayload(BaseModel):
 
 
 class RenewalCycleUpdatePayload(BaseModel):
-    status: str | None = None
-    phase: str | None = None
-    result: str | None = None
+    status: str | None = Field(default=None, max_length=64)
+    phase: str | None = Field(default=None, max_length=32)
+    result: str | None = Field(default=None, max_length=64)
     assigned_user_id: int | None = None
 
 
@@ -60,9 +60,27 @@ def overview(year: int = 2026, user: dict = Depends(require_permission("renewals
 def cycles(
     year: int = 2026,
     status: str | None = None,
+    org_unit_id: str | None = None,
+    due_month: int | None = Query(default=None, ge=1, le=12),
+    member_name: str | None = None,
+    renewal_status: str = "UNRENEWED",
+    include_past: bool = False,
     user: dict = Depends(require_permission("renewals:read")),
 ) -> dict:
-    return {"success": True, "data": list_cycles(user["id"], year, status)}
+    try:
+        data = list_cycles(
+            user["id"],
+            year,
+            status,
+            org_unit_id=org_unit_id,
+            due_month=due_month,
+            member_name=member_name,
+            renewal_status=renewal_status.strip().upper(),
+            include_past=include_past,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.get("/assignees")
