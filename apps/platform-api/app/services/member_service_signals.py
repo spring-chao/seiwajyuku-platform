@@ -6,8 +6,19 @@ from typing import Any
 from app.db import fetch_all, fetch_one
 
 
-RULE_VERSION = "member-service-signals/1.0"
-_CLOSED_RENEWAL_STATUSES = {"COMPLETED", "PAID", "CANCELLED", "CANCELED"}
+RULE_VERSION = "member-service-signals/1.1"
+# Renewal statuses that represent a completed decision and should no longer
+# surface as an overdue operational prompt.  Keep this aligned with the
+# terminal statuses used by the renewal cycle update service.
+_CLOSED_RENEWAL_STATUSES = {
+    "COMPLETED",
+    "PAID",
+    "CANCELLED",
+    "CANCELED",
+    "RENEWED",
+    "NOT_RENEWING",
+    "EXITED",
+}
 
 
 def _as_utc(value: Any) -> datetime | None:
