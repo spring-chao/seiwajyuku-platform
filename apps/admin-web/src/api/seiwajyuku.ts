@@ -245,6 +245,7 @@ export type MemberEditProfile = {
   join_date?: string | null;
   study_start_date?: string | null;
   membership_years?: number | null;
+  membership_years_inferred: boolean;
   renewal_month?: string | null;
   position?: string | null;
   referrer?: string | null;
@@ -256,7 +257,9 @@ export type MemberEditProfile = {
   notes?: string | null;
   class_org_unit_id?: string | null;
   group_org_unit_id?: string | null;
+  group_org_name?: string | null;
   annual_sales?: string | null;
+  employee_count?: number | null;
   profit_margin?: string | null;
   financial_fields_editable: boolean;
 };
@@ -639,6 +642,7 @@ export const createMember = (data: {
   industry?: string;
   company_products?: string;
   annual_sales?: string;
+  employee_count?: number;
   company_size?: string;
   profit_margin?: string;
   notes?: string;
@@ -956,6 +960,7 @@ export const updateMember = (
     industry?: string | null;
     company_products?: string | null;
     annual_sales?: string | null;
+    employee_count?: number | null;
     company_size?: string | null;
     profit_margin?: string | null;
     notes?: string | null;

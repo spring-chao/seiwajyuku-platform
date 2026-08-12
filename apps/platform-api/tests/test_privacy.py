@@ -8,6 +8,8 @@ from app.migrations import run_migrations
 from app.services.iam import create_user, seed_iam
 from app.services.members import (
     _as_utc,
+    effective_membership_years,
+    inferred_membership_years,
     create_member,
     create_sensitive_export,
     download_sensitive_export,
@@ -121,6 +123,11 @@ class PrivacyIsolationTests(unittest.TestCase):
         value = datetime(2026, 7, 27, 9, 30)
         self.assertEqual(_as_utc(value), value.replace(tzinfo=UTC))
 
+    def test_membership_years_defaults_to_join_date_and_allows_override(self) -> None:
+        self.assertIsNotNone(inferred_membership_years("2024-04-02"))
+        self.assertEqual(effective_membership_years("2024-04-02", 8.5, True), 8.5)
+        self.assertNotEqual(effective_membership_years("2024-04-02", 8.5, False), 8.5)
+
     def test_duplicate_phone_is_rejected_before_second_member_profile(self) -> None:
         with self.assertRaisesRegex(ValueError, "手机号已存在学员档案"):
             create_member(
@@ -173,7 +180,7 @@ class PrivacyIsolationTests(unittest.TestCase):
                 "birthday": "1988-08-08",
                 "join_date": "2024-01-01",
                 "study_start_date": "2024-02-01",
-                "membership_years": 2.5,
+                "membership_years": None,
                 "renewal_month": "2026-08",
                 "position": "总经理",
                 "referrer": "推荐人",
@@ -181,7 +188,7 @@ class PrivacyIsolationTests(unittest.TestCase):
                 "industry_category": "制造业",
                 "industry": "装备制造",
                 "company_products": "测试产品",
-                "company_size": "100人",
+                "employee_count": 100,
                 "notes": "资料维护测试",
             },
         )
@@ -189,6 +196,9 @@ class PrivacyIsolationTests(unittest.TestCase):
         self.assertEqual(profile["company_name"], "维护后企业")
         self.assertEqual(profile["birthday"], "1988-08-08")
         self.assertEqual(profile["industry"], "装备制造")
+        self.assertTrue(profile["membership_years_inferred"])
+        self.assertGreater(profile["membership_years"], 0)
+        self.assertEqual(profile["employee_count"], 100)
         self.assertEqual(profile["phone"], "13800138000")
         self.assertFalse(profile["financial_fields_editable"])
         self.assertIsNone(profile["annual_sales"])
@@ -402,6 +412,46 @@ class PrivacyIsolationTests(unittest.TestCase):
         self.assertTrue(stored["member_code"].startswith("MEM-"))
         self.assertNotIn("5000万元", stored["enterprise_financial_ciphertext"])
         self.assertNotIn("12%", stored["enterprise_financial_ciphertext"])
+
+    def test_legacy_company_size_is_compatibly_split_for_edit(self) -> None:
+        member_id = create_member(
+            self.admin["id"],
+            member_code="PRIVACY-LEGACY-COMPANY-SIZE",
+            name="旧公司规模兼容测试",
+            org_unit_id="privacy-center",
+            development_org_unit_id=None,
+            phone=None,
+            company_size="10000万、102人",
+        )
+        profile = get_member_edit_profile(member_id, self.admin["id"])
+        self.assertEqual(profile["annual_sales"], "10000")
+        self.assertEqual(profile["employee_count"], 102)
+        self.assertIsNone(profile["company_size"])
+        update_member(
+            self.admin["id"],
+            member_id,
+            {"annual_sales": "10000", "employee_count": 102},
+        )
+        stored = fetch_one(
+            "SELECT company_size, employee_count FROM members WHERE id=?", (member_id,)
+        )
+        self.assertIsNone(stored["company_size"])
+        self.assertEqual(stored["employee_count"], 102)
+
+    def test_edit_profile_returns_group_name_when_tree_option_is_unavailable(self) -> None:
+        member_id = create_member(
+            self.admin["id"],
+            member_code="PRIVACY-GROUP-LABEL",
+            name="小组名称回显测试",
+            org_unit_id="privacy-center",
+            development_org_unit_id=None,
+            phone=None,
+            class_org_unit_id="privacy-class",
+            group_org_unit_id="privacy-group",
+        )
+        profile = get_member_edit_profile(member_id, self.regional_user_id)
+        self.assertEqual(profile["group_org_unit_id"], "privacy-group")
+        self.assertEqual(profile["group_org_name"], "圆梦组")
 
 
 if __name__ == "__main__":

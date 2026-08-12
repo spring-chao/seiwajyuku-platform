@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -18,6 +19,41 @@ def _as_utc(value: str | datetime) -> datetime:
     # columns as datetime objects. Contact access must support both drivers.
     parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value)
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def inferred_membership_years(join_date: str | datetime | None) -> float | None:
+    """Infer elapsed membership years from the join date to the current day."""
+    if not join_date:
+        return None
+    joined = (
+        join_date.date()
+        if isinstance(join_date, datetime)
+        else datetime.fromisoformat(str(join_date)).date()
+    )
+    today = datetime.now(UTC).date()
+    if joined > today:
+        return 0.0
+    return round((today - joined).days / 365.2425, 1)
+
+
+def effective_membership_years(
+    join_date: str | datetime | None,
+    stored_years: float | None,
+    overridden: bool | int | None,
+) -> float | None:
+    if overridden and stored_years is not None:
+        return float(stored_years)
+    return inferred_membership_years(join_date)
+
+
+def legacy_employee_count(company_size: str | None) -> int | None:
+    match = re.search(r"([0-9][0-9,]*)\s*人", company_size or "")
+    return int(match.group(1).replace(",", "")) if match else None
+
+
+def legacy_annual_sales(company_size: str | None) -> str | None:
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*万(?:元)?", company_size or "")
+    return match.group(1) if match else None
 
 
 def can_access_member(
@@ -84,6 +120,7 @@ def create_member(
     industry: str | None = None,
     company_products: str | None = None,
     annual_sales: str | None = None,
+    employee_count: int | None = None,
     company_size: str | None = None,
     profit_margin: str | None = None,
     notes: str | None = None,
@@ -216,17 +253,19 @@ def create_member(
             "INSERT INTO members(member_code, name, org_unit_id, development_org_unit_id, status, "
             "phone_ciphertext, phone_hash, phone_last4, phone_masked, company_name, "
             "gender, district, company_address, class_name, group_name, birthday, join_date, "
-            "study_start_date, membership_years, renewal_month, position, referrer, "
-            "referrer_center, industry_category, industry, company_products, company_size, notes, "
+            "study_start_date, membership_years, membership_years_overridden, renewal_month, position, referrer, "
+            "referrer_center, industry_category, industry, company_products, employee_count, company_size, notes, "
             "enterprise_financial_ciphertext, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 member_code, name, org_unit_id, development_org_unit_id, status,
                 fields["phone_ciphertext"], fields["phone_hash"], fields["phone_last4"],
                 fields["phone_masked"], company_name, gender, district, company_address,
                 class_name, group_name, birthday, join_date, study_start_date,
-                membership_years, renewal_month, position, referrer, referrer_center,
-                industry_category, industry, company_products, company_size, notes,
+                membership_years, 1 if membership_years is not None else 0,
+                renewal_month, position, referrer, referrer_center,
+                industry_category, industry, company_products, employee_count,
+                company_size, notes,
                 financial_ciphertext, now, now,
             ),
         )
@@ -289,8 +328,8 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     current = fetch_one(
         "SELECT id, name, org_unit_id, development_org_unit_id, status, phone_masked, "
         "company_name, gender, district, company_address, birthday, join_date, "
-        "study_start_date, membership_years, renewal_month, position, referrer, "
-        "referrer_center, industry_category, industry, company_products, company_size, "
+        "study_start_date, membership_years, membership_years_overridden, renewal_month, position, referrer, "
+        "referrer_center, industry_category, industry, company_products, employee_count, company_size, "
         "notes, class_name, group_name, enterprise_financial_ciphertext "
         "FROM members WHERE id=?",
         (member_id,),
@@ -304,7 +343,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         "gender", "district", "company_address", "birthday", "join_date",
         "study_start_date", "membership_years", "renewal_month", "position",
         "referrer", "referrer_center", "industry_category", "industry",
-        "company_products", "annual_sales", "company_size", "profit_margin",
+        "company_products", "annual_sales", "employee_count", "company_size", "profit_margin",
         "org_unit_id", "development_org_unit_id", "class_org_unit_id",
         "group_org_unit_id",
     }
@@ -447,14 +486,22 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
             else None
         )
 
+    membership_years_changed = "membership_years" in updates
+    join_date_changed = "join_date" in updates
+    if membership_years_changed:
+        updates["membership_years_overridden"] = updates["membership_years"] is not None
+    elif join_date_changed and not current["membership_years_overridden"]:
+        updates["membership_years"] = None
+
     before = {
         key: current[key]
         for key in (
             "name", "org_unit_id", "development_org_unit_id", "status",
             "phone_masked", "company_name", "gender", "district", "company_address",
             "birthday", "join_date", "study_start_date", "membership_years",
+            "membership_years_overridden",
             "renewal_month", "position", "referrer", "referrer_center",
-            "industry_category", "industry", "company_products", "company_size",
+            "industry_category", "industry", "company_products", "employee_count", "company_size",
             "notes", "class_name", "group_name",
         )
     }
@@ -463,13 +510,17 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     for key in (
         "name", "status", "company_name", "gender", "district",
         "company_address", "birthday", "join_date", "study_start_date",
-        "membership_years", "renewal_month", "position", "referrer",
+        "membership_years", "membership_years_overridden", "renewal_month", "position", "referrer",
         "referrer_center", "industry_category", "industry", "company_products",
-        "company_size", "notes",
+        "employee_count", "company_size", "notes",
     ):
         if key in updates:
             value = updates[key]
             column_values[key] = None if value == "" else value
+    if "annual_sales" in updates and legacy_annual_sales(current["company_size"]):
+        # Once an authorized editor confirms the separated sales value, remove
+        # the legacy mixed plaintext instead of keeping two conflicting sources.
+        column_values["company_size"] = None
     if "org_unit_id" in updates:
         column_values["org_unit_id"] = target_org
     if "development_org_unit_id" in updates:
@@ -854,7 +905,7 @@ def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
         "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, "
         "m.phone_masked, m.phone_last4, "
         "m.gender, m.birthday, m.district, m.class_name, m.group_name, m.join_date, "
-        "m.study_start_date, m.membership_years, m.renewal_month, m.status, m.position, "
+        "m.study_start_date, m.membership_years, m.membership_years_overridden, m.renewal_month, m.status, m.position, "
         "m.referrer, m.referrer_center "
         "FROM members m "
         "JOIN org_units o ON o.id=m.org_unit_id WHERE m.id=?",
@@ -875,7 +926,14 @@ def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
             org_unit_id=member["org_unit_id"],
             after={"fields": "basic_profile_masked"},
         )
-    return dict(member)
+    result = dict(member)
+    result["membership_years"] = effective_membership_years(
+        member["join_date"],
+        member["membership_years"],
+        member["membership_years_overridden"],
+    )
+    result.pop("membership_years_overridden", None)
+    return result
 
 
 def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any]:
@@ -892,9 +950,9 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
     member = fetch_one(
         "SELECT id, name, org_unit_id, development_org_unit_id, status, "
         "phone_ciphertext, company_name, gender, district, company_address, "
-        "birthday, join_date, study_start_date, membership_years, renewal_month, "
+        "birthday, join_date, study_start_date, membership_years, membership_years_overridden, renewal_month, "
         "position, referrer, referrer_center, industry_category, industry, "
-        "company_products, company_size, notes, enterprise_financial_ciphertext "
+        "company_products, employee_count, company_size, notes, enterprise_financial_ciphertext "
         "FROM members WHERE id=?",
         (member_id,),
     )
@@ -910,6 +968,8 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
         if financial_fields_editable and member["enterprise_financial_ciphertext"]
         else {}
     )
+    if financial_fields_editable and not financial_data.get("annual_sales"):
+        financial_data["annual_sales"] = legacy_annual_sales(member["company_size"])
     relations = fetch_all(
         "SELECT org_unit_id, relation_type FROM member_org_relations "
         "WHERE member_id=? AND relation_type IN ('STUDY_CLASS', 'SPECIAL_COHORT', 'STUDY_GROUP') "
@@ -924,6 +984,12 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
     relation_by_type = {
         row["relation_type"]: row["org_unit_id"] for row in relations
     }
+    group_org_id = relation_by_type.get("STUDY_GROUP")
+    group_org = (
+        fetch_one("SELECT name FROM org_units WHERE id=?", (group_org_id,))
+        if group_org_id
+        else None
+    )
     with transaction() as connection:
         write_audit(
             connection,
@@ -938,20 +1004,41 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
                 "financial_fields_included": financial_fields_editable,
             },
         )
-    return {
+    profile = {
         key: value
         for key, value in {
             **member,
             "phone": phone,
             "class_org_unit_id": relation_by_type.get("STUDY_CLASS")
             or relation_by_type.get("SPECIAL_COHORT"),
-            "group_org_unit_id": relation_by_type.get("STUDY_GROUP"),
+            "group_org_unit_id": group_org_id,
+            "group_org_name": group_org["name"] if group_org else None,
             "annual_sales": financial_data.get("annual_sales"),
             "profit_margin": financial_data.get("profit_margin"),
             "financial_fields_editable": financial_fields_editable,
         }.items()
-        if key not in {"phone_ciphertext", "enterprise_financial_ciphertext"}
+        if key
+        not in {
+            "phone_ciphertext",
+            "enterprise_financial_ciphertext",
+            "membership_years_overridden",
+        }
     }
+    profile["membership_years"] = effective_membership_years(
+        member["join_date"],
+        member["membership_years"],
+        member["membership_years_overridden"],
+    )
+    profile["membership_years_inferred"] = not bool(
+        member["membership_years_overridden"]
+    )
+    profile["employee_count"] = (
+        member["employee_count"]
+        if member["employee_count"] is not None
+        else legacy_employee_count(member["company_size"])
+    )
+    profile["company_size"] = None
+    return profile
 
 
 def get_member_change_history(
@@ -1385,9 +1472,9 @@ def get_member_enterprise_detail(
     member = fetch_one(
         "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, m.phone_masked, "
         "m.gender, m.birthday, m.district, m.class_name, m.group_name, m.join_date, "
-        "m.study_start_date, m.membership_years, m.renewal_month, m.status, m.position, "
+        "m.study_start_date, m.membership_years, m.membership_years_overridden, m.renewal_month, m.status, m.position, "
         "m.referrer, m.referrer_center, m.company_name, m.company_address, "
-        "m.industry_category, m.industry, m.company_products, m.company_size, m.notes, "
+        "m.industry_category, m.industry, m.company_products, m.employee_count, m.company_size, m.notes, "
         "m.enterprise_financial_ciphertext FROM members m "
         "JOIN org_units o ON o.id=m.org_unit_id WHERE m.id=?",
         (member_id,),
@@ -1402,6 +1489,8 @@ def get_member_enterprise_detail(
         if member["enterprise_financial_ciphertext"]
         else {}
     )
+    if not financial_data.get("annual_sales"):
+        financial_data["annual_sales"] = legacy_annual_sales(member["company_size"])
     with transaction() as connection:
         write_audit(
             connection,
@@ -1413,15 +1502,27 @@ def get_member_enterprise_detail(
             purpose=purpose,
             after={"fields": "full_member_and_enterprise_profile"},
         )
-    return {
+    result = {
         key: value
         for key, value in {
             **member,
             "annual_sales": financial_data.get("annual_sales"),
             "profit_margin": financial_data.get("profit_margin"),
         }.items()
-        if key != "enterprise_financial_ciphertext"
+        if key
+        not in {"enterprise_financial_ciphertext", "membership_years_overridden"}
     }
+    result["membership_years"] = effective_membership_years(
+        member["join_date"],
+        member["membership_years"],
+        member["membership_years_overridden"],
+    )
+    result["employee_count"] = (
+        member["employee_count"]
+        if member["employee_count"] is not None
+        else legacy_employee_count(member["company_size"])
+    )
+    return result
 
 
 def normal_export_csv(user_id: int) -> str:

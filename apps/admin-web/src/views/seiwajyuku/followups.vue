@@ -408,8 +408,8 @@ async function reveal(task: any) {
         ["公司地址", profile.company_address],
         ["行业", [profile.industry_category, profile.industry].filter(Boolean).join(" / ")],
         ["公司产品", profile.company_products],
-        ["公司规模", profile.company_size],
-        ["年销售额", profile.annual_sales],
+        ["员工人数", profile.employee_count ? `${profile.employee_count}人` : null],
+        ["公司销售额", profile.annual_sales ? `${profile.annual_sales}万元` : null],
         ["利润率", profile.profit_margin],
         ["备注", profile.notes]
       ].filter(([, value]) => value !== null && value !== undefined && value !== "");

@@ -48,6 +48,9 @@ const timeline = ref<MemberTimeline>();
 const serviceSignalFeedbackLoading = ref("");
 const editProfileLoading = ref(false);
 const editPhoneReady = ref(false);
+const editGroupOrgName = ref("");
+const originalClassOrgUnitId = ref("");
+const originalGroupOrgUnitId = ref("");
 const financialFieldsEditable = ref(false);
 const editingMemberId = ref<number>();
 const preflightVisible = ref(false);
@@ -133,6 +136,23 @@ const groupOrgs = computed(() =>
     item => item.unit_type === "GROUP" && item.parent_id === form.class_org_unit_id
   )
 );
+const groupOptions = computed(() => {
+  const options = [...groupOrgs.value];
+  if (
+    form.group_org_unit_id &&
+    !options.some(item => item.id === form.group_org_unit_id) &&
+    editGroupOrgName.value
+  ) {
+    options.push({
+      id: form.group_org_unit_id,
+      unit_code: "HISTORICAL_GROUP",
+      name: `${editGroupOrgName.value}（历史归属，需复核）`,
+      unit_type: "GROUP",
+      parent_id: form.class_org_unit_id
+    });
+  }
+  return options;
+});
 const filteredRows = computed(() => {
   const term = keyword.value.trim().toLowerCase();
   if (!term) return rows.value;
@@ -159,6 +179,7 @@ const form = reactive({
   join_date: "",
   study_start_date: "",
   membership_years: undefined as number | undefined,
+  membership_years_inferred: true,
   renewal_month: "",
   status: "ACTIVE",
   position: "",
@@ -168,7 +189,7 @@ const form = reactive({
   industry: "",
   company_products: "",
   annual_sales: "",
-  company_size: "",
+  employee_count: undefined as number | undefined,
   profit_margin: "",
   notes: ""
 });
@@ -215,6 +236,9 @@ function openCreate() {
   financialFieldsEditable.value = useUserStoreHook().permissions.includes(
     "members:enterprise_view"
   );
+  editGroupOrgName.value = "";
+  originalClassOrgUnitId.value = "";
+  originalGroupOrgUnitId.value = "";
   Object.assign(form, {
     name: "",
     org_unit_id: selectedOrg.value,
@@ -231,6 +255,7 @@ function openCreate() {
     join_date: "",
     study_start_date: "",
     membership_years: undefined,
+    membership_years_inferred: true,
     renewal_month: "",
     status: "ACTIVE",
     position: "",
@@ -240,7 +265,7 @@ function openCreate() {
     industry: "",
     company_products: "",
     annual_sales: "",
-    company_size: "",
+    employee_count: undefined,
     profit_margin: "",
     notes: ""
   });
@@ -250,6 +275,7 @@ function openCreate() {
 async function openEdit(row: any) {
   editingMemberId.value = row.id;
   editPhoneReady.value = false;
+  editGroupOrgName.value = "";
   Object.assign(form, {
     name: row.name,
     org_unit_id: row.org_unit_id,
@@ -266,6 +292,7 @@ async function openEdit(row: any) {
     join_date: "",
     study_start_date: "",
     membership_years: undefined,
+    membership_years_inferred: true,
     renewal_month: "",
     status: row.status,
     position: "",
@@ -275,10 +302,12 @@ async function openEdit(row: any) {
     industry: "",
     company_products: "",
     annual_sales: "",
-    company_size: "",
+    employee_count: undefined,
     profit_margin: "",
     notes: ""
   });
+  originalClassOrgUnitId.value = "";
+  originalGroupOrgUnitId.value = "";
   dialogVisible.value = true;
   editProfileLoading.value = true;
   try {
@@ -299,6 +328,7 @@ async function openEdit(row: any) {
       join_date: data.join_date || "",
       study_start_date: data.study_start_date || "",
       membership_years: data.membership_years ?? undefined,
+      membership_years_inferred: data.membership_years_inferred,
       renewal_month: data.renewal_month || "",
       status: data.status,
       position: data.position || "",
@@ -307,17 +337,51 @@ async function openEdit(row: any) {
       industry_category: data.industry_category || "",
       industry: data.industry || "",
       company_products: data.company_products || "",
-      annual_sales: data.annual_sales || "",
-      company_size: data.company_size || "",
+      annual_sales: normalizeAnnualSales(data.annual_sales),
+      employee_count: data.employee_count ?? undefined,
       profit_margin: data.profit_margin || "",
       notes: data.notes || ""
     });
+    editGroupOrgName.value = data.group_org_name || "";
+    originalClassOrgUnitId.value = data.class_org_unit_id || "";
+    originalGroupOrgUnitId.value = data.group_org_unit_id || "";
     editPhoneReady.value = true;
   } catch (error) {
     ElMessage.error(errorText(error));
   } finally {
     editProfileLoading.value = false;
   }
+}
+
+function inferMembershipYears(joinDate: string) {
+  if (!joinDate) return undefined;
+  const joined = new Date(`${joinDate}T00:00:00`);
+  if (Number.isNaN(joined.getTime())) return undefined;
+  const elapsed = Math.max(0, Date.now() - joined.getTime());
+  return Math.round((elapsed / (365.2425 * 24 * 60 * 60 * 1000)) * 10) / 10;
+}
+
+function normalizeAnnualSales(value?: string | null) {
+  return (value || "").replace(/\s*(万元|万)\s*$/, "").trim();
+}
+
+function onJoinDateChange(value: string) {
+  if (!form.membership_years_inferred) return;
+  form.membership_years = inferMembershipYears(value);
+}
+
+function onClassOrgChange() {
+  form.group_org_unit_id = "";
+  editGroupOrgName.value = "";
+}
+
+function enableMembershipYearsOverride() {
+  form.membership_years_inferred = false;
+}
+
+function restoreInferredMembershipYears() {
+  form.membership_years_inferred = true;
+  form.membership_years = inferMembershipYears(form.join_date);
 }
 
 function parseHistoryValue(value: string) {
@@ -530,7 +594,9 @@ async function submit() {
         birthday: form.birthday || null,
         join_date: form.join_date || null,
         study_start_date: form.study_start_date || null,
-        membership_years: form.membership_years ?? null,
+        membership_years: form.membership_years_inferred
+          ? null
+          : (form.membership_years ?? null),
         renewal_month: form.renewal_month || null,
         position: form.position.trim() || null,
         referrer: form.referrer.trim() || null,
@@ -538,7 +604,7 @@ async function submit() {
         industry_category: form.industry_category.trim() || null,
         industry: form.industry.trim() || null,
         company_products: form.company_products.trim() || null,
-        company_size: form.company_size.trim() || null,
+        employee_count: form.employee_count ?? null,
         notes: form.notes.trim() || null,
         ...(financialFieldsEditable.value
           ? {
@@ -546,8 +612,12 @@ async function submit() {
               profit_margin: form.profit_margin.trim() || null
             }
           : {}),
-        class_org_unit_id: form.class_org_unit_id || null,
-        group_org_unit_id: form.group_org_unit_id || null
+        ...(form.class_org_unit_id !== originalClassOrgUnitId.value
+          ? { class_org_unit_id: form.class_org_unit_id || null }
+          : {}),
+        ...(form.group_org_unit_id !== originalGroupOrgUnitId.value
+          ? { group_org_unit_id: form.group_org_unit_id || null }
+          : {})
       });
       ElMessage.success("学员档案已更新，变更已记录");
     } else {
@@ -564,7 +634,9 @@ async function submit() {
         birthday: form.birthday || undefined,
         join_date: form.join_date || undefined,
         study_start_date: form.study_start_date || undefined,
-        membership_years: form.membership_years,
+        membership_years: form.membership_years_inferred
+          ? undefined
+          : form.membership_years,
         renewal_month: form.renewal_month || undefined,
         status: form.status,
         position: form.position.trim() || undefined,
@@ -574,7 +646,7 @@ async function submit() {
         industry: form.industry.trim() || undefined,
         company_products: form.company_products.trim() || undefined,
         annual_sales: form.annual_sales.trim() || undefined,
-        company_size: form.company_size.trim() || undefined,
+        employee_count: form.employee_count,
         profit_margin: form.profit_margin.trim() || undefined,
         notes: form.notes.trim() || undefined
       });
@@ -1159,7 +1231,7 @@ onMounted(load);
               clearable
               filterable
               placeholder="请选择正式班级"
-              @change="form.group_org_unit_id = ''"
+              @change="onClassOrgChange"
             >
               <el-option
                 v-for="org in classOrgs"
@@ -1189,7 +1261,7 @@ onMounted(load);
               placeholder="请选择正式小组"
             >
               <el-option
-                v-for="org in groupOrgs"
+                v-for="org in groupOptions"
                 :key="org.id"
                 :label="org.name"
                 :value="org.id"
@@ -1218,6 +1290,7 @@ onMounted(load);
               type="date"
               value-format="YYYY-MM-DD"
               placeholder="YYYY-MM-DD"
+              @change="onJoinDateChange"
             />
           </el-form-item>
           <el-form-item label="续费月份">
@@ -1228,12 +1301,14 @@ onMounted(load);
               placeholder="YYYY-MM"
             />
           </el-form-item>
-          <el-form-item label="年销售额">
+          <el-form-item label="公司销售额（万元）">
             <el-input
               v-model="form.annual_sales"
               :disabled="!financialFieldsEditable"
-              :placeholder="financialFieldsEditable ? '按原系统口径填写' : '需企业敏感资料权限'"
-            />
+              :placeholder="financialFieldsEditable ? '例如 10000' : '需企业敏感资料权限'"
+            >
+              <template #append>万元</template>
+            </el-input>
           </el-form-item>
           <el-form-item label="开始学习时间">
             <el-date-picker
@@ -1246,17 +1321,46 @@ onMounted(load);
           <el-form-item label="推荐人">
             <el-input v-model="form.referrer" />
           </el-form-item>
-          <el-form-item label="公司规模">
-            <el-input v-model="form.company_size" />
+          <el-form-item label="员工人数（人）">
+            <el-input-number
+              v-model="form.employee_count"
+              :min="0"
+              :max="10000000"
+              :precision="0"
+              controls-position="right"
+              placeholder="例如 102"
+            />
           </el-form-item>
           <el-form-item label="入塾年限">
-            <el-input-number
-              v-model="form.membership_years"
-              :min="0"
-              :max="100"
-              :precision="1"
-              controls-position="right"
-            />
+            <div class="tenure-field">
+              <el-input-number
+                v-model="form.membership_years"
+                :min="0"
+                :max="100"
+                :precision="1"
+                controls-position="right"
+                :disabled="form.membership_years_inferred"
+              />
+              <el-button
+                v-if="form.membership_years_inferred"
+                link
+                type="primary"
+                @click="enableMembershipYearsOverride"
+              >
+                手动修改
+              </el-button>
+              <el-button
+                v-else
+                link
+                type="primary"
+                @click="restoreInferredMembershipYears"
+              >
+                恢复自动计算
+              </el-button>
+              <span class="tenure-hint">
+                {{ form.membership_years_inferred ? "根据入塾日期自动计算" : "当前为人工覆盖值" }}
+              </span>
+            </div>
           </el-form-item>
           <el-form-item label="推荐人所属分中心">
             <el-input v-model="form.referrer_center" />
@@ -1511,6 +1615,18 @@ onMounted(load);
 .form-grid :deep(.el-date-editor),
 .form-grid :deep(.el-input-number) {
   width: 100%;
+}
+.tenure-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  width: 100%;
+}
+.tenure-hint {
+  grid-column: 1 / -1;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
 }
 .form-hint {
   margin: -4px 0 20px;
