@@ -108,17 +108,17 @@ def build_member_service_signals(
             )
 
     if "followups:manage" in permissions:
-        from app.services.followup_invitations import can_participate
+        from app.services.followup_visibility import can_view_followup_task_metadata
 
         task_rows = fetch_all(
-            "SELECT id, due_at, confidentiality_level FROM followup_tasks "
+            "SELECT id, org_unit_id, due_at, confidentiality_level FROM followup_tasks "
             "WHERE member_id=? AND status IN ('OPEN', 'IN_PROGRESS')",
             (member["id"],),
         )
         overdue_dates: list[datetime] = []
         for row in task_rows:
-            if row["confidentiality_level"] == "ASSIGNEE" and not can_participate(
-                row["id"], actor_user_id
+            if not can_view_followup_task_metadata(
+                row, actor_user_id, allowed_org_ids
             ):
                 continue
             due_at = _as_utc(row["due_at"])
@@ -140,14 +140,20 @@ def build_member_service_signals(
             )
 
     if "renewals:read" in permissions:
+        current_renewal_org_id = (
+            member.get("development_org_unit_id") or member.get("org_unit_id")
+        )
         cycle_rows = fetch_all(
-            "SELECT renewal_year, due_month, status, org_unit_id FROM renewal_cycles "
+            "SELECT renewal_year, due_month, status FROM renewal_cycles "
             "WHERE member_id=?",
             (member["id"],),
         )
         due_cycles: list[str] = []
         for row in cycle_rows:
-            if allowed_org_ids is not None and row["org_unit_id"] not in allowed_org_ids:
+            if (
+                allowed_org_ids is not None
+                and current_renewal_org_id not in allowed_org_ids
+            ):
                 continue
             if str(row["status"] or "").strip().upper() in _CLOSED_RENEWAL_STATUSES:
                 continue

@@ -96,6 +96,8 @@ def create_member(
     )
     if not primary_org or not primary_org["is_active"]:
         raise ValueError("所属分中心不存在或已停用")
+    if primary_org["unit_type"] != "REGIONAL_CENTER":
+        raise ValueError("学员主归属必须是正式区域分中心")
     if development_org_unit_id:
         development_org = fetch_one(
             "SELECT unit_type, is_active FROM org_units WHERE id=?",
@@ -138,6 +140,10 @@ def create_member(
         }.items()
         if value.strip()
     }
+    if financial_data:
+        actor = user_context(actor_user_id)
+        if not actor or "members:enterprise_view" not in actor["permissions"]:
+            raise PermissionError("当前角色不能维护敏感财务资料")
     financial_ciphertext = (
         encrypt_text(json.dumps(financial_data, ensure_ascii=False))
         if financial_data
@@ -282,7 +288,11 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     """Update a member profile and its formal organization relations atomically."""
     current = fetch_one(
         "SELECT id, name, org_unit_id, development_org_unit_id, status, phone_masked, "
-        "company_name, notes, class_name, group_name FROM members WHERE id=?",
+        "company_name, gender, district, company_address, birthday, join_date, "
+        "study_start_date, membership_years, renewal_month, position, referrer, "
+        "referrer_center, industry_category, industry, company_products, company_size, "
+        "notes, class_name, group_name, enterprise_financial_ciphertext "
+        "FROM members WHERE id=?",
         (member_id,),
     )
     if not current:
@@ -291,6 +301,10 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         raise ValueError("至少提供一项需要修改的字段")
     allowed_fields = {
         "name", "status", "phone", "company_name", "notes",
+        "gender", "district", "company_address", "birthday", "join_date",
+        "study_start_date", "membership_years", "renewal_month", "position",
+        "referrer", "referrer_center", "industry_category", "industry",
+        "company_products", "annual_sales", "company_size", "profit_margin",
         "org_unit_id", "development_org_unit_id", "class_org_unit_id",
         "group_org_unit_id",
     }
@@ -302,6 +316,14 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         resolve_member_scope(member_id, current["org_unit_id"], allowed)
     except PermissionError as exc:
         raise PermissionError("学员不在组织授权范围内") from exc
+    financial_update_requested = bool(
+        {"annual_sales", "profit_margin"}.intersection(updates)
+    )
+    actor = user_context(actor_user_id)
+    if financial_update_requested and (
+        not actor or "members:enterprise_view" not in actor["permissions"]
+    ):
+        raise PermissionError("当前角色不能维护敏感财务资料")
 
     target_org = updates.get("org_unit_id", current["org_unit_id"])
     target_org_row = fetch_one(
@@ -309,6 +331,8 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     )
     if not target_org_row or not target_org_row["is_active"]:
         raise ValueError("所属分中心不存在或已停用")
+    if target_org_row["unit_type"] != "REGIONAL_CENTER":
+        raise ValueError("学员主归属必须是正式区域分中心")
     if allowed is not None and target_org not in allowed:
         raise PermissionError("不能将学员转入授权范围外的分中心")
 
@@ -402,18 +426,50 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
                     f"手机号已存在其他学员档案（{duplicate['member_code']}），请先人工核对或执行档案合并"
                 )
 
+    financial_ciphertext: str | None = current["enterprise_financial_ciphertext"]
+    if financial_update_requested:
+        financial_data = (
+            json.loads(decrypt_text(financial_ciphertext))
+            if financial_ciphertext
+            else {}
+        )
+        for key in ("annual_sales", "profit_margin"):
+            if key not in updates:
+                continue
+            value = str(updates[key] or "").strip()
+            if value:
+                financial_data[key] = value
+            else:
+                financial_data.pop(key, None)
+        financial_ciphertext = (
+            encrypt_text(json.dumps(financial_data, ensure_ascii=False))
+            if financial_data
+            else None
+        )
+
     before = {
         key: current[key]
         for key in (
             "name", "org_unit_id", "development_org_unit_id", "status",
-            "phone_masked", "company_name", "notes", "class_name", "group_name",
+            "phone_masked", "company_name", "gender", "district", "company_address",
+            "birthday", "join_date", "study_start_date", "membership_years",
+            "renewal_month", "position", "referrer", "referrer_center",
+            "industry_category", "industry", "company_products", "company_size",
+            "notes", "class_name", "group_name",
         )
     }
     now = datetime.now(UTC).isoformat()
     column_values: dict[str, Any] = {}
-    for key in ("name", "status", "company_name", "notes"):
+    for key in (
+        "name", "status", "company_name", "gender", "district",
+        "company_address", "birthday", "join_date", "study_start_date",
+        "membership_years", "renewal_month", "position", "referrer",
+        "referrer_center", "industry_category", "industry", "company_products",
+        "company_size", "notes",
+    ):
         if key in updates:
-            column_values[key] = updates[key]
+            value = updates[key]
+            column_values[key] = None if value == "" else value
     if "org_unit_id" in updates:
         column_values["org_unit_id"] = target_org
     if "development_org_unit_id" in updates:
@@ -424,6 +480,8 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     elif group_key_changed:
         column_values["group_name"] = group_row["name"] if group_row else None
     column_values.update(phone_fields)
+    if financial_update_requested:
+        column_values["enterprise_financial_ciphertext"] = financial_ciphertext
     column_values["updated_at"] = now
     with transaction() as connection:
         assignments = ", ".join(f"{key}=?" for key in column_values)
@@ -475,10 +533,19 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
                     "source_type='MEMBER_UPDATE', updated_at=? WHERE id=?",
                     (now, now, existing["id"]),
                 )
+        protected_columns = {
+            "phone_ciphertext", "phone_hash", "phone_last4",
+            "enterprise_financial_ciphertext",
+        }
         after = {
             **before,
-            **{key: value for key, value in column_values.items() if key != "updated_at"},
+            **{
+                key: value
+                for key, value in column_values.items()
+                if key not in protected_columns | {"updated_at"}
+            },
             "phone_masked": phone_fields.get("phone_masked", current["phone_masked"]),
+            "financial_fields_changed": financial_update_requested,
             "class_org_unit_id": target_class,
             "group_org_unit_id": target_group,
         }
@@ -496,8 +563,18 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
             resource_type="member",
             resource_id=str(member_id),
             org_unit_id=target_org,
-            before=before,
-            after=after,
+            before={
+                "org_unit_id": before["org_unit_id"],
+                "status": before["status"],
+                "phone_masked": before["phone_masked"],
+            },
+            after={
+                "org_unit_id": target_org,
+                "status": after["status"],
+                "phone_masked": after["phone_masked"],
+                "changed_fields": sorted(updates),
+                "financial_fields_changed": financial_update_requested,
+            },
         )
     return member_id
 
@@ -729,6 +806,10 @@ def reveal_contact(
     if not task or task["member_id"] != member_id:
         record_attempt("DENIED_TASK_MISMATCH", task)
         raise PermissionError("联系任务与学长不匹配")
+    allowed = accessible_org_ids(actor_user_id)
+    if allowed is not None and task["org_unit_id"] not in allowed:
+        record_attempt("DENIED_ORG_SCOPE", task)
+        raise PermissionError("联系任务不在当前组织授权范围内")
     now = datetime.now(UTC)
     if task["assigned_user_id"] != actor_user_id or task["status"] not in {"OPEN", "IN_PROGRESS"}:
         record_attempt("DENIED_TASK_OWNER_OR_STATUS", task)
@@ -797,18 +878,24 @@ def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
     return dict(member)
 
 
-def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, str | None]:
-    """Return the full phone only to an authorized profile editor.
+def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any]:
+    """Return current editable values to an authorized profile editor.
 
     The regular list, detail and timeline views remain masked.  Editing a
-    profile is the only place where a maintainer needs the existing number to
-    check or correct it, so this read is scoped and separately audited.
+    profile is the only place where a maintainer needs current values to avoid
+    accidental field clearing. Full phone access remains scoped and audited;
+    financial values require the separate enterprise permission.
     """
     user = user_context(actor_user_id)
     if not user or "members:manage" not in user["permissions"]:
         raise PermissionError("当前角色不能编辑学员资料")
     member = fetch_one(
-        "SELECT id, org_unit_id, phone_ciphertext FROM members WHERE id=?",
+        "SELECT id, name, org_unit_id, development_org_unit_id, status, "
+        "phone_ciphertext, company_name, gender, district, company_address, "
+        "birthday, join_date, study_start_date, membership_years, renewal_month, "
+        "position, referrer, referrer_center, industry_category, industry, "
+        "company_products, company_size, notes, enterprise_financial_ciphertext "
+        "FROM members WHERE id=?",
         (member_id,),
     )
     if not member:
@@ -817,6 +904,26 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, str
     if not can_access_member(member_id, member["org_unit_id"], allowed):
         raise PermissionError("学员不在组织授权范围内")
     phone = decrypt_text(member["phone_ciphertext"]) if member["phone_ciphertext"] else None
+    financial_fields_editable = "members:enterprise_view" in user["permissions"]
+    financial_data = (
+        json.loads(decrypt_text(member["enterprise_financial_ciphertext"]))
+        if financial_fields_editable and member["enterprise_financial_ciphertext"]
+        else {}
+    )
+    relations = fetch_all(
+        "SELECT org_unit_id, relation_type FROM member_org_relations "
+        "WHERE member_id=? AND relation_type IN ('STUDY_CLASS', 'SPECIAL_COHORT', 'STUDY_GROUP') "
+        "AND (valid_from IS NULL OR valid_from<=?) "
+        "AND (valid_until IS NULL OR valid_until>=?) ORDER BY id DESC",
+        (
+            member_id,
+            datetime.now(UTC).isoformat(),
+            datetime.now(UTC).isoformat(),
+        ),
+    )
+    relation_by_type = {
+        row["relation_type"]: row["org_unit_id"] for row in relations
+    }
     with transaction() as connection:
         write_audit(
             connection,
@@ -825,9 +932,26 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, str
             resource_type="member",
             resource_id=str(member_id),
             org_unit_id=member["org_unit_id"],
-            after={"fields": "phone_for_profile_edit", "has_phone": bool(phone)},
+            after={
+                "fields": "current_profile_for_edit",
+                "has_phone": bool(phone),
+                "financial_fields_included": financial_fields_editable,
+            },
         )
-    return {"phone": phone}
+    return {
+        key: value
+        for key, value in {
+            **member,
+            "phone": phone,
+            "class_org_unit_id": relation_by_type.get("STUDY_CLASS")
+            or relation_by_type.get("SPECIAL_COHORT"),
+            "group_org_unit_id": relation_by_type.get("STUDY_GROUP"),
+            "annual_sales": financial_data.get("annual_sales"),
+            "profit_margin": financial_data.get("profit_margin"),
+            "financial_fields_editable": financial_fields_editable,
+        }.items()
+        if key not in {"phone_ciphertext", "enterprise_financial_ciphertext"}
+    }
 
 
 def get_member_change_history(
@@ -917,7 +1041,8 @@ def get_member_timeline(
     if not user or "members:detail_view" not in user["permissions"]:
         raise PermissionError("当前角色不能查看学长服务时间线")
     member = fetch_one(
-        "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, m.phone_masked, "
+        "SELECT m.id, m.name, m.org_unit_id, m.development_org_unit_id, "
+        "o.name AS org_name, m.phone_masked, "
         "m.class_name, m.group_name, m.status "
         "FROM members m JOIN org_units o ON o.id=m.org_unit_id WHERE m.id=?",
         (member_id,),
@@ -1004,13 +1129,11 @@ def get_member_timeline(
             "FROM followup_tasks WHERE member_id=? ORDER BY created_at DESC, id DESC",
             (member_id,),
         )
-        from app.services.followup_invitations import can_participate
+        from app.services.followup_visibility import can_view_followup_task_metadata
 
         visible_task_ids: list[int] = []
         for row in task_rows:
-            if row["confidentiality_level"] == "ASSIGNEE" and not can_participate(
-                row["id"], actor_user_id
-            ):
+            if not can_view_followup_task_metadata(row, actor_user_id, allowed):
                 continue
             visible_task_ids.append(row["id"])
             events.append(
@@ -1063,6 +1186,9 @@ def get_member_timeline(
                 )
 
     if "renewals:read" in user["permissions"]:
+        current_renewal_org_id = (
+            member["development_org_unit_id"] or member["org_unit_id"]
+        )
         cycle_rows = fetch_all(
             "SELECT c.id, c.renewal_year, c.org_unit_id, c.due_month, c.phase, c.status, "
             "c.completed_at, c.updated_at FROM renewal_cycles c WHERE c.member_id=? "
@@ -1071,7 +1197,7 @@ def get_member_timeline(
         )
         visible_cycle_ids: list[int] = []
         for row in cycle_rows:
-            if allowed is not None and row["org_unit_id"] not in allowed:
+            if allowed is not None and current_renewal_org_id not in allowed:
                 continue
             visible_cycle_ids.append(row["id"])
             events.append(
@@ -1134,8 +1260,10 @@ def get_member_timeline(
                 "service_signal_count": len(service_signals),
             },
         )
+    member_view = dict(member)
+    member_view.pop("development_org_unit_id", None)
     return {
-        "member": dict(member),
+        "member": member_view,
         "summary": summary,
         "service_signal_feedback_enabled": feedback_enabled,
         "service_signals": service_signals,

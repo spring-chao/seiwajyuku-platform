@@ -70,6 +70,23 @@ class MemberUpdatePayload(BaseModel):
     status: str | None = Field(default=None, pattern="^(ACTIVE|INACTIVE|SUSPENDED)$")
     phone: str | None = Field(default=None, pattern=r"^$|^1\d{10}$")
     company_name: str | None = Field(default=None, max_length=500)
+    gender: str | None = Field(default=None, max_length=32)
+    district: str | None = Field(default=None, max_length=255)
+    company_address: str | None = Field(default=None, max_length=1000)
+    birthday: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
+    join_date: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
+    study_start_date: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
+    membership_years: float | None = Field(default=None, ge=0, le=100)
+    renewal_month: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}$")
+    position: str | None = Field(default=None, max_length=255)
+    referrer: str | None = Field(default=None, max_length=255)
+    referrer_center: str | None = Field(default=None, max_length=255)
+    industry_category: str | None = Field(default=None, max_length=255)
+    industry: str | None = Field(default=None, max_length=255)
+    company_products: str | None = Field(default=None, max_length=4000)
+    annual_sales: str | None = Field(default=None, max_length=255)
+    company_size: str | None = Field(default=None, max_length=255)
+    profit_margin: str | None = Field(default=None, max_length=64)
     notes: str | None = Field(default=None, max_length=4000)
     org_unit_id: str | None = None
     development_org_unit_id: str | None = None
@@ -205,7 +222,7 @@ def member_edit_profile(
     member_id: int,
     user: dict = Depends(require_permission("members:manage")),
 ) -> dict:
-    """Return the current phone only for a scoped profile-edit operation."""
+    """Return the current editable profile for a scoped, audited operation."""
     try:
         data = get_member_edit_profile(member_id, user["id"])
     except PermissionError as exc:

@@ -165,15 +165,14 @@ def list_tasks(user_id: int, status: str | None = None) -> list[dict[str, Any]]:
         (status,) if status else (),
     )
     allowed = accessible_org_ids(user_id)
-    if allowed is not None:
-        rows = [row for row in rows if row["org_unit_id"] in allowed]
     from app.services.followup_invitations import can_participate, is_primary_assignee
+    from app.services.followup_visibility import can_view_followup_task_metadata
 
     result = []
     for row in rows:
-        participant = can_participate(row["id"], user_id)
-        if row["confidentiality_level"] == "ASSIGNEE" and not participant:
+        if not can_view_followup_task_metadata(row, user_id, allowed):
             continue
+        participant = can_participate(row["id"], user_id)
         result.append(
             {
                 **row,

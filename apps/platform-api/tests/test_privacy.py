@@ -19,6 +19,7 @@ from app.services.members import (
     list_members,
     normal_export_csv,
     reveal_contact,
+    update_member,
 )
 
 
@@ -157,8 +158,90 @@ class PrivacyIsolationTests(unittest.TestCase):
             (self.regional_user_id, str(self.member_id)),
         )
         self.assertEqual(audit["action"], "members.profile.edit_view")
-        self.assertIn("phone_for_profile_edit", audit["after_json"])
+        self.assertIn("current_profile_for_edit", audit["after_json"])
         self.assertNotIn("13800138000", audit["after_json"])
+
+    def test_profile_editor_reads_and_saves_all_visible_nonfinancial_fields(self) -> None:
+        update_member(
+            self.regional_user_id,
+            self.member_id,
+            {
+                "company_name": "维护后企业",
+                "gender": "MALE",
+                "district": "吴江区",
+                "company_address": "维护后地址",
+                "birthday": "1988-08-08",
+                "join_date": "2024-01-01",
+                "study_start_date": "2024-02-01",
+                "membership_years": 2.5,
+                "renewal_month": "2026-08",
+                "position": "总经理",
+                "referrer": "推荐人",
+                "referrer_center": "吴江分中心",
+                "industry_category": "制造业",
+                "industry": "装备制造",
+                "company_products": "测试产品",
+                "company_size": "100人",
+                "notes": "资料维护测试",
+            },
+        )
+        profile = get_member_edit_profile(self.member_id, self.regional_user_id)
+        self.assertEqual(profile["company_name"], "维护后企业")
+        self.assertEqual(profile["birthday"], "1988-08-08")
+        self.assertEqual(profile["industry"], "装备制造")
+        self.assertEqual(profile["phone"], "13800138000")
+        self.assertFalse(profile["financial_fields_editable"])
+        self.assertIsNone(profile["annual_sales"])
+        with self.assertRaisesRegex(PermissionError, "敏感财务资料"):
+            update_member(
+                self.regional_user_id,
+                self.member_id,
+                {"annual_sales": "不应保存"},
+            )
+
+    def test_class_scoped_user_cannot_see_other_org_followup_metadata(self) -> None:
+        admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+        scoped_member_id = create_member(
+            admin["id"],
+            member_code=f"PRIVACY-CROSS-ORG-{self.member_id}",
+            name="跨组织任务隔离测试学员",
+            org_unit_id="privacy-center",
+            development_org_unit_id=None,
+            phone=None,
+            class_org_unit_id="privacy-class",
+        )
+        class_user_id = create_user(
+            admin["id"],
+            username=f"privacy-class-{self.member_id}",
+            display_name="隐私班主任",
+            password="privacy-class-password",
+            roles=["class_counselor"],
+            scopes=[{"scope_type": "UNIT", "org_unit_id": "privacy-class"}],
+        )
+        with transaction() as connection:
+            task_id = execute(
+                connection,
+                "INSERT INTO followup_tasks(member_id, org_unit_id, task_type, service_purpose, "
+                "assigned_user_id, status, confidentiality_level, due_at, created_by, created_at, "
+                "updated_at) VALUES (?, 'privacy-center', 'CARE', ?, ?, 'OPEN', "
+                "'ORG_MANAGERS', ?, ?, ?, ?)",
+                (
+                    scoped_member_id,
+                    "只属于区域分中心的服务事项",
+                    self.regional_user_id,
+                    (datetime.now(UTC) - timedelta(days=1)).isoformat(),
+                    admin["id"],
+                    datetime.now(UTC).isoformat(),
+                    datetime.now(UTC).isoformat(),
+                ),
+            ).lastrowid
+        self.assertIsNotNone(task_id)
+        timeline = get_member_timeline(scoped_member_id, class_user_id)
+        self.assertNotIn("FOLLOWUP_TASK", timeline["summary"])
+        self.assertNotIn(
+            "FOLLOWUP_DUE",
+            {item["code"] for item in timeline["service_signals"]},
+        )
 
     def test_member_timeline_is_scoped_and_metadata_only(self) -> None:
         timeline = get_member_timeline(self.member_id, self.regional_user_id)

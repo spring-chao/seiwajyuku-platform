@@ -48,6 +48,7 @@ const timeline = ref<MemberTimeline>();
 const serviceSignalFeedbackLoading = ref("");
 const editProfileLoading = ref(false);
 const editPhoneReady = ref(false);
+const financialFieldsEditable = ref(false);
 const editingMemberId = ref<number>();
 const preflightVisible = ref(false);
 const preflightLoading = ref(false);
@@ -211,6 +212,9 @@ async function load() {
 function openCreate() {
   editingMemberId.value = undefined;
   editPhoneReady.value = true;
+  financialFieldsEditable.value = useUserStoreHook().permissions.includes(
+    "members:enterprise_view"
+  );
   Object.assign(form, {
     name: "",
     org_unit_id: selectedOrg.value,
@@ -246,16 +250,6 @@ function openCreate() {
 async function openEdit(row: any) {
   editingMemberId.value = row.id;
   editPhoneReady.value = false;
-  // Resolve the class against the member's own center rather than the
-  // currently selected form center.  Otherwise editing a member from a
-  // different center can silently clear the class/group relationship.
-  const classOrgId =
-    orgs.value.find(
-      item =>
-        item.name === row.class_name &&
-        ["CLASS", "SPECIAL_COHORT"].includes(item.unit_type) &&
-        (item.parent_id === row.org_unit_id || item.parent_id === "org-suzhou")
-    )?.id ?? "";
   Object.assign(form, {
     name: row.name,
     org_unit_id: row.org_unit_id,
@@ -266,11 +260,8 @@ async function openEdit(row: any) {
     company_address: "",
     class_name: "",
     group_name: "",
-    class_org_unit_id: classOrgId,
-    group_org_unit_id:
-      orgs.value.find(
-        item => item.name === row.group_name && item.parent_id === classOrgId
-      )?.id ?? "",
+    class_org_unit_id: "",
+    group_org_unit_id: "",
     birthday: "",
     join_date: "",
     study_start_date: "",
@@ -292,7 +283,35 @@ async function openEdit(row: any) {
   editProfileLoading.value = true;
   try {
     const profile = await getMemberEditProfile(row.id);
-    form.phone = profile.data.phone || "";
+    const data = profile.data;
+    financialFieldsEditable.value = data.financial_fields_editable;
+    Object.assign(form, {
+      name: data.name,
+      org_unit_id: data.org_unit_id,
+      phone: data.phone || "",
+      company_name: data.company_name || "",
+      gender: data.gender || "",
+      district: data.district || "",
+      company_address: data.company_address || "",
+      class_org_unit_id: data.class_org_unit_id || "",
+      group_org_unit_id: data.group_org_unit_id || "",
+      birthday: data.birthday || "",
+      join_date: data.join_date || "",
+      study_start_date: data.study_start_date || "",
+      membership_years: data.membership_years ?? undefined,
+      renewal_month: data.renewal_month || "",
+      status: data.status,
+      position: data.position || "",
+      referrer: data.referrer || "",
+      referrer_center: data.referrer_center || "",
+      industry_category: data.industry_category || "",
+      industry: data.industry || "",
+      company_products: data.company_products || "",
+      annual_sales: data.annual_sales || "",
+      company_size: data.company_size || "",
+      profit_margin: data.profit_margin || "",
+      notes: data.notes || ""
+    });
     editPhoneReady.value = true;
   } catch (error) {
     ElMessage.error(errorText(error));
@@ -504,6 +523,29 @@ async function submit() {
         org_unit_id: form.org_unit_id,
         status: form.status,
         phone: form.phone.trim() || null,
+        company_name: form.company_name.trim() || null,
+        gender: form.gender || null,
+        district: form.district.trim() || null,
+        company_address: form.company_address.trim() || null,
+        birthday: form.birthday || null,
+        join_date: form.join_date || null,
+        study_start_date: form.study_start_date || null,
+        membership_years: form.membership_years ?? null,
+        renewal_month: form.renewal_month || null,
+        position: form.position.trim() || null,
+        referrer: form.referrer.trim() || null,
+        referrer_center: form.referrer_center.trim() || null,
+        industry_category: form.industry_category.trim() || null,
+        industry: form.industry.trim() || null,
+        company_products: form.company_products.trim() || null,
+        company_size: form.company_size.trim() || null,
+        notes: form.notes.trim() || null,
+        ...(financialFieldsEditable.value
+          ? {
+              annual_sales: form.annual_sales.trim() || null,
+              profit_margin: form.profit_margin.trim() || null
+            }
+          : {}),
         class_org_unit_id: form.class_org_unit_id || null,
         group_org_unit_id: form.group_org_unit_id || null
       });
@@ -1187,7 +1229,11 @@ onMounted(load);
             />
           </el-form-item>
           <el-form-item label="年销售额">
-            <el-input v-model="form.annual_sales" placeholder="按原系统口径填写" />
+            <el-input
+              v-model="form.annual_sales"
+              :disabled="!financialFieldsEditable"
+              :placeholder="financialFieldsEditable ? '按原系统口径填写' : '需企业敏感资料权限'"
+            />
           </el-form-item>
           <el-form-item label="开始学习时间">
             <el-date-picker
@@ -1216,7 +1262,11 @@ onMounted(load);
             <el-input v-model="form.referrer_center" />
           </el-form-item>
           <el-form-item label="利润率">
-            <el-input v-model="form.profit_margin" placeholder="例如 12%" />
+            <el-input
+              v-model="form.profit_margin"
+              :disabled="!financialFieldsEditable"
+              :placeholder="financialFieldsEditable ? '例如 12%' : '需企业敏感资料权限'"
+            />
           </el-form-item>
           <el-form-item class="full" label="备注">
             <el-input v-model="form.notes" type="textarea" :rows="3" />

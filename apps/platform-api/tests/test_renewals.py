@@ -17,7 +17,7 @@ from app.api import renewals as renewals_api
 from app.core.privacy import decrypt_text, phone_hash
 from app.db import execute, fetch_one, transaction
 from app.services.iam import create_user
-from app.services.members import create_member, update_member
+from app.services.members import create_member, get_member_timeline, update_member
 from app.services.renewals import (
     _linked_member_id,
     _master_index,
@@ -257,7 +257,7 @@ def test_renewal_ledger_reads_current_member_management_profile() -> None:
         execute(
             connection,
             "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, status, created_at, updated_at) "
-            "VALUES (?, ?, ?, 8, 'IN_COMMUNICATION', ?, ?)",
+            "VALUES (?, ?, ?, 1, 'IN_COMMUNICATION', ?, ?)",
             (member_id, datetime.now().year, primary_org, now, now),
         )
 
@@ -285,6 +285,14 @@ def test_renewal_ledger_reads_current_member_management_profile() -> None:
     assert any(
         row["org_unit_id"] == development_org and row["count"] >= 1
         for row in overview["rows"]
+    )
+
+    timeline = get_member_timeline(member_id, admin["id"])
+    assert any(
+        item["event_type"] == "RENEWAL_CYCLE" for item in timeline["events"]
+    )
+    assert any(
+        item["code"] == "RENEWAL_DUE" for item in timeline["service_signals"]
     )
 
 

@@ -230,6 +230,37 @@ export type MemberTimeline = {
   events: MemberTimelineEvent[];
 };
 
+export type MemberEditProfile = {
+  id: number;
+  name: string;
+  org_unit_id: string;
+  development_org_unit_id?: string | null;
+  status: string;
+  phone: string | null;
+  company_name?: string | null;
+  gender?: string | null;
+  district?: string | null;
+  company_address?: string | null;
+  birthday?: string | null;
+  join_date?: string | null;
+  study_start_date?: string | null;
+  membership_years?: number | null;
+  renewal_month?: string | null;
+  position?: string | null;
+  referrer?: string | null;
+  referrer_center?: string | null;
+  industry_category?: string | null;
+  industry?: string | null;
+  company_products?: string | null;
+  company_size?: string | null;
+  notes?: string | null;
+  class_org_unit_id?: string | null;
+  group_org_unit_id?: string | null;
+  annual_sales?: string | null;
+  profit_margin?: string | null;
+  financial_fields_editable: boolean;
+};
+
 export type OrgUnit = {
   id: string;
   unit_code: string;
@@ -816,7 +847,7 @@ export const getMemberDetail = (memberId: number) =>
 export const getMemberEditProfile = (memberId: number) =>
   http.request<{
     success: boolean;
-    data: { phone: string | null };
+    data: MemberEditProfile;
   }>("get", `/api/v1/members/${memberId}/edit-profile`);
 
 export const createFollowupRecord = (
@@ -910,6 +941,23 @@ export const updateMember = (
     status?: string;
     phone?: string | null;
     company_name?: string | null;
+    gender?: string | null;
+    district?: string | null;
+    company_address?: string | null;
+    birthday?: string | null;
+    join_date?: string | null;
+    study_start_date?: string | null;
+    membership_years?: number | null;
+    renewal_month?: string | null;
+    position?: string | null;
+    referrer?: string | null;
+    referrer_center?: string | null;
+    industry_category?: string | null;
+    industry?: string | null;
+    company_products?: string | null;
+    annual_sales?: string | null;
+    company_size?: string | null;
+    profit_margin?: string | null;
     notes?: string | null;
     org_unit_id?: string;
     development_org_unit_id?: string | null;

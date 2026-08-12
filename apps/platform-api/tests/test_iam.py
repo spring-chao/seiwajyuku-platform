@@ -128,6 +128,28 @@ class IamIsolationTests(unittest.TestCase):
         )
         self.assertEqual(history["change_type"], "PROFILE_UPDATE")
 
+    def test_member_primary_org_must_be_regional_center(self) -> None:
+        admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+        with self.assertRaisesRegex(ValueError, "正式区域分中心"):
+            create_member(
+                admin["id"],
+                member_code="INVALID-PRIMARY-CLASS-001",
+                name="错误主归属测试学员",
+                org_unit_id="class-a",
+                development_org_unit_id=None,
+                phone=None,
+            )
+        member_id = create_member(
+            admin["id"],
+            member_code="VALID-PRIMARY-REGION-001",
+            name="主归属更新测试学员",
+            org_unit_id="org-a",
+            development_org_unit_id=None,
+            phone=None,
+        )
+        with self.assertRaisesRegex(ValueError, "正式区域分中心"):
+            update_member(admin["id"], member_id, {"org_unit_id": "class-a"})
+
     def test_identity_first_account_can_start_without_legacy_roles_or_scopes(self) -> None:
         response = self.client.post(
             "/api/v1/iam/users",
