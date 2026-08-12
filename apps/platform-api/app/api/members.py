@@ -12,6 +12,7 @@ from app.services.members import (
     download_sensitive_export,
     get_member_change_history,
     get_member_detail,
+    get_member_edit_profile,
     get_member_enterprise_detail,
     get_member_timeline,
     list_members,
@@ -196,6 +197,21 @@ def member_detail(
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/members/{member_id}/edit-profile")
+def member_edit_profile(
+    member_id: int,
+    user: dict = Depends(require_permission("members:manage")),
+) -> dict:
+    """Return the current phone only for a scoped profile-edit operation."""
+    try:
+        data = get_member_edit_profile(member_id, user["id"])
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
     return {"success": True, "data": data}
 
 

@@ -12,6 +12,7 @@ from app.services.members import (
     create_sensitive_export,
     download_sensitive_export,
     get_member_detail,
+    get_member_edit_profile,
     get_member_change_history,
     get_member_enterprise_detail,
     get_member_timeline,
@@ -144,6 +145,20 @@ class PrivacyIsolationTests(unittest.TestCase):
         self.assertNotIn("company_products", profile)
         self.assertNotIn("notes", profile)
         self.assertEqual(profile["name"], "隐私测试学长")
+
+    def test_profile_editor_can_read_phone_with_audit(self) -> None:
+        profile = get_member_edit_profile(self.member_id, self.regional_user_id)
+        self.assertEqual(profile["phone"], "13800138000")
+        with self.assertRaises(PermissionError):
+            get_member_edit_profile(self.member_id, self.security_user_id)
+        audit = fetch_one(
+            "SELECT action, after_json FROM audit_logs WHERE actor_user_id=? "
+            "AND resource_type='member' AND resource_id=? ORDER BY id DESC LIMIT 1",
+            (self.regional_user_id, str(self.member_id)),
+        )
+        self.assertEqual(audit["action"], "members.profile.edit_view")
+        self.assertIn("phone_for_profile_edit", audit["after_json"])
+        self.assertNotIn("13800138000", audit["after_json"])
 
     def test_member_timeline_is_scoped_and_metadata_only(self) -> None:
         timeline = get_member_timeline(self.member_id, self.regional_user_id)

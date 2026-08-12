@@ -11,6 +11,7 @@ import {
 import { useUserStoreHook } from "@/store/modules/user";
 import {
   createMember,
+  getMemberEditProfile,
   getMembers,
   getOrgUnits,
   applyDirectClassWorkbook,
@@ -45,6 +46,8 @@ const timelineVisible = ref(false);
 const timelineLoading = ref(false);
 const timeline = ref<MemberTimeline>();
 const serviceSignalFeedbackLoading = ref("");
+const editProfileLoading = ref(false);
+const editPhoneReady = ref(false);
 const editingMemberId = ref<number>();
 const preflightVisible = ref(false);
 const preflightLoading = ref(false);
@@ -170,18 +173,20 @@ const form = reactive({
 });
 const memberStatusLabel = (status: string) =>
   ({ ACTIVE: "在册", INACTIVE: "停用", SUSPENDED: "暂停" })[status] ?? status;
-const rules: FormRules = {
+const rules = computed<FormRules>(() => ({
   name: [{ required: true, message: "请输入姓名", trigger: "blur" }],
   org_unit_id: [{ required: true, message: "请选择分中心", trigger: "change" }],
   phone: [
-    { required: true, message: "请输入手机号", trigger: "blur" },
+    ...(editingMemberId.value
+      ? []
+      : [{ required: true, message: "请输入手机号", trigger: "blur" }]),
     {
-      pattern: /^1\d{10}$/,
+      pattern: /^$|^1\d{10}$/,
       message: "请输入 11 位手机号",
       trigger: "blur"
     }
   ]
-};
+}));
 
 function errorText(error: any) {
   return error?.response?.data?.detail || error?.message || "操作失败";
@@ -205,6 +210,7 @@ async function load() {
 
 function openCreate() {
   editingMemberId.value = undefined;
+  editPhoneReady.value = true;
   Object.assign(form, {
     name: "",
     org_unit_id: selectedOrg.value,
@@ -237,8 +243,9 @@ function openCreate() {
   dialogVisible.value = true;
 }
 
-function openEdit(row: any) {
+async function openEdit(row: any) {
   editingMemberId.value = row.id;
+  editPhoneReady.value = false;
   // Resolve the class against the member's own center rather than the
   // currently selected form center.  Otherwise editing a member from a
   // different center can silently clear the class/group relationship.
@@ -282,6 +289,16 @@ function openEdit(row: any) {
     notes: ""
   });
   dialogVisible.value = true;
+  editProfileLoading.value = true;
+  try {
+    const profile = await getMemberEditProfile(row.id);
+    form.phone = profile.data.phone || "";
+    editPhoneReady.value = true;
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    editProfileLoading.value = false;
+  }
 }
 
 function parseHistoryValue(value: string) {
@@ -474,6 +491,10 @@ async function openHistory(row: any) {
 }
 
 async function submit() {
+  if (editingMemberId.value && !editPhoneReady.value) {
+    ElMessage.error("手机号尚未读取完成，请稍后重试")
+    return;
+  }
   if (!(await formRef.value?.validate())) return;
   saving.value = true;
   try {
@@ -482,6 +503,7 @@ async function submit() {
         name: form.name.trim(),
         org_unit_id: form.org_unit_id,
         status: form.status,
+        phone: form.phone.trim() || null,
         class_org_unit_id: form.class_org_unit_id || null,
         group_org_unit_id: form.group_org_unit_id || null
       });
@@ -1041,7 +1063,8 @@ onMounted(load);
       class="member-dialog"
     >
       <p class="form-hint">
-        姓名、分中心和手机号为必填项；年销售额与利润率按敏感信息加密保存。
+        {{ editingMemberId ? "编辑时可核对或更换手机号；历史缺失号码可先保存其他资料。" : "姓名、分中心和手机号为必填项。" }}
+        年销售额与利润率按敏感信息加密保存。
       </p>
       <el-form
         ref="formRef"
@@ -1067,7 +1090,13 @@ onMounted(load);
             <el-input v-model="form.company_name" />
           </el-form-item>
           <el-form-item label="手机号" prop="phone">
-            <el-input v-model="form.phone" maxlength="11" />
+            <el-input
+              v-model="form.phone"
+              maxlength="11"
+              :loading="editProfileLoading"
+              :disabled="editProfileLoading"
+              :placeholder="editingMemberId ? '可留空；填写时须为 11 位手机号' : '请输入 11 位手机号'"
+            />
           </el-form-item>
           <el-form-item label="隶属区">
             <el-input v-model="form.district" />
@@ -1196,7 +1225,12 @@ onMounted(load);
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submit">
+        <el-button
+          type="primary"
+          :loading="saving"
+          :disabled="Boolean(editingMemberId) && !editPhoneReady"
+          @click="submit"
+        >
           {{ editingMemberId ? "保存变更" : "加密保存" }}
         </el-button>
       </template>

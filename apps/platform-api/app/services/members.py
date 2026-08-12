@@ -797,6 +797,39 @@ def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
     return dict(member)
 
 
+def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, str | None]:
+    """Return the full phone only to an authorized profile editor.
+
+    The regular list, detail and timeline views remain masked.  Editing a
+    profile is the only place where a maintainer needs the existing number to
+    check or correct it, so this read is scoped and separately audited.
+    """
+    user = user_context(actor_user_id)
+    if not user or "members:manage" not in user["permissions"]:
+        raise PermissionError("当前角色不能编辑学员资料")
+    member = fetch_one(
+        "SELECT id, org_unit_id, phone_ciphertext FROM members WHERE id=?",
+        (member_id,),
+    )
+    if not member:
+        raise ValueError("学员不存在")
+    allowed = accessible_org_ids(actor_user_id)
+    if not can_access_member(member_id, member["org_unit_id"], allowed):
+        raise PermissionError("学员不在组织授权范围内")
+    phone = decrypt_text(member["phone_ciphertext"]) if member["phone_ciphertext"] else None
+    with transaction() as connection:
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="members.profile.edit_view",
+            resource_type="member",
+            resource_id=str(member_id),
+            org_unit_id=member["org_unit_id"],
+            after={"fields": "phone_for_profile_edit", "has_phone": bool(phone)},
+        )
+    return {"phone": phone}
+
+
 def get_member_change_history(
     member_id: int, actor_user_id: int
 ) -> list[dict[str, Any]]:

@@ -813,6 +813,12 @@ export const getMemberDetail = (memberId: number) =>
     data: Record<string, string | number | null>;
   }>("get", `/api/v1/members/${memberId}/detail`);
 
+export const getMemberEditProfile = (memberId: number) =>
+  http.request<{
+    success: boolean;
+    data: { phone: string | null };
+  }>("get", `/api/v1/members/${memberId}/edit-profile`);
+
 export const createFollowupRecord = (
   taskId: number,
   data: {
