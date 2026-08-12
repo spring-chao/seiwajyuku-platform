@@ -8,7 +8,7 @@ defineOptions({
   <div class="welcome">
     <p>盛和塾综合运营与发展建设平台</p>
     <h1>以目标牵引组织，以服务促进成长</h1>
-    <span>请从左侧“运营驾驶舱”进入年度 MP 看板或月度填报。</span>
+    <span>请从左侧导航进入运营驾驶舱、学员运营、活动管理或系统设置。</span>
   </div>
 </template>
 
