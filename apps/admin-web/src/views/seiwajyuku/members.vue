@@ -155,7 +155,7 @@ const groupOptions = computed(() => {
 });
 const filteredRows = computed(() => {
   const term = keyword.value.trim().toLowerCase();
-  if (!term) return rows.value;
+  if (!term) return rows.value.filter(item => item.status === "ACTIVE");
   return rows.value.filter(item =>
     [item.name, item.member_code, item.phone_last4]
       .filter(Boolean)
@@ -843,9 +843,11 @@ onMounted(load);
         <el-input
           v-model="keyword"
           clearable
-          placeholder="搜索姓名、编号或手机后四位"
+          placeholder="搜索姓名、编号或手机后四位（含非在册）"
         />
-        <span class="result-count">共 {{ filteredRows.length }} 人</span>
+        <span class="result-count">
+          {{ keyword.trim() ? "搜索全部状态" : "默认显示在册" }} · 共 {{ filteredRows.length }} 人
+        </span>
       </div>
 
       <el-table :data="filteredRows" stripe empty-text="暂无学员数据">
