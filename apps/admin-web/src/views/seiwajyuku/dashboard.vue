@@ -19,6 +19,8 @@ const planId = ref<number>();
 const year = ref(new Date().getFullYear());
 const month = ref(Math.min(new Date().getMonth() + 1, 12));
 const operations = ref<OperationsSnapshot>();
+const birthdayCenterId = ref("");
+const birthdayClassOrgUnitId = ref("");
 const items = ref<DashboardItem[]>([]);
 const selectedMetricKey = ref("active_member_count");
 const variances = ref<
@@ -178,6 +180,38 @@ const scheduleRows = computed(() => [
     sequence: "—"
   }))
 ]);
+const birthdayCenterOptions = computed(() => {
+  const options = new Map<string, string>();
+  (operations.value?.birthday_members || []).forEach(item => {
+    options.set(item.org_unit_id, item.org_name);
+  });
+  return [...options].map(([id, name]) => ({ id, name }));
+});
+const birthdayClassOptions = computed(() => {
+  const options = new Map<string, string>();
+  (operations.value?.birthday_members || [])
+    .filter(
+      item => !birthdayCenterId.value || item.org_unit_id === birthdayCenterId.value
+    )
+    .forEach(item => {
+      if (item.class_org_unit_id && item.class_name) {
+        options.set(item.class_org_unit_id, item.class_name);
+      }
+    });
+  return [...options].map(([id, name]) => ({ id, name }));
+});
+const filteredBirthdayMembers = computed(() =>
+  (operations.value?.birthday_members || []).filter(
+    item =>
+      (!birthdayCenterId.value || item.org_unit_id === birthdayCenterId.value) &&
+      (!birthdayClassOrgUnitId.value ||
+        item.class_org_unit_id === birthdayClassOrgUnitId.value)
+  )
+);
+
+function changeBirthdayCenter() {
+  birthdayClassOrgUnitId.value = "";
+}
 
 const formatValue = (
   value: number | string | null | undefined,
@@ -217,6 +251,25 @@ async function load() {
       planId.value ? getTargetVariances(planId.value) : Promise.resolve(null)
     ]);
     operations.value = snapshot.data;
+    if (
+      birthdayCenterId.value &&
+      !snapshot.data.birthday_members.some(
+        item => item.org_unit_id === birthdayCenterId.value
+      )
+    ) {
+      birthdayCenterId.value = "";
+    }
+    if (
+      birthdayClassOrgUnitId.value &&
+      !snapshot.data.birthday_members.some(
+        item =>
+          item.class_org_unit_id === birthdayClassOrgUnitId.value &&
+          (!birthdayCenterId.value ||
+            item.org_unit_id === birthdayCenterId.value)
+      )
+    ) {
+      birthdayClassOrgUnitId.value = "";
+    }
     items.value = dashboard?.data.items || [];
     variances.value = variance?.data || [];
     if (
@@ -324,7 +377,7 @@ function changePlan() {
 
     <section class="operations-panels">
       <article class="content-card">
-        <div class="section-title">
+        <div class="section-title birthday-title">
           <h2>各分中心当前在册</h2>
           <p>按学员管理主档所属分中心统计；直属学习班保留独立口径，不并入六个分中心。</p>
         </div>
@@ -338,11 +391,42 @@ function changePlan() {
 
       <article class="content-card">
         <div class="section-title">
-          <h2>本月生日关怀</h2>
-          <p>仅展示生日月日，不展示出生年份及其他敏感资料。</p>
+          <div>
+            <h2>本月生日关怀</h2>
+            <p>仅展示生日月日，不展示出生年份及其他敏感资料。</p>
+          </div>
+          <div class="birthday-filters">
+            <el-select
+              v-model="birthdayCenterId"
+              clearable
+              aria-label="生日关怀分中心"
+              placeholder="全部分中心"
+              @change="changeBirthdayCenter"
+            >
+              <el-option
+                v-for="option in birthdayCenterOptions"
+                :key="option.id"
+                :label="option.name"
+                :value="option.id"
+              />
+            </el-select>
+            <el-select
+              v-model="birthdayClassOrgUnitId"
+              clearable
+              aria-label="生日关怀班级"
+              placeholder="全部班级"
+            >
+              <el-option
+                v-for="option in birthdayClassOptions"
+                :key="option.id"
+                :label="option.name"
+                :value="option.id"
+              />
+            </el-select>
+          </div>
         </div>
         <el-table
-          :data="operations?.birthday_members || []"
+          :data="filteredBirthdayMembers"
           size="small"
           max-height="300"
           empty-text="本月暂无在册学长生日"
@@ -350,6 +434,9 @@ function changePlan() {
           <el-table-column prop="birthday" label="日期" width="86" />
           <el-table-column prop="name" label="学长" min-width="100" />
           <el-table-column prop="org_name" label="分中心" min-width="130" />
+          <el-table-column label="班级" min-width="120">
+            <template #default="{ row }">{{ row.class_name || "未分班" }}</template>
+          </el-table-column>
         </el-table>
       </article>
     </section>
@@ -575,6 +662,19 @@ h1 {
 .filters .el-select:first-child {
   width: 210px;
 }
+.birthday-filters {
+  display: flex;
+  gap: 8px;
+}
+.birthday-filters .el-select {
+  width: 150px;
+}
+.birthday-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -766,6 +866,14 @@ h1 {
   }
   .summary-grid {
     grid-template-columns: 1fr;
+  }
+  .birthday-title,
+  .birthday-filters {
+    flex-direction: column;
+  }
+  .birthday-filters,
+  .birthday-filters .el-select {
+    width: 100%;
   }
   .operations-grid,
   .center-list {

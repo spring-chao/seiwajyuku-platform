@@ -54,7 +54,10 @@ export type OperationsSnapshot = {
   birthday_members: {
     member_id: number;
     name: string;
+    org_unit_id: string;
     org_name: string;
+    class_org_unit_id?: string | null;
+    class_name?: string | null;
     birthday: string;
   }[];
   class_meeting_schedule: OperationsScheduleItem[];

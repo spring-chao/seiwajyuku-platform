@@ -75,6 +75,20 @@ def test_operations_snapshot_uses_master_facts_and_event_groups() -> None:
     )
 
     with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, "
+            "is_primary, source_type, created_at, updated_at) "
+            "VALUES (?, 'snapshot-center-a', 'PRIMARY_REGION', 1, 'SNAPSHOT_TEST', ?, ?)",
+            (renewed_id, now, now),
+        )
+        execute(
+            connection,
+            "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, "
+            "is_primary, source_type, created_at, updated_at) "
+            "VALUES (?, 'snapshot-class-a', 'STUDY_CLASS', 1, 'SNAPSHOT_TEST', ?, ?)",
+            (renewed_id, now, now),
+        )
         cycle_id = execute(
             connection,
             "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, "
@@ -143,6 +157,10 @@ def test_operations_snapshot_uses_master_facts_and_event_groups() -> None:
     assert result["data_quality"]["unscheduled_class_count"] == 1
     assert result["data_quality"]["unlinked_class_meeting_count"] == 0
     assert result["birthday_members"][0]["birthday"] == "08-15"
+    assert result["birthday_members"][0]["org_unit_id"] == "snapshot-center-a"
+    assert result["birthday_members"][0]["org_name"] == "驾驶舱测试分中心A"
+    assert result["birthday_members"][0]["class_org_unit_id"] == "snapshot-class-a"
+    assert result["birthday_members"][0]["class_name"] == "驾驶舱一班"
     assert result["data_quality"]["missing_join_date_count"] == 1
     assert result["data_quality"]["course_schedule_source_ready"] is True
     assert {row["id"] for row in result["centers"]} == {"snapshot-center-a"}

@@ -249,19 +249,50 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
         "AND m.join_date IS NULL" + member_scope,
         tuple(member_scope_params),
     )["count"]
+    relation_as_of = datetime.now(UTC).isoformat()
+    birthday_relation_params = (relation_as_of,) * 8
     birthdays = fetch_all(
-        "SELECT m.id, m.name, m.birthday, o.name AS org_name "
+        "SELECT m.id, m.name, m.birthday, "
+        "COALESCE((SELECT rr.org_unit_id FROM member_org_relations rr "
+        "WHERE rr.member_id=m.id AND rr.relation_type='PRIMARY_REGION' "
+        "AND (rr.valid_from IS NULL OR rr.valid_from<=?) "
+        "AND (rr.valid_until IS NULL OR rr.valid_until>=?) "
+        "ORDER BY rr.is_primary DESC, rr.id LIMIT 1), m.org_unit_id) AS org_unit_id, "
+        "COALESCE((SELECT ro.name FROM member_org_relations rr "
+        "JOIN org_units ro ON ro.id=rr.org_unit_id "
+        "WHERE rr.member_id=m.id AND rr.relation_type='PRIMARY_REGION' "
+        "AND (rr.valid_from IS NULL OR rr.valid_from<=?) "
+        "AND (rr.valid_until IS NULL OR rr.valid_until>=?) "
+        "ORDER BY rr.is_primary DESC, rr.id LIMIT 1), o.name) AS org_name, "
+        "(SELECT cr.org_unit_id FROM member_org_relations cr "
+        "WHERE cr.member_id=m.id AND cr.relation_type='STUDY_CLASS' "
+        "AND (cr.valid_from IS NULL OR cr.valid_from<=?) "
+        "AND (cr.valid_until IS NULL OR cr.valid_until>=?) "
+        "ORDER BY cr.is_primary DESC, cr.id LIMIT 1) AS class_org_unit_id, "
+        "(SELECT co.name FROM member_org_relations cr "
+        "JOIN org_units co ON co.id=cr.org_unit_id "
+        "WHERE cr.member_id=m.id AND cr.relation_type='STUDY_CLASS' "
+        "AND (cr.valid_from IS NULL OR cr.valid_from<=?) "
+        "AND (cr.valid_until IS NULL OR cr.valid_until>=?) "
+        "ORDER BY cr.is_primary DESC, cr.id LIMIT 1) AS class_name "
         "FROM members m JOIN org_units o ON o.id=m.org_unit_id "
         "WHERE m.status='ACTIVE' AND substr(m.birthday, 6, 2)=?"
         + member_scope
-        + " ORDER BY substr(m.birthday, 6, 5), m.name, m.id",
-        (f"{month:02d}", *member_scope_params),
+        + " ORDER BY substr(m.birthday, 6, 5), org_name, class_name, m.name, m.id",
+        (
+            *birthday_relation_params,
+            f"{month:02d}",
+            *member_scope_params,
+        ),
     )
     birthday_members = [
         {
             "member_id": row["id"],
             "name": row["name"],
+            "org_unit_id": row["org_unit_id"],
             "org_name": row["org_name"],
+            "class_org_unit_id": row.get("class_org_unit_id"),
+            "class_name": row.get("class_name"),
             "birthday": str(row["birthday"])[5:10],
         }
         for row in birthdays
