@@ -17,7 +17,7 @@ export default [
       name: "MpDashboard",
       component: () => import("@/views/seiwajyuku/dashboard.vue"),
       meta: {
-        title: "年度MP看板",
+        title: "运营总览",
         icon: "ep/trend-charts"
       }
     },

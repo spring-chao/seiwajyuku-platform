@@ -8,6 +8,7 @@ from app.services.plans import (
     enable_plan_write,
     list_plans,
     mp_dashboard,
+    operations_snapshot,
     period_values,
     target_variances,
     update_period_values,
@@ -92,10 +93,21 @@ def dashboard(
     return {"success": True, "data": mp_dashboard(plan_id=plan_id, user_id=user["id"], month=month)}
 
 
+@router.get("/analytics/operations-snapshot")
+def monthly_operations_snapshot(
+    year: int = Query(..., ge=2020, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    user: dict = Depends(require_permission("plans:read")),
+) -> dict:
+    return {
+        "success": True,
+        "data": operations_snapshot(user_id=user["id"], year=year, month=month),
+    }
+
+
 @router.get("/analytics/target-variances")
 def variances(
     plan_id: int,
     user: dict = Depends(require_permission("plans:read")),
 ) -> dict:
     return {"success": True, "data": target_variances(plan_id, user["id"])}
-

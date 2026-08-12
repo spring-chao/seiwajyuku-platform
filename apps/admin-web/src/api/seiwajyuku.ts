@@ -22,6 +22,57 @@ export type DashboardItem = {
   forecast_achievement: number | string | null;
 };
 
+export type OperationsScheduleItem = {
+  id: number | null;
+  title: string;
+  event_date: string | null;
+  activity_type: string;
+  org_name: string;
+  class_org_unit_id?: string | null;
+  class_name?: string | null;
+  year_sequence?: number | null;
+  status?: "SCHEDULED" | "UNSCHEDULED";
+};
+
+export type OperationsSnapshot = {
+  period: string;
+  scope_label: string;
+  summary: {
+    renewed_member_count: number | null;
+    new_member_count: number;
+    active_member_count: number;
+    birthday_member_count: number;
+    class_meeting_count: number;
+    course_count: number;
+    activity_count: number;
+  };
+  centers: {
+    id: string;
+    name: string;
+    active_member_count: number;
+  }[];
+  birthday_members: {
+    member_id: number;
+    name: string;
+    org_name: string;
+    birthday: string;
+  }[];
+  class_meeting_schedule: OperationsScheduleItem[];
+  class_meetings: OperationsScheduleItem[];
+  courses: OperationsScheduleItem[];
+  activities: OperationsScheduleItem[];
+  data_quality: {
+    missing_join_date_count: number;
+    attendance_schedule_source_ready: boolean;
+    course_schedule_source_ready: boolean;
+    unscheduled_class_count: number;
+    unlinked_class_meeting_count: number;
+    renewal_source_authorized: boolean;
+    active_member_count_as_of: "CURRENT";
+    notes: string[];
+  };
+};
+
 export type PeriodValue = {
   id: number;
   org_unit_id: string;
@@ -51,6 +102,16 @@ export const getMpDashboard = (params: { plan_id: number; month: number }) =>
       items: DashboardItem[];
     };
   }>("get", "/api/v1/analytics/mp-dashboard", { params });
+
+export const getOperationsSnapshot = (params: {
+  year: number;
+  month: number;
+}) =>
+  http.request<{ success: boolean; data: OperationsSnapshot }>(
+    "get",
+    "/api/v1/analytics/operations-snapshot",
+    { params }
+  );
 
 export const getTargetVariances = (planId: number) =>
   http.request<{
