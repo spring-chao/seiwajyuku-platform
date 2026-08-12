@@ -139,7 +139,35 @@ const dialogTitle = computed(() => {
 });
 
 function errorText(error: any, fallback = "操作失败") {
+  const status = error?.response?.status;
+  if (status === 401) return "登录已失效，请重新登录后再打开此页面";
+  if (error?.code === "ERR_NETWORK" || error?.message === "Network Error") {
+    return "无法连接身份服务，请刷新页面后重新登录；如仍失败，请联系管理员检查网络";
+  }
+  if (error?.code === "ECONNABORTED") {
+    return "身份服务响应较慢，请稍后刷新页面重试";
+  }
   return error?.response?.data?.detail || error?.message || fallback;
+}
+
+function isRetryableReadError(error: any) {
+  const status = error?.response?.status;
+  return (
+    !status ||
+    [408, 425, 429, 500, 502, 503, 504].includes(status) ||
+    error?.code === "ERR_NETWORK" ||
+    error?.code === "ECONNABORTED"
+  );
+}
+
+async function readWithRetry<T>(request: () => Promise<T>) {
+  try {
+    return await request();
+  } catch (error) {
+    if (!isRetryableReadError(error)) throw error;
+    await new Promise(resolve => window.setTimeout(resolve, 600));
+    return request();
+  }
 }
 
 function resetForm() {
@@ -207,14 +235,25 @@ async function load() {
   loading.value = true;
   unavailableMessage.value = "";
   try {
-    const [catalogResult, accountResult, orgResult] = await Promise.all([
-      getIdentityCatalog(),
-      getIdentityAccounts(),
-      getIdentityOrgOptions()
+    const [catalogResult, accountResult] = await Promise.all([
+      readWithRetry(getIdentityCatalog),
+      readWithRetry(getIdentityAccounts)
     ]);
     catalog.value = catalogResult.data;
     rows.value = accountResult.data;
-    orgs.value = orgResult.data;
+
+    // 生产只读时不需要组织范围选项，避免一个仅供写入表单使用的请求阻塞页面查看。
+    if (catalogResult.data.writes_enabled) {
+      try {
+        const orgResult = await readWithRetry(getIdentityOrgOptions);
+        orgs.value = orgResult.data;
+      } catch (error) {
+        orgs.value = [];
+        ElMessage.warning("组织范围选项暂不可用，当前身份信息仍可查看");
+      }
+    } else {
+      orgs.value = [];
+    }
   } catch (error) {
     unavailableMessage.value = errorText(
       error,
