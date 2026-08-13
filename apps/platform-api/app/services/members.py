@@ -199,7 +199,7 @@ def create_member(
         ):
             raise ValueError("班级组织不存在、已停用或类型不正确")
         if class_org["parent_id"] not in {org_unit_id, "org-suzhou"}:
-            raise ValueError("班级不属于所选分中心")
+            raise ValueError("学习班级须属于所选分中心，或为苏州塾直属班级")
         class_org_id = class_org["id"]
         class_name = class_org["name"]
     elif class_name and class_name.strip():
@@ -211,7 +211,7 @@ def create_member(
         if len(class_matches) != 1:
             raise ValueError("班级文本无法唯一匹配正式组织，请改用班级组织ID")
         if class_matches[0]["parent_id"] not in {org_unit_id, "org-suzhou"}:
-            raise ValueError("班级不属于所选分中心")
+            raise ValueError("学习班级须属于所选分中心，或为苏州塾直属班级")
         class_org_id = class_matches[0]["id"]
         class_name = class_matches[0]["name"]
     group_org_id: str | None = None
@@ -424,7 +424,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         ):
             raise ValueError("班级组织不存在、已停用或类型不正确")
         if class_row["parent_id"] not in {target_org, "org-suzhou"}:
-            raise ValueError("班级不属于所选分中心")
+            raise ValueError("学习班级须属于所选分中心，或为苏州塾直属班级")
     group_row = None
     if target_group:
         group_row = fetch_one(

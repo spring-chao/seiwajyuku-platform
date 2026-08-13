@@ -124,13 +124,20 @@ const canViewHistory = computed(() =>
 const centerOrgs = computed(() =>
   orgs.value.filter(item => item.unit_type === "REGIONAL_CENTER")
 );
-const classOrgs = computed(() =>
-  orgs.value.filter(
+const classOrgs = computed(() => {
+  const available = orgs.value.filter(
     item =>
       ["CLASS", "SPECIAL_COHORT"].includes(item.unit_type) &&
-      (item.parent_id === form.org_unit_id || item.parent_id === "org-suzhou")
-  )
-);
+      (item.parent_id === form.org_unit_id || item.parent_id === "org-suzhou") &&
+      !item.duplicate_name
+  );
+  return available;
+});
+const classOptionLabel = (org: { name: string; parent_id?: string | null }) => {
+  if (org.parent_id === "org-suzhou") return `${org.name}（苏州塾直属）`;
+  const owner = orgs.value.find(item => item.id === org.parent_id);
+  return `${org.name}（${owner?.name || "运营归属待核"}）`;
+};
 const groupOrgs = computed(() =>
   orgs.value.filter(
     item => item.unit_type === "GROUP" && item.parent_id === form.class_org_unit_id
@@ -1235,12 +1242,12 @@ onMounted(load);
               placeholder="请选择正式班级"
               @change="onClassOrgChange"
             >
-              <el-option
-                v-for="org in classOrgs"
-                :key="org.id"
-                :label="org.name"
-                :value="org.id"
-              />
+            <el-option
+              v-for="org in classOrgs"
+              :key="org.id"
+              :label="classOptionLabel(org)"
+              :value="org.id"
+            />
             </el-select>
           </el-form-item>
           <el-form-item label="行业分类">

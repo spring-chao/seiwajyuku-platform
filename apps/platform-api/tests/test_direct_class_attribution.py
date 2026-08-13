@@ -6,7 +6,9 @@ from datetime import UTC, datetime
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.migrations import run_migrations
 from app.services.iam import seed_iam
+from app.services.class_operations import class_operations_detail
 from app.services.members import create_member
+from app.services.plans import operations_snapshot
 
 
 class DirectClassAttributionTests(unittest.TestCase):
@@ -61,6 +63,30 @@ class DirectClassAttributionTests(unittest.TestCase):
         self.assertIn(("DEVELOPMENT_RELATION", "direct-learning-center"), relations)
         self.assertIn(("STUDY_CLASS", "direct-pioneer-class"), relations)
         self.assertIn(("STUDY_GROUP", "direct-pioneer-group"), relations)
+
+        snapshot = operations_snapshot(user_id=self.admin_id, year=2026, month=8)
+        class_row = next(
+            row
+            for row in snapshot["classes"]
+            if row["class_org_unit_id"] == "direct-pioneer-class"
+        )
+        self.assertEqual(class_row["org_name"], "苏州塾直属")
+        self.assertEqual(class_row["class_owner_org_unit_id"], "org-suzhou")
+        self.assertEqual(class_row["class_owner_scope"], "DIRECT")
+        center_row = next(
+            row for row in snapshot["centers"] if row["id"] == "direct-learning-center"
+        )
+        self.assertGreaterEqual(center_row["active_member_count"], 1)
+
+        detail = class_operations_detail(
+            user_id=self.admin_id,
+            class_org_unit_id="direct-pioneer-class",
+            year=2026,
+            month=8,
+        )
+        self.assertEqual(detail["org_name"], "苏州塾直属")
+        self.assertEqual(detail["active_member_count"], 1)
+        self.assertEqual(detail["class_owner_org_unit_id"], "org-suzhou")
 
 
 if __name__ == "__main__":

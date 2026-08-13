@@ -169,6 +169,92 @@ class IamIsolationTests(unittest.TestCase):
         self.assertEqual(context["permissions"], [])
         self.assertEqual(context["scopes"], [])
 
+    def test_account_management_password_reset_revokes_existing_sessions(self) -> None:
+        created = self.client.post(
+            "/api/v1/iam/users",
+            headers=self.admin_headers,
+            json={
+                "username": "password-reset-account",
+                "display_name": "改密测试账号",
+                "password": "password-reset-before",
+                "roles": ["read_only"],
+                "scopes": [],
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        user_id = created.json()["data"]["id"]
+        old_login = self.client.post(
+            "/api/v1/auth/login",
+            json={"username": "password-reset-account", "password": "password-reset-before"},
+        )
+        self.assertEqual(old_login.status_code, 200, old_login.text)
+        old_token = old_login.json()["data"]["access_token"]
+        listed = self.client.get("/api/v1/iam/users", headers=self.admin_headers)
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertIn(user_id, {row["id"] for row in listed.json()["data"]})
+        reset = self.client.post(
+            f"/api/v1/iam/users/{user_id}/password",
+            headers=self.admin_headers,
+            json={"password": "password-reset-after", "reason": "账号本人已通过管理员渠道申请重置密码"},
+        )
+        self.assertEqual(reset.status_code, 200, reset.text)
+        self.assertTrue(reset.json()["data"]["sessions_revoked"])
+        self.assertEqual(
+            self.client.get("/api/v1/me", headers={"Authorization": f"Bearer {old_token}"}).status_code,
+            401,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/v1/auth/login",
+                json={"username": "password-reset-account", "password": "password-reset-before"},
+            ).status_code,
+            401,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/v1/auth/login",
+                json={"username": "password-reset-account", "password": "password-reset-after"},
+            ).status_code,
+            200,
+        )
+        audit = fetch_one(
+            "SELECT action, after_json FROM audit_logs WHERE resource_id=? "
+            "AND action='iam.user.password_reset' ORDER BY id DESC LIMIT 1",
+            (str(user_id),),
+        )
+        self.assertEqual(audit["action"], "iam.user.password_reset")
+        self.assertNotIn("password-reset-after", audit["after_json"])
+
+    def test_duplicate_class_preview_identifies_duplicate_names(self) -> None:
+        now = datetime.now(UTC).isoformat()
+        with transaction() as connection:
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES ('class-duplicate-a', 'CLASS_DUP_A', '唯一性测试班', 'CLASS', 'org-b', 1, ?, ?), "
+                "('class-duplicate-b', 'CLASS_DUP_B', '唯一性测试班', 'CLASS', 'org-b', 1, ?, ?)",
+                (now, now, now, now),
+            )
+        preview = self.client.get(
+            "/api/v1/iam/org-units/class-name-cleanup", headers=self.admin_headers
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        candidate = next(
+            item for item in preview.json()["data"]["candidates"]
+            if item["class_name"] == "唯一性测试班"
+        )
+        self.assertEqual(candidate["duplicate_count"], 1)
+        with transaction() as connection:
+            execute(connection, "UPDATE org_units SET is_active=0 WHERE id IN ('class-duplicate-a', 'class-duplicate-b')")
+        preview = self.client.get(
+            "/api/v1/iam/org-units/class-name-cleanup", headers=self.admin_headers
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertNotIn(
+            "唯一性测试班",
+            {item["class_name"] for item in preview.json()["data"]["candidates"]},
+        )
+
     def test_class_scope_can_access_member_through_formal_relation(self) -> None:
         admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
         counselor_id = create_user(

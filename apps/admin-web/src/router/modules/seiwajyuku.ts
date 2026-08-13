@@ -195,6 +195,16 @@ export default [
     },
     children: [
       {
+        path: "/operations/account-management",
+        name: "AccountManagement",
+        component: () => import("@/views/seiwajyuku/account-management.vue"),
+        meta: {
+          title: "账号管理",
+          icon: "ep/user-filled",
+          roles: ["system_admin", "technical_admin"]
+        }
+      },
+      {
         path: "/operations/identity-admin",
         name: "IdentityAdmin",
         component: () => import("@/views/seiwajyuku/identity-admin.vue"),

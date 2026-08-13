@@ -265,13 +265,13 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
         "AND (rr.valid_until IS NULL OR rr.valid_until>=?) "
         "ORDER BY rr.is_primary DESC, rr.id LIMIT 1), o.name) AS org_name, "
         "(SELECT cr.org_unit_id FROM member_org_relations cr "
-        "WHERE cr.member_id=m.id AND cr.relation_type='STUDY_CLASS' "
+        "WHERE cr.member_id=m.id AND cr.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
         "AND (cr.valid_from IS NULL OR cr.valid_from<=?) "
         "AND (cr.valid_until IS NULL OR cr.valid_until>=?) "
         "ORDER BY cr.is_primary DESC, cr.id LIMIT 1) AS class_org_unit_id, "
         "(SELECT co.name FROM member_org_relations cr "
         "JOIN org_units co ON co.id=cr.org_unit_id "
-        "WHERE cr.member_id=m.id AND cr.relation_type='STUDY_CLASS' "
+        "WHERE cr.member_id=m.id AND cr.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
         "AND (cr.valid_from IS NULL OR cr.valid_from<=?) "
         "AND (cr.valid_until IS NULL OR cr.valid_until>=?) "
         "ORDER BY cr.is_primary DESC, cr.id LIMIT 1) AS class_name "
@@ -321,12 +321,29 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
         centers = [row for row in centers if row["id"] in allowed]
 
     classes = fetch_all(
-        "SELECT c.id, c.name AS class_name, p.name AS org_name "
+        "SELECT c.id, c.name AS class_name, c.unit_type AS class_org_unit_type, "
+        "p.id AS class_owner_org_unit_id, p.name AS class_owner_org_name "
         "FROM org_units c LEFT JOIN org_units p ON p.id=c.parent_id "
-        "WHERE c.unit_type='CLASS' AND c.is_active=1 ORDER BY c.name, c.id"
+        "WHERE c.unit_type IN ('CLASS','SPECIAL_COHORT') AND c.is_active=1 "
+        "ORDER BY c.name, c.id"
     )
     if allowed is not None:
         classes = [row for row in classes if row["id"] in allowed]
+
+    # 班级名称已被业务确认在全平台唯一。历史重复组织尚未完成归并前，
+    # 驾驶舱按最早建立的节点汇总展示，避免同一班级被重复计数或重复提示待排期。
+    canonical_class_id: dict[str, str] = {}
+    display_classes: list[dict[str, Any]] = []
+    duplicate_class_node_count = 0
+    for class_row in classes:
+        class_name = str(class_row["class_name"] or "").strip()
+        existing = canonical_class_id.get(class_name)
+        if existing:
+            canonical_class_id[class_row["id"]] = existing
+            duplicate_class_node_count += 1
+            continue
+        canonical_class_id[class_row["id"]] = class_row["id"]
+        display_classes.append(class_row)
 
     annual_class_rows = fetch_all(
         "SELECT eg.id, eg.org_unit_id, eg.study_org_unit_id "
@@ -340,7 +357,7 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
     annual_sequence: dict[int, int] = {}
     annual_class_ordinal: dict[str, int] = {}
     for row in annual_class_rows:
-        class_key = row.get("study_org_unit_id")
+        class_key = canonical_class_id.get(row.get("study_org_unit_id"), row.get("study_org_unit_id"))
         if not class_key:
             continue
         annual_class_ordinal[class_key] = annual_class_ordinal.get(class_key, 0) + 1
@@ -369,7 +386,9 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
             "activity_type": activity_type,
             "org_name": row["org_name"],
             "class_name": row.get("class_name"),
-            "class_org_unit_id": row.get("study_org_unit_id"),
+            "class_org_unit_id": canonical_class_id.get(
+                row.get("study_org_unit_id"), row.get("study_org_unit_id")
+            ),
         }
         if activity_type == "CLASS_MEETING":
             item["year_sequence"] = annual_sequence.get(row["id"])
@@ -384,12 +403,24 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
         if item.get("class_org_unit_id"):
             meetings_by_class.setdefault(item["class_org_unit_id"], []).append(item)
     class_meeting_schedule: list[dict[str, Any]] = []
-    for class_row in classes:
+    for class_row in display_classes:
         scheduled = meetings_by_class.get(class_row["id"], [])
         if scheduled:
             for item in scheduled:
                 class_meeting_schedule.append({
                     **item,
+                    "org_name": (
+                        "苏州塾直属"
+                        if class_row["class_owner_org_unit_id"] == "org-suzhou"
+                        else class_row["class_owner_org_name"] or "归属待核"
+                    ),
+                    "class_owner_org_unit_id": class_row["class_owner_org_unit_id"],
+                    "class_owner_org_name": class_row["class_owner_org_name"],
+                    "class_owner_scope": (
+                        "DIRECT"
+                        if class_row["class_owner_org_unit_id"] == "org-suzhou"
+                        else "CENTER"
+                    ),
                     "class_org_unit_id": class_row["id"],
                     "class_name": class_row["class_name"],
                     "status": "SCHEDULED",
@@ -400,7 +431,18 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
                 "title": "本月未排期",
                 "event_date": None,
                 "activity_type": "CLASS_MEETING",
-                "org_name": class_row["org_name"] or "苏州塾直属",
+                "org_name": (
+                    "苏州塾直属"
+                    if class_row["class_owner_org_unit_id"] == "org-suzhou"
+                    else class_row["class_owner_org_name"] or "归属待核"
+                ),
+                "class_owner_org_unit_id": class_row["class_owner_org_unit_id"],
+                "class_owner_org_name": class_row["class_owner_org_name"],
+                "class_owner_scope": (
+                    "DIRECT"
+                    if class_row["class_owner_org_unit_id"] == "org-suzhou"
+                    else "CENTER"
+                ),
                 "class_org_unit_id": class_row["id"],
                 "class_name": class_row["class_name"],
                 "year_sequence": None,
@@ -411,6 +453,29 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
         for item in class_meetings
         if not item.get("class_org_unit_id")
     )
+    class_operations_rows = []
+    for class_row in display_classes:
+        scheduled = meetings_by_class.get(class_row["id"], [])
+        class_operations_rows.append({
+            "class_org_unit_id": class_row["id"],
+            "class_name": class_row["class_name"],
+            "org_name": (
+                "苏州塾直属"
+                if class_row["class_owner_org_unit_id"] == "org-suzhou"
+                else class_row["class_owner_org_name"] or "归属待核"
+            ),
+            "class_owner_org_unit_id": class_row["class_owner_org_unit_id"],
+            "class_owner_org_name": class_row["class_owner_org_name"],
+            "class_owner_scope": (
+                "DIRECT"
+                if class_row["class_owner_org_unit_id"] == "org-suzhou"
+                else "CENTER"
+            ),
+            "class_meeting_count": len(scheduled),
+            "class_meeting_at": scheduled[0]["event_date"] if scheduled else None,
+            "year_sequence": scheduled[-1].get("year_sequence") if scheduled else None,
+            "status": "SCHEDULED" if scheduled else "UNSCHEDULED",
+        })
 
     event_schedule_source_ready = bool(
         fetch_one(
@@ -435,12 +500,14 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
             "new_member_count": new_members,
             "active_member_count": active_members,
             "birthday_member_count": len(birthday_members),
+            "class_count": len(display_classes),
             "class_meeting_count": len(class_meetings),
             "course_count": len(courses),
             "activity_count": len(activities),
         },
         "centers": centers,
         "birthday_members": birthday_members,
+        "classes": class_operations_rows,
         "class_meeting_schedule": class_meeting_schedule,
         "class_meetings": class_meetings,
         "courses": courses,
@@ -455,6 +522,7 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
             "unlinked_class_meeting_count": sum(
                 1 for row in class_meetings if not row.get("class_org_unit_id")
             ),
+            "duplicate_class_node_count": duplicate_class_node_count,
             "renewal_source_authorized": "renewals:read"
             in permissions,
             "active_member_count_as_of": "CURRENT",
@@ -462,6 +530,12 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
                 "新增学员按学员主档入塾日期统计；缺少入塾日期的在册学员不计入新增。",
                 "续费人数按续费状态首次变为已续费的时间统计。",
                 "班会、课程和活动按活动组计次，上午、下午、恳亲会不重复计数。",
+                "班级运营归属按班级组织的直属父组织统计，不按班内学长的发展分中心反推。",
+                *(
+                    ["发现历史重复班级组织，驾驶舱已按班级名称合并展示；请在系统设置完成组织归并。"]
+                    if duplicate_class_node_count
+                    else []
+                ),
             ],
         },
     }

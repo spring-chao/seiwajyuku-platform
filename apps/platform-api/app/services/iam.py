@@ -497,3 +497,74 @@ def create_user(
             after={"username": username, "roles": roles, "scopes": scopes},
         )
         return user_id
+
+
+def list_managed_users() -> list[dict]:
+    """Return account-management fields only; password material never leaves storage."""
+    rows = fetch_all(
+        "SELECT u.id, u.username, u.display_name, u.is_active, u.last_login_at, "
+        "u.created_at, GROUP_CONCAT(ur.role_key) AS role_keys "
+        "FROM app_users u LEFT JOIN user_roles ur ON ur.user_id=u.id "
+        "GROUP BY u.id, u.username, u.display_name, u.is_active, u.last_login_at, u.created_at "
+        "ORDER BY u.is_active DESC, u.display_name, u.id"
+    )
+    for row in rows:
+        row["roles"] = sorted(
+            role for role in str(row.pop("role_keys") or "").split(",") if role
+        )
+    return rows
+
+
+def reset_user_password(
+    actor_user_id: int,
+    actor_roles: list[str],
+    user_id: int,
+    *,
+    password: str,
+    reason: str,
+) -> None:
+    """Administrator password reset with full session revocation and an audit trail."""
+    reason = reason.strip()
+    if len(reason) < 6:
+        raise ValueError("重置原因至少填写 6 个字符")
+    # Hash before opening a transaction so no plaintext password is ever logged
+    # or included in an audit payload.
+    password_hash = hash_password(password)
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        user = execute(
+            connection,
+            "SELECT id, username, display_name, is_active FROM app_users WHERE id=?",
+            (user_id,),
+        ).fetchone()
+        if not user:
+            raise ValueError("账号不存在")
+        if not user["is_active"]:
+            raise ValueError("账号已停用，请先重新启用后再重置密码")
+        settings = get_settings()
+        if (
+            user["username"] == settings.bootstrap_admin_username
+            and "system_admin" not in actor_roles
+        ):
+            raise PermissionError("只有平台系统管理员可以重置最高管理账号的密码")
+        execute(
+            connection,
+            "UPDATE app_users SET password_hash=?, token_version=token_version+1, updated_at=? "
+            "WHERE id=?",
+            (password_hash, now, user_id),
+        )
+        execute(
+            connection,
+            "UPDATE refresh_tokens SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL",
+            (now, user_id),
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="iam.user.password_reset",
+            resource_type="app_user",
+            resource_id=str(user_id),
+            purpose=reason,
+            before={"is_active": int(user["is_active"])},
+            after={"sessions_revoked": True},
+        )

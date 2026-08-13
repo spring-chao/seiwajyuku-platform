@@ -42,6 +42,7 @@ export type OperationsSnapshot = {
     new_member_count: number;
     active_member_count: number;
     birthday_member_count: number;
+    class_count: number;
     class_meeting_count: number;
     course_count: number;
     activity_count: number;
@@ -60,6 +61,18 @@ export type OperationsSnapshot = {
     class_name?: string | null;
     birthday: string;
   }[];
+  classes: {
+    class_org_unit_id: string;
+    class_name: string;
+    org_name: string;
+    class_owner_org_unit_id?: string | null;
+    class_owner_org_name?: string | null;
+    class_owner_scope: "DIRECT" | "CENTER";
+    class_meeting_count: number;
+    class_meeting_at?: string | null;
+    year_sequence?: number | null;
+    status: "SCHEDULED" | "UNSCHEDULED";
+  }[];
   class_meeting_schedule: OperationsScheduleItem[];
   class_meetings: OperationsScheduleItem[];
   courses: OperationsScheduleItem[];
@@ -70,10 +83,52 @@ export type OperationsSnapshot = {
     course_schedule_source_ready: boolean;
     unscheduled_class_count: number;
     unlinked_class_meeting_count: number;
+    duplicate_class_node_count: number;
     renewal_source_authorized: boolean;
     active_member_count_as_of: "CURRENT";
     notes: string[];
   };
+};
+
+export type ClassOperationsDetail = {
+  class_org_unit_id: string;
+  class_name: string;
+  org_name: string;
+  class_owner_org_unit_id?: string | null;
+  class_owner_org_name?: string | null;
+  class_owner_scope: "DIRECT" | "CENTER";
+  period: string;
+  active_member_count: number;
+  weekly_meeting_at?: string | null;
+  planned_class_meeting_at?: string | null;
+  learning_month?: number | null;
+  learning_progress?: string | null;
+  class_meetings: OperationsScheduleItem[];
+  class_attendance: AttendanceRate;
+  groups: {
+    id: string;
+    name: string;
+    planned_meeting_at?: string | null;
+    events: OperationsScheduleItem[];
+    attendance: AttendanceRate;
+  }[];
+  entrepreneur_count: number;
+  entrepreneur_ratio?: number | null;
+  executive_count: number;
+  executive_ratio?: number | null;
+  position_classification_note: string;
+  revenue_growth_authorized: boolean;
+  revenue_growing_member_count?: number | null;
+  revenue_comparable_member_count?: number | null;
+  revenue_growth_ratio?: number | null;
+  updated_at?: string | null;
+};
+
+type AttendanceRate = {
+  event_count: number;
+  eligible_count: number;
+  present_count: number;
+  rate?: number | null;
 };
 
 export type PeriodValue = {
@@ -114,6 +169,35 @@ export const getOperationsSnapshot = (params: {
     "get",
     "/api/v1/analytics/operations-snapshot",
     { params }
+  );
+
+export const getClassOperations = (
+  classOrgUnitId: string,
+  params: { year: number; month: number }
+) =>
+  http.request<{ success: boolean; data: ClassOperationsDetail }>(
+    "get",
+    `/api/v1/analytics/class-operations/${classOrgUnitId}`,
+    { params }
+  );
+
+export const updateClassOperations = (
+  classOrgUnitId: string,
+  params: { year: number; month: number },
+  data: {
+    weekly_meeting_at?: string | null;
+    planned_class_meeting_at?: string | null;
+    learning_month?: number | null;
+    learning_progress?: string | null;
+    revenue_growing_member_count?: number | null;
+    revenue_comparable_member_count?: number | null;
+    groups: { group_org_unit_id: string; planned_meeting_at?: string | null }[];
+  }
+) =>
+  http.request<{ success: boolean; data: ClassOperationsDetail }>(
+    "put",
+    `/api/v1/analytics/class-operations/${classOrgUnitId}`,
+    { params, data }
   );
 
 export const getTargetVariances = (planId: number) =>
@@ -334,6 +418,8 @@ export type OrgUnit = {
   name: string;
   unit_type: string;
   parent_id?: string;
+  parent_name?: string | null;
+  duplicate_name?: boolean;
 };
 
 export type DirectClassPreflight = {

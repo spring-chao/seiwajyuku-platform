@@ -2,14 +2,18 @@
 import { computed, onMounted, ref } from "vue";
 import dayjs from "dayjs";
 import {
+  getClassOperations,
   getAnnualPlans,
   getMpDashboard,
   getOperationsSnapshot,
   getTargetVariances,
+  updateClassOperations,
   type AnnualPlan,
+  type ClassOperationsDetail,
   type DashboardItem,
   type OperationsSnapshot
 } from "@/api/seiwajyuku";
+import { useUserStoreHook } from "@/store/modules/user";
 
 defineOptions({ name: "MpDashboard" });
 
@@ -23,6 +27,22 @@ const birthdayCenterId = ref("");
 const birthdayClassOrgUnitId = ref("");
 const items = ref<DashboardItem[]>([]);
 const selectedMetricKey = ref("active_member_count");
+const classDrawerVisible = ref(false);
+const classDetailLoading = ref(false);
+const classSaving = ref(false);
+const classDetail = ref<ClassOperationsDetail>();
+const canManageClassOperations = computed(() =>
+  useUserStoreHook().permissions.includes("plans:period_write")
+);
+const classForm = ref({
+  weekly_meeting_at: "",
+  planned_class_meeting_at: "",
+  learning_month: undefined as number | undefined,
+  learning_progress: "",
+  revenue_growing_member_count: undefined as number | undefined,
+  revenue_comparable_member_count: undefined as number | undefined,
+  groups: [] as { group_org_unit_id: string; name: string; planned_meeting_at: string }[]
+});
 const variances = ref<
   { metric_key: string; difference: number; aggregation: string }[]
 >([]);
@@ -132,14 +152,10 @@ const operationsCards = computed(() => {
       note: "仅统计当前在册学长"
     },
     {
-      label: "本月班会",
-      value: operations.value?.data_quality.attendance_schedule_source_ready
-        ? summary.class_meeting_count
-        : null,
-      unit: "次",
-      note: operations.value?.data_quality.attendance_schedule_source_ready
-        ? "按活动组计次"
-        : "班会排期数据尚未接入"
+      label: "班级数量",
+      value: summary.class_count,
+      unit: "个",
+      note: "按正式班级组织去重统计"
     },
     {
       label: "本月课程",
@@ -163,22 +179,10 @@ const operationsCards = computed(() => {
     }
   ];
 });
-const scheduleRows = computed(() => [
-  ...(operations.value?.class_meeting_schedule || []).map(item => ({
-    ...item,
-    category: "班会",
-    sequence: item.year_sequence ? `本年第 ${item.year_sequence} 次` : "待排期"
-  })),
-  ...(operations.value?.courses || []).map(item => ({
-    ...item,
-    category: "课程",
-    sequence: "—"
-  })),
-  ...(operations.value?.activities || []).map(item => ({
-    ...item,
-    category: "活动",
-    sequence: "—"
-  }))
+const classRows = computed(() => operations.value?.classes || []);
+const otherScheduleRows = computed(() => [
+  ...(operations.value?.courses || []).map(item => ({ ...item, category: "课程" })),
+  ...(operations.value?.activities || []).map(item => ({ ...item, category: "活动" }))
 ]);
 const birthdayCenterOptions = computed(() => {
   const options = new Map<string, string>();
@@ -211,6 +215,67 @@ const filteredBirthdayMembers = computed(() =>
 
 function changeBirthdayCenter() {
   birthdayClassOrgUnitId.value = "";
+}
+
+const percentLabel = (value?: number | null) =>
+  value === null || value === undefined ? "未接入" : `${(value * 100).toFixed(1)}%`;
+
+async function openClassOperations(row: unknown) {
+  const classOrgUnitId = String(
+    (row as { class_org_unit_id?: string })?.class_org_unit_id || ""
+  );
+  if (!classOrgUnitId) return;
+  classDrawerVisible.value = true;
+  classDetailLoading.value = true;
+  try {
+    const response = await getClassOperations(classOrgUnitId, {
+      year: year.value,
+      month: month.value
+    });
+    classDetail.value = response.data;
+    classForm.value = {
+      weekly_meeting_at: response.data.weekly_meeting_at || "",
+      planned_class_meeting_at: response.data.planned_class_meeting_at || "",
+      learning_month: response.data.learning_month ?? undefined,
+      learning_progress: response.data.learning_progress || "",
+      revenue_growing_member_count:
+        response.data.revenue_growing_member_count ?? undefined,
+      revenue_comparable_member_count:
+        response.data.revenue_comparable_member_count ?? undefined,
+      groups: response.data.groups.map(group => ({
+        group_org_unit_id: group.id,
+        name: group.name,
+        planned_meeting_at: group.planned_meeting_at || ""
+      }))
+    };
+  } finally {
+    classDetailLoading.value = false;
+  }
+}
+
+async function saveClassOperations() {
+  if (!classDetail.value) return;
+  classSaving.value = true;
+  try {
+    const response = await updateClassOperations(
+      classDetail.value.class_org_unit_id,
+      { year: year.value, month: month.value },
+      {
+        ...classForm.value,
+        weekly_meeting_at: classForm.value.weekly_meeting_at || null,
+        planned_class_meeting_at:
+          classForm.value.planned_class_meeting_at || null,
+        learning_progress: classForm.value.learning_progress || null,
+        groups: classForm.value.groups.map(group => ({
+          group_org_unit_id: group.group_org_unit_id,
+          planned_meeting_at: group.planned_meeting_at || null
+        }))
+      }
+    );
+    classDetail.value = response.data;
+  } finally {
+    classSaving.value = false;
+  }
 }
 
 const formatValue = (
@@ -375,6 +440,16 @@ function changePlan() {
       class="data-alert"
     />
 
+    <el-alert
+      v-if="operations?.data_quality.duplicate_class_node_count"
+      :title="`${operations.data_quality.duplicate_class_node_count} 个历史班级重复节点已按名称合并展示`"
+      description="不会重复计入班会或待排期；系统已阻止继续创建同名班级，历史节点仅在完成受控归并后才会停用。"
+      type="warning"
+      :closable="false"
+      show-icon
+      class="data-alert"
+    />
+
     <section class="operations-panels">
       <article class="content-card">
         <div class="section-title birthday-title">
@@ -443,23 +518,129 @@ function changePlan() {
 
     <section class="content-card schedule-card">
       <div class="section-title">
-        <h2>本月服务与活动日历</h2>
-        <p>一个活动组只计一次；班会序号按本年度同一班级已排班会顺序计算。</p>
+        <h2>班级运营与本月服务日历</h2>
+        <p>按班级组织自身的运营归属列出正式班级；不会根据班内学长的发展分中心改变班级归属。</p>
       </div>
-      <el-table :data="scheduleRows" stripe empty-text="本月暂无已接入的班会、课程或活动排期">
-        <el-table-column label="日期" width="105">
+      <el-table :data="classRows" stripe empty-text="当前授权范围暂无正式班级">
+        <el-table-column label="班级" min-width="150">
           <template #default="{ row }">
-            {{ row.event_date ? dayjs(row.event_date).format("MM 月 DD 日") : "待排期" }}
+            <el-button link type="primary" @click="openClassOperations(row)">
+              {{ row.class_name }}
+            </el-button>
           </template>
         </el-table-column>
-        <el-table-column prop="category" label="类型" width="80" />
-        <el-table-column label="班级/组织" min-width="150">
-          <template #default="{ row }">{{ row.class_name || row.org_name }}</template>
+        <el-table-column prop="org_name" label="班级运营归属" min-width="150" />
+        <el-table-column label="本月班会" width="130">
+          <template #default="{ row }">
+            {{ row.class_meeting_at ? dayjs(row.class_meeting_at).format("MM 月 DD 日") : "待排期" }}
+          </template>
         </el-table-column>
-        <el-table-column prop="sequence" label="班会次序" width="125" />
-        <el-table-column prop="title" label="事项" min-width="220" />
+        <el-table-column label="班会次序" width="130">
+          <template #default="{ row }">
+            {{ row.year_sequence ? `本年第 ${row.year_sequence} 次` : "待维护" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'SCHEDULED' ? 'success' : 'info'">
+              {{ row.status === "SCHEDULED" ? "已排期" : "待排期" }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="运营分析" width="120">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openClassOperations(row)">查看分析</el-button>
+          </template>
+        </el-table-column>
       </el-table>
+
+      <template v-if="otherScheduleRows.length">
+        <el-divider content-position="left">本月课程与其他活动</el-divider>
+        <el-table :data="otherScheduleRows" stripe>
+          <el-table-column label="日期" width="120">
+            <template #default="{ row }">{{ dayjs(row.event_date).format("MM 月 DD 日") }}</template>
+          </el-table-column>
+          <el-table-column prop="category" label="类型" width="90" />
+          <el-table-column prop="org_name" label="组织" min-width="150" />
+          <el-table-column prop="title" label="事项" min-width="240" />
+        </el-table>
+      </template>
     </section>
+
+    <el-drawer
+      v-model="classDrawerVisible"
+      :title="classDetail ? `${classDetail.class_name} · 班级运营分析` : '班级运营分析'"
+      size="min(760px, 96vw)"
+    >
+      <div v-loading="classDetailLoading" class="class-analysis">
+        <template v-if="classDetail">
+          <section class="analysis-grid">
+            <article><span>在册学长</span><strong>{{ classDetail.active_member_count }} 人</strong></article>
+            <article><span>经营者占比</span><strong>{{ percentLabel(classDetail.entrepreneur_ratio) }}</strong></article>
+            <article><span>高管占比</span><strong>{{ percentLabel(classDetail.executive_ratio) }}</strong></article>
+            <article><span>业绩增长占比</span><strong>{{ classDetail.revenue_growth_authorized ? percentLabel(classDetail.revenue_growth_ratio) : "无权查看" }}</strong></article>
+            <article><span>班会参会率</span><strong>{{ percentLabel(classDetail.class_attendance.rate) }}</strong></article>
+            <article><span>学习月份</span><strong>{{ classDetail.learning_month ? `第 ${classDetail.learning_month} 个月` : "待维护" }}</strong></article>
+          </section>
+
+          <el-alert
+            :title="classDetail.position_classification_note"
+            type="info"
+            :closable="false"
+            class="analysis-note"
+          />
+
+          <el-form label-position="top" class="operations-form">
+            <div class="form-grid">
+              <el-form-item label="周例会时间">
+                <el-date-picker v-model="classForm.weekly_meeting_at" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="待维护" :disabled="!canManageClassOperations" />
+              </el-form-item>
+              <el-form-item label="计划班会时间">
+                <el-date-picker v-model="classForm.planned_class_meeting_at" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="待维护" :disabled="!canManageClassOperations" />
+              </el-form-item>
+              <el-form-item label="班会学习第几个月">
+                <el-input-number v-model="classForm.learning_month" :min="1" :max="240" :disabled="!canManageClassOperations" />
+              </el-form-item>
+              <el-form-item v-if="classDetail.revenue_growth_authorized" label="业绩增长人数 / 可比人数">
+                <div class="count-pair">
+                  <el-input-number v-model="classForm.revenue_growing_member_count" :min="0" :disabled="!canManageClassOperations" />
+                  <span>/</span>
+                  <el-input-number v-model="classForm.revenue_comparable_member_count" :min="0" :disabled="!canManageClassOperations" />
+                </div>
+              </el-form-item>
+            </div>
+            <el-form-item label="学习进度到哪里">
+              <el-input v-model="classForm.learning_progress" type="textarea" :rows="3" placeholder="例如：经营十二条第 4 条、课题进度与本月行动" :disabled="!canManageClassOperations" />
+            </el-form-item>
+          </el-form>
+
+          <h3>本月班会</h3>
+          <el-table :data="classDetail.class_meetings" size="small" empty-text="本月尚未接入班会排期">
+            <el-table-column prop="event_date" label="日期" width="120" />
+            <el-table-column prop="title" label="事项" min-width="220" />
+          </el-table>
+
+          <h3>小组运营与参会率</h3>
+          <el-table :data="classForm.groups" size="small" empty-text="当前班级暂无正式小组">
+            <el-table-column prop="name" label="小组" min-width="120" />
+            <el-table-column label="小组会时间" min-width="220">
+              <template #default="{ row }">
+                <el-date-picker v-model="row.planned_meeting_at" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="待维护" :disabled="!canManageClassOperations" />
+              </template>
+            </el-table-column>
+            <el-table-column label="本月参会率" width="120">
+              <template #default="{ row }">
+                {{ percentLabel(classDetail.groups.find(group => group.id === row.group_org_unit_id)?.attendance.rate) }}
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <div v-if="canManageClassOperations" class="drawer-actions">
+            <el-button type="primary" :loading="classSaving" @click="saveClassOperations">保存班级运营事项</el-button>
+          </div>
+        </template>
+      </div>
+    </el-drawer>
 
     <section class="section-heading mp-heading">
       <div>
@@ -773,6 +954,62 @@ h1 {
 .schedule-card {
   margin-top: 16px;
 }
+.class-analysis h3 {
+  margin: 24px 0 12px;
+  color: #173f33;
+}
+.analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.analysis-grid article {
+  padding: 16px;
+  background: #f3f8f5;
+  border-radius: 12px;
+}
+.analysis-grid span,
+.analysis-grid strong {
+  display: block;
+}
+.analysis-grid span {
+  color: #72877e;
+  font-size: 13px;
+}
+.analysis-grid strong {
+  margin-top: 7px;
+  color: #194b3b;
+  font-size: 21px;
+}
+.analysis-note {
+  margin-top: 14px;
+}
+.operations-form {
+  margin-top: 18px;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+.form-grid :deep(.el-date-editor),
+.count-pair {
+  width: 100%;
+}
+.count-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.count-pair :deep(.el-input-number) {
+  flex: 1;
+  width: 0;
+}
+.drawer-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 20px 0;
+}
 .mp-heading {
   padding-top: 8px;
   border-top: 1px solid #dce8e2;
@@ -859,6 +1096,9 @@ h1 {
   .operations-panels {
     grid-template-columns: 1fr;
   }
+  .analysis-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 @media (max-width: 560px) {
   .page-shell {
@@ -876,7 +1116,9 @@ h1 {
     width: 100%;
   }
   .operations-grid,
-  .center-list {
+  .center-list,
+  .analysis-grid,
+  .form-grid {
     grid-template-columns: 1fr;
   }
   .section-heading {

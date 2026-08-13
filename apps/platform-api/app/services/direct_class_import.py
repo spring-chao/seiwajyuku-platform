@@ -79,10 +79,12 @@ def apply_confirmed_import(content: bytes, source_name: str, actor_user_id: int)
             raise ValueError("六个发展分中心解析失败")
         class_ids: dict[str, str] = {}
         for index, name in enumerate(DIRECT_CLASSES, 1):
-            matches = [unit for unit in units if unit["name"] == name and unit["unit_type"] == "CLASS" and unit["parent_id"] == root_id]
+            matches = [unit for unit in units if unit["name"] == name and unit["unit_type"] == "CLASS"]
             if len(matches) > 1:
-                raise ValueError("直属班级存在重复组织，已停止写入")
+                raise ValueError("班级名称存在重复组织，已停止写入")
             if matches:
+                if matches[0]["parent_id"] != root_id:
+                    raise ValueError("直属班级组织归属异常，已停止写入")
                 class_ids[name] = matches[0]["id"]
             else:
                 unit_id = str(uuid4())

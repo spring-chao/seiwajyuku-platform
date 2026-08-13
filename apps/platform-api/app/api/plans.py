@@ -13,6 +13,10 @@ from app.services.plans import (
     target_variances,
     update_period_values,
 )
+from app.services.class_operations import (
+    class_operations_detail,
+    update_class_operations,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["annual-mp"])
@@ -30,6 +34,21 @@ class PeriodValueUpdate(BaseModel):
 
 class PeriodValuesPayload(BaseModel):
     updates: list[PeriodValueUpdate] = Field(min_length=1, max_length=500)
+
+
+class GroupOperationsUpdate(BaseModel):
+    group_org_unit_id: str = Field(min_length=1, max_length=64)
+    planned_meeting_at: str | None = Field(default=None, max_length=40)
+
+
+class ClassOperationsUpdate(BaseModel):
+    weekly_meeting_at: str | None = Field(default=None, max_length=40)
+    planned_class_meeting_at: str | None = Field(default=None, max_length=40)
+    learning_month: int | None = Field(default=None, ge=1, le=240)
+    learning_progress: str | None = Field(default=None, max_length=2000)
+    revenue_growing_member_count: int | None = Field(default=None, ge=0, le=100000)
+    revenue_comparable_member_count: int | None = Field(default=None, ge=0, le=100000)
+    groups: list[GroupOperationsUpdate] = Field(default_factory=list, max_length=100)
 
 
 @router.get("/annual-plans")
@@ -103,6 +122,45 @@ def monthly_operations_snapshot(
         "success": True,
         "data": operations_snapshot(user_id=user["id"], year=year, month=month),
     }
+
+
+@router.get("/analytics/class-operations/{class_org_unit_id}")
+def get_class_operations(
+    class_org_unit_id: str,
+    year: int = Query(..., ge=2020, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    user: dict = Depends(require_permission("plans:read")),
+) -> dict:
+    try:
+        data = class_operations_detail(
+            user_id=user["id"], class_org_unit_id=class_org_unit_id,
+            year=year, month=month,
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.put("/analytics/class-operations/{class_org_unit_id}")
+def put_class_operations(
+    class_org_unit_id: str,
+    payload: ClassOperationsUpdate,
+    year: int = Query(..., ge=2020, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    user: dict = Depends(require_permission("plans:period_write")),
+) -> dict:
+    try:
+        data = update_class_operations(
+            actor_user_id=user["id"], class_org_unit_id=class_org_unit_id,
+            year=year, month=month, updates=payload.model_dump(),
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.get("/analytics/target-variances")

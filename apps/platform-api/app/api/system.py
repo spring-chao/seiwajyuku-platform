@@ -6,6 +6,12 @@ from app.db import fetch_one
 router = APIRouter(tags=["system"])
 
 
+@router.get("/__tcb_probe__")
+def cloudbase_probe() -> dict[str, str]:
+    """CloudBase readiness probe; deliberately independent of the database."""
+    return {"status": "ok"}
+
+
 @router.get("/health/live")
 def liveness() -> dict[str, str]:
     return {"status": "ok", "service": "seiwajyuku-platform-api"}

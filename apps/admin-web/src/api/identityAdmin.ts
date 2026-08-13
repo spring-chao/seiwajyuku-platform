@@ -89,6 +89,16 @@ export type IdentityAccount = {
   technical_assignments: TechnicalAssignment[];
 };
 
+export type ManagedAccount = {
+  id: number;
+  username: string;
+  display_name: string;
+  is_active: number;
+  last_login_at?: string | null;
+  created_at: string;
+  roles: string[];
+};
+
 type Confirmation = {
   source_reference: string;
   confirmation_note: string;
@@ -114,6 +124,22 @@ export const createIdentityUser = (data: {
     "post",
     "/api/v1/iam/users",
     { data: { ...data, roles: [], scopes: [] } }
+  );
+
+export const getManagedAccounts = () =>
+  http.request<{ success: boolean; data: ManagedAccount[] }>(
+    "get",
+    "/api/v1/iam/users"
+  );
+
+export const resetManagedAccountPassword = (
+  userId: number,
+  data: { password: string; reason: string }
+) =>
+  http.request<{ success: boolean; data: { id: number; sessions_revoked: boolean } }>(
+    "post",
+    `/api/v1/iam/users/${userId}/password`,
+    { data }
   );
 
 export const getIdentityOrgOptions = () =>

@@ -140,7 +140,7 @@ def _ordinary_class_conflicts(
     class_name: str,
     expected_parent_id: str,
 ) -> list[Mapping[str, Any]]:
-    """Match the active, parent-scoped class rule used by preflight."""
+    """Existing importer compatibility check, scoped to the intended parent."""
     return [
         unit
         for unit in units
@@ -304,6 +304,13 @@ def apply_confirmed_org_import(
             )
             if conflicts:
                 raise ValueError("普通班组织状态在预检后变化，事务已回滚")
+            same_name = [
+                unit for unit in units
+                if unit["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
+                and unit["name"] == class_name and unit["is_active"]
+            ]
+            if same_name:
+                raise ValueError("班级名称已存在，已停止创建重复组织")
             class_id = str(uuid4())
             unit_code = f"SZ_CLASS_20260730_{class_index:02d}"
             execute(
