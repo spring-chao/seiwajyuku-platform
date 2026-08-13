@@ -82,3 +82,52 @@ def test_class_operations_rejects_invalid_revenue_ratio() -> None:
         assert "不能大于" in str(exc)
     else:
         raise AssertionError("应拒绝不合法的业绩增长人数")
+
+
+def test_dashboard_only_treats_confirmed_four_classes_as_suzhou_direct() -> None:
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        for values in (
+            (
+                "ownership-rule-center",
+                "OWNERSHIP_RULE_CENTER",
+                "归属规则测试分中心",
+                "REGIONAL_CENTER",
+                "org-suzhou",
+            ),
+            (
+                "ownership-rule-valid-class",
+                "OWNERSHIP_RULE_VALID_CLASS",
+                "吴越三班",
+                "CLASS",
+                "ownership-rule-center",
+            ),
+            (
+                "ownership-rule-invalid-root-class",
+                "OWNERSHIP_RULE_INVALID_ROOT_CLASS",
+                "黄埔班",
+                "CLASS",
+                "org-suzhou",
+            ),
+            (
+                "ownership-rule-direct-class",
+                "OWNERSHIP_RULE_DIRECT_CLASS",
+                "黄埔一班",
+                "CLASS",
+                "org-suzhou",
+            ),
+        ):
+            execute(
+                connection,
+                "INSERT OR IGNORE INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                (*values, now, now),
+            )
+
+    snapshot = operations_snapshot(user_id=admin["id"], year=2026, month=8)
+    rows_by_id = {row["class_org_unit_id"]: row for row in snapshot["classes"]}
+    assert rows_by_id["ownership-rule-valid-class"]["org_name"] == "归属规则测试分中心"
+    assert rows_by_id["ownership-rule-direct-class"]["org_name"] == "苏州塾直属"
+    assert "ownership-rule-invalid-root-class" not in rows_by_id
+    assert snapshot["data_quality"]["invalid_direct_root_class_count"] >= 1

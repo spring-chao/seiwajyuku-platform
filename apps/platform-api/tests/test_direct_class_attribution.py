@@ -20,8 +20,9 @@ class DirectClassAttributionTests(unittest.TestCase):
         now = datetime.now(UTC).isoformat()
         units = [
             ("direct-learning-center", "DIRECT_LEARNING_CENTER", "直属学习测试分中心", "REGIONAL_CENTER", "org-suzhou"),
-            ("direct-pioneer-class", "DIRECT_PIONEER_CLASS", "直属测试先锋班", "CLASS", "org-suzhou"),
+            ("direct-pioneer-class", "DIRECT_PIONEER_CLASS", "先锋班", "CLASS", "org-suzhou"),
             ("direct-pioneer-group", "DIRECT_PIONEER_GROUP", "直属测试精进组", "GROUP", "direct-pioneer-class"),
+            ("direct-invalid-root-class", "DIRECT_INVALID_ROOT_CLASS", "黄埔班", "CLASS", "org-suzhou"),
         ]
         with transaction() as connection:
             for unit_id, code, name, unit_type, parent_id in units:
@@ -41,7 +42,7 @@ class DirectClassAttributionTests(unittest.TestCase):
             org_unit_id="direct-learning-center",
             development_org_unit_id="direct-learning-center",
             phone="13600136001",
-            class_name="直属测试先锋班",
+            class_name="先锋班",
             group_name="直属测试精进组",
         )
 
@@ -87,6 +88,18 @@ class DirectClassAttributionTests(unittest.TestCase):
         self.assertEqual(detail["org_name"], "苏州塾直属")
         self.assertEqual(detail["active_member_count"], 1)
         self.assertEqual(detail["class_owner_org_unit_id"], "org-suzhou")
+
+    def test_invalid_root_class_cannot_be_selected_for_a_member(self) -> None:
+        with self.assertRaisesRegex(ValueError, "学习班级"):
+            create_member(
+                self.admin_id,
+                member_code="DIRECT-CLASS-ATTRIBUTION-INVALID-001",
+                name="错误直属班级验证学长",
+                org_unit_id="direct-learning-center",
+                development_org_unit_id="direct-learning-center",
+                phone="13600136002",
+                class_org_unit_id="direct-invalid-root-class",
+            )
 
 
 if __name__ == "__main__":

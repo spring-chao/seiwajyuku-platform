@@ -84,6 +84,7 @@ export type OperationsSnapshot = {
     unscheduled_class_count: number;
     unlinked_class_meeting_count: number;
     duplicate_class_node_count: number;
+    invalid_direct_root_class_count: number;
     renewal_source_authorized: boolean;
     active_member_count_as_of: "CURRENT";
     notes: string[];

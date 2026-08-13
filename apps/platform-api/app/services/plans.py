@@ -6,6 +6,11 @@ from typing import Any
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
+from app.services.organization_policy import (
+    DIRECT_CLASS_NAMES,
+    SUZHOU_ROOT_ORG_UNIT_ID,
+    is_suzhou_direct_class,
+)
 
 
 def list_plans() -> list[dict[str, Any]]:
@@ -320,18 +325,30 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
     if allowed is not None:
         centers = [row for row in centers if row["id"] in allowed]
 
+    direct_class_placeholders = ",".join("?" for _ in DIRECT_CLASS_NAMES)
+    direct_class_params = (SUZHOU_ROOT_ORG_UNIT_ID, *sorted(DIRECT_CLASS_NAMES))
     classes = fetch_all(
         "SELECT c.id, c.name AS class_name, c.unit_type AS class_org_unit_type, "
         "p.id AS class_owner_org_unit_id, p.name AS class_owner_org_name "
         "FROM org_units c LEFT JOIN org_units p ON p.id=c.parent_id "
         "WHERE c.unit_type IN ('CLASS','SPECIAL_COHORT') AND c.is_active=1 "
-        "ORDER BY c.name, c.id"
+        "AND (p.unit_type='REGIONAL_CENTER' OR (c.parent_id=? AND c.name IN ("
+        + direct_class_placeholders
+        + "))) ORDER BY c.name, c.id",
+        direct_class_params,
     )
     if allowed is not None:
         classes = [row for row in classes if row["id"] in allowed]
 
-    # 班级名称已被业务确认在全平台唯一。历史重复组织尚未完成归并前，
-    # 驾驶舱按最早建立的节点汇总展示，避免同一班级被重复计数或重复提示待排期。
+    invalid_direct_root_class_count = fetch_one(
+        "SELECT COUNT(*) AS count FROM org_units "
+        "WHERE is_active=1 AND unit_type IN ('CLASS','SPECIAL_COHORT') "
+        "AND parent_id=? AND name NOT IN (" + direct_class_placeholders + ")",
+        direct_class_params,
+    )["count"]
+
+    # 正式普通班不允许跨分中心重名；若历史数据尚未归并，驾驶舱仍只展示
+    # 通过组织归属规则的第一个正式节点，避免重复提示待排期。
     canonical_class_id: dict[str, str] = {}
     display_classes: list[dict[str, Any]] = []
     duplicate_class_node_count = 0
@@ -411,14 +428,20 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
                     **item,
                     "org_name": (
                         "苏州塾直属"
-                        if class_row["class_owner_org_unit_id"] == "org-suzhou"
+                        if is_suzhou_direct_class(
+                            class_name=class_row["class_name"],
+                            parent_id=class_row["class_owner_org_unit_id"],
+                        )
                         else class_row["class_owner_org_name"] or "归属待核"
                     ),
                     "class_owner_org_unit_id": class_row["class_owner_org_unit_id"],
                     "class_owner_org_name": class_row["class_owner_org_name"],
                     "class_owner_scope": (
                         "DIRECT"
-                        if class_row["class_owner_org_unit_id"] == "org-suzhou"
+                        if is_suzhou_direct_class(
+                            class_name=class_row["class_name"],
+                            parent_id=class_row["class_owner_org_unit_id"],
+                        )
                         else "CENTER"
                     ),
                     "class_org_unit_id": class_row["id"],
@@ -433,14 +456,20 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
                 "activity_type": "CLASS_MEETING",
                 "org_name": (
                     "苏州塾直属"
-                    if class_row["class_owner_org_unit_id"] == "org-suzhou"
+                    if is_suzhou_direct_class(
+                        class_name=class_row["class_name"],
+                        parent_id=class_row["class_owner_org_unit_id"],
+                    )
                     else class_row["class_owner_org_name"] or "归属待核"
                 ),
                 "class_owner_org_unit_id": class_row["class_owner_org_unit_id"],
                 "class_owner_org_name": class_row["class_owner_org_name"],
                 "class_owner_scope": (
                     "DIRECT"
-                    if class_row["class_owner_org_unit_id"] == "org-suzhou"
+                    if is_suzhou_direct_class(
+                        class_name=class_row["class_name"],
+                        parent_id=class_row["class_owner_org_unit_id"],
+                    )
                     else "CENTER"
                 ),
                 "class_org_unit_id": class_row["id"],
@@ -461,14 +490,20 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
             "class_name": class_row["class_name"],
             "org_name": (
                 "苏州塾直属"
-                if class_row["class_owner_org_unit_id"] == "org-suzhou"
+                if is_suzhou_direct_class(
+                    class_name=class_row["class_name"],
+                    parent_id=class_row["class_owner_org_unit_id"],
+                )
                 else class_row["class_owner_org_name"] or "归属待核"
             ),
             "class_owner_org_unit_id": class_row["class_owner_org_unit_id"],
             "class_owner_org_name": class_row["class_owner_org_name"],
             "class_owner_scope": (
                 "DIRECT"
-                if class_row["class_owner_org_unit_id"] == "org-suzhou"
+                if is_suzhou_direct_class(
+                    class_name=class_row["class_name"],
+                    parent_id=class_row["class_owner_org_unit_id"],
+                )
                 else "CENTER"
             ),
             "class_meeting_count": len(scheduled),
@@ -523,6 +558,7 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
                 1 for row in class_meetings if not row.get("class_org_unit_id")
             ),
             "duplicate_class_node_count": duplicate_class_node_count,
+            "invalid_direct_root_class_count": invalid_direct_root_class_count,
             "renewal_source_authorized": "renewals:read"
             in permissions,
             "active_member_count_as_of": "CURRENT",
@@ -531,6 +567,14 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
                 "续费人数按续费状态首次变为已续费的时间统计。",
                 "班会、课程和活动按活动组计次，上午、下午、恳亲会不重复计数。",
                 "班级运营归属按班级组织的直属父组织统计，不按班内学长的发展分中心反推。",
+                *(
+                    [
+                        f"发现 {invalid_direct_root_class_count} 个不符合直属四班规则的历史苏州塾班级节点，"
+                        "已从驾驶舱排除，待在系统设置中完成组织归并。"
+                    ]
+                    if invalid_direct_root_class_count
+                    else []
+                ),
                 *(
                     ["发现历史重复班级组织，驾驶舱已按班级名称合并展示；请在系统设置完成组织归并。"]
                     if duplicate_class_node_count

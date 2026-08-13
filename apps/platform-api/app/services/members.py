@@ -12,6 +12,7 @@ from app.core.privacy import decrypt_text, encrypt_text, protected_phone
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
+from app.services.organization_policy import is_valid_member_class_parent
 
 
 def _as_utc(value: str | datetime) -> datetime:
@@ -198,7 +199,11 @@ def create_member(
             or class_org["unit_type"] not in {"CLASS", "SPECIAL_COHORT"}
         ):
             raise ValueError("班级组织不存在、已停用或类型不正确")
-        if class_org["parent_id"] not in {org_unit_id, "org-suzhou"}:
+        if not is_valid_member_class_parent(
+            class_name=class_org["name"],
+            parent_id=class_org["parent_id"],
+            member_center_id=org_unit_id,
+        ):
             raise ValueError("学习班级须属于所选分中心，或为苏州塾直属班级")
         class_org_id = class_org["id"]
         class_name = class_org["name"]
@@ -210,7 +215,11 @@ def create_member(
         )
         if len(class_matches) != 1:
             raise ValueError("班级文本无法唯一匹配正式组织，请改用班级组织ID")
-        if class_matches[0]["parent_id"] not in {org_unit_id, "org-suzhou"}:
+        if not is_valid_member_class_parent(
+            class_name=class_matches[0]["name"],
+            parent_id=class_matches[0]["parent_id"],
+            member_center_id=org_unit_id,
+        ):
             raise ValueError("学习班级须属于所选分中心，或为苏州塾直属班级")
         class_org_id = class_matches[0]["id"]
         class_name = class_matches[0]["name"]
@@ -423,7 +432,11 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
             or class_row["unit_type"] not in {"CLASS", "SPECIAL_COHORT"}
         ):
             raise ValueError("班级组织不存在、已停用或类型不正确")
-        if class_row["parent_id"] not in {target_org, "org-suzhou"}:
+        if not is_valid_member_class_parent(
+            class_name=class_row["name"],
+            parent_id=class_row["parent_id"],
+            member_center_id=target_org,
+        ):
             raise ValueError("学习班级须属于所选分中心，或为苏州塾直属班级")
     group_row = None
     if target_group:

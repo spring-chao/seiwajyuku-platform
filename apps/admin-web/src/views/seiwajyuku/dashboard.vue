@@ -450,6 +450,16 @@ function changePlan() {
       class="data-alert"
     />
 
+    <el-alert
+      v-if="operations?.data_quality.invalid_direct_root_class_count"
+      :title="`${operations.data_quality.invalid_direct_root_class_count} 个历史班级节点不符合苏州塾直属四班规则，已从驾驶舱排除`"
+      description="苏州塾直属仅保留先锋班、神仙班、黄埔一班和黄埔二班；其他班级按各自分中心的正式节点运营。"
+      type="warning"
+      :closable="false"
+      show-icon
+      class="data-alert"
+    />
+
     <section class="operations-panels">
       <article class="content-card">
         <div class="section-title birthday-title">

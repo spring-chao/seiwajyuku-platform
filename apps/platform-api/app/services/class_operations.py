@@ -7,6 +7,7 @@ from typing import Any
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
+from app.services.organization_policy import is_suzhou_direct_class
 
 
 PRESENT_STATUSES = ("PRESENT", "MANUAL_PRESENT")
@@ -29,6 +30,10 @@ def _visible_class(class_org_unit_id: str, user_id: int) -> dict[str, Any]:
     )
     if not unit:
         raise ValueError("班级不存在或已停用")
+    if unit["parent_id"] == "org-suzhou" and not is_suzhou_direct_class(
+        class_name=unit["name"], parent_id=unit["parent_id"]
+    ):
+        raise ValueError("该历史班级节点不属于苏州塾直属四班，不能作为班级运营对象")
     allowed = accessible_org_ids(user_id)
     if allowed is not None and class_org_unit_id not in allowed:
         raise PermissionError("班级不在组织授权范围内")
@@ -143,13 +148,19 @@ def class_operations_detail(
         "class_name": unit["name"],
         "org_name": (
             "苏州塾直属"
-            if unit.get("parent_id") == "org-suzhou"
+            if is_suzhou_direct_class(
+                class_name=unit["name"], parent_id=unit.get("parent_id")
+            )
             else unit.get("org_name") or "归属待核"
         ),
         "class_owner_org_unit_id": unit.get("parent_id"),
         "class_owner_org_name": unit.get("org_name"),
         "class_owner_scope": (
-            "DIRECT" if unit.get("parent_id") == "org-suzhou" else "CENTER"
+            "DIRECT"
+            if is_suzhou_direct_class(
+                class_name=unit["name"], parent_id=unit.get("parent_id")
+            )
+            else "CENTER"
         ),
         "period": period,
         "active_member_count": len(members),

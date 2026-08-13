@@ -128,13 +128,18 @@ const classOrgs = computed(() => {
   const available = orgs.value.filter(
     item =>
       ["CLASS", "SPECIAL_COHORT"].includes(item.unit_type) &&
-      (item.parent_id === form.org_unit_id || item.parent_id === "org-suzhou") &&
+      (item.parent_id === form.org_unit_id ||
+        (item.parent_id === "org-suzhou" &&
+          ["先锋班", "神仙班", "黄埔一班", "黄埔二班"].includes(item.name))) &&
       !item.duplicate_name
   );
   return available;
 });
 const classOptionLabel = (org: { name: string; parent_id?: string | null }) => {
-  if (org.parent_id === "org-suzhou") return `${org.name}（苏州塾直属）`;
+  if (
+    org.parent_id === "org-suzhou" &&
+    ["先锋班", "神仙班", "黄埔一班", "黄埔二班"].includes(org.name)
+  ) return `${org.name}（苏州塾直属）`;
   const owner = orgs.value.find(item => item.id === org.parent_id);
   return `${org.name}（${owner?.name || "运营归属待核"}）`;
 };

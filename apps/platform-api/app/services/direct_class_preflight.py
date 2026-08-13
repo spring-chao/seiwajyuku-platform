@@ -11,8 +11,6 @@ from openpyxl import load_workbook
 
 from app.core.privacy import phone_hash
 from app.db import fetch_all
-
-
 DIRECT_CLASSES = ("黄埔一班", "黄埔二班", "先锋班", "神仙班")
 DEVELOPMENT_CENTERS = (
     "园区分中心",
