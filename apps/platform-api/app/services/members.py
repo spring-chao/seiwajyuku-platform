@@ -997,6 +997,14 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
     relation_by_type = {
         row["relation_type"]: row["org_unit_id"] for row in relations
     }
+    class_org_id = relation_by_type.get("STUDY_CLASS") or relation_by_type.get(
+        "SPECIAL_COHORT"
+    )
+    class_org = (
+        fetch_one("SELECT name FROM org_units WHERE id=?", (class_org_id,))
+        if class_org_id
+        else None
+    )
     group_org_id = relation_by_type.get("STUDY_GROUP")
     group_org = (
         fetch_one("SELECT name FROM org_units WHERE id=?", (group_org_id,))
@@ -1022,8 +1030,8 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
         for key, value in {
             **member,
             "phone": phone,
-            "class_org_unit_id": relation_by_type.get("STUDY_CLASS")
-            or relation_by_type.get("SPECIAL_COHORT"),
+            "class_org_unit_id": class_org_id,
+            "class_org_name": class_org["name"] if class_org else None,
             "group_org_unit_id": group_org_id,
             "group_org_name": group_org["name"] if group_org else None,
             "annual_sales": financial_data.get("annual_sales"),

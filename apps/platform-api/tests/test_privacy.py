@@ -438,7 +438,7 @@ class PrivacyIsolationTests(unittest.TestCase):
         self.assertIsNone(stored["company_size"])
         self.assertEqual(stored["employee_count"], 102)
 
-    def test_edit_profile_returns_group_name_when_tree_option_is_unavailable(self) -> None:
+    def test_edit_profile_returns_org_names_when_tree_options_are_unavailable(self) -> None:
         member_id = create_member(
             self.admin["id"],
             member_code="PRIVACY-GROUP-LABEL",
@@ -450,6 +450,8 @@ class PrivacyIsolationTests(unittest.TestCase):
             group_org_unit_id="privacy-group",
         )
         profile = get_member_edit_profile(member_id, self.regional_user_id)
+        self.assertEqual(profile["class_org_unit_id"], "privacy-class")
+        self.assertEqual(profile["class_org_name"], "圆融一班")
         self.assertEqual(profile["group_org_unit_id"], "privacy-group")
         self.assertEqual(profile["group_org_name"], "圆梦组")
 

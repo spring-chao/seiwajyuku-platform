@@ -48,6 +48,7 @@ const timeline = ref<MemberTimeline>();
 const serviceSignalFeedbackLoading = ref("");
 const editProfileLoading = ref(false);
 const editPhoneReady = ref(false);
+const editClassOrgName = ref("");
 const editGroupOrgName = ref("");
 const originalClassOrgUnitId = ref("");
 const originalGroupOrgUnitId = ref("");
@@ -143,6 +144,32 @@ const classOptionLabel = (org: { name: string; parent_id?: string | null }) => {
   const owner = orgs.value.find(item => item.id === org.parent_id);
   return `${org.name}（${owner?.name || "运营归属待核"}）`;
 };
+const classOptions = computed(() => {
+  const options = classOrgs.value.map(org => ({
+    ...org,
+    option_label: classOptionLabel(org)
+  }));
+  if (
+    form.class_org_unit_id &&
+    !options.some(item => item.id === form.class_org_unit_id)
+  ) {
+    const current = orgs.value.find(
+      item => item.id === form.class_org_unit_id
+    );
+    const name = current?.name || editClassOrgName.value || "原班级名称缺失";
+    options.push({
+      id: form.class_org_unit_id,
+      unit_code: current?.unit_code || "HISTORICAL_CLASS",
+      name,
+      unit_type: current?.unit_type || "CLASS",
+      parent_id: current?.parent_id,
+      parent_name: current?.parent_name,
+      duplicate_name: current?.duplicate_name,
+      option_label: `${name}（当前归属，需复核）`
+    });
+  }
+  return options;
+});
 const groupOrgs = computed(() =>
   orgs.value.filter(
     item => item.unit_type === "GROUP" && item.parent_id === form.class_org_unit_id
@@ -248,6 +275,7 @@ function openCreate() {
   financialFieldsEditable.value = useUserStoreHook().permissions.includes(
     "members:enterprise_view"
   );
+  editClassOrgName.value = "";
   editGroupOrgName.value = "";
   originalClassOrgUnitId.value = "";
   originalGroupOrgUnitId.value = "";
@@ -287,6 +315,7 @@ function openCreate() {
 async function openEdit(row: any) {
   editingMemberId.value = row.id;
   editPhoneReady.value = false;
+  editClassOrgName.value = "";
   editGroupOrgName.value = "";
   Object.assign(form, {
     name: row.name,
@@ -354,6 +383,7 @@ async function openEdit(row: any) {
       profit_margin: data.profit_margin || "",
       notes: data.notes || ""
     });
+    editClassOrgName.value = data.class_org_name || "";
     editGroupOrgName.value = data.group_org_name || "";
     originalClassOrgUnitId.value = data.class_org_unit_id || "";
     originalGroupOrgUnitId.value = data.group_org_unit_id || "";
@@ -1248,9 +1278,9 @@ onMounted(load);
               @change="onClassOrgChange"
             >
             <el-option
-              v-for="org in classOrgs"
+              v-for="org in classOptions"
               :key="org.id"
-              :label="classOptionLabel(org)"
+              :label="org.option_label"
               :value="org.id"
             />
             </el-select>

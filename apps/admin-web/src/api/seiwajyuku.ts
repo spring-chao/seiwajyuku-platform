@@ -405,6 +405,7 @@ export type MemberEditProfile = {
   company_size?: string | null;
   notes?: string | null;
   class_org_unit_id?: string | null;
+  class_org_name?: string | null;
   group_org_unit_id?: string | null;
   group_org_name?: string | null;
   annual_sales?: string | null;
