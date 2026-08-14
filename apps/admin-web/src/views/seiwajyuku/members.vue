@@ -233,7 +233,7 @@ const form = reactive({
   notes: ""
 });
 const memberStatusLabel = (status: string) =>
-  ({ ACTIVE: "在册", INACTIVE: "停用", SUSPENDED: "暂停" })[status] ?? status;
+  ({ ACTIVE: "在册", INACTIVE: "流失", SUSPENDED: "暂停" })[status] ?? status;
 const rules = computed<FormRules>(() => ({
   name: [{ required: true, message: "请输入姓名", trigger: "blur" }],
   org_unit_id: [{ required: true, message: "请选择分中心", trigger: "change" }],
@@ -1318,7 +1318,7 @@ onMounted(load);
           <el-form-item label="状态">
             <el-select v-model="form.status">
               <el-option label="在册" value="ACTIVE" />
-              <el-option label="停用" value="INACTIVE" />
+              <el-option label="流失" value="INACTIVE" />
               <el-option label="暂停" value="SUSPENDED" />
             </el-select>
           </el-form-item>

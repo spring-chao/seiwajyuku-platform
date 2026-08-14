@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -102,6 +103,15 @@ def _hash(path: Path) -> str:
 def _month(value: Any) -> int | None:
     text = str(value or "").strip().replace("月", "")
     return int(text) if text.isdigit() and 1 <= int(text) <= 12 else None
+
+
+def _member_renewal_month(value: Any) -> int | None:
+    """Return the recurring month maintained in the member master profile."""
+    match = re.fullmatch(r"\d{4}-(\d{2})", str(value or "").strip())
+    if not match:
+        return None
+    month = int(match.group(1))
+    return month if 1 <= month <= 12 else None
 
 
 def _status(note: Any) -> str:
@@ -608,6 +618,177 @@ def list_cycles(
     if allowed is not None:
         rows = [row for row in rows if row["org_unit_id"] in allowed]
     return rows
+
+
+def list_cycle_coverage(
+    user_id: int,
+    year: int = 2026,
+    *,
+    org_unit_id: str | None = None,
+    member_name: str | None = None,
+    include_synced: bool = False,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """Compare member master data with annual renewal-cycle coverage.
+
+    This is intentionally read-only. Missing cycles remain visible instead of
+    being silently excluded from the operations page; creating a cycle is a
+    separate, audited action.
+    """
+    if not 1 <= limit <= 500:
+        raise ValueError("同步检查条数必须在1至500之间")
+    conditions = ["1=1"]
+    params: list[Any] = [year]
+    if org_unit_id:
+        conditions.append(f"{MEMBER_RENEWAL_ORG_SQL}=?")
+        params.append(org_unit_id)
+    if member_name and member_name.strip():
+        conditions.append("m.name LIKE ?")
+        params.append(f"%{member_name.strip()}%")
+    rows = fetch_all(
+        "SELECT m.id AS member_id, m.member_code, m.name AS member_name, "
+        "m.status AS member_status, m.renewal_month, m.class_name AS member_class_name, "
+        "m.group_name AS member_group_name, "
+        f"{MEMBER_RENEWAL_ORG_SQL} AS org_unit_id, o.name AS org_name, "
+        "c.id AS cycle_id, c.due_month, c.status AS cycle_status, c.updated_at "
+        "FROM members m "
+        f"JOIN org_units o ON o.id={MEMBER_RENEWAL_ORG_SQL} "
+        "LEFT JOIN renewal_cycles c ON c.member_id=m.id AND c.renewal_year=? "
+        "WHERE " + " AND ".join(conditions) + " ORDER BY o.name, m.name, m.id",
+        tuple(params),
+    )
+    allowed = accessible_org_ids(user_id)
+    if allowed is not None:
+        rows = [row for row in rows if row["org_unit_id"] in allowed]
+
+    decorated: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        member_status = str(item["member_status"] or "").upper()
+        member_active = member_status == "ACTIVE"
+        recurring_month = _member_renewal_month(item.get("renewal_month"))
+        if item.get("cycle_id"):
+            if member_active:
+                sync_status = "SYNCED"
+            elif member_status == "SUSPENDED":
+                sync_status = "SYNCED_SUSPENDED"
+            else:
+                sync_status = "SYNCED_INACTIVE"
+        elif not member_active:
+            sync_status = "SUSPENDED" if member_status == "SUSPENDED" else "INACTIVE"
+        elif recurring_month:
+            sync_status = "READY_TO_CREATE"
+            item["due_month"] = recurring_month
+        else:
+            sync_status = "MISSING_RENEWAL_MONTH"
+        item["sync_status"] = sync_status
+        item["can_create_cycle"] = sync_status == "READY_TO_CREATE"
+        decorated.append(item)
+
+    active_rows = [
+        item
+        for item in decorated
+        if str(item["member_status"] or "").upper() == "ACTIVE"
+    ]
+    summary = {
+        "member_total": len(decorated),
+        "active_member_total": len(active_rows),
+        "cycle_total": sum(1 for item in decorated if item.get("cycle_id")),
+        "ready_to_create_count": sum(
+            1 for item in decorated if item["sync_status"] == "READY_TO_CREATE"
+        ),
+        "missing_renewal_month_count": sum(
+            1
+            for item in decorated
+            if item["sync_status"] == "MISSING_RENEWAL_MONTH"
+        ),
+        "inactive_member_count": sum(
+            1
+            for item in decorated
+            if item["sync_status"] in {"INACTIVE", "SYNCED_INACTIVE"}
+        ),
+        "suspended_member_count": sum(
+            1
+            for item in decorated
+            if item["sync_status"] in {"SUSPENDED", "SYNCED_SUSPENDED"}
+        ),
+    }
+    visible = (
+        decorated
+        if include_synced
+        else [item for item in decorated if item["sync_status"] != "SYNCED"]
+    )
+    return {
+        "year": year,
+        "summary": summary,
+        "rows": visible[:limit],
+        "truncated": len(visible) > limit,
+    }
+
+
+def create_cycle_from_member(
+    member_id: int,
+    actor_user_id: int,
+    *,
+    renewal_year: int,
+    confirmation: str,
+) -> int:
+    """Create one missing annual cycle from confirmed member-master fields."""
+    if confirmation != "确认从学员主档建立续费周期":
+        raise PermissionError("确认文字不匹配，已禁止建立续费周期")
+    member = fetch_one(
+        "SELECT m.id, m.status, m.renewal_month, "
+        f"{MEMBER_RENEWAL_ORG_SQL} AS org_unit_id "
+        "FROM members m WHERE m.id=?",
+        (member_id,),
+    )
+    if not member:
+        raise ValueError("学员不存在")
+    if str(member["status"] or "").upper() != "ACTIVE":
+        raise ValueError("只有在册学员可以建立新的续费周期")
+    due_month = _member_renewal_month(member.get("renewal_month"))
+    if not due_month:
+        raise ValueError("请先在学员管理补充有效的续费月份")
+    allowed = accessible_org_ids(actor_user_id)
+    if allowed is not None and member["org_unit_id"] not in allowed:
+        raise PermissionError("学员不在当前账号的续费组织范围内")
+    if fetch_one(
+        "SELECT id FROM renewal_cycles WHERE member_id=? AND renewal_year=?",
+        (member_id, renewal_year),
+    ):
+        raise ValueError("该学员本年度续费周期已存在")
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        cycle_id = execute(
+            connection,
+            "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, "
+            "status, created_at, updated_at) VALUES (?, ?, ?, ?, "
+            "'PENDING_FIRST_CONTACT', ?, ?)",
+            (member_id, renewal_year, member["org_unit_id"], due_month, now, now),
+        ).lastrowid
+        execute(
+            connection,
+            "INSERT INTO renewal_status_history(renewal_cycle_id, from_status, to_status, "
+            "reason, changed_by, created_at) VALUES (?, NULL, "
+            "'PENDING_FIRST_CONTACT', ?, ?, ?)",
+            (cycle_id, "由学员管理续费月份建立", actor_user_id, now),
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="renewals.cycle.create_from_member",
+            resource_type="renewal_cycle",
+            resource_id=str(cycle_id),
+            org_unit_id=member["org_unit_id"],
+            purpose="从学员管理主档补齐单个续费周期",
+            after={
+                "member_id": member_id,
+                "renewal_year": renewal_year,
+                "due_month": due_month,
+                "status": "PENDING_FIRST_CONTACT",
+            },
+        )
+    return int(cycle_id)
 
 
 def update_cycle(

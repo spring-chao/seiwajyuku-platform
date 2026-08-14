@@ -13,7 +13,9 @@ from app.core.settings import get_settings
 from app.services.renewals import (
     add_followup,
     apply_preview,
+    create_cycle_from_member,
     list_assignees,
+    list_cycle_coverage,
     list_cycles,
     list_followups,
     list_overview,
@@ -51,6 +53,11 @@ class RenewalFollowupPayload(BaseModel):
     next_action: str | None = Field(default=None, max_length=4000)
     next_followup_at: str | None = None
 
+
+class RenewalCycleFromMemberPayload(BaseModel):
+    renewal_year: int = Field(ge=2020, le=2100)
+    confirmation: str
+
 @router.get("/overview")
 def overview(year: int = 2026, user: dict = Depends(require_permission("renewals:read"))) -> dict:
     return {"success": True, "data": list_overview(user["id"], year)}
@@ -81,6 +88,49 @@ def cycles(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": data}
+
+
+@router.get("/coverage")
+def coverage(
+    year: int = 2026,
+    org_unit_id: str | None = None,
+    member_name: str | None = None,
+    include_synced: bool = False,
+    limit: int = Query(default=200, ge=1, le=500),
+    user: dict = Depends(require_permission("renewals:read")),
+) -> dict:
+    try:
+        data = list_cycle_coverage(
+            user["id"],
+            year,
+            org_unit_id=org_unit_id,
+            member_name=member_name,
+            include_synced=include_synced,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/cycles/from-member/{member_id}")
+def create_member_cycle(
+    member_id: int,
+    payload: RenewalCycleFromMemberPayload,
+    user: dict = Depends(require_permission("renewals:manage")),
+) -> dict:
+    try:
+        cycle_id = create_cycle_from_member(
+            member_id,
+            user["id"],
+            renewal_year=payload.renewal_year,
+            confirmation=payload.confirmation,
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": {"id": cycle_id}}
 
 
 @router.get("/assignees")

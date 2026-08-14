@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import {
+  createRenewalCycleFromMember,
   createRenewalFollowup,
   getRenewalAssignees,
+  getRenewalCoverage,
   getRenewalCycles,
   getRenewalFollowups,
   getRenewalOverview,
@@ -12,6 +14,8 @@ import {
   type RenewalFollowup,
   type FollowupAssignee,
   type RenewalCycle,
+  type RenewalCoverage,
+  type RenewalCoverageRow,
   type RenewalOverviewRow
 } from "@/api/seiwajyuku";
 
@@ -21,6 +25,21 @@ const year = ref(2026);
 const loading = ref(false);
 const rows = ref<RenewalOverviewRow[]>([]);
 const cycles = ref<RenewalCycle[]>([]);
+const coverage = ref<RenewalCoverage>({
+  year: 2026,
+  summary: {
+    member_total: 0,
+    active_member_total: 0,
+    cycle_total: 0,
+    ready_to_create_count: 0,
+    missing_renewal_month_count: 0,
+    inactive_member_count: 0,
+    suspended_member_count: 0
+  },
+  rows: [],
+  truncated: false
+});
+const cycleCreatingMemberId = ref<number>();
 const cycleDetailVisible = ref(false);
 const cycleDetailLoading = ref(false);
 const cycleSaving = ref(false);
@@ -112,6 +131,26 @@ const statusLabel = (status: string) =>
   })[status] ?? status;
 
 const cycleStatusLabel = (status: string) => statusLabel(status);
+const coverageStatusLabel = (status: RenewalCoverageRow["sync_status"]) =>
+  ({
+    SYNCED: "已同步",
+    SYNCED_INACTIVE: "已有周期，学员已流失",
+    SYNCED_SUSPENDED: "已有周期，学员已暂停",
+    READY_TO_CREATE: "可建立周期",
+    MISSING_RENEWAL_MONTH: "缺少续费月份",
+    INACTIVE: "流失，不进入新周期",
+    SUSPENDED: "暂停，不进入新周期"
+  })[status];
+const coverageStatusType = (status: RenewalCoverageRow["sync_status"]) =>
+  ({
+    SYNCED: "success",
+    SYNCED_INACTIVE: "warning",
+    SYNCED_SUSPENDED: "warning",
+    READY_TO_CREATE: "primary",
+    MISSING_RENEWAL_MONTH: "danger",
+    INACTIVE: "info",
+    SUSPENDED: "info"
+  })[status] as "success" | "warning" | "primary" | "danger" | "info";
 const channelLabel = (channel: string) =>
   ({
     PHONE: "电话",
@@ -165,21 +204,60 @@ async function loadEnvironment() {
 async function load() {
   loading.value = true;
   try {
-    const [overviewResponse, cycleResponse] = await Promise.all([
+    const memberName = filters.member_name.trim();
+    const [overviewResponse, cycleResponse, coverageResponse] = await Promise.all([
       getRenewalOverview(year.value),
       getRenewalCycles(year.value, {
         org_unit_id: filters.org_unit_id || undefined,
         due_month: filters.due_month,
         renewal_status: filters.renewal_status,
-        member_name: filters.member_name.trim() || undefined
+        member_name: memberName || undefined
+      }),
+      getRenewalCoverage(year.value, {
+        org_unit_id: filters.org_unit_id || undefined,
+        member_name: memberName || undefined,
+        include_synced: Boolean(memberName),
+        limit: 200
       })
     ]);
     rows.value = overviewResponse.data.rows;
     cycles.value = cycleResponse.data;
+    coverage.value = coverageResponse.data;
   } catch (error: any) {
     ElMessage.error(errorText(error, "续费台账加载失败，请稍后重试"));
   } finally {
     loading.value = false;
+  }
+}
+
+async function createMissingCycle(row: RenewalCoverageRow | any) {
+  if (!row.can_create_cycle || !row.due_month) return;
+  if (!writeEnabled.value) {
+    ElMessage.warning("当前环境处于只读状态，不能建立续费周期");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将依据学员管理中的续费月份，为“${row.member_name}”建立${year.value}年度${row.due_month}月续费周期。`,
+      "确认建立单个续费周期",
+      {
+        confirmButtonText: "确认建立",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+  } catch {
+    return;
+  }
+  cycleCreatingMemberId.value = row.member_id;
+  try {
+    await createRenewalCycleFromMember(row.member_id, year.value);
+    ElMessage.success("续费周期已建立并写入审计");
+    await load();
+  } catch (error: any) {
+    ElMessage.error(errorText(error, "建立续费周期失败"));
+  } finally {
+    cycleCreatingMemberId.value = undefined;
   }
 }
 
@@ -393,11 +471,90 @@ onMounted(() => {
     <el-alert
       class="source-alert"
       title="学员数据唯一来源：学员管理数据库"
-      description="续费台账中的姓名、所属分中心、班级和小组均实时读取学员管理；Excel 只用于首次初始化导入，日常不再从 Excel 提取或查询。学员新增、转中心和资料修改请统一在学员管理完成。"
+      description="姓名、归属、班级、小组和续费月份均实时读取学员管理。已建立周期继续保留跟进状态；未建立周期或缺少续费月份的学员会在同步检查中明确显示，不再静默缺失。"
       type="success"
       :closable="false"
       show-icon
     />
+
+    <el-card shadow="never" class="coverage-card">
+      <template #header>
+        <div class="card-title">
+          <div>
+            <h2>学员主档同步检查</h2>
+            <p>
+              姓名查询会对照全部学员主档；“流失”学员保留历史，但不自动进入新的续费周期。
+            </p>
+          </div>
+        </div>
+      </template>
+      <div class="coverage-summary">
+        <span>主档匹配 <b>{{ coverage.summary.member_total }}</b></span>
+        <span>在册 <b>{{ coverage.summary.active_member_total }}</b></span>
+        <span>已建周期 <b>{{ coverage.summary.cycle_total }}</b></span>
+        <span class="ready"
+          >可建立 <b>{{ coverage.summary.ready_to_create_count }}</b></span
+        >
+        <span class="missing"
+          >缺续费月份
+          <b>{{ coverage.summary.missing_renewal_month_count }}</b></span
+        >
+        <span>流失 <b>{{ coverage.summary.inactive_member_count }}</b></span>
+        <span>暂停 <b>{{ coverage.summary.suspended_member_count }}</b></span>
+      </div>
+      <el-alert
+        v-if="coverage.truncated"
+        title="同步差异较多，当前仅展示前200条；请按分中心或姓名缩小范围。"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="coverage-alert"
+      />
+      <el-table
+        :data="coverage.rows"
+        stripe
+        max-height="380"
+        empty-text="当前范围内学员主档与续费周期已同步"
+      >
+        <el-table-column prop="member_name" label="学员" min-width="120" />
+        <el-table-column prop="org_name" label="续费归属" min-width="150" />
+        <el-table-column
+          prop="member_class_name"
+          label="班级"
+          min-width="130"
+        >
+          <template #default="{ row }">{{ row.member_class_name || "—" }}</template>
+        </el-table-column>
+        <el-table-column label="学员续费月份" min-width="130">
+          <template #default="{ row }">{{ row.renewal_month || "未维护" }}</template>
+        </el-table-column>
+        <el-table-column label="同步状态" min-width="180">
+          <template #default="{ row }">
+            <el-tag :type="coverageStatusType(row.sync_status)">
+              {{ coverageStatusLabel(row.sync_status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="150" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.can_create_cycle"
+              link
+              type="primary"
+              :disabled="!writeEnabled"
+              :loading="cycleCreatingMemberId === row.member_id"
+              @click="createMissingCycle(row)"
+            >
+              建立{{ year }}周期
+            </el-button>
+            <span v-else-if="row.sync_status === 'MISSING_RENEWAL_MONTH'">
+              请先维护月份
+            </span>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
 
     <el-card shadow="never" class="cycle-card">
       <template #header>
@@ -767,6 +924,37 @@ onMounted(() => {
 }
 .source-alert {
   border: 1px solid #cce9dc;
+}
+.coverage-card {
+  border-color: #dce9e3;
+  border-radius: 16px;
+}
+.coverage-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.coverage-summary span {
+  padding: 8px 12px;
+  color: #657a71;
+  background: #f2f7f5;
+  border-radius: 10px;
+}
+.coverage-summary span.ready {
+  color: #17624b;
+  background: #e8f7f0;
+}
+.coverage-summary span.missing {
+  color: #a15b16;
+  background: #fff4e5;
+}
+.coverage-summary b {
+  margin-left: 4px;
+  color: inherit;
+}
+.coverage-alert {
+  margin-bottom: 14px;
 }
 .card-title {
   display: flex;

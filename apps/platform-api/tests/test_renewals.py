@@ -23,7 +23,9 @@ from app.services.renewals import (
     _master_index,
     add_followup,
     apply_preview,
+    create_cycle_from_member,
     list_assignees,
+    list_cycle_coverage,
     list_cycles,
     list_followups,
     list_overview,
@@ -294,6 +296,183 @@ def test_renewal_ledger_reads_current_member_management_profile() -> None:
     assert any(
         item["code"] == "RENEWAL_DUE" for item in timeline["service_signals"]
     )
+
+
+def test_cycle_coverage_exposes_member_master_gaps_instead_of_hiding_them() -> None:
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin is not None
+    now = datetime.now().isoformat()
+    year = datetime.now().year
+    suffix = f"{uuid4().int % 100000000:08d}"
+    org_id = f"org-renewal-coverage-{suffix}"
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, "
+            "is_active, created_at, updated_at) VALUES (?, ?, ?, "
+            "'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+            (org_id, f"RENEWAL_COVERAGE_{suffix}", "续费覆盖测试中心", now, now),
+        )
+    member_ids = {
+        "synced": create_member(
+            admin["id"],
+            member_code=f"RENEWAL-COVERAGE-SYNCED-{suffix}",
+            name=f"覆盖已同步{suffix}",
+            org_unit_id=org_id,
+            development_org_unit_id=None,
+            phone=f"139{suffix}",
+            renewal_month=f"{year}-08",
+        ),
+        "ready": create_member(
+            admin["id"],
+            member_code=f"RENEWAL-COVERAGE-READY-{suffix}",
+            name=f"覆盖待建立{suffix}",
+            org_unit_id=org_id,
+            development_org_unit_id=None,
+            phone=f"138{suffix}",
+            renewal_month=f"{year - 1}-09",
+        ),
+        "missing": create_member(
+            admin["id"],
+            member_code=f"RENEWAL-COVERAGE-MISSING-{suffix}",
+            name=f"覆盖缺月份{suffix}",
+            org_unit_id=org_id,
+            development_org_unit_id=None,
+            phone=f"137{suffix}",
+        ),
+        "inactive": create_member(
+            admin["id"],
+            member_code=f"RENEWAL-COVERAGE-INACTIVE-{suffix}",
+            name=f"覆盖已停用{suffix}",
+            org_unit_id=org_id,
+            development_org_unit_id=None,
+            phone=f"136{suffix}",
+            renewal_month=f"{year}-10",
+            status="INACTIVE",
+        ),
+        "suspended": create_member(
+            admin["id"],
+            member_code=f"RENEWAL-COVERAGE-SUSPENDED-{suffix}",
+            name=f"覆盖已暂停{suffix}",
+            org_unit_id=org_id,
+            development_org_unit_id=None,
+            phone=f"134{suffix}",
+            renewal_month=f"{year}-11",
+            status="SUSPENDED",
+        ),
+    }
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, "
+            "status, created_at, updated_at) VALUES (?, ?, ?, 8, "
+            "'PENDING_FIRST_CONTACT', ?, ?)",
+            (member_ids["synced"], year, org_id, now, now),
+        )
+
+    coverage = list_cycle_coverage(
+        admin["id"],
+        year,
+        org_unit_id=org_id,
+        member_name="覆盖",
+        include_synced=True,
+    )
+
+    assert coverage["summary"] == {
+        "member_total": 5,
+        "active_member_total": 3,
+        "cycle_total": 1,
+        "ready_to_create_count": 1,
+        "missing_renewal_month_count": 1,
+        "inactive_member_count": 1,
+        "suspended_member_count": 1,
+    }
+    by_member_id = {row["member_id"]: row for row in coverage["rows"]}
+    assert by_member_id[member_ids["synced"]]["sync_status"] == "SYNCED"
+    assert by_member_id[member_ids["ready"]]["sync_status"] == "READY_TO_CREATE"
+    assert by_member_id[member_ids["ready"]]["due_month"] == 9
+    assert by_member_id[member_ids["missing"]]["sync_status"] == "MISSING_RENEWAL_MONTH"
+    assert by_member_id[member_ids["inactive"]]["sync_status"] == "INACTIVE"
+    assert by_member_id[member_ids["suspended"]]["sync_status"] == "SUSPENDED"
+
+    scoped_user_id = create_user(
+        admin["id"],
+        username=f"renewal-coverage-scoped-{suffix}",
+        display_name="续费覆盖范围测试",
+        password=f"test-{uuid4().hex}",
+        roles=["regional_manager"],
+        scopes=[{"scope_type": "UNIT", "org_unit_id": "org-suzhou"}],
+    )
+    scoped_coverage = list_cycle_coverage(
+        scoped_user_id,
+        year,
+        org_unit_id=org_id,
+        member_name="覆盖",
+        include_synced=True,
+    )
+    assert scoped_coverage["summary"]["member_total"] == 0
+    assert scoped_coverage["rows"] == []
+
+
+def test_create_cycle_from_member_is_single_record_audited_and_idempotent() -> None:
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin is not None
+    now = datetime.now().isoformat()
+    year = datetime.now().year
+    suffix = f"{uuid4().int % 100000000:08d}"
+    primary_org = f"org-renewal-create-primary-{suffix}"
+    development_org = f"org-renewal-create-development-{suffix}"
+    with transaction() as connection:
+        for org_id, code, name in [
+            (primary_org, f"RENEWAL_CREATE_PRIMARY_{suffix}", "续费建立主归属"),
+            (
+                development_org,
+                f"RENEWAL_CREATE_DEVELOPMENT_{suffix}",
+                "续费建立发展归属",
+            ),
+        ]:
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, "
+                "is_active, created_at, updated_at) VALUES (?, ?, ?, "
+                "'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+                (org_id, code, name, now, now),
+            )
+    member_id = create_member(
+        admin["id"],
+        member_code=f"RENEWAL-CREATE-{suffix}",
+        name="续费单条建立测试",
+        org_unit_id=primary_org,
+        development_org_unit_id=development_org,
+        phone=f"135{suffix}",
+        renewal_month=f"{year - 1}-11",
+    )
+
+    cycle_id = create_cycle_from_member(
+        member_id,
+        admin["id"],
+        renewal_year=year,
+        confirmation="确认从学员主档建立续费周期",
+    )
+    cycle = fetch_one("SELECT * FROM renewal_cycles WHERE id=?", (cycle_id,))
+    assert cycle is not None
+    assert cycle["member_id"] == member_id
+    assert cycle["org_unit_id"] == development_org
+    assert cycle["due_month"] == 11
+    assert cycle["status"] == "PENDING_FIRST_CONTACT"
+    audit = fetch_one(
+        "SELECT id FROM audit_logs WHERE action='renewals.cycle.create_from_member' "
+        "AND resource_id=?",
+        (str(cycle_id),),
+    )
+    assert audit is not None
+    with pytest.raises(ValueError, match="本年度续费周期已存在"):
+        create_cycle_from_member(
+            member_id,
+            admin["id"],
+            renewal_year=year,
+            confirmation="确认从学员主档建立续费周期",
+        )
 
 
 def test_linked_member_id_prefers_unique_production_phone_match() -> None:

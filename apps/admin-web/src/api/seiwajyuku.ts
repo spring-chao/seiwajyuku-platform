@@ -698,6 +698,48 @@ export type RenewalCycle = {
   updated_at: string;
 };
 
+export type RenewalCoverageSummary = {
+  member_total: number;
+  active_member_total: number;
+  cycle_total: number;
+  ready_to_create_count: number;
+  missing_renewal_month_count: number;
+  inactive_member_count: number;
+  suspended_member_count: number;
+};
+
+export type RenewalCoverageRow = {
+  member_id: number;
+  member_code: string;
+  member_name: string;
+  member_status: "ACTIVE" | "INACTIVE" | "SUSPENDED";
+  renewal_month?: string | null;
+  member_class_name?: string | null;
+  member_group_name?: string | null;
+  org_unit_id: string;
+  org_name: string;
+  cycle_id?: number | null;
+  due_month?: number | null;
+  cycle_status?: string | null;
+  updated_at?: string | null;
+  sync_status:
+    | "SYNCED"
+    | "SYNCED_INACTIVE"
+    | "SYNCED_SUSPENDED"
+    | "READY_TO_CREATE"
+    | "MISSING_RENEWAL_MONTH"
+    | "INACTIVE"
+    | "SUSPENDED";
+  can_create_cycle: boolean;
+};
+
+export type RenewalCoverage = {
+  year: number;
+  summary: RenewalCoverageSummary;
+  rows: RenewalCoverageRow[];
+  truncated: boolean;
+};
+
 export type SystemEnvironment = {
   environment: string;
   production: boolean;
@@ -1281,6 +1323,36 @@ export const getRenewalCycles = (
     "get",
     "/api/v1/renewals/cycles",
     { params: { year, ...params } }
+  );
+
+export const getRenewalCoverage = (
+  year: number,
+  params: {
+    org_unit_id?: string;
+    member_name?: string;
+    include_synced?: boolean;
+    limit?: number;
+  } = {}
+) =>
+  http.request<{ success: boolean; data: RenewalCoverage }>(
+    "get",
+    "/api/v1/renewals/coverage",
+    { params: { year, ...params } }
+  );
+
+export const createRenewalCycleFromMember = (
+  memberId: number,
+  renewalYear: number
+) =>
+  http.request<{ success: boolean; data: { id: number } }>(
+    "post",
+    `/api/v1/renewals/cycles/from-member/${memberId}`,
+    {
+      data: {
+        renewal_year: renewalYear,
+        confirmation: "确认从学员主档建立续费周期"
+      }
+    }
   );
 
 export const getSystemEnvironment = () =>
