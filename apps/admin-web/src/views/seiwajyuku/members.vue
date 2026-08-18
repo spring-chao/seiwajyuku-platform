@@ -252,6 +252,8 @@ const groupOptions = computed(() => {
 const filteredRows = computed(() => {
   const term = keyword.value.trim().toLowerCase();
   return rows.value.filter(item => {
+    // Default to active members; an explicit search still includes historical
+    // inactive and suspended records.
     if (!term && item.status !== "ACTIVE") return false;
     const className = item.class_name?.trim() || "";
     const matchesClass =
@@ -1085,10 +1087,10 @@ onMounted(async () => {
         <el-input
           v-model="keyword"
           clearable
-          placeholder="搜索姓名、编号或手机后四位（含非在册）"
+          placeholder="默认在册；搜索可查姓名、编号、手机后四位及历史状态"
         />
         <span class="result-count">
-          {{ keyword.trim() ? "搜索全部状态" : "默认显示在册" }} · 共 {{ filteredRows.length }} 人
+          {{ keyword.trim() ? "已包含流失、暂停等历史状态" : "默认仅显示在册" }} · 共 {{ filteredRows.length }} 人
         </span>
       </div>
 

@@ -780,6 +780,7 @@ def list_cycle_coverage(
     org_unit_id: str | None = None,
     member_name: str | None = None,
     include_synced: bool = False,
+    actionable_only: bool = True,
     limit: int = 200,
 ) -> dict[str, Any]:
     """Compare member master data with annual renewal-cycle coverage.
@@ -872,6 +873,13 @@ def list_cycle_coverage(
         if include_synced
         else [item for item in decorated if item["sync_status"] != "SYNCED"]
     )
+    if actionable_only:
+        visible = [
+            item
+            for item in visible
+            if item["can_create_cycle"]
+            or item["sync_status"] == "MISSING_RENEWAL_MONTH"
+        ]
     return {
         "year": year,
         "summary": summary,

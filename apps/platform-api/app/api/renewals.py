@@ -96,6 +96,7 @@ def coverage(
     org_unit_id: str | None = None,
     member_name: str | None = None,
     include_synced: bool = False,
+    actionable_only: bool = True,
     limit: int = Query(default=200, ge=1, le=500),
     user: dict = Depends(require_permission("renewals:read")),
 ) -> dict:
@@ -106,6 +107,7 @@ def coverage(
             org_unit_id=org_unit_id,
             member_name=member_name,
             include_synced=include_synced,
+            actionable_only=actionable_only,
             limit=limit,
         )
     except ValueError as exc:

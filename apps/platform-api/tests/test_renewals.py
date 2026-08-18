@@ -384,6 +384,7 @@ def test_cycle_coverage_exposes_member_master_gaps_instead_of_hiding_them() -> N
         org_unit_id=org_id,
         member_name="覆盖",
         include_synced=True,
+        actionable_only=False,
     )
 
     assert coverage["summary"] == {
@@ -402,6 +403,19 @@ def test_cycle_coverage_exposes_member_master_gaps_instead_of_hiding_them() -> N
     assert by_member_id[member_ids["missing"]]["sync_status"] == "MISSING_RENEWAL_MONTH"
     assert by_member_id[member_ids["inactive"]]["sync_status"] == "INACTIVE"
     assert by_member_id[member_ids["suspended"]]["sync_status"] == "SUSPENDED"
+
+    actionable = list_cycle_coverage(
+        admin["id"],
+        year,
+        org_unit_id=org_id,
+        member_name="覆盖",
+        include_synced=True,
+    )
+    assert {row["sync_status"] for row in actionable["rows"]} == {
+        "READY_TO_CREATE",
+        "MISSING_RENEWAL_MONTH",
+    }
+    assert actionable["summary"] == coverage["summary"]
 
     scoped_user_id = create_user(
         admin["id"],

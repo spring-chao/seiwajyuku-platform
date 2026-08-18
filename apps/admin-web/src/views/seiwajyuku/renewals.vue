@@ -222,7 +222,8 @@ async function load() {
       getRenewalCoverage(year.value, {
         org_unit_id: filters.org_unit_id || undefined,
         member_name: memberName || undefined,
-        include_synced: Boolean(memberName),
+        include_synced: false,
+        actionable_only: true,
         limit: 200
       })
     ]);
@@ -504,7 +505,7 @@ onMounted(() => {
           <div>
             <h2>学员主档同步检查</h2>
             <p>
-              姓名查询会对照全部学员主档；“流失”学员保留历史，但不自动进入新的续费周期。
+              仅显示当前有可执行操作的同步差异；流失、暂停等历史状态保留在汇总中，不提供新周期操作。
             </p>
           </div>
         </div>
@@ -525,7 +526,7 @@ onMounted(() => {
       </div>
       <el-alert
         v-if="coverage.truncated"
-        title="同步差异较多，当前仅展示前200条；请按分中心或姓名缩小范围。"
+        title="可执行同步操作较多，当前仅展示前200条；请按分中心或姓名缩小范围。"
         type="warning"
         :closable="false"
         show-icon
@@ -535,7 +536,7 @@ onMounted(() => {
         :data="coverage.rows"
         stripe
         max-height="380"
-        empty-text="当前范围内学员主档与续费周期已同步"
+        empty-text="当前范围内暂无可执行的同步操作"
       >
         <el-table-column prop="member_name" label="学员" min-width="120" />
         <el-table-column prop="org_name" label="续费归属" min-width="150" />
