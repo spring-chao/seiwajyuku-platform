@@ -139,6 +139,10 @@ export type OperationRhythmItem = {
   id: number;
   org_unit_id: string;
   org_name: string;
+  organization_id?: string | null;
+  organization_name?: string | null;
+  class_org_unit_id?: string | null;
+  class_name?: string | null;
   period: string;
   item_key: string;
   title: string;
@@ -228,6 +232,9 @@ export const getOperationsSnapshot = (params: {
 export const getOperationRhythmSnapshot = (params: {
   year: number;
   month: number;
+  organization_id?: string;
+  class_org_unit_id?: string;
+  status?: OperationRhythmStatus;
 }) =>
   http.request<{ success: boolean; data: OperationRhythmSnapshot }>(
     "get",
@@ -247,7 +254,8 @@ export const generateOperationRhythm = (params: {
 export const updateOperationRhythmItem = (
   itemId: number,
   data: {
-    status: OperationRhythmStatus;
+    status?: OperationRhythmStatus;
+    title?: string;
     note?: string | null;
     start_date?: string | null;
     due_date?: string | null;

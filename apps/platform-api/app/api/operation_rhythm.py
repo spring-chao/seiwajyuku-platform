@@ -27,7 +27,8 @@ class RhythmItemUpdate(BaseModel):
         "COMPLETED",
         "ATTENTION",
         "CANCELLED",
-    ]
+    ] | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=255)
     note: str | None = Field(default=None, max_length=2000)
     start_date: str | None = Field(default=None, max_length=10)
     due_date: str | None = Field(default=None, max_length=10)
@@ -48,9 +49,31 @@ class RhythmTemplateNodeUpdate(BaseModel):
 def snapshot(
     year: int = Query(..., ge=2020, le=2100),
     month: int = Query(..., ge=1, le=12),
+    organization_id: str | None = Query(default=None, max_length=64),
+    class_org_unit_id: str | None = Query(default=None, max_length=64),
+    status: Literal[
+        "PENDING",
+        "PLANNED",
+        "IN_PROGRESS",
+        "WAITING_EXTERNAL",
+        "COMPLETED",
+        "ATTENTION",
+        "CANCELLED",
+    ] | None = None,
     user: dict = Depends(require_permission("plans:read")),
 ) -> dict:
-    return {"success": True, "data": rhythm_snapshot(user["id"], year, month)}
+    try:
+        data = rhythm_snapshot(
+            user["id"],
+            year,
+            month,
+            organization_id=organization_id,
+            class_org_unit_id=class_org_unit_id,
+            status=status,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.get("/templates")
@@ -80,13 +103,11 @@ def update_item(
     user: dict = Depends(require_permission("plans:period_write")),
 ) -> dict:
     try:
+        updates = payload.model_dump(exclude_unset=True)
         data = update_rhythm_item(
             user["id"],
             item_id,
-            status=payload.status,
-            note=payload.note,
-            start_date=payload.start_date,
-            due_date=payload.due_date,
+            **updates,
         )
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc

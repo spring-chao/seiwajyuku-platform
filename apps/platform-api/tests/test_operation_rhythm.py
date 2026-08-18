@@ -115,6 +115,57 @@ def test_snapshot_normalizes_mysql_date_values(monkeypatch) -> None:
     )
 
 
+def test_snapshot_supports_organization_class_and_status_filters() -> None:
+    center_id, class_id, _, user_id = _insert_scope()
+    generate_rhythm_cycles(user_id, 2026, 8)
+
+    organization_snapshot = rhythm_snapshot(
+        user_id, 2026, 8, organization_id=center_id
+    )
+    class_snapshot = rhythm_snapshot(
+        user_id, 2026, 8, class_org_unit_id=class_id
+    )
+    planned_snapshot = rhythm_snapshot(
+        user_id, 2026, 8, status="PLANNED"
+    )
+
+    assert len(organization_snapshot["items"]) == 10
+    assert len(class_snapshot["items"]) == 10
+    assert class_snapshot["items"][0]["class_org_unit_id"] == class_id
+    assert class_snapshot["items"][0]["organization_id"] == center_id
+    assert planned_snapshot["items"]
+    assert all(item["status"] == "PLANNED" for item in planned_snapshot["items"])
+
+
+def test_update_rhythm_item_supports_audited_title_and_date_override() -> None:
+    _, class_id, _, user_id = _insert_scope()
+    generate_rhythm_cycles(user_id, 2026, 8)
+    item = fetch_one(
+        "SELECT id FROM operation_items WHERE org_unit_id=? AND business_type='BIRTHDAY_CARE'",
+        (class_id,),
+    )
+    assert item
+
+    result = update_rhythm_item(
+        user_id,
+        item["id"],
+        title="陈巧宝学长生日关怀（已核对）",
+        start_date="2026-08-20",
+        due_date="2026-08-27",
+    )
+
+    assert result["title"] == "陈巧宝学长生日关怀（已核对）"
+    assert result["start_date"] == "2026-08-20"
+    assert result["due_date"] == "2026-08-27"
+    assert fetch_one(
+        "SELECT manual_override FROM operation_items WHERE id=?", (item["id"],)
+    )["manual_override"] == 1
+
+    status_result = update_rhythm_item(user_id, item["id"], status="COMPLETED")
+    assert status_result["title"] == "陈巧宝学长生日关怀（已核对）"
+    assert status_result["due_date"] == "2026-08-27"
+
+
 def test_update_rhythm_item_records_status_and_audited_note() -> None:
     _, class_id, _, user_id = _insert_scope()
     generate_rhythm_cycles(user_id, 2026, 8)

@@ -37,8 +37,20 @@ const rhythm = ref<OperationRhythmSnapshot>();
 const rhythmView = ref<"today" | "next_7_days" | "month" | "attention">(
   "next_7_days"
 );
+const rhythmOrganizationId = ref("");
+const rhythmClassOrgUnitId = ref("");
+const rhythmStatus = ref<OperationRhythmStatus | "">("");
 const rhythmGenerating = ref(false);
 const rhythmItemSaving = ref<number | null>(null);
+const rhythmEditVisible = ref(false);
+const rhythmEditSaving = ref(false);
+const rhythmEditing = ref<OperationRhythmItem>();
+const rhythmEditForm = ref({
+  title: "",
+  start_date: "",
+  due_date: "",
+  note: ""
+});
 const birthdayCenterId = ref("");
 const birthdayClassOrgUnitId = ref("");
 const birthdayMonth = ref(String(month.value).padStart(2, "0"));
@@ -205,9 +217,41 @@ const operationsCards = computed(() => {
   ];
 });
 const classRows = computed(() => operations.value?.classes || []);
-const rhythmItems = computed(() =>
-  rhythm.value?.views[rhythmView.value] ?? []
-);
+const rhythmOrganizationOptions = computed(() => {
+  const options = new Map<string, string>();
+  (rhythm.value?.items || []).forEach(item => {
+    if (item.organization_id && item.organization_name) {
+      options.set(item.organization_id, item.organization_name);
+    }
+  });
+  return [...options].map(([id, name]) => ({ id, name }));
+});
+const rhythmClassOptions = computed(() => {
+  const options = new Map<string, string>();
+  (rhythm.value?.items || [])
+    .filter(
+      item =>
+        !rhythmOrganizationId.value ||
+        item.organization_id === rhythmOrganizationId.value
+    )
+    .forEach(item => {
+      const id = item.class_org_unit_id || item.org_unit_id;
+      const name = item.class_name || item.org_name;
+      if (id && name) options.set(id, name);
+    });
+  return [...options].map(([id, name]) => ({ id, name }));
+});
+const rhythmItems = computed(() => {
+  const items = rhythm.value?.views[rhythmView.value] ?? [];
+  return items.filter(
+    item =>
+      (!rhythmOrganizationId.value ||
+        item.organization_id === rhythmOrganizationId.value) &&
+      (!rhythmClassOrgUnitId.value ||
+        (item.class_org_unit_id || item.org_unit_id) === rhythmClassOrgUnitId.value) &&
+      (!rhythmStatus.value || item.status === rhythmStatus.value)
+  );
+});
 const classMeetingRows = computed(() => {
   if (!classDetail.value) return [];
   if (classDetail.value.class_meetings.length) return classDetail.value.class_meetings;
@@ -271,7 +315,14 @@ function changeBirthdayCenter() {
 
 function changeOperationsMonth() {
   birthdayMonth.value = String(month.value).padStart(2, "0");
+  rhythmOrganizationId.value = "";
+  rhythmClassOrgUnitId.value = "";
+  rhythmStatus.value = "";
   load();
+}
+
+function changeRhythmOrganization() {
+  rhythmClassOrgUnitId.value = "";
 }
 
 const rhythmStatusLabel = (status: OperationRhythmStatus) =>
@@ -329,6 +380,41 @@ async function saveRhythmStatus(item: any, status: OperationRhythmStatus) {
     ElMessage.error("运营事项状态保存失败，请稍后重试");
   } finally {
     rhythmItemSaving.value = null;
+  }
+}
+
+function openRhythmEdit(item: any) {
+  rhythmEditing.value = item;
+  rhythmEditForm.value = {
+    title: item.title,
+    start_date: item.start_date || "",
+    due_date: item.due_date || "",
+    note: item.completion_note || ""
+  };
+  rhythmEditVisible.value = true;
+}
+
+async function saveRhythmEdit() {
+  const item = rhythmEditing.value;
+  if (!item || !rhythmEditForm.value.title.trim()) {
+    ElMessage.warning("请填写事项名称");
+    return;
+  }
+  rhythmEditSaving.value = true;
+  try {
+    const response = await updateOperationRhythmItem(item.id, {
+      title: rhythmEditForm.value.title.trim(),
+      start_date: rhythmEditForm.value.start_date || null,
+      due_date: rhythmEditForm.value.due_date || null,
+      note: rhythmEditForm.value.note || null
+    });
+    Object.assign(item, response.data);
+    rhythmEditVisible.value = false;
+    ElMessage.success("运营事项已更新，日期和事项名称已记录");
+  } catch {
+    ElMessage.error("运营事项保存失败，请检查日期后重试");
+  } finally {
+    rhythmEditSaving.value = false;
   }
 }
 
@@ -719,7 +805,54 @@ function changePlan() {
           <el-radio-button label="month">本月运营</el-radio-button>
           <el-radio-button label="attention">异常中心</el-radio-button>
         </el-radio-group>
-        <span>{{ rhythm?.policy }}</span>
+        <div class="rhythm-filters">
+          <el-select
+            v-model="rhythmOrganizationId"
+            clearable
+            filterable
+            size="small"
+            placeholder="全部组织"
+            aria-label="运营节奏组织筛选"
+            @change="changeRhythmOrganization"
+          >
+            <el-option
+              v-for="option in rhythmOrganizationOptions"
+              :key="option.id"
+              :label="option.name"
+              :value="option.id"
+            />
+          </el-select>
+          <el-select
+            v-model="rhythmClassOrgUnitId"
+            clearable
+            filterable
+            size="small"
+            placeholder="全部班级"
+            aria-label="运营节奏班级筛选"
+          >
+            <el-option
+              v-for="option in rhythmClassOptions"
+              :key="option.id"
+              :label="option.name"
+              :value="option.id"
+            />
+          </el-select>
+          <el-select
+            v-model="rhythmStatus"
+            clearable
+            size="small"
+            placeholder="全部状态"
+            aria-label="运营节奏状态筛选"
+          >
+            <el-option label="待确认" value="PENDING" />
+            <el-option label="已计划" value="PLANNED" />
+            <el-option label="推进中" value="IN_PROGRESS" />
+            <el-option label="等待外部反馈" value="WAITING_EXTERNAL" />
+            <el-option label="已圆满" value="COMPLETED" />
+            <el-option label="需关注" value="ATTENTION" />
+            <el-option label="已取消" value="CANCELLED" />
+          </el-select>
+        </div>
       </div>
 
       <el-table :data="rhythmItems" stripe size="small" empty-text="当前视图暂无运营事项">
@@ -751,6 +884,18 @@ function changePlan() {
             </small>
           </template>
         </el-table-column>
+        <el-table-column label="维护" width="82" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="canManageRhythm"
+              link
+              type="primary"
+              @click="openRhythmEdit(row)"
+            >
+              编辑
+            </el-button>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="160">
           <template #default="{ row }">
             <el-select
@@ -774,6 +919,53 @@ function changePlan() {
           </template>
         </el-table-column>
       </el-table>
+
+      <el-dialog
+        v-model="rhythmEditVisible"
+        title="维护运营事项"
+        width="520px"
+        destroy-on-close
+      >
+        <el-form label-width="88px" @submit.prevent>
+          <el-form-item label="事项名称" required>
+            <el-input v-model="rhythmEditForm.title" maxlength="255" show-word-limit />
+          </el-form-item>
+          <el-form-item label="开始日期">
+            <el-date-picker
+              v-model="rhythmEditForm.start_date"
+              type="date"
+              value-format="YYYY-MM-DD"
+              placeholder="可不填"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item label="截止日期">
+            <el-date-picker
+              v-model="rhythmEditForm.due_date"
+              type="date"
+              value-format="YYYY-MM-DD"
+              placeholder="可不填"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item label="完成备注">
+            <el-input
+              v-model="rhythmEditForm.note"
+              type="textarea"
+              :rows="3"
+              maxlength="2000"
+              show-word-limit
+              placeholder="可记录关怀方式、核对结果或后续说明"
+            />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="rhythmEditVisible = false">取消</el-button>
+          <el-button type="primary" :loading="rhythmEditSaving" @click="saveRhythmEdit">
+            保存维护
+          </el-button>
+        </template>
+      </el-dialog>
     </section>
 
     <section class="operations-panels">
@@ -1404,6 +1596,15 @@ h1 {
   gap: 12px;
   padding: 12px 0;
 }
+.rhythm-filters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.rhythm-filters .el-select {
+  width: 132px;
+}
 .rhythm-toolbar > span {
   color: #82958d;
   font-size: 12px;
@@ -1710,6 +1911,13 @@ h1 {
   .rhythm-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+  .rhythm-filters {
+    justify-content: stretch;
+  }
+  .rhythm-filters .el-select {
+    flex: 1;
+    width: auto;
   }
 }
 </style>
