@@ -1574,6 +1574,7 @@ export const getRenewalCoverage = (
     org_unit_id?: string;
     member_name?: string;
     include_synced?: boolean;
+    actionable_only?: boolean;
     limit?: number;
   } = {}
 ) =>
