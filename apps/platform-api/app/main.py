@@ -21,6 +21,7 @@ from app.api.imports import router as imports_router
 from app.api.direct_class_preflight import router as direct_class_preflight_router
 from app.api.direct_class_import import router as direct_class_import_router
 from app.api.plans import router as plans_router
+from app.api.operation_rhythm import router as operation_rhythm_router
 from app.api.renewals import router as renewals_router
 from app.api.members import router as members_router
 from app.api.system import router as system_router
@@ -56,8 +57,12 @@ READ_ONLY_ALLOWED_POST_PATHS = frozenset({
 
 def read_only_request_allowed(method: str, path: str) -> bool:
     """Allow only explicitly audited, memory-only previews during production read-only mode."""
-    return method in {"GET", "HEAD", "OPTIONS"} or (
-        method == "POST" and path in READ_ONLY_ALLOWED_POST_PATHS
+    if method in {"GET", "HEAD", "OPTIONS"}:
+        return True
+    return method == "POST" and (
+        path in READ_ONLY_ALLOWED_POST_PATHS
+        or path.startswith("/api/v1/members/")
+        and path.endswith("/birthday-greeting-draft")
     )
 
 
@@ -117,6 +122,7 @@ app.include_router(class_roster_org_import_router)
 app.include_router(direct_class_preflight_router)
 app.include_router(direct_class_import_router)
 app.include_router(plans_router)
+app.include_router(operation_rhythm_router)
 app.include_router(renewals_router)
 app.include_router(members_router)
 app.include_router(followups_router)

@@ -1,16 +1,26 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import dayjs from "dayjs";
+import { ElMessage } from "element-plus";
 import {
+  generateBirthdayGreetingDraft as requestBirthdayGreetingDraft,
+  generateOperationRhythm,
   getClassOperations,
+  getBirthdayGreetingContext,
   getAnnualPlans,
   getMpDashboard,
+  getOperationRhythmSnapshot,
   getOperationsSnapshot,
   getTargetVariances,
   updateClassOperations,
+  updateOperationRhythmItem,
   type AnnualPlan,
+  type BirthdayGreetingContext,
   type ClassOperationsDetail,
   type DashboardItem,
+  type OperationRhythmItem,
+  type OperationRhythmSnapshot,
+  type OperationRhythmStatus,
   type OperationsSnapshot
 } from "@/api/seiwajyuku";
 import { useUserStoreHook } from "@/store/modules/user";
@@ -23,8 +33,22 @@ const planId = ref<number>();
 const year = ref(new Date().getFullYear());
 const month = ref(Math.min(new Date().getMonth() + 1, 12));
 const operations = ref<OperationsSnapshot>();
+const rhythm = ref<OperationRhythmSnapshot>();
+const rhythmView = ref<"today" | "next_7_days" | "month" | "attention">(
+  "next_7_days"
+);
+const rhythmGenerating = ref(false);
+const rhythmItemSaving = ref<number | null>(null);
 const birthdayCenterId = ref("");
 const birthdayClassOrgUnitId = ref("");
+const birthdayMonth = ref(String(month.value).padStart(2, "0"));
+const birthdayGreetingVisible = ref(false);
+const birthdayGreetingLoading = ref(false);
+const birthdayGreetingDraftLoading = ref(false);
+const birthdayGreeting = ref<BirthdayGreetingContext>();
+const selectedBirthdayMemoryIds = ref<string[]>([]);
+const birthdayGreetingTone = ref<"standard" | "warm" | "concise">("warm");
+const birthdayGreetingDraft = ref("");
 const items = ref<DashboardItem[]>([]);
 const selectedMetricKey = ref("active_member_count");
 const classDrawerVisible = ref(false);
@@ -34,6 +58,7 @@ const classDetail = ref<ClassOperationsDetail>();
 const canManageClassOperations = computed(() =>
   useUserStoreHook().permissions.includes("plans:period_write")
 );
+const canManageRhythm = canManageClassOperations;
 const classForm = ref({
   weekly_meeting_at: "",
   planned_class_meeting_at: "",
@@ -180,6 +205,26 @@ const operationsCards = computed(() => {
   ];
 });
 const classRows = computed(() => operations.value?.classes || []);
+const rhythmItems = computed(() =>
+  rhythm.value?.views[rhythmView.value] ?? []
+);
+const classMeetingRows = computed(() => {
+  if (!classDetail.value) return [];
+  if (classDetail.value.class_meetings.length) return classDetail.value.class_meetings;
+  if (classDetail.value.planned_class_meeting_at) {
+    return [{
+      id: null,
+      title: "计划班会（尚未形成正式活动事实）",
+      event_date: classDetail.value.planned_class_meeting_at,
+      activity_type: "CLASS_MEETING",
+      org_name: classDetail.value.org_name,
+      class_org_unit_id: classDetail.value.class_org_unit_id,
+      class_name: classDetail.value.class_name,
+      status: "PLANNED" as const
+    }];
+  }
+  return [];
+});
 const otherScheduleRows = computed(() => [
   ...(operations.value?.courses || []).map(item => ({ ...item, category: "课程" })),
   ...(operations.value?.activities || []).map(item => ({ ...item, category: "活动" }))
@@ -204,17 +249,154 @@ const birthdayClassOptions = computed(() => {
     });
   return [...options].map(([id, name]) => ({ id, name }));
 });
+const birthdayMonthOptions = Array.from({ length: 12 }, (_, index) => {
+  const value = String(index + 1).padStart(2, "0");
+  return { id: value, name: `${index + 1}月` };
+}).concat({ id: "ALL", name: "全年" });
 const filteredBirthdayMembers = computed(() =>
   (operations.value?.birthday_members || []).filter(
     item =>
       (!birthdayCenterId.value || item.org_unit_id === birthdayCenterId.value) &&
       (!birthdayClassOrgUnitId.value ||
-        item.class_org_unit_id === birthdayClassOrgUnitId.value)
+        item.class_org_unit_id === birthdayClassOrgUnitId.value) &&
+      (birthdayMonth.value === "ALL" ||
+        !birthdayMonth.value ||
+        item.birthday.slice(0, 2) === birthdayMonth.value)
   )
 );
 
 function changeBirthdayCenter() {
   birthdayClassOrgUnitId.value = "";
+}
+
+function changeOperationsMonth() {
+  birthdayMonth.value = String(month.value).padStart(2, "0");
+  load();
+}
+
+const rhythmStatusLabel = (status: OperationRhythmStatus) =>
+  ({
+    PENDING: "待确认",
+    PLANNED: "已计划",
+    IN_PROGRESS: "推进中",
+    WAITING_EXTERNAL: "等待外部反馈",
+    COMPLETED: "已圆满",
+    ATTENTION: "需关注",
+    CANCELLED: "已取消"
+  })[status];
+
+const rhythmStatusType = (
+  status: OperationRhythmStatus,
+): "primary" | "success" | "warning" | "info" | "danger" =>
+  ({
+    PENDING: "info",
+    PLANNED: "primary",
+    IN_PROGRESS: "warning",
+    WAITING_EXTERNAL: "warning",
+    COMPLETED: "success",
+    ATTENTION: "danger",
+    CANCELLED: "info"
+  })[status] as "primary" | "success" | "warning" | "info" | "danger";
+
+async function generateRhythm() {
+  rhythmGenerating.value = true;
+  try {
+    const response = await generateOperationRhythm({
+      year: year.value,
+      month: month.value
+    });
+    ElMessage.success(
+      `已生成 ${response.data.created_item_count} 项本月运营事项，可继续由核心运营人员维护状态`
+    );
+    await load();
+  } catch (error) {
+    ElMessage.error("本月运营事项生成失败，请检查当前账号和组织范围");
+  } finally {
+    rhythmGenerating.value = false;
+  }
+}
+
+async function saveRhythmStatus(item: any, status: OperationRhythmStatus) {
+  const previous = item.status;
+  item.status = status;
+  rhythmItemSaving.value = item.id;
+  try {
+    const response = await updateOperationRhythmItem(item.id, { status });
+    Object.assign(item, response.data);
+    ElMessage.success("运营事项状态已记录");
+  } catch (error) {
+    item.status = previous;
+    ElMessage.error("运营事项状态保存失败，请稍后重试");
+  } finally {
+    rhythmItemSaving.value = null;
+  }
+}
+
+function openRhythmBusinessItem(item: any) {
+  if (item.business_type !== "BIRTHDAY_CARE") return;
+  const memberId = Number(item.business_id || 0);
+  if (memberId) openBirthdayGreeting({ member_id: memberId });
+}
+
+async function openBirthdayGreeting(row: unknown) {
+  const memberId = Number(
+    (row as { member_id?: number } | null)?.member_id || 0
+  );
+  if (!memberId) return;
+  birthdayGreetingVisible.value = true;
+  birthdayGreetingLoading.value = true;
+  birthdayGreeting.value = undefined;
+  birthdayGreetingDraft.value = "";
+  selectedBirthdayMemoryIds.value = [];
+  try {
+    const response = await getBirthdayGreetingContext(memberId);
+    birthdayGreeting.value = response.data;
+    selectedBirthdayMemoryIds.value = [...response.data.selected_memory_ids];
+    await generateBirthdayDraft();
+  } catch (error) {
+    birthdayGreetingVisible.value = false;
+    ElMessage.error("生日关怀资料加载失败，请稍后重试");
+  } finally {
+    birthdayGreetingLoading.value = false;
+  }
+}
+
+async function generateBirthdayDraft(
+  tone = birthdayGreetingTone.value
+) {
+  if (!birthdayGreeting.value) return;
+  birthdayGreetingTone.value = tone;
+  birthdayGreetingDraftLoading.value = true;
+  try {
+    const response = await requestBirthdayGreetingDraft(
+      birthdayGreeting.value.member.id,
+      {
+        selected_memory_ids: selectedBirthdayMemoryIds.value,
+        tone: birthdayGreetingTone.value
+      }
+    );
+    birthdayGreetingDraft.value = response.data.draft;
+  } catch (error) {
+    ElMessage.error("生日祝福生成失败，请检查已选记忆");
+  } finally {
+    birthdayGreetingDraftLoading.value = false;
+  }
+}
+
+function formatBirthdayMemory(memory: BirthdayGreetingContext["memories"][number]) {
+  return `${memory.year}年${memory.month}月 · ${memory.title}`;
+}
+
+function changeBirthdayMemorySelection(ids: string[]) {
+  if (ids.length <= 4) return;
+  selectedBirthdayMemoryIds.value = ids.slice(0, 4);
+  ElMessage.warning("最多选择 4 条共同记忆");
+}
+
+async function copyBirthdayGreeting() {
+  if (!birthdayGreetingDraft.value) return;
+  await navigator.clipboard.writeText(birthdayGreetingDraft.value);
+  ElMessage.success("祝福已复制，可人工确认后使用");
 }
 
 const percentLabel = (value?: number | null) =>
@@ -273,6 +455,10 @@ async function saveClassOperations() {
       }
     );
     classDetail.value = response.data;
+    await load();
+    ElMessage.success("班级运营事项已保存，驾驶舱数据已刷新");
+  } catch (error) {
+    ElMessage.error("班级运营事项保存失败，请稍后重试");
   } finally {
     classSaving.value = false;
   }
@@ -308,39 +494,63 @@ const unitLabel = (unit?: string) =>
 async function load() {
   loading.value = true;
   try {
-    const [snapshot, dashboard, variance] = await Promise.all([
-      getOperationsSnapshot({ year: year.value, month: month.value }),
+    const [snapshot, dashboard, variance, rhythmSnapshot] = await Promise.allSettled([
+      getOperationsSnapshot({
+        year: year.value,
+        month: month.value,
+        birthday_month: birthdayMonth.value === "ALL" ? 0 : Number(birthdayMonth.value)
+      }),
       planId.value
         ? getMpDashboard({ plan_id: planId.value, month: month.value })
         : Promise.resolve(null),
-      planId.value ? getTargetVariances(planId.value) : Promise.resolve(null)
+      planId.value ? getTargetVariances(planId.value) : Promise.resolve(null),
+      getOperationRhythmSnapshot({ year: year.value, month: month.value })
     ]);
-    operations.value = snapshot.data;
-    if (
-      birthdayCenterId.value &&
-      !snapshot.data.birthday_members.some(
-        item => item.org_unit_id === birthdayCenterId.value
-      )
-    ) {
-      birthdayCenterId.value = "";
+
+    if (snapshot.status === "fulfilled") {
+      operations.value = snapshot.value.data;
+      if (
+        birthdayCenterId.value &&
+        !snapshot.value.data.birthday_members.some(
+          item => item.org_unit_id === birthdayCenterId.value
+        )
+      ) {
+        birthdayCenterId.value = "";
+      }
+      if (
+        birthdayClassOrgUnitId.value &&
+        !snapshot.value.data.birthday_members.some(
+          item =>
+            item.class_org_unit_id === birthdayClassOrgUnitId.value &&
+            (!birthdayCenterId.value ||
+              item.org_unit_id === birthdayCenterId.value)
+        )
+      ) {
+        birthdayClassOrgUnitId.value = "";
+      }
+    } else {
+      ElMessage.error("本月学员与生日数据加载失败，请稍后重试");
     }
-    if (
-      birthdayClassOrgUnitId.value &&
-      !snapshot.data.birthday_members.some(
-        item =>
-          item.class_org_unit_id === birthdayClassOrgUnitId.value &&
-          (!birthdayCenterId.value ||
-            item.org_unit_id === birthdayCenterId.value)
-      )
-    ) {
-      birthdayClassOrgUnitId.value = "";
+
+    if (rhythmSnapshot.status === "fulfilled") {
+      rhythm.value = rhythmSnapshot.value.data;
+    } else {
+      ElMessage.warning("运营节奏暂时加载失败，生日和学员数据仍可查看");
     }
-    items.value = dashboard?.data.items || [];
-    variances.value = variance?.data || [];
-    if (
-      !items.value.some(item => item.metric_key === selectedMetricKey.value)
-    ) {
-      selectedMetricKey.value = items.value[0]?.metric_key ?? "";
+
+    if (dashboard.status === "fulfilled") {
+      items.value = dashboard.value?.data.items || [];
+      if (
+        !items.value.some(item => item.metric_key === selectedMetricKey.value)
+      ) {
+        selectedMetricKey.value = items.value[0]?.metric_key ?? "";
+      }
+    } else if (planId.value) {
+      ElMessage.warning("年度 MP 数据暂时加载失败，其他运营数据仍可查看");
+    }
+
+    if (variance.status === "fulfilled") {
+      variances.value = variance.value?.data || [];
     }
   } finally {
     loading.value = false;
@@ -348,9 +558,13 @@ async function load() {
 }
 
 onMounted(async () => {
-  const response = await getAnnualPlans();
-  plans.value = response.data;
-  planId.value = plans.value[0]?.id;
+  try {
+    const response = await getAnnualPlans();
+    plans.value = response.data;
+    planId.value = plans.value[0]?.id;
+  } catch {
+    ElMessage.warning("年度方案暂时加载失败，本月运营数据仍可查看");
+  }
   await load();
 });
 
@@ -378,7 +592,11 @@ function changePlan() {
             :value="option"
           />
         </el-select>
-        <el-select v-model="month" aria-label="月份" @change="load">
+        <el-select
+          v-model="month"
+          aria-label="月份"
+          @change="changeOperationsMonth"
+        >
           <el-option
             v-for="value in 12"
             :key="value"
@@ -460,6 +678,104 @@ function changePlan() {
       class="data-alert"
     />
 
+    <section class="content-card rhythm-card">
+      <div class="section-title rhythm-heading">
+        <div>
+          <p class="eyebrow dark">OPERATION RHYTHM</p>
+          <h2>本月运营节奏</h2>
+          <p>由核心运营人员维护；微信群、电话和线下沟通继续保留，班主任无需登录。</p>
+        </div>
+        <el-button
+          v-if="canManageRhythm"
+          type="primary"
+          :loading="rhythmGenerating"
+          @click="generateRhythm"
+        >
+          生成/刷新本月事项
+        </el-button>
+      </div>
+
+      <el-alert
+        v-for="note in rhythm?.data_quality.notes || []"
+        :key="note"
+        :title="note"
+        type="info"
+        :closable="false"
+        show-icon
+        class="data-alert"
+      />
+
+      <div class="rhythm-summary">
+        <article><span>本月事项</span><strong>{{ rhythm?.summary.total || 0 }}</strong></article>
+        <article><span>今日运营</span><strong>{{ rhythm?.summary.today_count || 0 }}</strong></article>
+        <article><span>未来 7 天</span><strong>{{ rhythm?.summary.next_7_days_count || 0 }}</strong></article>
+        <article class="attention"><span>需关注</span><strong>{{ rhythm?.summary.attention_count || 0 }}</strong></article>
+      </div>
+
+      <div class="rhythm-toolbar">
+        <el-radio-group v-model="rhythmView" size="small">
+          <el-radio-button label="today">今日运营</el-radio-button>
+          <el-radio-button label="next_7_days">未来 7 天</el-radio-button>
+          <el-radio-button label="month">本月运营</el-radio-button>
+          <el-radio-button label="attention">异常中心</el-radio-button>
+        </el-radio-group>
+        <span>{{ rhythm?.policy }}</span>
+      </div>
+
+      <el-table :data="rhythmItems" stripe size="small" empty-text="当前视图暂无运营事项">
+        <el-table-column label="日期" width="130">
+          <template #default="{ row }">
+            {{ row.due_date || "待确认" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="事项" min-width="230">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.business_type === 'BIRTHDAY_CARE'"
+              link
+              type="primary"
+              @click="openRhythmBusinessItem(row)"
+            >
+              {{ row.title }}
+            </el-button>
+            <span v-else>{{ row.title }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="org_name" label="组织" min-width="140" />
+        <el-table-column prop="category" label="类型" width="120" />
+        <el-table-column label="责任角色" min-width="150">
+          <template #default="{ row }">
+            {{ row.responsibility_role || "待确认" }}
+            <small v-if="row.external_responsibility_role" class="rhythm-external-role">
+              外部：{{ row.external_responsibility_role }}
+            </small>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="160">
+          <template #default="{ row }">
+            <el-select
+              v-if="canManageRhythm"
+              :model-value="row.status"
+              size="small"
+              :loading="rhythmItemSaving === row.id"
+              @update:model-value="(value: OperationRhythmStatus) => saveRhythmStatus(row, value)"
+            >
+              <el-option label="待确认" value="PENDING" />
+              <el-option label="已计划" value="PLANNED" />
+              <el-option label="推进中" value="IN_PROGRESS" />
+              <el-option label="等待外部反馈" value="WAITING_EXTERNAL" />
+              <el-option label="已圆满" value="COMPLETED" />
+              <el-option label="需关注" value="ATTENTION" />
+              <el-option label="已取消" value="CANCELLED" />
+            </el-select>
+            <el-tag v-else :type="rhythmStatusType(row.status)">
+              {{ rhythmStatusLabel(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+
     <section class="operations-panels">
       <article class="content-card">
         <div class="section-title birthday-title">
@@ -496,6 +812,20 @@ function changePlan() {
               />
             </el-select>
             <el-select
+              v-model="birthdayMonth"
+              aria-label="生日关怀月份"
+              placeholder="生日月份"
+              class="birthday-month-filter"
+              @change="load"
+            >
+              <el-option
+                v-for="option in birthdayMonthOptions"
+                :key="option.id"
+                :label="option.name"
+                :value="option.id"
+              />
+            </el-select>
+            <el-select
               v-model="birthdayClassOrgUnitId"
               clearable
               aria-label="生日关怀班级"
@@ -517,7 +847,13 @@ function changePlan() {
           empty-text="本月暂无在册学长生日"
         >
           <el-table-column prop="birthday" label="日期" width="86" />
-          <el-table-column prop="name" label="学长" min-width="100" />
+          <el-table-column label="学长" min-width="100">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openBirthdayGreeting(row)">
+                {{ row.name }}
+              </el-button>
+            </template>
+          </el-table-column>
           <el-table-column prop="org_name" label="分中心" min-width="130" />
           <el-table-column label="班级" min-width="120">
             <template #default="{ row }">{{ row.class_name || "未分班" }}</template>
@@ -547,13 +883,13 @@ function changePlan() {
         </el-table-column>
         <el-table-column label="班会次序" width="130">
           <template #default="{ row }">
-            {{ row.year_sequence ? `本年第 ${row.year_sequence} 次` : "待维护" }}
+            {{ row.year_sequence ? `本年第 ${row.year_sequence} 次` : row.status === "PLANNED" ? "待正式记录" : "待维护" }}
           </template>
         </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'SCHEDULED' ? 'success' : 'info'">
-              {{ row.status === "SCHEDULED" ? "已排期" : "待排期" }}
+            <el-tag :type="row.status === 'SCHEDULED' ? 'success' : row.status === 'PLANNED' ? 'warning' : 'info'">
+              {{ row.status === "SCHEDULED" ? "已接入事实" : row.status === "PLANNED" ? "已维护排期" : "待排期" }}
             </el-tag>
           </template>
         </el-table-column>
@@ -576,6 +912,90 @@ function changePlan() {
         </el-table>
       </template>
     </section>
+
+    <el-drawer
+      v-model="birthdayGreetingVisible"
+      :title="birthdayGreeting ? `${birthdayGreeting.member.name}学长 · 生日关怀` : '生日关怀助手'"
+      size="min(680px, 96vw)"
+    >
+      <div v-loading="birthdayGreetingLoading" class="birthday-greeting-drawer">
+        <template v-if="birthdayGreeting">
+          <section class="birthday-profile-card">
+            <strong>{{ birthdayGreeting.member.name }}学长</strong>
+            <span v-if="birthdayGreeting.member.birthday_month_day">
+              🎂 {{ birthdayGreeting.member.birthday_month_day }} 生日
+            </span>
+            <span>
+              {{ birthdayGreeting.member.join_date ? `${birthdayGreeting.member.join_date.slice(0, 7)} 入塾` : "入塾日期待维护" }}
+              <template v-if="birthdayGreeting.member.membership_years !== null && birthdayGreeting.member.membership_years !== undefined">
+                · 已同行 {{ birthdayGreeting.member.membership_years }} 年
+              </template>
+            </span>
+            <span>
+              {{ birthdayGreeting.member.org_name }} · {{ birthdayGreeting.member.class_name || "未分班" }}<template v-if="birthdayGreeting.member.group_name"> · {{ birthdayGreeting.member.group_name }}</template>
+            </span>
+          </section>
+
+          <el-alert
+            v-for="note in birthdayGreeting.data_quality.notes"
+            :key="note"
+            :title="note"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="birthday-note"
+          />
+
+          <section>
+            <div class="birthday-drawer-heading">
+              <div>
+                <h3>我们的共同记忆</h3>
+                <p>只展示已核验的本人出席或完成记录，可勾选 0～4 条写入祝福。</p>
+              </div>
+              <el-tag type="success">事实资料</el-tag>
+            </div>
+            <el-checkbox-group v-model="selectedBirthdayMemoryIds" class="birthday-memory-list" @change="changeBirthdayMemorySelection">
+              <el-checkbox
+                v-for="memory in birthdayGreeting.memories"
+                :key="memory.id"
+                :label="memory.id"
+                class="birthday-memory"
+              >
+                <span>{{ formatBirthdayMemory(memory) }}</span>
+                <small>{{ memory.category_label }} · {{ memory.source_type === "ATTENDANCE" ? "正式签到" : "历史学习记录" }}</small>
+              </el-checkbox>
+            </el-checkbox-group>
+            <el-empty v-if="!birthdayGreeting.memories.length" description="暂无可核验的共同记忆" :image-size="60" />
+          </section>
+
+          <section class="birthday-draft-section">
+            <div class="birthday-drawer-heading">
+              <div>
+                <h3>生日祝福</h3>
+                <p>文案可以直接编辑；生成器只围绕上方事实，不补造经历。</p>
+              </div>
+              <div class="birthday-tone-actions">
+                <el-button size="small" @click="generateBirthdayDraft('warm')">更温暖</el-button>
+                <el-button size="small" @click="generateBirthdayDraft('concise')">更简洁</el-button>
+              </div>
+            </div>
+            <div v-loading="birthdayGreetingDraftLoading">
+              <el-input
+                v-model="birthdayGreetingDraft"
+                type="textarea"
+                :rows="9"
+                resize="vertical"
+                placeholder="请选择共同记忆后生成祝福"
+              />
+            </div>
+            <div class="birthday-draft-actions">
+              <el-button :loading="birthdayGreetingDraftLoading" @click="generateBirthdayDraft()">重新生成</el-button>
+              <el-button type="primary" :disabled="!birthdayGreetingDraft" @click="copyBirthdayGreeting">复制祝福</el-button>
+            </div>
+          </section>
+        </template>
+      </div>
+    </el-drawer>
 
     <el-drawer
       v-model="classDrawerVisible"
@@ -625,10 +1045,13 @@ function changePlan() {
           </el-form>
 
           <h3>本月班会</h3>
-          <el-table :data="classDetail.class_meetings" size="small" empty-text="本月尚未接入班会排期">
+          <el-table :data="classMeetingRows" size="small" empty-text="本月尚未维护班会排期">
             <el-table-column prop="event_date" label="日期" width="120" />
             <el-table-column prop="title" label="事项" min-width="220" />
           </el-table>
+          <p v-if="classDetail.planned_class_meeting_at && !classDetail.class_meetings.length" class="form-hint">
+            这是已维护的计划时间；班会次序仍需正式活动事实接入后确认，不会根据计划日期估算。
+          </p>
 
           <h3>小组运营与参会率</h3>
           <el-table :data="classForm.groups" size="small" empty-text="当前班级暂无正式小组">
@@ -647,6 +1070,7 @@ function changePlan() {
 
           <div v-if="canManageClassOperations" class="drawer-actions">
             <el-button type="primary" :loading="classSaving" @click="saveClassOperations">保存班级运营事项</el-button>
+            <span v-if="classDetail.updated_at" class="save-status">最近保存：{{ dayjs(classDetail.updated_at).format("YYYY-MM-DD HH:mm") }}</span>
           </div>
         </template>
       </div>
@@ -859,6 +1283,136 @@ h1 {
 }
 .birthday-filters .el-select {
   width: 150px;
+}
+.birthday-filters .birthday-month-filter {
+  width: 125px;
+}
+.birthday-greeting-drawer {
+  min-height: 240px;
+}
+.birthday-profile-card {
+  display: grid;
+  gap: 7px;
+  padding: 16px;
+  margin-bottom: 16px;
+  color: #426458;
+  background: #f1f8f4;
+  border: 1px solid #d4eadc;
+  border-radius: 12px;
+}
+.birthday-profile-card strong {
+  color: #173f33;
+  font-size: 20px;
+}
+.birthday-note {
+  margin-bottom: 10px;
+}
+.birthday-drawer-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 22px 0 10px;
+}
+.birthday-drawer-heading h3 {
+  margin: 0;
+  color: #173f33;
+}
+.birthday-drawer-heading p {
+  margin: 5px 0 0;
+  color: #82958d;
+  font-size: 13px;
+}
+.birthday-memory-list {
+  display: grid;
+  gap: 8px;
+}
+.birthday-memory {
+  display: flex;
+  align-items: flex-start;
+  height: auto;
+  padding: 10px 12px;
+  margin: 0 !important;
+  background: #fafcfb;
+  border: 1px solid #e3eee8;
+  border-radius: 10px;
+}
+.birthday-memory :deep(.el-checkbox__label) {
+  display: grid;
+  gap: 3px;
+  white-space: normal;
+  color: #294d40;
+}
+.birthday-memory small {
+  color: #8a9e95;
+  font-size: 12px;
+}
+.birthday-draft-section {
+  padding-top: 4px;
+}
+.birthday-tone-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.birthday-draft-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.rhythm-card {
+  margin-top: 18px;
+}
+.rhythm-heading {
+  align-items: flex-start;
+}
+.rhythm-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+.rhythm-summary article {
+  padding: 14px 16px;
+  background: #f4f8f6;
+  border-radius: 10px;
+}
+.rhythm-summary article.attention {
+  background: #fff5f0;
+}
+.rhythm-summary span,
+.rhythm-summary strong {
+  display: block;
+}
+.rhythm-summary span {
+  color: #72877e;
+  font-size: 13px;
+}
+.rhythm-summary strong {
+  margin-top: 6px;
+  color: #194b3b;
+  font-size: 24px;
+}
+.rhythm-summary .attention strong {
+  color: #b34f2f;
+}
+.rhythm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+}
+.rhythm-toolbar > span {
+  color: #82958d;
+  font-size: 12px;
+}
+.rhythm-external-role {
+  display: block;
+  margin-top: 3px;
+  color: #8a9e95;
+  font-size: 12px;
 }
 .birthday-title {
   display: flex;
@@ -1106,6 +1660,9 @@ h1 {
   .operations-panels {
     grid-template-columns: 1fr;
   }
+  .rhythm-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .analysis-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1131,6 +1688,9 @@ h1 {
   .form-grid {
     grid-template-columns: 1fr;
   }
+  .rhythm-summary {
+    grid-template-columns: 1fr;
+  }
   .section-heading {
     align-items: stretch;
     flex-direction: column;
@@ -1146,6 +1706,10 @@ h1 {
   }
   .filters .el-select {
     width: 100%;
+  }
+  .rhythm-toolbar {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 </style>

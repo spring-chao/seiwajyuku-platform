@@ -198,11 +198,13 @@ def initialize_person_link(
     with transaction() as connection:
         user = execute(
             connection,
-            "SELECT id, display_name, is_active FROM app_users WHERE id=?",
+            "SELECT id, username, display_name, is_active FROM app_users WHERE id=?",
             (user_id,),
         ).fetchone()
         if not user or not user["is_active"]:
             raise ValueError("账号不存在或已停用")
+        if user["username"] == get_settings().bootstrap_admin_username:
+            raise ValueError("平台最高管理账号不作为自然人、雇佣或任职试点账号")
         if execute(
             connection, "SELECT person_id FROM account_person_links WHERE user_id=?", (user_id,)
         ).fetchone():

@@ -23,11 +23,17 @@ from app.services.identity_admin import (  # noqa: E402
     create_volunteer_appointment,
     initialize_person_link,
 )
-from app.services.members import create_member  # noqa: E402
+from app.services.iam import accessible_org_ids  # noqa: E402
+from app.services.members import create_member, list_members  # noqa: E402
 
 
 PILOT_USERS = {
     "ops": ("pilot-ops", "试点专职同仁", "PILOT_OPS_PASSWORD"),
+    "center_director": (
+        "pilot-ops-center-director",
+        "试点双分中心负责人",
+        "PILOT_OPS_CENTER_DIRECTOR_PASSWORD",
+    ),
     "primary": ("pilot-volunteer", "试点担当志工", "PILOT_VOLUNTEER_PASSWORD"),
     "companion": (
         "pilot-companion",
@@ -39,6 +45,12 @@ PILOT_USERS = {
         "试点技术管理员",
         "PILOT_TECHNICAL_PASSWORD",
     ),
+}
+
+PILOT_CENTER_IDS = {
+    "kunshan": "pilot-kunshan-center",
+    "wujiang": "pilot-wujiang-center",
+    "outside": "pilot-outside-center",
 }
 
 
@@ -94,6 +106,48 @@ def _ensure_orgs() -> None:
             "GROUP",
             "pilot-class",
         ),
+        (
+            PILOT_CENTER_IDS["kunshan"],
+            "PILOT_KUNSHAN_CENTER",
+            "昆山分中心（隔离试点）",
+            "REGIONAL_CENTER",
+            "org-suzhou",
+        ),
+        (
+            "pilot-kunshan-class",
+            "PILOT_KUNSHAN_CLASS",
+            "昆山试点班级",
+            "CLASS",
+            PILOT_CENTER_IDS["kunshan"],
+        ),
+        (
+            PILOT_CENTER_IDS["wujiang"],
+            "PILOT_WUJIANG_CENTER",
+            "吴江分中心（隔离试点）",
+            "REGIONAL_CENTER",
+            "org-suzhou",
+        ),
+        (
+            "pilot-wujiang-class",
+            "PILOT_WUJIANG_CLASS",
+            "吴江试点班级",
+            "CLASS",
+            PILOT_CENTER_IDS["wujiang"],
+        ),
+        (
+            PILOT_CENTER_IDS["outside"],
+            "PILOT_OUTSIDE_CENTER",
+            "未授权分中心（隔离试点）",
+            "REGIONAL_CENTER",
+            "org-suzhou",
+        ),
+        (
+            "pilot-outside-class",
+            "PILOT_OUTSIDE_CLASS",
+            "未授权试点班级",
+            "CLASS",
+            PILOT_CENTER_IDS["outside"],
+        ),
     ]
     with transaction() as connection:
         for org_id, code, name, unit_type, parent_id in orgs:
@@ -142,9 +196,9 @@ def _ensure_person(actor_user_id: int, user_id: int) -> None:
     )
 
 
-def _ensure_assignments(actor_user_id: int, users: dict[str, int]) -> None:
+def _ensure_assignments(actor_user_id: int, users: dict[str, int]) -> tuple[str, str]:
     now = datetime.now(UTC)
-    starts_at = (now - timedelta(days=1)).isoformat()
+    starts_at = now.isoformat()
     ends_at = (now + timedelta(days=30)).isoformat()
     if not fetch_one(
         "SELECT oe.id FROM operations_employments oe "
@@ -163,6 +217,25 @@ def _ensure_assignments(actor_user_id: int, users: dict[str, int]) -> None:
             ],
             source_reference="approved-local-pilot",
             confirmation_note="隔离环境合成专职岗位和服务范围验证",
+        )
+    if not fetch_one(
+        "SELECT oe.id FROM operations_employments oe "
+        "JOIN account_person_links apl ON apl.person_id=oe.person_id "
+        "WHERE apl.user_id=? AND oe.employment_status='ACTIVE'",
+        (users["center_director"],),
+    ):
+        create_employment(
+            actor_user_id,
+            users["center_director"],
+            position_key="ops_center_director",
+            started_on=starts_at,
+            ended_on=ends_at,
+            service_responsibilities=[
+                {"scope_type": "SUBTREE", "org_unit_id": PILOT_CENTER_IDS["kunshan"]},
+                {"scope_type": "SUBTREE", "org_unit_id": PILOT_CENTER_IDS["wujiang"]},
+            ],
+            source_reference="approved-local-pilot-20260814",
+            confirmation_note="合成双分中心负责人范围验证；业务负责人使用脱敏岗位别名",
         )
     volunteer_assignments = (
         ("primary", "volunteer_regional_service", "pilot-center", "SUBTREE"),
@@ -203,6 +276,7 @@ def _ensure_assignments(actor_user_id: int, users: dict[str, int]) -> None:
             source_reference="approved-local-pilot",
             confirmation_note="隔离环境合成技术职责和最小权限验证",
         )
+    return starts_at, ends_at
 
 
 def _ensure_member(actor_user_id: int) -> int:
@@ -226,6 +300,34 @@ def _ensure_member(actor_user_id: int) -> int:
         group_org_unit_id="pilot-group",
         notes="纯合成数据，不对应真实个人或企业",
     )
+
+
+def _ensure_scope_members(actor_user_id: int) -> dict[str, int]:
+    """Create only synthetic records used to prove the two-center boundary."""
+    members: dict[str, int] = {}
+    for key, center_id, class_id in (
+        ("kunshan", PILOT_CENTER_IDS["kunshan"], "pilot-kunshan-class"),
+        ("wujiang", PILOT_CENTER_IDS["wujiang"], "pilot-wujiang-class"),
+        ("outside", PILOT_CENTER_IDS["outside"], "pilot-outside-class"),
+    ):
+        member_code = f"PILOT-SCOPE-{key.upper()}"
+        existing = fetch_one(
+            "SELECT id FROM members WHERE member_code=?", (member_code,)
+        )
+        if existing:
+            members[key] = int(existing["id"])
+            continue
+        members[key] = create_member(
+            actor_user_id,
+            member_code=member_code,
+            name=f"{key}-scope-synthetic",
+            org_unit_id=center_id,
+            development_org_unit_id=center_id,
+            phone=None,
+            class_org_unit_id=class_id,
+            notes="纯合成范围验证数据，不对应真实个人或企业",
+        )
+    return members
 
 
 def _ensure_invitation(
@@ -327,8 +429,9 @@ def main() -> int:
     }
     for user_id in users.values():
         _ensure_person(admin_id, user_id)
-    _ensure_assignments(admin_id, users)
+    pilot_starts_at, pilot_ends_at = _ensure_assignments(admin_id, users)
     member_id = _ensure_member(admin_id)
+    scope_member_ids = _ensure_scope_members(admin_id)
     task_id, invitation_id = _ensure_invitation(
         users["ops"], users["primary"], member_id
     )
@@ -347,6 +450,35 @@ def main() -> int:
         for permission in ("members:read", "followups:manage", "contact:reveal")
     ):
         raise AssertionError("技术管理员获得了业务数据权限")
+    director_allowed = accessible_org_ids(users["center_director"])
+    expected_director_orgs = {
+        PILOT_CENTER_IDS["kunshan"],
+        "pilot-kunshan-class",
+        PILOT_CENTER_IDS["wujiang"],
+        "pilot-wujiang-class",
+    }
+    if director_allowed is None or not expected_director_orgs.issubset(director_allowed):
+        raise AssertionError("双分中心负责人缺少已确认的 SUBTREE 服务范围")
+    if PILOT_CENTER_IDS["outside"] in director_allowed:
+        raise AssertionError("双分中心负责人错误获得未授权分中心范围")
+    visible_scope_members = {
+        row["member_code"] for row in list_members(users["center_director"])
+    }
+    expected_member_codes = {
+        "PILOT-SCOPE-KUNSHAN",
+        "PILOT-SCOPE-WUJIANG",
+    }
+    if not expected_member_codes.issubset(visible_scope_members):
+        raise AssertionError("双分中心负责人无法查看已授权分中心的合成学员")
+    if "PILOT-SCOPE-OUTSIDE" in visible_scope_members:
+        raise AssertionError("双分中心负责人可查看未授权分中心的合成学员")
+    employment_audit = fetch_one(
+        "SELECT id FROM audit_logs WHERE action='identity.employment.create' "
+        "AND purpose=? ORDER BY id DESC LIMIT 1",
+        ("合成双分中心负责人范围验证；业务负责人使用脱敏岗位别名",),
+    )
+    if not employment_audit:
+        raise AssertionError("双分中心负责人任职缺少审计记录")
     print(
         json.dumps(
             {
@@ -361,6 +493,24 @@ def main() -> int:
                     for key in users
                 },
                 "member_id": member_id,
+                "scope_member_ids": scope_member_ids,
+                "pilot_window": {
+                    "starts_at": pilot_starts_at,
+                    "ends_at": pilot_ends_at,
+                    "duration_days": 30,
+                },
+                "two_center_scope": {
+                    "position_key": "ops_center_director",
+                    "responsibilities": [
+                        {"org_unit_id": PILOT_CENTER_IDS["kunshan"], "scope_type": "SUBTREE"},
+                        {"org_unit_id": PILOT_CENTER_IDS["wujiang"], "scope_type": "SUBTREE"},
+                    ],
+                    "excluded_org_unit_id": PILOT_CENTER_IDS["outside"],
+                },
+                "rollback": {
+                    "owner_account": "admin",
+                    "method": "destroy-disposable-sqlite-database",
+                },
                 "task_id": task_id,
                 "invitation_id": invitation_id,
                 "companion_task_id": companion_task_id,

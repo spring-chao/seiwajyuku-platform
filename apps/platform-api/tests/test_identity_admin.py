@@ -141,6 +141,24 @@ class IdentityAdminTests(unittest.TestCase):
             )
         )
 
+    def test_01b_platform_admin_is_not_a_person_link_candidate(self) -> None:
+        admin_id = fetch_one("SELECT id FROM app_users WHERE username='admin'")["id"]
+        response = self.client.post(
+            f"/api/v1/identity-admin/accounts/{admin_id}/initialize",
+            headers=self.admin_headers,
+            json={
+                "source_reference": "platform-admin-boundary",
+                "confirmation_note": "平台最高管理账号不能作为真实身份试点对象",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("不作为自然人", response.text)
+        self.assertIsNone(
+            fetch_one(
+                "SELECT person_id FROM account_person_links WHERE user_id=?", (admin_id,)
+            )
+        )
+
     def test_02_initialize_employment_and_volunteer_with_audit(self) -> None:
         person_id = self._initialize(
             self.managed_user_id, "approved-identity-link-001"

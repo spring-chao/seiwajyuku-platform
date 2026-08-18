@@ -116,11 +116,17 @@ def dashboard(
 def monthly_operations_snapshot(
     year: int = Query(..., ge=2020, le=2100),
     month: int = Query(..., ge=1, le=12),
+    birthday_month: int | None = Query(default=None, ge=0, le=12),
     user: dict = Depends(require_permission("plans:read")),
 ) -> dict:
     return {
         "success": True,
-        "data": operations_snapshot(user_id=user["id"], year=year, month=month),
+        "data": operations_snapshot(
+            user_id=user["id"],
+            year=year,
+            month=month,
+            birthday_month=birthday_month,
+        ),
     }
 
 

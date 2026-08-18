@@ -52,13 +52,18 @@ const { title, getLogo } = useNav();
 
     img {
       display: inline-block;
-      height: 32px;
+      width: 64px;
+      height: 30px;
+      padding: 3px 5px;
+      object-fit: contain;
+      background: #fff;
+      border-radius: 4px;
     }
 
     .sidebar-title {
       display: inline-block;
       height: 32px;
-      margin: 2px 0 0 12px;
+      margin: 2px 0 0 8px;
       overflow: hidden;
       text-overflow: ellipsis;
       font-size: 18px;
@@ -66,6 +71,17 @@ const { title, getLogo } = useNav();
       line-height: 32px;
       color: var(--pure-theme-sub-menu-active-text);
       white-space: nowrap;
+    }
+  }
+
+  &.collapses {
+    .sidebar-logo-link {
+      padding-left: 8px;
+
+      img {
+        width: 32px;
+        padding: 4px 2px;
+      }
     }
   }
 }

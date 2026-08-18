@@ -223,7 +223,9 @@ def _month_bounds(year: int, month: int) -> tuple[str, str, str]:
     return start.isoformat(), following.isoformat(), start.strftime("%Y-%m")
 
 
-def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any]:
+def operations_snapshot(
+    *, user_id: int, year: int, month: int, birthday_month: int | None = None
+) -> dict[str, Any]:
     """Return privacy-safe monthly operating facts within the caller's org scope.
 
     Member master data is authoritative for member counts, birthday and join-date
@@ -256,6 +258,13 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
     )["count"]
     relation_as_of = datetime.now(UTC).isoformat()
     birthday_relation_params = (relation_as_of,) * 8
+    birthday_month_value = month if birthday_month is None else birthday_month
+    birthday_month_clause = (
+        " AND substr(m.birthday, 6, 2)=?" if birthday_month_value else ""
+    )
+    birthday_month_params = (
+        (f"{birthday_month_value:02d}",) if birthday_month_value else ()
+    )
     birthdays = fetch_all(
         "SELECT m.id, m.name, m.birthday, "
         "COALESCE((SELECT rr.org_unit_id FROM member_org_relations rr "
@@ -281,12 +290,13 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
         "AND (cr.valid_until IS NULL OR cr.valid_until>=?) "
         "ORDER BY cr.is_primary DESC, cr.id LIMIT 1) AS class_name "
         "FROM members m JOIN org_units o ON o.id=m.org_unit_id "
-        "WHERE m.status='ACTIVE' AND substr(m.birthday, 6, 2)=?"
+        "WHERE m.status='ACTIVE'"
+        + birthday_month_clause
         + member_scope
         + " ORDER BY substr(m.birthday, 6, 5), org_name, class_name, m.name, m.id",
         (
             *birthday_relation_params,
-            f"{month:02d}",
+            *birthday_month_params,
             *member_scope_params,
         ),
     )
@@ -302,6 +312,13 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
         }
         for row in birthdays
     ]
+    birthday_member_count = len(birthday_members)
+    if birthday_month_value != month:
+        birthday_member_count = fetch_one(
+            "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
+            "AND substr(m.birthday, 6, 2)=?" + member_scope,
+            (f"{month:02d}", *member_scope_params),
+        )["count"]
 
     renewed_members = None
     if "renewals:read" in permissions:
@@ -415,6 +432,23 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
         else:
             activities.append(item)
 
+    planned_by_class: dict[str, str] = {}
+    if display_classes:
+        class_placeholders = ",".join("?" for _ in display_classes)
+        planned_rows = fetch_all(
+            "SELECT class_org_unit_id, planned_class_meeting_at "
+            "FROM class_operation_monthly WHERE period=? "
+            "AND planned_class_meeting_at IS NOT NULL AND class_org_unit_id IN ("
+            + class_placeholders
+            + ")",
+            (period, *(row["id"] for row in display_classes)),
+        )
+        planned_by_class = {
+            row["class_org_unit_id"]: str(row["planned_class_meeting_at"])
+            for row in planned_rows
+            if row.get("planned_class_meeting_at")
+        }
+
     meetings_by_class: dict[str, list[dict[str, Any]]] = {}
     for item in class_meetings:
         if item.get("class_org_unit_id"):
@@ -448,6 +482,35 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
                     "class_name": class_row["class_name"],
                     "status": "SCHEDULED",
                 })
+        elif class_row["id"] in planned_by_class:
+            class_meeting_schedule.append({
+                "id": None,
+                "title": "计划班会（尚未形成正式活动事实）",
+                "event_date": planned_by_class[class_row["id"]][:10],
+                "activity_type": "CLASS_MEETING",
+                "org_name": (
+                    "苏州塾直属"
+                    if is_suzhou_direct_class(
+                        class_name=class_row["class_name"],
+                        parent_id=class_row["class_owner_org_unit_id"],
+                    )
+                    else class_row["class_owner_org_name"] or "归属待核"
+                ),
+                "class_owner_org_unit_id": class_row["class_owner_org_unit_id"],
+                "class_owner_org_name": class_row["class_owner_org_name"],
+                "class_owner_scope": (
+                    "DIRECT"
+                    if is_suzhou_direct_class(
+                        class_name=class_row["class_name"],
+                        parent_id=class_row["class_owner_org_unit_id"],
+                    )
+                    else "CENTER"
+                ),
+                "class_org_unit_id": class_row["id"],
+                "class_name": class_row["class_name"],
+                "year_sequence": None,
+                "status": "PLANNED",
+            })
         else:
             class_meeting_schedule.append({
                 "id": None,
@@ -485,6 +548,7 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
     class_operations_rows = []
     for class_row in display_classes:
         scheduled = meetings_by_class.get(class_row["id"], [])
+        planned_at = planned_by_class.get(class_row["id"])
         class_operations_rows.append({
             "class_org_unit_id": class_row["id"],
             "class_name": class_row["class_name"],
@@ -507,9 +571,21 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
                 else "CENTER"
             ),
             "class_meeting_count": len(scheduled),
-            "class_meeting_at": scheduled[0]["event_date"] if scheduled else None,
+            "class_meeting_at": (
+                scheduled[0]["event_date"]
+                if scheduled
+                else planned_at[:10]
+                if planned_at
+                else None
+            ),
             "year_sequence": scheduled[-1].get("year_sequence") if scheduled else None,
-            "status": "SCHEDULED" if scheduled else "UNSCHEDULED",
+            "status": (
+                "SCHEDULED"
+                if scheduled
+                else "PLANNED"
+                if planned_at
+                else "UNSCHEDULED"
+            ),
         })
 
     event_schedule_source_ready = bool(
@@ -534,7 +610,7 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
             "renewed_member_count": renewed_members,
             "new_member_count": new_members,
             "active_member_count": active_members,
-            "birthday_member_count": len(birthday_members),
+            "birthday_member_count": birthday_member_count,
             "class_count": len(display_classes),
             "class_meeting_count": len(class_meetings),
             "course_count": len(courses),
@@ -553,6 +629,9 @@ def operations_snapshot(*, user_id: int, year: int, month: int) -> dict[str, Any
             "course_schedule_source_ready": course_source_ready,
             "unscheduled_class_count": sum(
                 1 for row in class_meeting_schedule if row["status"] == "UNSCHEDULED"
+            ),
+            "planned_class_count": sum(
+                1 for row in class_meeting_schedule if row["status"] == "PLANNED"
             ),
             "unlinked_class_meeting_count": sum(
                 1 for row in class_meetings if not row.get("class_org_unit_id")

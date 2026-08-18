@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
@@ -19,6 +21,10 @@ from app.services.members import (
     normal_export_csv,
     record_member_service_signal_feedback,
     reveal_contact,
+)
+from app.services.birthday_greetings import (
+    generate_birthday_greeting_draft,
+    get_birthday_greeting_context,
 )
 from app.services.iam import accessible_org_ids
 from app.db import fetch_all, fetch_one
@@ -46,6 +52,7 @@ class MemberCreatePayload(BaseModel):
     study_start_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     membership_years: float | None = Field(default=None, ge=0, le=100)
     renewal_month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
+    renewal_month_overridden: bool | None = None
     status: str = Field(default="ACTIVE", pattern="^(ACTIVE|INACTIVE|SUSPENDED)$")
     position: str | None = Field(default=None, max_length=255)
     referrer: str | None = Field(default=None, max_length=255)
@@ -79,6 +86,7 @@ class MemberUpdatePayload(BaseModel):
     study_start_date: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
     membership_years: float | None = Field(default=None, ge=0, le=100)
     renewal_month: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}$")
+    renewal_month_overridden: bool | None = None
     position: str | None = Field(default=None, max_length=255)
     referrer: str | None = Field(default=None, max_length=255)
     referrer_center: str | None = Field(default=None, max_length=255)
@@ -111,6 +119,11 @@ class MemberServiceSignalFeedbackPayload(BaseModel):
     status: str = Field(
         pattern="^(CONFIRMED_VALID|NOT_APPLICABLE|DATA_CORRECTED)$"
     )
+
+
+class BirthdayGreetingDraftPayload(BaseModel):
+    selected_memory_ids: list[str] = Field(default_factory=list, max_length=4)
+    tone: Literal["standard", "warm", "concise"] = "warm"
 
 
 @router.post("/members")
@@ -256,6 +269,40 @@ def member_timeline(
 ) -> dict:
     try:
         data = get_member_timeline(member_id, user["id"], limit=limit)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/members/{member_id}/birthday-greeting-context")
+def birthday_greeting_context(
+    member_id: int,
+    user: dict = Depends(require_permission("members:detail_view")),
+) -> dict:
+    try:
+        data = get_birthday_greeting_context(member_id, user["id"])
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/members/{member_id}/birthday-greeting-draft")
+def birthday_greeting_draft(
+    member_id: int,
+    payload: BirthdayGreetingDraftPayload,
+    user: dict = Depends(require_permission("members:detail_view")),
+) -> dict:
+    try:
+        data = generate_birthday_greeting_draft(
+            member_id,
+            user["id"],
+            selected_memory_ids=payload.selected_memory_ids,
+            tone=payload.tone,
+        )
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:

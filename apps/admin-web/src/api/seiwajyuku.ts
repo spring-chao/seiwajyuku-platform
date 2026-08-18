@@ -31,7 +31,7 @@ export type OperationsScheduleItem = {
   class_org_unit_id?: string | null;
   class_name?: string | null;
   year_sequence?: number | null;
-  status?: "SCHEDULED" | "UNSCHEDULED";
+  status?: "SCHEDULED" | "PLANNED" | "UNSCHEDULED";
 };
 
 export type OperationsSnapshot = {
@@ -71,7 +71,7 @@ export type OperationsSnapshot = {
     class_meeting_count: number;
     class_meeting_at?: string | null;
     year_sequence?: number | null;
-    status: "SCHEDULED" | "UNSCHEDULED";
+    status: "SCHEDULED" | "PLANNED" | "UNSCHEDULED";
   }[];
   class_meeting_schedule: OperationsScheduleItem[];
   class_meetings: OperationsScheduleItem[];
@@ -82,6 +82,7 @@ export type OperationsSnapshot = {
     attendance_schedule_source_ready: boolean;
     course_schedule_source_ready: boolean;
     unscheduled_class_count: number;
+    planned_class_count: number;
     unlinked_class_meeting_count: number;
     duplicate_class_node_count: number;
     invalid_direct_root_class_count: number;
@@ -125,6 +126,57 @@ export type ClassOperationsDetail = {
   updated_at?: string | null;
 };
 
+export type OperationRhythmStatus =
+  | "PENDING"
+  | "PLANNED"
+  | "IN_PROGRESS"
+  | "WAITING_EXTERNAL"
+  | "COMPLETED"
+  | "ATTENTION"
+  | "CANCELLED";
+
+export type OperationRhythmItem = {
+  id: number;
+  org_unit_id: string;
+  org_name: string;
+  period: string;
+  item_key: string;
+  title: string;
+  category: string;
+  status: OperationRhythmStatus;
+  status_label?: string;
+  responsibility_role?: string | null;
+  external_responsibility_role?: string | null;
+  start_date?: string | null;
+  due_date?: string | null;
+  actual_at?: string | null;
+  completion_note?: string | null;
+  business_type?: string | null;
+  business_id?: number | string | null;
+  manual_override?: number;
+  updated_at?: string | null;
+};
+
+export type OperationRhythmSnapshot = {
+  period: string;
+  items: OperationRhythmItem[];
+  views: {
+    today: OperationRhythmItem[];
+    next_7_days: OperationRhythmItem[];
+    month: OperationRhythmItem[];
+    attention: OperationRhythmItem[];
+  };
+  summary: {
+    total: number;
+    today_count: number;
+    next_7_days_count: number;
+    attention_count: number;
+    status_counts: Record<OperationRhythmStatus, number>;
+  };
+  data_quality: { generated: boolean; notes: string[] };
+  policy: string;
+};
+
 type AttendanceRate = {
   event_count: number;
   eligible_count: number;
@@ -165,11 +217,46 @@ export const getMpDashboard = (params: { plan_id: number; month: number }) =>
 export const getOperationsSnapshot = (params: {
   year: number;
   month: number;
+  birthday_month?: number;
 }) =>
   http.request<{ success: boolean; data: OperationsSnapshot }>(
     "get",
     "/api/v1/analytics/operations-snapshot",
     { params }
+  );
+
+export const getOperationRhythmSnapshot = (params: {
+  year: number;
+  month: number;
+}) =>
+  http.request<{ success: boolean; data: OperationRhythmSnapshot }>(
+    "get",
+    "/api/v1/operations/rhythm/snapshot",
+    { params }
+  );
+
+export const generateOperationRhythm = (params: {
+  year: number;
+  month: number;
+}) =>
+  http.request<{
+    success: boolean;
+    data: { period: string; cycle_count: number; created_item_count: number };
+  }>("post", "/api/v1/operations/rhythm/generate", { params });
+
+export const updateOperationRhythmItem = (
+  itemId: number,
+  data: {
+    status: OperationRhythmStatus;
+    note?: string | null;
+    start_date?: string | null;
+    due_date?: string | null;
+  }
+) =>
+  http.request<{ success: boolean; data: OperationRhythmItem }>(
+    "patch",
+    `/api/v1/operations/rhythm/items/${itemId}`,
+    { data }
   );
 
 export const getClassOperations = (
@@ -379,6 +466,58 @@ export type MemberTimeline = {
   events: MemberTimelineEvent[];
 };
 
+export type BirthdayGreetingMemory = {
+  id: string;
+  occurred_on: string;
+  year: number;
+  month: number;
+  title: string;
+  activity_type: string;
+  category: "SPECIAL_EXPERIENCE" | "LONG_TERM_COMPANIONSHIP" | "LEARNING_ACTIVITY";
+  category_label: string;
+  source_type: "ATTENDANCE" | "LEGACY_ACTIVITY_FACT";
+  evidence_status: string;
+  verified: true;
+  selected_by_default: boolean;
+};
+
+export type BirthdayGreetingContext = {
+  member: {
+    id: number;
+    name: string;
+    birthday_month_day?: string | null;
+    org_unit_id: string;
+    org_name: string;
+    class_org_unit_id?: string | null;
+    class_name?: string | null;
+    group_org_unit_id?: string | null;
+    group_name?: string | null;
+    join_date?: string | null;
+    study_start_date?: string | null;
+    membership_years?: number | null;
+    membership_years_source: "OVERRIDE" | "JOIN_DATE" | "MISSING";
+  };
+  memories: BirthdayGreetingMemory[];
+  selected_memory_ids: string[];
+  data_quality: {
+    facts_only: true;
+    memory_count: number;
+    join_date_available: boolean;
+    attendance_source_readable: boolean;
+    notes: string[];
+  };
+  policy: string;
+};
+
+export type BirthdayGreetingDraft = {
+  member_id: number;
+  tone: "standard" | "warm" | "concise";
+  selected_memory_ids: string[];
+  draft: string;
+  facts_only: true;
+  editable: true;
+};
+
 export type MemberEditProfile = {
   id: number;
   name: string;
@@ -405,11 +544,13 @@ export type MemberEditProfile = {
   company_size?: string | null;
   notes?: string | null;
   class_org_unit_id?: string | null;
+  class_org_name?: string | null;
   group_org_unit_id?: string | null;
   group_org_name?: string | null;
   annual_sales?: string | null;
   employee_count?: number | null;
   profit_margin?: string | null;
+  renewal_month_overridden?: boolean;
   financial_fields_editable: boolean;
 };
 
@@ -421,6 +562,36 @@ export type OrgUnit = {
   parent_id?: string;
   parent_name?: string | null;
   duplicate_name?: boolean;
+};
+
+export type LearningOrgReferenceCounts = {
+  active_member_relations: number;
+  active_children: number;
+  active_events: number;
+};
+
+export type ManagedLearningOrgUnit = OrgUnit & {
+  is_active: number | boolean;
+  active_from?: string | null;
+  active_until?: string | null;
+  parent_type?: string | null;
+  reference_counts: LearningOrgReferenceCounts;
+};
+
+export type LearningOrgManagement = {
+  units: ManagedLearningOrgUnit[];
+  centers: { id: string; name: string }[];
+  classes: ManagedLearningOrgUnit[];
+};
+
+export type LearningOrgMovePreview = {
+  unit_id: string;
+  class_name: string;
+  current_parent_id?: string | null;
+  target_parent_id: string;
+  target_parent_name: string;
+  reference_counts: LearningOrgReferenceCounts;
+  confirmation: string;
 };
 
 export type DirectClassPreflight = {
@@ -697,6 +868,48 @@ export type RenewalCycle = {
   updated_at: string;
 };
 
+export type RenewalCoverageSummary = {
+  member_total: number;
+  active_member_total: number;
+  cycle_total: number;
+  ready_to_create_count: number;
+  missing_renewal_month_count: number;
+  inactive_member_count: number;
+  suspended_member_count: number;
+};
+
+export type RenewalCoverageRow = {
+  member_id: number;
+  member_code: string;
+  member_name: string;
+  member_status: "ACTIVE" | "INACTIVE" | "SUSPENDED";
+  renewal_month?: string | null;
+  member_class_name?: string | null;
+  member_group_name?: string | null;
+  org_unit_id: string;
+  org_name: string;
+  cycle_id?: number | null;
+  due_month?: number | null;
+  cycle_status?: string | null;
+  updated_at?: string | null;
+  sync_status:
+    | "SYNCED"
+    | "SYNCED_INACTIVE"
+    | "SYNCED_SUSPENDED"
+    | "READY_TO_CREATE"
+    | "MISSING_RENEWAL_MONTH"
+    | "INACTIVE"
+    | "SUSPENDED";
+  can_create_cycle: boolean;
+};
+
+export type RenewalCoverage = {
+  year: number;
+  summary: RenewalCoverageSummary;
+  rows: RenewalCoverageRow[];
+  truncated: boolean;
+};
+
 export type SystemEnvironment = {
   environment: string;
   production: boolean;
@@ -745,6 +958,25 @@ export const getMemberTimeline = (memberId: number, limit = 100) =>
     { params: { limit } }
   );
 
+export const getBirthdayGreetingContext = (memberId: number) =>
+  http.request<{ success: boolean; data: BirthdayGreetingContext }>(
+    "get",
+    `/api/v1/members/${memberId}/birthday-greeting-context`
+  );
+
+export const generateBirthdayGreetingDraft = (
+  memberId: number,
+  data: {
+    selected_memory_ids: string[];
+    tone: "standard" | "warm" | "concise";
+  }
+) =>
+  http.request<{ success: boolean; data: BirthdayGreetingDraft }>(
+    "post",
+    `/api/v1/members/${memberId}/birthday-greeting-draft`,
+    { data }
+  );
+
 export const submitMemberServiceSignalFeedback = (
   memberId: number,
   signalCode: string,
@@ -785,6 +1017,7 @@ export const createMember = (data: {
   study_start_date?: string;
   membership_years?: number;
   renewal_month?: string;
+  renewal_month_overridden?: boolean;
   status?: string;
   position?: string;
   referrer?: string;
@@ -808,6 +1041,58 @@ export const getOrgUnits = () =>
   http.request<{ success: boolean; data: OrgUnit[] }>(
     "get",
     "/api/v1/org-units/tree"
+  );
+
+export const getLearningOrgManagement = () =>
+  http.request<{ success: boolean; data: LearningOrgManagement }>(
+    "get",
+    "/api/v1/iam/org-units/learning-management"
+  );
+
+export const createLearningOrgUnit = (data: {
+  name: string;
+  unit_type: "CLASS" | "GROUP";
+  parent_id: string;
+  confirmation: string;
+}) =>
+  http.request<{ success: boolean; data: { id: string } }>(
+    "post",
+    "/api/v1/iam/org-units/learning-management",
+    { data }
+  );
+
+export const previewLearningOrgMove = (
+  unitId: string,
+  targetParentId: string
+) =>
+  http.request<{ success: boolean; data: LearningOrgMovePreview }>(
+    "get",
+    `/api/v1/iam/org-units/${unitId}/move-preview`,
+    { params: { target_parent_id: targetParentId } }
+  );
+
+export const moveLearningOrgUnit = (
+  unitId: string,
+  data: {
+    target_parent_id: string;
+    reason: string;
+    confirmation: string;
+  }
+) =>
+  http.request<{ success: boolean; data: LearningOrgMovePreview }>(
+    "post",
+    `/api/v1/iam/org-units/${unitId}/move`,
+    { data }
+  );
+
+export const deactivateLearningOrgUnit = (
+  unitId: string,
+  data: { reason: string; confirmation: string }
+) =>
+  http.request<{ success: boolean; data: { id: string; is_active: boolean } }>(
+    "post",
+    `/api/v1/iam/org-units/${unitId}/deactivate`,
+    { data }
   );
 
 export const previewDirectClassWorkbook = (workbook: File) => {
@@ -1104,6 +1389,7 @@ export const updateMember = (
     study_start_date?: string | null;
     membership_years?: number | null;
     renewal_month?: string | null;
+    renewal_month_overridden?: boolean;
     position?: string | null;
     referrer?: string | null;
     referrer_center?: string | null;
@@ -1280,6 +1566,36 @@ export const getRenewalCycles = (
     "get",
     "/api/v1/renewals/cycles",
     { params: { year, ...params } }
+  );
+
+export const getRenewalCoverage = (
+  year: number,
+  params: {
+    org_unit_id?: string;
+    member_name?: string;
+    include_synced?: boolean;
+    limit?: number;
+  } = {}
+) =>
+  http.request<{ success: boolean; data: RenewalCoverage }>(
+    "get",
+    "/api/v1/renewals/coverage",
+    { params: { year, ...params } }
+  );
+
+export const createRenewalCycleFromMember = (
+  memberId: number,
+  renewalYear: number
+) =>
+  http.request<{ success: boolean; data: { id: number } }>(
+    "post",
+    `/api/v1/renewals/cycles/from-member/${memberId}`,
+    {
+      data: {
+        renewal_year: renewalYear,
+        confirmation: "确认从学员主档建立续费周期"
+      }
+    }
   );
 
 export const getSystemEnvironment = () =>

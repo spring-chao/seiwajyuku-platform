@@ -13,6 +13,26 @@ from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
 from app.services.organization_policy import is_valid_member_class_parent
+from app.services.renewals import maybe_create_historical_cycle
+
+
+# Class and group names are presentation fields derived from the organization
+# master.  Never fall back to the legacy text columns here: doing so would make
+# a profile or renewal row look assigned after its formal relation ended.
+CURRENT_STUDY_CLASS_NAME_SQL = (
+    "(SELECT ou.name FROM member_org_relations mor "
+    "JOIN org_units ou ON ou.id=mor.org_unit_id "
+    "WHERE mor.member_id=m.id AND mor.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
+    "AND mor.valid_until IS NULL AND ou.is_active=1 "
+    "ORDER BY mor.is_primary DESC, mor.id DESC LIMIT 1)"
+)
+CURRENT_STUDY_GROUP_NAME_SQL = (
+    "(SELECT ou.name FROM member_org_relations mor "
+    "JOIN org_units ou ON ou.id=mor.org_unit_id "
+    "WHERE mor.member_id=m.id AND mor.relation_type='STUDY_GROUP' "
+    "AND mor.valid_until IS NULL AND ou.is_active=1 "
+    "ORDER BY mor.is_primary DESC, mor.id DESC LIMIT 1)"
+)
 
 
 def _as_utc(value: str | datetime) -> datetime:
@@ -35,6 +55,16 @@ def inferred_membership_years(join_date: str | datetime | None) -> float | None:
     if joined > today:
         return 0.0
     return round((today - joined).days / 365.2425, 1)
+
+
+def inferred_renewal_month(join_date: str | datetime | None) -> str | None:
+    """Use the join-date month as the default recurring renewal month."""
+    if not join_date:
+        return None
+    if isinstance(join_date, datetime):
+        return join_date.strftime("%Y-%m")
+    match = re.fullmatch(r"(\d{4}-\d{2})-\d{2}", str(join_date).strip())
+    return match.group(1) if match else None
 
 
 def effective_membership_years(
@@ -113,6 +143,7 @@ def create_member(
     study_start_date: str | None = None,
     membership_years: float | None = None,
     renewal_month: str | None = None,
+    renewal_month_overridden: bool | None = None,
     status: str = "ACTIVE",
     position: str | None = None,
     referrer: str | None = None,
@@ -187,6 +218,10 @@ def create_member(
         if financial_data
         else None
     )
+    if renewal_month_overridden is None:
+        renewal_month_overridden = bool(renewal_month)
+    if not renewal_month_overridden:
+        renewal_month = inferred_renewal_month(join_date)
     class_org_id: str | None = None
     if class_org_unit_id:
         class_org = fetch_one(
@@ -262,17 +297,17 @@ def create_member(
             "INSERT INTO members(member_code, name, org_unit_id, development_org_unit_id, status, "
             "phone_ciphertext, phone_hash, phone_last4, phone_masked, company_name, "
             "gender, district, company_address, class_name, group_name, birthday, join_date, "
-            "study_start_date, membership_years, membership_years_overridden, renewal_month, position, referrer, "
+            "study_start_date, membership_years, membership_years_overridden, renewal_month, renewal_month_overridden, position, referrer, "
             "referrer_center, industry_category, industry, company_products, employee_count, company_size, notes, "
             "enterprise_financial_ciphertext, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 member_code, name, org_unit_id, development_org_unit_id, status,
                 fields["phone_ciphertext"], fields["phone_hash"], fields["phone_last4"],
                 fields["phone_masked"], company_name, gender, district, company_address,
                 class_name, group_name, birthday, join_date, study_start_date,
                 membership_years, 1 if membership_years is not None else 0,
-                renewal_month, position, referrer, referrer_center,
+                renewal_month, 1 if renewal_month_overridden else 0, position, referrer, referrer_center,
                 industry_category, industry, company_products, employee_count,
                 company_size, notes,
                 financial_ciphertext, now, now,
@@ -329,6 +364,14 @@ def create_member(
                 "phone": fields["phone_masked"],
             },
         )
+        maybe_create_historical_cycle(
+            connection,
+            member_id=int(member_id),
+            actor_user_id=actor_user_id,
+            member_status=status,
+            renewal_month=renewal_month,
+            org_unit_id=development_org_unit_id or org_unit_id,
+        )
         return member_id
 
 
@@ -337,7 +380,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     current = fetch_one(
         "SELECT id, name, org_unit_id, development_org_unit_id, status, phone_masked, "
         "company_name, gender, district, company_address, birthday, join_date, "
-        "study_start_date, membership_years, membership_years_overridden, renewal_month, position, referrer, "
+        "study_start_date, membership_years, membership_years_overridden, renewal_month, renewal_month_overridden, position, referrer, "
         "referrer_center, industry_category, industry, company_products, employee_count, company_size, "
         "notes, class_name, group_name, enterprise_financial_ciphertext "
         "FROM members WHERE id=?",
@@ -350,7 +393,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     allowed_fields = {
         "name", "status", "phone", "company_name", "notes",
         "gender", "district", "company_address", "birthday", "join_date",
-        "study_start_date", "membership_years", "renewal_month", "position",
+        "study_start_date", "membership_years", "renewal_month", "renewal_month_overridden", "position",
         "referrer", "referrer_center", "industry_category", "industry",
         "company_products", "annual_sales", "employee_count", "company_size", "profit_margin",
         "org_unit_id", "development_org_unit_id", "class_org_unit_id",
@@ -506,6 +549,23 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     elif join_date_changed and not current["membership_years_overridden"]:
         updates["membership_years"] = None
 
+    renewal_fields_touched = bool(
+        {"join_date", "renewal_month", "renewal_month_overridden"}.intersection(updates)
+    )
+    renewal_month_overridden_value = bool(current["renewal_month_overridden"])
+    if renewal_fields_touched:
+        if "renewal_month_overridden" in updates:
+            renewal_month_overridden_value = bool(updates["renewal_month_overridden"])
+        elif "renewal_month" in updates:
+            renewal_month_overridden_value = bool(current["renewal_month_overridden"])
+        if not renewal_month_overridden_value:
+            updates["renewal_month"] = inferred_renewal_month(
+                updates.get("join_date", current["join_date"])
+            )
+        updates["renewal_month_overridden"] = (
+            1 if renewal_month_overridden_value else 0
+        )
+
     before = {
         key: current[key]
         for key in (
@@ -513,7 +573,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
             "phone_masked", "company_name", "gender", "district", "company_address",
             "birthday", "join_date", "study_start_date", "membership_years",
             "membership_years_overridden",
-            "renewal_month", "position", "referrer", "referrer_center",
+            "renewal_month", "renewal_month_overridden", "position", "referrer", "referrer_center",
             "industry_category", "industry", "company_products", "employee_count", "company_size",
             "notes", "class_name", "group_name",
         )
@@ -523,7 +583,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     for key in (
         "name", "status", "company_name", "gender", "district",
         "company_address", "birthday", "join_date", "study_start_date",
-        "membership_years", "membership_years_overridden", "renewal_month", "position", "referrer",
+        "membership_years", "membership_years_overridden", "renewal_month", "renewal_month_overridden", "position", "referrer",
         "referrer_center", "industry_category", "industry", "company_products",
         "employee_count", "company_size", "notes",
     ):
@@ -640,6 +700,15 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
                 "financial_fields_changed": financial_update_requested,
             },
         )
+        if renewal_fields_touched:
+            maybe_create_historical_cycle(
+                connection,
+                member_id=member_id,
+                actor_user_id=actor_user_id,
+                member_status=updates.get("status", current["status"]),
+                renewal_month=updates.get("renewal_month", current["renewal_month"]),
+                org_unit_id=target_development or target_org,
+            )
     return member_id
 
 
@@ -796,7 +865,9 @@ def list_members(
     company_column = ", m.company_name" if include_company_name else ""
     sql = (
         "SELECT m.id, m.member_code, m.name, m.org_unit_id, o.name AS org_name, "
-        "m.status, m.phone_masked, m.phone_last4, m.class_name, m.group_name"
+        "m.status, m.phone_masked, m.phone_last4, "
+        f"{CURRENT_STUDY_CLASS_NAME_SQL} AS class_name, "
+        f"{CURRENT_STUDY_GROUP_NAME_SQL} AS group_name"
         f"{company_column} "
         "FROM members m JOIN org_units o ON o.id=m.org_unit_id"
     )
@@ -917,7 +988,9 @@ def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
     member = fetch_one(
         "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, "
         "m.phone_masked, m.phone_last4, "
-        "m.gender, m.birthday, m.district, m.class_name, m.group_name, m.join_date, "
+        "m.gender, m.birthday, m.district, "
+        f"{CURRENT_STUDY_CLASS_NAME_SQL} AS class_name, "
+        f"{CURRENT_STUDY_GROUP_NAME_SQL} AS group_name, m.join_date, "
         "m.study_start_date, m.membership_years, m.membership_years_overridden, m.renewal_month, m.status, m.position, "
         "m.referrer, m.referrer_center "
         "FROM members m "
@@ -963,7 +1036,7 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
     member = fetch_one(
         "SELECT id, name, org_unit_id, development_org_unit_id, status, "
         "phone_ciphertext, company_name, gender, district, company_address, "
-        "birthday, join_date, study_start_date, membership_years, membership_years_overridden, renewal_month, "
+        "birthday, join_date, study_start_date, membership_years, membership_years_overridden, renewal_month, renewal_month_overridden, "
         "position, referrer, referrer_center, industry_category, industry, "
         "company_products, employee_count, company_size, notes, enterprise_financial_ciphertext "
         "FROM members WHERE id=?",
@@ -997,6 +1070,14 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
     relation_by_type = {
         row["relation_type"]: row["org_unit_id"] for row in relations
     }
+    class_org_id = relation_by_type.get("STUDY_CLASS") or relation_by_type.get(
+        "SPECIAL_COHORT"
+    )
+    class_org = (
+        fetch_one("SELECT name FROM org_units WHERE id=?", (class_org_id,))
+        if class_org_id
+        else None
+    )
     group_org_id = relation_by_type.get("STUDY_GROUP")
     group_org = (
         fetch_one("SELECT name FROM org_units WHERE id=?", (group_org_id,))
@@ -1022,8 +1103,8 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
         for key, value in {
             **member,
             "phone": phone,
-            "class_org_unit_id": relation_by_type.get("STUDY_CLASS")
-            or relation_by_type.get("SPECIAL_COHORT"),
+            "class_org_unit_id": class_org_id,
+            "class_org_name": class_org["name"] if class_org else None,
             "group_org_unit_id": group_org_id,
             "group_org_name": group_org["name"] if group_org else None,
             "annual_sales": financial_data.get("annual_sales"),
@@ -1044,6 +1125,9 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
     )
     profile["membership_years_inferred"] = not bool(
         member["membership_years_overridden"]
+    )
+    profile["renewal_month_overridden"] = bool(
+        member["renewal_month_overridden"]
     )
     profile["employee_count"] = (
         member["employee_count"]
@@ -1143,7 +1227,8 @@ def get_member_timeline(
     member = fetch_one(
         "SELECT m.id, m.name, m.org_unit_id, m.development_org_unit_id, "
         "o.name AS org_name, m.phone_masked, "
-        "m.class_name, m.group_name, m.status "
+        f"{CURRENT_STUDY_CLASS_NAME_SQL} AS class_name, "
+        f"{CURRENT_STUDY_GROUP_NAME_SQL} AS group_name, m.status "
         "FROM members m JOIN org_units o ON o.id=m.org_unit_id WHERE m.id=?",
         (member_id,),
     )
@@ -1484,7 +1569,9 @@ def get_member_enterprise_detail(
         raise PermissionError("当前角色不能查看完整企业资料")
     member = fetch_one(
         "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, m.phone_masked, "
-        "m.gender, m.birthday, m.district, m.class_name, m.group_name, m.join_date, "
+        "m.gender, m.birthday, m.district, "
+        f"{CURRENT_STUDY_CLASS_NAME_SQL} AS class_name, "
+        f"{CURRENT_STUDY_GROUP_NAME_SQL} AS group_name, m.join_date, "
         "m.study_start_date, m.membership_years, m.membership_years_overridden, m.renewal_month, m.status, m.position, "
         "m.referrer, m.referrer_center, m.company_name, m.company_address, "
         "m.industry_category, m.industry, m.company_products, m.employee_count, m.company_size, m.notes, "
