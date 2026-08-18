@@ -146,7 +146,7 @@ def maybe_create_historical_cycle(
     renewal_year: int | None = None,
     now: datetime | None = None,
 ) -> int | None:
-    """Create one audited historical cycle after explicit member maintenance.
+    """Reconcile one audited historical cycle after member maintenance.
 
     This is deliberately a single-member helper. It runs inside the member
     transaction, so maintaining a past renewal month automatically closes the
@@ -162,11 +162,64 @@ def maybe_create_historical_cycle(
         return None
     existing = execute(
         connection,
-        "SELECT id FROM renewal_cycles WHERE member_id=? AND renewal_year=?",
+        "SELECT id, status, due_month, completed_at FROM renewal_cycles "
+        "WHERE member_id=? AND renewal_year=?",
         (member_id, target_year),
     ).fetchone()
     if existing:
-        return None
+        existing_status = str(existing["status"] or "").upper()
+        if existing_status == "RENEWED":
+            return int(existing["id"])
+        # Do not overwrite an explicit negative, paused, or exited decision.
+        # Open follow-up states are safe to close because maintaining a past
+        # renewal month is the operator's explicit confirmation that this
+        # year's renewal has already happened.
+        if existing_status not in {
+            "PENDING_FIRST_CONTACT",
+            "CONTACTED_WAITING_REPLY",
+            "IN_COMMUNICATION",
+        }:
+            return None
+        completed_at = current.isoformat()
+        execute(
+            connection,
+            "UPDATE renewal_cycles SET org_unit_id=?, due_month=?, status='RENEWED', "
+            "completed_at=?, updated_at=? WHERE id=?",
+            (org_unit_id, due_month, completed_at, completed_at, existing["id"]),
+        )
+        execute(
+            connection,
+            "INSERT INTO renewal_status_history(renewal_cycle_id, from_status, to_status, "
+            "reason, changed_by, created_at) VALUES (?, ?, 'RENEWED', ?, ?, ?)",
+            (
+                existing["id"],
+                existing_status,
+                "学员管理维护历史续费月份，已有周期自动标记为已续费",
+                actor_user_id,
+                completed_at,
+            ),
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="renewals.cycle.auto_complete_historical",
+            resource_type="renewal_cycle",
+            resource_id=str(existing["id"]),
+            org_unit_id=org_unit_id,
+            purpose="学员管理维护历史续费月份，自动完成已有当前年度周期",
+            before={
+                "status": existing_status,
+                "due_month": existing["due_month"],
+                "completed_at": existing["completed_at"],
+            },
+            after={
+                "status": "RENEWED",
+                "due_month": due_month,
+                "completed_at": completed_at,
+                "source": "member_renewal_month_maintenance",
+            },
+        )
+        return int(existing["id"])
     created_at = current.isoformat()
     cycle_id = execute(
         connection,

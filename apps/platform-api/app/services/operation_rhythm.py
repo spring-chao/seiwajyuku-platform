@@ -522,6 +522,12 @@ def _item_rows(user_id: int, period: str) -> list[dict[str, Any]]:
         tuple(params),
     )
     for row in rows:
+        # SQLite returns DATE columns as strings while PyMySQL returns
+        # ``datetime.date`` objects. Normalize the operational dates before
+        # comparing them or serializing the snapshot so both runtimes behave
+        # identically.
+        for field in ("start_date", "due_date"):
+            row[field] = _date_text(_parse_date(row.get(field)))
         row["status_label"] = STATUS_LABELS.get(row["status"], row["status"])
         business_id = row.get("business_id")
         row["business_id"] = int(business_id) if isinstance(business_id, str) and business_id.isdigit() else business_id

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 import pytest
 
+from app.services import operation_rhythm as operation_rhythm_service
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.iam import create_user
 from app.services.operation_rhythm import (
@@ -87,6 +88,31 @@ def test_generate_rhythm_is_idempotent_and_expands_birthday_care() -> None:
     assert snapshot["data_quality"]["generated"] is True
     assert snapshot["summary"]["total"] == 10
     assert any(item["business_type"] == "BIRTHDAY_CARE" for item in snapshot["items"])
+
+
+def test_snapshot_normalizes_mysql_date_values(monkeypatch) -> None:
+    _, _, _, user_id = _insert_scope()
+    generate_rhythm_cycles(user_id, 2026, 8)
+    original_fetch_all = operation_rhythm_service.fetch_all
+
+    def mysql_date_fetch_all(sql: str, params=()):
+        rows = original_fetch_all(sql, params)
+        if "FROM operation_items i JOIN org_units" in sql:
+            for row in rows:
+                for field in ("start_date", "due_date"):
+                    if row.get(field):
+                        row[field] = date.fromisoformat(row[field])
+        return rows
+
+    monkeypatch.setattr(operation_rhythm_service, "fetch_all", mysql_date_fetch_all)
+
+    snapshot = rhythm_snapshot(user_id, 2026, 8)
+
+    assert snapshot["summary"]["total"] == 10
+    assert all(
+        item["due_date"] is None or isinstance(item["due_date"], str)
+        for item in snapshot["items"]
+    )
 
 
 def test_update_rhythm_item_records_status_and_audited_note() -> None:

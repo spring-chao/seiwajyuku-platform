@@ -551,6 +551,80 @@ def test_join_date_infers_renewal_month_and_manual_override_is_preserved() -> No
         assert historical_cycle["completed_at"] is not None
 
 
+def test_past_renewal_month_maintenance_completes_existing_open_cycle() -> None:
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin is not None
+    now = datetime.now()
+    if now.month == 1:
+        pytest.skip("当前月份没有可用于测试的历史月份")
+    year = now.year
+    past_month = now.month - 1
+    suffix = f"{uuid4().int % 100000000:08d}"
+    org_id = f"org-renewal-existing-{suffix}"
+    created_at = now.isoformat()
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, "
+            "is_active, created_at, updated_at) VALUES (?, ?, ?, "
+            "'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+            (
+                org_id,
+                f"RENEWAL_EXISTING_{suffix}",
+                "历史续费已有周期测试中心",
+                created_at,
+                created_at,
+            ),
+        )
+    member_id = create_member(
+        admin["id"],
+        member_code=f"RENEWAL-EXISTING-{suffix}",
+        name=f"历史续费已有周期{suffix}",
+        org_unit_id=org_id,
+        development_org_unit_id=None,
+        phone=f"132{suffix}",
+    )
+    with transaction() as connection:
+        cycle_id = execute(
+            connection,
+            "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, "
+            "status, created_at, updated_at) VALUES (?, ?, ?, ?, "
+            "'CONTACTED_WAITING_REPLY', ?, ?)",
+            (member_id, year, org_id, past_month, created_at, created_at),
+        ).lastrowid
+
+    update_member(
+        admin["id"],
+        member_id,
+        {
+            "renewal_month": f"{year}-{past_month:02d}",
+            "renewal_month_overridden": True,
+        },
+    )
+
+    cycle = fetch_one(
+        "SELECT status, due_month, completed_at FROM renewal_cycles WHERE id=?",
+        (cycle_id,),
+    )
+    assert cycle["status"] == "RENEWED"
+    assert cycle["due_month"] == past_month
+    assert cycle["completed_at"] is not None
+    history = fetch_one(
+        "SELECT from_status, to_status, reason FROM renewal_status_history "
+        "WHERE renewal_cycle_id=? ORDER BY id DESC LIMIT 1",
+        (cycle_id,),
+    )
+    assert history["from_status"] == "CONTACTED_WAITING_REPLY"
+    assert history["to_status"] == "RENEWED"
+    assert "已有周期自动标记为已续费" in history["reason"]
+    audit = fetch_one(
+        "SELECT id FROM audit_logs WHERE action='renewals.cycle.auto_complete_historical' "
+        "AND resource_id=?",
+        (str(cycle_id),),
+    )
+    assert audit is not None
+
+
 def test_linked_member_id_prefers_unique_production_phone_match() -> None:
     phone = "13800138000"
     assert _linked_member_id(

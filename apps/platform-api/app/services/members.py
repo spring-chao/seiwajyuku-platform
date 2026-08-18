@@ -706,7 +706,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
                 member_id=member_id,
                 actor_user_id=actor_user_id,
                 member_status=updates.get("status", current["status"]),
-                renewal_month=updates.get("renewal_month"),
+                renewal_month=updates.get("renewal_month", current["renewal_month"]),
                 org_unit_id=target_development or target_org,
             )
     return member_id
