@@ -15,6 +15,13 @@ from app.services.class_name_cleanup import (
     apply_duplicate_class_cleanup,
     preview_duplicate_class_cleanup,
 )
+from app.services.organization_management import (
+    create_learning_org_unit,
+    deactivate_learning_org_unit,
+    list_learning_org_units,
+    move_learning_org_unit,
+    preview_learning_org_move,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["iam"])
@@ -44,6 +51,24 @@ class PasswordResetPayload(BaseModel):
 
 class ClassCleanupPayload(BaseModel):
     confirmation: str = Field(min_length=4, max_length=100)
+
+
+class LearningOrgCreatePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    unit_type: str = Field(pattern="^(CLASS|GROUP)$")
+    parent_id: str = Field(min_length=1, max_length=64)
+    confirmation: str = Field(min_length=4, max_length=300)
+
+
+class LearningOrgMovePayload(BaseModel):
+    target_parent_id: str = Field(min_length=1, max_length=64)
+    reason: str = Field(min_length=6, max_length=1000)
+    confirmation: str = Field(min_length=4, max_length=300)
+
+
+class LearningOrgDeactivatePayload(BaseModel):
+    reason: str = Field(min_length=6, max_length=1000)
+    confirmation: str = Field(min_length=4, max_length=300)
 
 
 @router.post("/iam/users")
@@ -106,6 +131,74 @@ def apply_class_name_cleanup(
         data = apply_duplicate_class_cleanup(
             actor["id"], confirmation=payload.confirmation
         )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/iam/org-units/learning-management")
+def learning_org_management(
+    actor: dict = Depends(require_permission("org:manage")),
+) -> dict:
+    return {"success": True, "data": list_learning_org_units(actor["id"])}
+
+
+@router.post("/iam/org-units/learning-management")
+def add_learning_org_unit(
+    payload: LearningOrgCreatePayload,
+    actor: dict = Depends(require_permission("org:manage")),
+) -> dict:
+    try:
+        data = create_learning_org_unit(actor["id"], **payload.model_dump())
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/iam/org-units/{unit_id}/move-preview")
+def learning_org_move_preview(
+    unit_id: str,
+    target_parent_id: str,
+    actor: dict = Depends(require_permission("org:manage")),
+) -> dict:
+    try:
+        data = preview_learning_org_move(
+            actor["id"], unit_id, target_parent_id=target_parent_id
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/iam/org-units/{unit_id}/move")
+def move_learning_org(
+    unit_id: str,
+    payload: LearningOrgMovePayload,
+    actor: dict = Depends(require_permission("org:manage")),
+) -> dict:
+    try:
+        data = move_learning_org_unit(actor["id"], unit_id, **payload.model_dump())
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/iam/org-units/{unit_id}/deactivate")
+def deactivate_learning_org(
+    unit_id: str,
+    payload: LearningOrgDeactivatePayload,
+    actor: dict = Depends(require_permission("org:manage")),
+) -> dict:
+    try:
+        data = deactivate_learning_org_unit(actor["id"], unit_id, **payload.model_dump())
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": data}

@@ -39,6 +39,26 @@ class SystemApiTests(unittest.TestCase):
         self.assertTrue(
             read_only_request_allowed("POST", "/api/v1/legacy-operations/preview")
         )
+        self.assertTrue(
+            read_only_request_allowed(
+                "POST", "/api/v1/members/1/birthday-greeting-draft"
+            )
+        )
+        self.assertTrue(
+            read_only_request_allowed(
+                "GET", "/api/v1/operations/rhythm/snapshot"
+            )
+        )
+        self.assertFalse(
+            read_only_request_allowed(
+                "POST", "/api/v1/operations/rhythm/generate"
+            )
+        )
+        self.assertFalse(
+            read_only_request_allowed(
+                "PATCH", "/api/v1/operations/rhythm/items/1"
+            )
+        )
         self.assertFalse(
             read_only_request_allowed("POST", "/api/v1/legacy-operations/apply")
         )

@@ -85,10 +85,11 @@ def build_member_service_signals(
 
     if active:
         relation = fetch_one(
-            "SELECT COUNT(*) AS total FROM member_org_relations "
-            "WHERE member_id=? AND relation_type='STUDY_CLASS' "
-            "AND (valid_from IS NULL OR valid_from<=?) "
-            "AND (valid_until IS NULL OR valid_until>=?)",
+            "SELECT COUNT(*) AS total FROM member_org_relations r "
+            "JOIN org_units ou ON ou.id=r.org_unit_id AND ou.is_active=1 "
+            "WHERE r.member_id=? AND r.relation_type='STUDY_CLASS' "
+            "AND (r.valid_from IS NULL OR r.valid_from<=?) "
+            "AND (r.valid_until IS NULL OR r.valid_until>=?)",
             (member["id"], current.isoformat(), current.isoformat()),
         )
         relation_count = int(relation["total"] if relation else 0)

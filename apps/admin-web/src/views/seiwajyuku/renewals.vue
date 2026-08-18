@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { useUserStoreHook } from "@/store/modules/user";
 import {
   createRenewalCycleFromMember,
   createRenewalFollowup,
@@ -73,6 +75,10 @@ const followupForm = reactive({
   next_action: "",
   next_followup_at: ""
 });
+const router = useRouter();
+const canManageMembers = computed(() =>
+  useUserStoreHook().permissions.includes("members:manage")
+);
 
 const centerNames = computed(() => [
   ...new Set(rows.value.map(item => item.org_name))
@@ -259,6 +265,21 @@ async function createMissingCycle(row: RenewalCoverageRow | any) {
   } finally {
     cycleCreatingMemberId.value = undefined;
   }
+}
+
+function openMemberMaintenance(row: RenewalCoverageRow | any) {
+  if (!canManageMembers.value) {
+    ElMessage.warning("当前账号没有学员维护权限，请联系学员维护人员");
+    return;
+  }
+  router.push({
+    path: "/operations/members",
+    query: {
+      member_id: String(row.member_id),
+      open: "edit",
+      return_to: "renewals"
+    }
+  });
 }
 
 function resetFilters() {
@@ -547,9 +568,15 @@ onMounted(() => {
             >
               建立{{ year }}周期
             </el-button>
-            <span v-else-if="row.sync_status === 'MISSING_RENEWAL_MONTH'">
-              请先维护月份
-            </span>
+            <el-button
+              v-else-if="row.sync_status === 'MISSING_RENEWAL_MONTH'"
+              link
+              type="primary"
+              :disabled="!canManageMembers"
+              @click="openMemberMaintenance(row)"
+            >
+              维护月份
+            </el-button>
             <span v-else>—</span>
           </template>
         </el-table-column>

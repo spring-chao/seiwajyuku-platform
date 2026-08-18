@@ -15,6 +15,12 @@ apps/platform-api/data
 apps/platform-api/tests
 **/__pycache__
 **/*.pyc
+node_modules
+**/node_modules
+dist
+**/dist
+outputs
+**/.pytest_cache
 .env
 .env.*
 *.log

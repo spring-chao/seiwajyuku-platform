@@ -63,7 +63,16 @@ def test_class_operations_profile_and_snapshot_class_count() -> None:
 
     snapshot = operations_snapshot(user_id=admin["id"], year=2026, month=8)
     assert snapshot["summary"]["class_count"] == len(snapshot["classes"])
-    assert any(row["class_name"] == "班级运营测试班" for row in snapshot["classes"])
+    class_row = next(row for row in snapshot["classes"] if row["class_name"] == "班级运营测试班")
+    assert class_row["status"] == "PLANNED"
+    assert class_row["class_meeting_at"] == "2026-08-22"
+    assert class_row["year_sequence"] is None
+    planned_schedule = next(
+        row for row in snapshot["class_meeting_schedule"]
+        if row["class_org_unit_id"] == "class-ops-class"
+    )
+    assert planned_schedule["status"] == "PLANNED"
+    assert snapshot["data_quality"]["planned_class_count"] >= 1
 
 
 def test_class_operations_rejects_invalid_revenue_ratio() -> None:

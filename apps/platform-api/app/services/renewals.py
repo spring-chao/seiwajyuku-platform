@@ -60,6 +60,20 @@ PREVIEW_ROW_FIELDS = (
 MEMBER_RENEWAL_ORG_SQL = (
     "COALESCE(NULLIF(m.development_org_unit_id, ''), m.org_unit_id)"
 )
+MEMBER_CLASS_NAME_SQL = (
+    "(SELECT ou.name FROM member_org_relations mor "
+    "JOIN org_units ou ON ou.id=mor.org_unit_id "
+    "WHERE mor.member_id=m.id AND mor.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
+    "AND mor.valid_until IS NULL AND ou.is_active=1 "
+    "ORDER BY mor.is_primary DESC, mor.id DESC LIMIT 1)"
+)
+MEMBER_GROUP_NAME_SQL = (
+    "(SELECT ou.name FROM member_org_relations mor "
+    "JOIN org_units ou ON ou.id=mor.org_unit_id "
+    "WHERE mor.member_id=m.id AND mor.relation_type='STUDY_GROUP' "
+    "AND mor.valid_until IS NULL AND ou.is_active=1 "
+    "ORDER BY mor.is_primary DESC, mor.id DESC LIMIT 1)"
+)
 
 
 def _cycle_with_member_scope(cycle_id: int) -> dict[str, Any] | None:
@@ -112,6 +126,91 @@ def _member_renewal_month(value: Any) -> int | None:
         return None
     month = int(match.group(1))
     return month if 1 <= month <= 12 else None
+
+
+def _initial_cycle_status(due_month: int, renewal_year: int, now: datetime) -> str:
+    """Treat months before the current month as already renewed for this year."""
+    if renewal_year == now.year and due_month < now.month:
+        return "RENEWED"
+    return "PENDING_FIRST_CONTACT"
+
+
+def maybe_create_historical_cycle(
+    connection: Any,
+    *,
+    member_id: int,
+    actor_user_id: int,
+    member_status: str,
+    renewal_month: Any,
+    org_unit_id: str,
+    renewal_year: int | None = None,
+    now: datetime | None = None,
+) -> int | None:
+    """Create one audited historical cycle after explicit member maintenance.
+
+    This is deliberately a single-member helper. It runs inside the member
+    transaction, so maintaining a past renewal month automatically closes the
+    corresponding current-year cycle without introducing a bulk write on a
+    read-only coverage request.
+    """
+    if str(member_status or "").upper() != "ACTIVE":
+        return None
+    due_month = _member_renewal_month(renewal_month)
+    current = now or datetime.now(UTC)
+    target_year = renewal_year or current.year
+    if not due_month or _initial_cycle_status(due_month, target_year, current) != "RENEWED":
+        return None
+    existing = execute(
+        connection,
+        "SELECT id FROM renewal_cycles WHERE member_id=? AND renewal_year=?",
+        (member_id, target_year),
+    ).fetchone()
+    if existing:
+        return None
+    created_at = current.isoformat()
+    cycle_id = execute(
+        connection,
+        "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, "
+        "status, completed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            member_id,
+            target_year,
+            org_unit_id,
+            due_month,
+            "RENEWED",
+            created_at,
+            created_at,
+            created_at,
+        ),
+    ).lastrowid
+    execute(
+        connection,
+        "INSERT INTO renewal_status_history(renewal_cycle_id, from_status, to_status, "
+        "reason, changed_by, created_at) VALUES (?, NULL, 'RENEWED', ?, ?, ?)",
+        (
+            cycle_id,
+            "学员管理维护续费月份，历史月份自动标记为已续费",
+            actor_user_id,
+            created_at,
+        ),
+    )
+    write_audit(
+        connection,
+        actor_user_id=actor_user_id,
+        action="renewals.cycle.auto_create_historical",
+        resource_type="renewal_cycle",
+        resource_id=str(cycle_id),
+        org_unit_id=org_unit_id,
+        purpose="学员管理维护历史续费月份，自动补齐当前年度已续费周期",
+        after={
+            "member_id": member_id,
+            "renewal_year": target_year,
+            "due_month": due_month,
+            "status": "RENEWED",
+            "source": "member_renewal_month_maintenance",
+        },
+    )
+    return int(cycle_id)
 
 
 def _status(note: Any) -> str:
@@ -603,7 +702,8 @@ def list_cycles(
         f"{MEMBER_RENEWAL_ORG_SQL} AS org_unit_id, o.name AS org_name, "
         "c.org_unit_id AS imported_org_unit_id, imported_org.name AS imported_org_name, "
         "m.org_unit_id AS member_org_unit_id, m.development_org_unit_id AS member_development_org_unit_id, "
-        "m.class_name AS member_class_name, m.group_name AS member_group_name, "
+        f"{MEMBER_CLASS_NAME_SQL} AS member_class_name, "
+        f"{MEMBER_GROUP_NAME_SQL} AS member_group_name, "
         "c.due_month, c.phase, c.status, c.result, "
         "c.assigned_user_id, u.display_name AS assigned_user_name, c.completed_at, c.updated_at "
         "FROM renewal_cycles c JOIN members m ON m.id=c.member_id "
@@ -647,8 +747,9 @@ def list_cycle_coverage(
         params.append(f"%{member_name.strip()}%")
     rows = fetch_all(
         "SELECT m.id AS member_id, m.member_code, m.name AS member_name, "
-        "m.status AS member_status, m.renewal_month, m.class_name AS member_class_name, "
-        "m.group_name AS member_group_name, "
+        "m.status AS member_status, m.renewal_month, "
+        f"{MEMBER_CLASS_NAME_SQL} AS member_class_name, "
+        f"{MEMBER_GROUP_NAME_SQL} AS member_group_name, "
         f"{MEMBER_RENEWAL_ORG_SQL} AS org_unit_id, o.name AS org_name, "
         "c.id AS cycle_id, c.due_month, c.status AS cycle_status, c.updated_at "
         "FROM members m "
@@ -757,21 +858,37 @@ def create_cycle_from_member(
         (member_id, renewal_year),
     ):
         raise ValueError("该学员本年度续费周期已存在")
-    now = datetime.now(UTC).isoformat()
+    now_dt = datetime.now(UTC)
+    now = now_dt.isoformat()
+    initial_status = _initial_cycle_status(due_month, renewal_year, now_dt)
+    completed_at = now if initial_status == "RENEWED" else None
+    status_reason = (
+        "由学员管理续费月份建立，历史月份自动标记为已续费"
+        if initial_status == "RENEWED"
+        else "由学员管理续费月份建立"
+    )
     with transaction() as connection:
         cycle_id = execute(
             connection,
             "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, "
-            "status, created_at, updated_at) VALUES (?, ?, ?, ?, "
-            "'PENDING_FIRST_CONTACT', ?, ?)",
-            (member_id, renewal_year, member["org_unit_id"], due_month, now, now),
+            "status, completed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                member_id,
+                renewal_year,
+                member["org_unit_id"],
+                due_month,
+                initial_status,
+                completed_at,
+                now,
+                now,
+            ),
         ).lastrowid
         execute(
             connection,
             "INSERT INTO renewal_status_history(renewal_cycle_id, from_status, to_status, "
             "reason, changed_by, created_at) VALUES (?, NULL, "
-            "'PENDING_FIRST_CONTACT', ?, ?, ?)",
-            (cycle_id, "由学员管理续费月份建立", actor_user_id, now),
+            "?, ?, ?, ?)",
+            (cycle_id, initial_status, status_reason, actor_user_id, now),
         )
         write_audit(
             connection,
@@ -785,7 +902,7 @@ def create_cycle_from_member(
                 "member_id": member_id,
                 "renewal_year": renewal_year,
                 "due_month": due_month,
-                "status": "PENDING_FIRST_CONTACT",
+                "status": initial_status,
             },
         )
     return int(cycle_id)

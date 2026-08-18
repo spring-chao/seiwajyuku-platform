@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import {
   ElMessage,
   ElMessageBox,
@@ -66,7 +67,13 @@ const fullPreflightFiles = ref<UploadUserFile[]>([]);
 const fullPreflightResult = ref<FullClassRosterPreflight>();
 const selectedOrg = ref("");
 const keyword = ref("");
+const classFilter = ref("");
+const groupFilter = ref("");
 const rows = ref<Member[]>([]);
+const route = useRoute();
+const router = useRouter();
+const suppressEditDialogReturn = ref(false);
+const unassignedFilterValue = "__UNASSIGNED__";
 const fullOrgConfirmationText = "确认创建20个普通班和112个普通班小组";
 const canApplyFullOrgImport = computed(() => {
   const result = fullPreflightResult.value;
@@ -119,12 +126,62 @@ const formRef = ref<FormInstance>();
 const canManage = computed(() =>
   useUserStoreHook().permissions.includes("members:manage")
 );
+const canReadRenewals = computed(() =>
+  useUserStoreHook().permissions.includes("renewals:read")
+);
 const canViewHistory = computed(() =>
   useUserStoreHook().permissions.includes("members:detail_view")
 );
 const centerOrgs = computed(() =>
   orgs.value.filter(item => item.unit_type === "REGIONAL_CENTER")
 );
+const classFilterOptions = computed(() => {
+  const names = new Set(
+    rows.value
+      .map(item => item.class_name?.trim())
+      .filter((name): name is string => Boolean(name))
+  );
+  const options = [...names].sort((left, right) =>
+    left.localeCompare(right, "zh-CN")
+  );
+  if (rows.value.some(item => !item.class_name?.trim())) {
+    options.unshift(unassignedFilterValue);
+  }
+  return options;
+});
+const groupFilterOptions = computed(() => {
+  const names = new Set(
+    rows.value
+      .filter(item => {
+        const className = item.class_name?.trim() || "";
+        return (
+          !classFilter.value ||
+          (classFilter.value === unassignedFilterValue
+            ? !className
+            : className === classFilter.value)
+        );
+      })
+      .map(item => item.group_name?.trim())
+      .filter((name): name is string => Boolean(name))
+  );
+  const options = [...names].sort((left, right) =>
+    left.localeCompare(right, "zh-CN")
+  );
+  if (
+    rows.value.some(item => {
+      const className = item.class_name?.trim() || "";
+      const matchesClass =
+        !classFilter.value ||
+        (classFilter.value === unassignedFilterValue
+          ? !className
+          : className === classFilter.value);
+      return matchesClass && !item.group_name?.trim();
+    })
+  ) {
+    options.unshift(unassignedFilterValue);
+  }
+  return options;
+});
 const classOrgs = computed(() => {
   const available = orgs.value.filter(
     item =>
@@ -194,12 +251,27 @@ const groupOptions = computed(() => {
 });
 const filteredRows = computed(() => {
   const term = keyword.value.trim().toLowerCase();
-  if (!term) return rows.value.filter(item => item.status === "ACTIVE");
-  return rows.value.filter(item =>
-    [item.name, item.member_code, item.phone_last4]
+  return rows.value.filter(item => {
+    if (!term && item.status !== "ACTIVE") return false;
+    const className = item.class_name?.trim() || "";
+    const matchesClass =
+      !classFilter.value ||
+      (classFilter.value === unassignedFilterValue
+        ? !className
+        : className === classFilter.value);
+    if (!matchesClass) return false;
+    const groupName = item.group_name?.trim() || "";
+    const matchesGroup =
+      !groupFilter.value ||
+      (groupFilter.value === unassignedFilterValue
+        ? !groupName
+        : groupName === groupFilter.value);
+    if (!matchesGroup) return false;
+    if (!term) return true;
+    return [item.name, item.member_code, item.phone_last4]
       .filter(Boolean)
-      .some(value => String(value).toLowerCase().includes(term))
-  );
+      .some(value => String(value).toLowerCase().includes(term));
+  });
 });
 
 const form = reactive({
@@ -220,6 +292,7 @@ const form = reactive({
   membership_years: undefined as number | undefined,
   membership_years_inferred: true,
   renewal_month: "",
+  renewal_month_overridden: false,
   status: "ACTIVE",
   position: "",
   referrer: "",
@@ -297,6 +370,7 @@ function openCreate() {
     membership_years: undefined,
     membership_years_inferred: true,
     renewal_month: "",
+    renewal_month_overridden: false,
     status: "ACTIVE",
     position: "",
     referrer: "",
@@ -335,6 +409,7 @@ async function openEdit(row: any) {
     membership_years: undefined,
     membership_years_inferred: true,
     renewal_month: "",
+    renewal_month_overridden: false,
     status: row.status,
     position: "",
     referrer: "",
@@ -370,7 +445,12 @@ async function openEdit(row: any) {
       study_start_date: data.study_start_date || "",
       membership_years: data.membership_years ?? undefined,
       membership_years_inferred: data.membership_years_inferred,
-      renewal_month: data.renewal_month || "",
+      renewal_month:
+        data.renewal_month ||
+        (!data.renewal_month_overridden
+          ? inferredRenewalMonth(data.join_date || "")
+          : ""),
+      renewal_month_overridden: Boolean(data.renewal_month_overridden),
       status: data.status,
       position: data.position || "",
       referrer: data.referrer || "",
@@ -395,6 +475,24 @@ async function openEdit(row: any) {
   }
 }
 
+async function onCenterChange() {
+  classFilter.value = "";
+  groupFilter.value = "";
+  await load();
+}
+
+function classFilterLabel(value: string) {
+  return value === unassignedFilterValue ? "未分配班级" : value;
+}
+
+function onClassFilterChange() {
+  groupFilter.value = "";
+}
+
+function groupFilterLabel(value: string) {
+  return value === unassignedFilterValue ? "未分配小组" : value;
+}
+
 function inferMembershipYears(joinDate: string) {
   if (!joinDate) return undefined;
   const joined = new Date(`${joinDate}T00:00:00`);
@@ -403,13 +501,30 @@ function inferMembershipYears(joinDate: string) {
   return Math.round((elapsed / (365.2425 * 24 * 60 * 60 * 1000)) * 10) / 10;
 }
 
+function inferredRenewalMonth(joinDate: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(joinDate) ? joinDate.slice(0, 7) : "";
+}
+
 function normalizeAnnualSales(value?: string | null) {
   return (value || "").replace(/\s*(万元|万)\s*$/, "").trim();
 }
 
 function onJoinDateChange(value: string) {
-  if (!form.membership_years_inferred) return;
-  form.membership_years = inferMembershipYears(value);
+  if (form.membership_years_inferred) {
+    form.membership_years = inferMembershipYears(value);
+  }
+  if (!form.renewal_month_overridden) {
+    form.renewal_month = inferredRenewalMonth(value);
+  }
+}
+
+function enableRenewalMonthOverride() {
+  form.renewal_month_overridden = true;
+}
+
+function restoreInferredRenewalMonth() {
+  form.renewal_month_overridden = false;
+  form.renewal_month = inferredRenewalMonth(form.join_date);
 }
 
 function onClassOrgChange() {
@@ -600,6 +715,32 @@ async function openTimeline(row: any) {
   }
 }
 
+function serviceSignalActionLabel(code: string) {
+  if (code === "CONTACT_INFO_REVIEW" || code === "STUDY_CLASS_RELATION_REVIEW") {
+    return canManage.value ? "进入学员编辑" : "请联系学员维护人员";
+  }
+  if (code === "RENEWAL_DUE") {
+    return canReadRenewals.value ? "进入续费运营" : "请联系续费运营人员";
+  }
+  return "查看对应业务入口";
+}
+
+async function openServiceSignalAction(signal: MemberServiceSignal) {
+  if (!timeline.value) return;
+  if (signal.code === "CONTACT_INFO_REVIEW" || signal.code === "STUDY_CLASS_RELATION_REVIEW") {
+    if (!canManage.value) return;
+    const member = timeline.value.member;
+    timelineVisible.value = false;
+    await openEdit(member);
+    return;
+  }
+  if (signal.code === "RENEWAL_DUE") {
+    if (!canReadRenewals.value) return;
+    timelineVisible.value = false;
+    await router.push({ name: "RenewalOperations" });
+  }
+}
+
 async function openHistory(row: any) {
   historyMember.value = row;
   historyRows.value = [];
@@ -640,6 +781,7 @@ async function submit() {
           ? null
           : (form.membership_years ?? null),
         renewal_month: form.renewal_month || null,
+        renewal_month_overridden: form.renewal_month_overridden,
         position: form.position.trim() || null,
         referrer: form.referrer.trim() || null,
         referrer_center: form.referrer_center.trim() || null,
@@ -680,6 +822,7 @@ async function submit() {
           ? undefined
           : form.membership_years,
         renewal_month: form.renewal_month || undefined,
+        renewal_month_overridden: form.renewal_month_overridden,
         status: form.status,
         position: form.position.trim() || undefined,
         referrer: form.referrer.trim() || undefined,
@@ -694,8 +837,14 @@ async function submit() {
       });
       ElMessage.success("学员已创建，手机号已加密保存");
     }
+    const returnToRenewals = route.query.return_to === "renewals";
+    suppressEditDialogReturn.value = true;
     dialogVisible.value = false;
     await load();
+    if (returnToRenewals) {
+      await router.replace({ path: route.path, query: {} });
+      await router.push("/operations/renewals");
+    }
   } catch (error) {
     ElMessage.error(errorText(error));
   } finally {
@@ -836,7 +985,31 @@ async function runDirectClassPreflight() {
   }
 }
 
-onMounted(load);
+async function handleMemberDialogClosed() {
+  if (suppressEditDialogReturn.value) {
+    suppressEditDialogReturn.value = false;
+    return;
+  }
+  if (route.query.open !== "edit") return;
+  const returnToRenewals = route.query.return_to === "renewals";
+  await router.replace({ path: route.path, query: {} });
+  if (returnToRenewals) await router.push("/operations/renewals");
+}
+
+onMounted(async () => {
+  await load();
+  if (route.query.open !== "edit") return;
+  const memberId = Number(route.query.member_id);
+  if (!Number.isInteger(memberId) || memberId <= 0) return;
+  if (!canManage.value) {
+    ElMessage.warning("当前账号没有学员维护权限，请联系学员维护人员");
+    return;
+  }
+  const member = rows.value.find(row => row.id === memberId);
+  await openEdit(
+    member ?? { id: memberId, name: "学员", org_unit_id: "", status: "ACTIVE" }
+  );
+});
 </script>
 
 <template>
@@ -873,13 +1046,40 @@ onMounted(load);
           v-model="selectedOrg"
           clearable
           placeholder="全部分中心"
-          @change="load"
+          @change="onCenterChange"
         >
           <el-option
             v-for="org in centerOrgs"
             :key="org.id"
             :label="org.name"
             :value="org.id"
+          />
+        </el-select>
+        <el-select
+          v-model="classFilter"
+          clearable
+          filterable
+          placeholder="全部班级"
+          @change="onClassFilterChange"
+        >
+          <el-option
+            v-for="className in classFilterOptions"
+            :key="className"
+            :label="classFilterLabel(className)"
+            :value="className"
+          />
+        </el-select>
+        <el-select
+          v-model="groupFilter"
+          clearable
+          filterable
+          placeholder="全部小组"
+        >
+          <el-option
+            v-for="groupName in groupFilterOptions"
+            :key="groupName"
+            :label="groupFilterLabel(groupName)"
+            :value="groupName"
           />
         </el-select>
         <el-input
@@ -1216,6 +1416,7 @@ onMounted(load);
 
     <el-dialog
       v-model="dialogVisible"
+      @close="handleMemberDialogClosed"
       :title="editingMemberId ? '编辑学员' : '新增学员'"
       width="1180px"
       class="member-dialog"
@@ -1311,6 +1512,7 @@ onMounted(load);
                 :value="org.id"
               />
             </el-select>
+            <p class="form-hint">班级或小组不存在时，请先到“系统设置 → 班级与小组管理”新增，再返回选择。</p>
           </el-form-item>
           <el-form-item label="行业">
             <el-input v-model="form.industry" />
@@ -1343,7 +1545,27 @@ onMounted(load);
               type="month"
               value-format="YYYY-MM"
               placeholder="YYYY-MM"
+              :disabled="!form.renewal_month_overridden"
             />
+            <div class="renewal-month-hint">
+              <el-button
+                v-if="!form.renewal_month_overridden"
+                link
+                type="primary"
+                @click="enableRenewalMonthOverride"
+              >
+                手动修改
+              </el-button>
+              <el-button
+                v-else
+                link
+                type="primary"
+                @click="restoreInferredRenewalMonth"
+              >
+                恢复按入塾日期
+              </el-button>
+              <span>{{ form.renewal_month_overridden ? "当前为手动维护" : "按入塾日期自动更新" }}</span>
+            </div>
           </el-form-item>
           <el-form-item label="公司销售额（万元）">
             <el-input
@@ -1518,6 +1740,21 @@ onMounted(load);
                   <strong>{{ signal.title }}</strong>
                   <p>{{ signal.message }}</p>
                   <small>{{ signal.action_hint }}</small>
+                  <div class="service-signal__entry">
+                    <el-button
+                      v-if="['CONTACT_INFO_REVIEW', 'STUDY_CLASS_RELATION_REVIEW', 'RENEWAL_DUE'].includes(signal.code)"
+                      link
+                      type="primary"
+                      size="small"
+                      :disabled="
+                        (['CONTACT_INFO_REVIEW', 'STUDY_CLASS_RELATION_REVIEW'].includes(signal.code) && !canManage) ||
+                        (signal.code === 'RENEWAL_DUE' && !canReadRenewals)
+                      "
+                      @click="openServiceSignalAction(signal)"
+                    >
+                      {{ serviceSignalActionLabel(signal.code) }}
+                    </el-button>
+                  </div>
                   <div v-if="signal.latest_feedback" class="service-signal__feedback">
                     <el-tag size="small" type="success" effect="plain">
                       {{ serviceSignalFeedbackLabel(signal.latest_feedback.status) }}
@@ -1637,7 +1874,7 @@ onMounted(load);
 }
 .toolbar {
   display: grid;
-  grid-template-columns: 220px minmax(260px, 1fr) auto;
+  grid-template-columns: 220px 200px 200px minmax(260px, 1fr) auto;
   gap: 14px;
   align-items: center;
   margin-bottom: 18px;
@@ -1660,6 +1897,7 @@ onMounted(load);
 .form-grid :deep(.el-input-number) {
   width: 100%;
 }
+
 .tenure-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1668,6 +1906,14 @@ onMounted(load);
 }
 .tenure-hint {
   grid-column: 1 / -1;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.renewal-month-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--el-text-color-secondary);
   font-size: 12px;
   line-height: 1.4;
@@ -1731,6 +1977,9 @@ onMounted(load);
 }
 .service-signal p {
   margin: 4px 0;
+}
+.service-signal__entry {
+  margin-top: 8px;
 }
 .service-signal__feedback,
 .service-signal__actions {

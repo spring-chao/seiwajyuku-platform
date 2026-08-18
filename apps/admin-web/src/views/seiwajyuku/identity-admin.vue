@@ -61,8 +61,10 @@ const orgs = ref<IdentityOrgOption[]>([]);
 const catalog = ref<IdentityCatalog>();
 const dialogVisible = ref(false);
 const accountDialogVisible = ref(false);
+const writeGuideVisible = ref(false);
 const dialogMode = ref<DialogMode>("initialize");
 const activeAccount = ref<IdentityAccount>();
+const guideAccount = ref<IdentityAccount>();
 const accountSaving = ref(false);
 
 const accountForm = reactive({
@@ -114,9 +116,10 @@ function accountRoleLabels(row: any) {
     if (["ENDED", "REVOKED"].includes(assignment.status)) continue;
     labels.add("技术管理职责");
   }
-  return labels.size ? [...labels] : ["待按业务确认"];
+  return labels.size ? [...labels] : ["尚未建立任职（不等于故障）"];
 }
 const writesEnabled = computed(() => catalog.value?.writes_enabled === true);
+const guideAccountName = computed(() => guideAccount.value?.display_name || "当前账号");
 const permissionMatrix = computed(() => catalog.value?.permission_matrix || []);
 const permissionLevelLabels: Record<string, string> = {
   INTERNAL: "内部",
@@ -137,6 +140,21 @@ const dialogTitle = computed(() => {
     technical: `建立技术管理员任期 · ${name}`
   }[dialogMode.value];
 });
+
+function isPlatformAdmin(account: any) {
+  return account.username === "admin";
+}
+
+function identityLinkLabel(account: any) {
+  if (account.person_id) return "已确认关联";
+  if (isPlatformAdmin(account)) return "平台账号（不自动绑定）";
+  return writesEnabled.value ? "待确认" : "当前只读（未绑定）";
+}
+
+function openWriteGuide(account?: any) {
+  guideAccount.value = account as IdentityAccount | undefined;
+  writeGuideVisible.value = true;
+}
 
 function errorText(error: any, fallback = "操作失败") {
   const status = error?.response?.status;
@@ -427,6 +445,14 @@ onMounted(load);
       show-icon
     />
 
+    <el-card v-if="!unavailableMessage && !writesEnabled" shadow="never" class="read-only-guide">
+      <div>
+        <strong>现在无需创建测试账号或确认自然人</strong>
+        <p>现有账号仍可查看。真实身份绑定会创建人员、任职和审计记录，因此生产写入关闭时不能点击；隔离测试由平台使用合成账号完成。</p>
+      </div>
+      <el-button type="primary" plain @click="openWriteGuide()">查看操作说明</el-button>
+    </el-card>
+
     <el-card v-if="!unavailableMessage" shadow="never" class="permission-card">
       <template #header>
         <div class="card-heading">
@@ -557,7 +583,7 @@ onMounted(load);
               <el-tag
                 v-for="label in accountRoleLabels(row)"
                 :key="label"
-                :type="row.username === 'admin' ? 'danger' : label === '待按业务确认' ? 'warning' : 'info'"
+                :type="row.username === 'admin' ? 'danger' : label.includes('尚未建立') ? 'warning' : 'info'"
                 effect="plain"
               >
                 {{ label }}
@@ -567,8 +593,8 @@ onMounted(load);
         </el-table-column>
         <el-table-column label="自然人关联" min-width="185">
           <template #default="{ row }">
-            <el-tag :type="row.person_id ? 'success' : 'warning'">
-              {{ row.person_id ? "已确认关联" : "待确认" }}
+            <el-tag :type="row.person_id ? 'success' : isPlatformAdmin(row) ? 'info' : 'warning'">
+              {{ identityLinkLabel(row) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -580,13 +606,15 @@ onMounted(load);
         <el-table-column label="操作" min-width="350" fixed="right">
           <template #default="{ row }">
             <el-button
-              v-if="!row.person_id"
+              v-if="!row.person_id && writesEnabled && row.is_active && !isPlatformAdmin(row)"
               link
               type="primary"
-              :disabled="!writesEnabled || !row.is_active"
               @click="openDialog('initialize', row)"
             >
               确认自然人
+            </el-button>
+            <el-button v-else-if="!row.person_id" link type="info" @click="openWriteGuide(row)">
+              为什么不能确认？
             </el-button>
             <template v-else>
               <el-button link :disabled="!writesEnabled || !row.is_active" @click="openDialog('employment', row)">
@@ -636,6 +664,25 @@ onMounted(load);
         <el-button type="primary" :loading="accountSaving" @click="createAccount">
           创建并刷新账号列表
         </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="writeGuideVisible" title="身份确认操作说明" width="680px">
+      <el-alert
+        :title="`${guideAccountName} 当前不能直接确认自然人`"
+        type="info"
+        :closable="false"
+        show-icon
+      />
+      <ol class="write-guide-list">
+        <li>“待确认”只表示尚未建立自然人关联，不代表账号异常，也不需要你先创建测试账号。</li>
+        <li>当前生产身份写入处于关闭状态；点击确认本应创建真实人员与审计记录，因此按钮不会开放。</li>
+        <li><code>admin</code> 是平台最高管理账号，系统永久禁止把它作为自然人、雇佣或任职试点对象。</li>
+        <li>“盛和塾”账号是否对应某位实际使用人尚未确认；在确认实际使用人前，系统不会自动绑定，也不会按账号名猜测。</li>
+        <li>隔离测试由平台使用合成账号完成。只有未来确有新增个人账号时，才需一次性提供人员身份、任职依据、组织范围、任期和回滚责任；不需要提供密码。</li>
+      </ol>
+      <template #footer>
+        <el-button type="primary" @click="writeGuideVisible = false">我知道了</el-button>
       </template>
     </el-dialog>
 
@@ -782,6 +829,16 @@ onMounted(load);
   align-items: center;
   gap: 12px;
 }
+.read-only-guide {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.read-only-guide p {
+  margin: 6px 0 0;
+  color: var(--el-text-color-secondary);
+}
 .assignment-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -847,12 +904,22 @@ form :deep(.el-select) {
 .account-form {
   margin-top: 18px;
 }
+.write-guide-list {
+  margin: 18px 0 0;
+  padding-left: 22px;
+  color: var(--el-text-color-regular);
+  line-height: 1.8;
+}
 @media (max-width: 900px) {
   .page-head,
   .assignment-grid {
     grid-template-columns: 1fr;
   }
   .page-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .read-only-guide {
     align-items: flex-start;
     flex-direction: column;
   }

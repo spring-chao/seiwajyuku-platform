@@ -222,10 +222,18 @@ def test_list_cycles_defaults_to_remaining_unrenewed_and_supports_filters() -> N
     assert len(past_rows) == 1
     assert past_rows[0]["status"] == "IN_COMMUNICATION"
 
-    renewed_rows = list_cycles(admin["id"], year, renewal_status="RENEWED")
+    renewed_rows = list_cycles(
+        admin["id"], year, org_unit_id=org_id, renewal_status="RENEWED"
+    )
     assert [row["status"] for row in renewed_rows] == ["RENEWED"]
 
-    all_rows = list_cycles(admin["id"], year, renewal_status="ALL", include_past=True)
+    all_rows = list_cycles(
+        admin["id"],
+        year,
+        org_unit_id=org_id,
+        renewal_status="ALL",
+        include_past=True,
+    )
     assert {row["due_month"] for row in all_rows} == {7, 9, 10}
 
 
@@ -473,6 +481,74 @@ def test_create_cycle_from_member_is_single_record_audited_and_idempotent() -> N
             renewal_year=year,
             confirmation="确认从学员主档建立续费周期",
         )
+
+
+def test_join_date_infers_renewal_month_and_manual_override_is_preserved() -> None:
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin is not None
+    now = datetime.now()
+    year = now.year
+    suffix = f"{uuid4().int % 100000000:08d}"
+    org_id = f"org-renewal-infer-{suffix}"
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, "
+            "is_active, created_at, updated_at) VALUES (?, ?, ?, "
+            "'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+            (org_id, f"RENEWAL_INFER_{suffix}", "续费月份自动推导测试中心", now.isoformat(), now.isoformat()),
+        )
+    member_id = create_member(
+        admin["id"],
+        member_code=f"RENEWAL-INFER-{suffix}",
+        name=f"续费月份自动推导{suffix}",
+        org_unit_id=org_id,
+        development_org_unit_id=None,
+        phone=f"133{suffix}",
+        join_date=f"{year}-04-20",
+    )
+
+    member = fetch_one(
+        "SELECT renewal_month, renewal_month_overridden FROM members WHERE id=?",
+        (member_id,),
+    )
+    assert member == {"renewal_month": f"{year}-04", "renewal_month_overridden": 0}
+
+    update_member(
+        admin["id"],
+        member_id,
+        {"join_date": f"{year}-06-20", "renewal_month_overridden": False},
+    )
+    updated = fetch_one(
+        "SELECT renewal_month, renewal_month_overridden FROM members WHERE id=?",
+        (member_id,),
+    )
+    assert updated == {"renewal_month": f"{year}-06", "renewal_month_overridden": 0}
+
+    update_member(
+        admin["id"],
+        member_id,
+        {"renewal_month": f"{year}-11", "renewal_month_overridden": True},
+    )
+    update_member(
+        admin["id"],
+        member_id,
+        {"join_date": f"{year}-07-20", "renewal_month_overridden": True},
+    )
+    manual = fetch_one(
+        "SELECT renewal_month, renewal_month_overridden FROM members WHERE id=?",
+        (member_id,),
+    )
+    assert manual == {"renewal_month": f"{year}-11", "renewal_month_overridden": 1}
+
+    historical_cycle = fetch_one(
+        "SELECT status, completed_at FROM renewal_cycles WHERE member_id=? AND renewal_year=?",
+        (member_id, year),
+    )
+    if now.month > 4:
+        assert historical_cycle is not None
+        assert historical_cycle["status"] == "RENEWED"
+        assert historical_cycle["completed_at"] is not None
 
 
 def test_linked_member_id_prefers_unique_production_phone_match() -> None:

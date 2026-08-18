@@ -165,6 +165,21 @@ def test_operations_snapshot_uses_master_facts_and_event_groups() -> None:
     assert result["data_quality"]["course_schedule_source_ready"] is True
     assert {row["id"] for row in result["centers"]} == {"snapshot-center-a"}
 
+    january = operations_snapshot(
+        user_id=scoped_user_id, year=2026, month=8, birthday_month=1
+    )
+    assert january["summary"]["birthday_member_count"] == 1
+    assert [row["birthday"] for row in january["birthday_members"]] == ["01-01"]
+
+    whole_year = operations_snapshot(
+        user_id=scoped_user_id, year=2026, month=8, birthday_month=0
+    )
+    assert whole_year["summary"]["birthday_member_count"] == 1
+    assert {row["birthday"] for row in whole_year["birthday_members"]} >= {
+        "01-01",
+        "08-15",
+    }
+
 
 def test_operations_snapshot_hides_renewals_without_permission() -> None:
     admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")

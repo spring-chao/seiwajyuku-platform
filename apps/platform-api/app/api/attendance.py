@@ -38,6 +38,13 @@ from app.services.iam import accessible_org_ids
 
 router = APIRouter(prefix="/api/v1/attendance", tags=["attendance"])
 
+CURRENT_CLASS_NAME_SQL = (
+    "COALESCE((SELECT ou.name FROM member_org_relations mor "
+    "JOIN org_units ou ON ou.id=mor.org_unit_id "
+    "WHERE mor.member_id=m.id AND mor.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
+    "ORDER BY mor.id DESC LIMIT 1), m.class_name, '')"
+)
+
 
 class AdjudicationPayload(BaseModel):
     adjudication_type: str = Field(pattern="^(EARLY_LEAVE|CANCEL_EARLY_LEAVE|MANUAL_CHECKIN|INVALIDATE_CHECKIN|LEAVE|CANCEL_LEAVE|MEMBER_RELINK)$")
@@ -174,7 +181,7 @@ def _attendance_reconciliation_summary(month: str | None = None) -> dict:
             "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
             "AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
             "WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') "
-            "AND NOT (COALESCE(m.class_name,'') IN ('先锋班','神仙班') "
+            f"AND NOT ({CURRENT_CLASS_NAME_SQL} IN ('先锋班','神仙班') "
             "OR COALESCE(m.notes,'') LIKE '%目前不读书%')"
             + member_month_clause,
             member_month_params,
@@ -183,7 +190,7 @@ def _attendance_reconciliation_summary(month: str | None = None) -> dict:
             "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
             "AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
             "WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') "
-            "AND (COALESCE(m.class_name,'') IN ('先锋班','神仙班') "
+            f"AND ({CURRENT_CLASS_NAME_SQL} IN ('先锋班','神仙班') "
             "OR COALESCE(m.notes,'') LIKE '%目前不读书%')"
             + member_month_clause,
             member_month_params,
@@ -376,7 +383,7 @@ def reconciliation_queue(
             "NULL AS event_date, m.org_unit_id, m.development_org_unit_id AS study_org_unit_id "
             "FROM members m WHERE m.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM member_org_relations r "
             "WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') "
-            "AND NOT (COALESCE(m.class_name,'') IN ('先锋班','神仙班') "
+            f"AND NOT ({CURRENT_CLASS_NAME_SQL} IN ('先锋班','神仙班') "
             "OR COALESCE(m.notes,'') LIKE '%目前不读书%')" + member_month_clause
             + " ORDER BY m.id DESC",
             "row_params": member_month_params,
@@ -430,7 +437,9 @@ def reconciliation_breakdown(
             "active_members_missing_phone_hash": "m.phone_hash IS NULL OR m.phone_hash=''",
             "active_members_missing_primary_region": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='PRIMARY_REGION')",
             "active_members_missing_study_class": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='STUDY_CLASS')",
-            "active_members_missing_study_group": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') AND NOT (COALESCE(m.class_name,'') IN ('先锋班','神仙班') OR COALESCE(m.notes,'') LIKE '%目前不读书%')",
+            "active_members_missing_study_group": "NOT EXISTS (SELECT 1 FROM member_org_relations r WHERE r.member_id=m.id AND r.relation_type='STUDY_GROUP') AND NOT ("
+            + CURRENT_CLASS_NAME_SQL
+            + " IN ('先锋班','神仙班') OR COALESCE(m.notes,'') LIKE '%目前不读书%')",
         }
         statement = (
             "SELECT m.org_unit_id, o.name AS org_name, COUNT(*) AS count "

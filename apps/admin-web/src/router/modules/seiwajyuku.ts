@@ -214,6 +214,22 @@ export default [
           showParent: true,
           roles: ["system_admin", "technical_admin"]
         }
+      },
+      {
+        path: "/operations/organization-management",
+        name: "OrganizationManagement",
+        component: () => import("@/views/seiwajyuku/organization-management.vue"),
+        meta: {
+          title: "班级与小组管理",
+          icon: "ep/office-building",
+          roles: [
+            "system_admin",
+            "technical_admin",
+            "operations_admin",
+            "ops_center_director",
+            "ops_center_data"
+          ]
+        }
       }
     ]
   }
