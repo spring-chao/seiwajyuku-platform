@@ -43,11 +43,28 @@ const memberTransferForm = reactive({
 });
 const kunshanYanwuClasses = ["炎武一班", "炎武二班", "炎武三班", "炎武四班"];
 
+const selectedCenterIds = computed(() => {
+  if (!centerFilter.value) return undefined;
+  const selectedCenter = data.value.centers.find(
+    item => item.id === centerFilter.value
+  );
+  const ids = new Set(
+    data.value.centers
+      .filter(item => !selectedCenter || item.name === selectedCenter.name)
+      .map(item => item.id)
+  );
+  ids.add(centerFilter.value);
+  return ids;
+});
+
 const classFilterOptions = computed(() =>
   data.value.classes.filter(item => {
     if (statusFilter.value === "ACTIVE" && !item.is_active) return false;
     if (statusFilter.value === "INACTIVE" && item.is_active) return false;
-    return !centerFilter.value || item.parent_id === centerFilter.value;
+    return (
+      !selectedCenterIds.value ||
+      selectedCenterIds.value.has(item.parent_id || "")
+    );
   })
 );
 
@@ -57,18 +74,35 @@ const filteredUnits = computed(() => {
       .filter(item => item.unit_type === "CLASS")
       .map(item => [item.id, item])
   );
+  const selectedClass = data.value.classes.find(
+    item => item.id === classFilter.value
+  );
   return data.value.units.filter(item => {
     if (statusFilter.value === "ACTIVE" && !item.is_active) return false;
     if (statusFilter.value === "INACTIVE" && item.is_active) return false;
+    const parentClass =
+      item.unit_type === "GROUP"
+        ? classesById.get(item.parent_id || "")
+        : undefined;
     if (centerFilter.value) {
       const belongsToCenter =
         item.unit_type === "CLASS"
-          ? item.parent_id === centerFilter.value
-          : classesById.get(item.parent_id || "")?.parent_id === centerFilter.value;
+          ? selectedCenterIds.value?.has(item.parent_id || "")
+          : selectedCenterIds.value?.has(parentClass?.parent_id || "");
       if (!belongsToCenter) return false;
     }
     if (classFilter.value) {
-      return item.id === classFilter.value || item.parent_id === classFilter.value;
+      if (item.id === classFilter.value || item.parent_id === classFilter.value) {
+        return true;
+      }
+      // 历史重复班级节点可能挂有真实小组。选择规范班级时，按同一
+      // 分中心范围内的班级名称匹配，避免这些小组被筛选器误隐藏。
+      return Boolean(
+        selectedClass &&
+          parentClass &&
+          parentClass.name === selectedClass.name &&
+          parentClass.parent_id === selectedClass.parent_id
+      );
     }
     return true;
   });
