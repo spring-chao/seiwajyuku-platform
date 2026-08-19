@@ -219,13 +219,15 @@ class OrganizationManagementTests(unittest.TestCase):
         now = datetime.now(UTC).isoformat()
         older_id = f"selector-class-a-{suffix}"
         newer_id = f"selector-class-b-{suffix}"
+        other_center_id = f"selector-class-c-{suffix}"
         class_name = f"下拉去重测试班-{suffix}"
         with transaction() as connection:
             execute(
                 connection,
                 "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
                 "VALUES (?, ?, ?, 'CLASS', 'org-management-a', 1, '2026-01-01T00:00:00+00:00', ?), "
-                "(?, ?, ?, 'CLASS', 'org-management-a', 1, '2026-02-01T00:00:00+00:00', ?)",
+                "(?, ?, ?, 'CLASS', 'org-management-a', 1, '2026-02-01T00:00:00+00:00', ?), "
+                "(?, ?, ?, 'CLASS', 'org-management-b', 1, '2025-01-01T00:00:00+00:00', ?)",
                 (
                     older_id,
                     f"SELECTOR_A_{suffix}",
@@ -233,6 +235,10 @@ class OrganizationManagementTests(unittest.TestCase):
                     now,
                     newer_id,
                     f"SELECTOR_B_{suffix}",
+                    class_name,
+                    now,
+                    other_center_id,
+                    f"SELECTOR_C_{suffix}",
                     class_name,
                     now,
                 ),
@@ -246,13 +252,19 @@ class OrganizationManagementTests(unittest.TestCase):
             row for row in response.json()["data"]["classes"]
             if row["name"] == class_name
         ]
-        self.assertEqual([row["id"] for row in selectable], [older_id])
+        self.assertEqual(
+            {row["id"] for row in selectable}, {older_id, other_center_id}
+        )
+        self.assertEqual(
+            [row["id"] for row in selectable if row["parent_id"] == "org-management-a"],
+            [older_id],
+        )
         full_nodes = [
             row for row in response.json()["data"]["units"]
             if row["name"] == class_name
         ]
-        self.assertEqual(len(full_nodes), 2)
-        self.assertEqual(sum(bool(row["is_name_canonical"]) for row in full_nodes), 1)
+        self.assertEqual(len(full_nodes), 3)
+        self.assertEqual(sum(bool(row["is_name_canonical"]) for row in full_nodes), 2)
 
     def test_group_member_transfer_exposes_member_and_keeps_history(self) -> None:
         suffix = uuid4().hex[:10]

@@ -303,9 +303,10 @@ def list_learning_org_units(actor_user_id: int) -> dict[str, Any]:
         active_classes = [
             row for row in units if row["unit_type"] == "CLASS" and row["is_active"]
         ]
-        canonical_by_name: dict[str, dict[str, Any]] = {}
+        canonical_by_scope_and_name: dict[tuple[str | None, str], dict[str, Any]] = {}
         for row in active_classes:
-            current = canonical_by_name.get(row["name"])
+            key = (row.get("parent_id"), row["name"])
+            current = canonical_by_scope_and_name.get(key)
             if current is None or (
                 row.get("created_at") or "",
                 row["id"],
@@ -313,15 +314,18 @@ def list_learning_org_units(actor_user_id: int) -> dict[str, Any]:
                 current.get("created_at") or "",
                 current["id"],
             ):
-                canonical_by_name[row["name"]] = row
+                canonical_by_scope_and_name[key] = row
         for row in active_classes:
-            row["is_name_canonical"] = canonical_by_name[row["name"]]["id"] == row["id"]
+            key = (row.get("parent_id"), row["name"])
+            row["is_name_canonical"] = (
+                canonical_by_scope_and_name[key]["id"] == row["id"]
+            )
         # Selection controls (for example "新增小组") must never expose
         # technical duplicate class nodes. The full ``units`` list remains
         # available for organization review and cleanup.
         classes = sorted(
-            canonical_by_name.values(),
-            key=lambda row: (row["name"], row["id"]),
+            canonical_by_scope_and_name.values(),
+            key=lambda row: (row.get("parent_name") or "", row["name"], row["id"]),
         )
         if allowed is not None:
             centers = [row for row in centers if row["id"] in allowed]

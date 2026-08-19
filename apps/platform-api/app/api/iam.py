@@ -256,37 +256,42 @@ def org_tree(user: dict = Depends(require_permission("org:read"))) -> dict:
     )
     if allowed is not None:
         rows = [row for row in rows if row["id"] in allowed]
-    duplicate_names = {
-        row["name"]
+    class_scope_keys = {
+        (row.get("parent_id"), row["name"])
         for row in rows
         if row["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
-        and sum(
+    }
+    duplicate_scope_keys = {
+        key
+        for key in class_scope_keys
+        if sum(
             1
             for candidate in rows
             if candidate["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
-            and candidate["name"] == row["name"]
+            and (candidate.get("parent_id"), candidate["name"]) == key
         ) > 1
     }
-    canonical_class_ids: dict[str, str] = {}
-    for name in duplicate_names:
+    canonical_class_ids: dict[tuple[str | None, str], str] = {}
+    for key in class_scope_keys:
         candidates = sorted(
             (
                 candidate
                 for candidate in rows
                 if candidate["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
-                and candidate["name"] == name
+                and (candidate.get("parent_id"), candidate["name"]) == key
             ),
             key=lambda candidate: (candidate.get("created_at") or "", candidate["id"]),
         )
-        canonical_class_ids[name] = candidates[0]["id"]
+        canonical_class_ids[key] = candidates[0]["id"]
     for row in rows:
+        key = (row.get("parent_id"), row["name"])
         row["duplicate_name"] = (
             row["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
-            and row["name"] in duplicate_names
+            and key in duplicate_scope_keys
         )
         row["is_name_canonical"] = (
             row["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
-            and canonical_class_ids.get(row["name"]) == row["id"]
+            and canonical_class_ids.get(key) == row["id"]
         )
     return {"success": True, "data": rows}
 

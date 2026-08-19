@@ -232,8 +232,9 @@ class IamIsolationTests(unittest.TestCase):
                 connection,
                 "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
                 "VALUES ('class-duplicate-a', 'CLASS_DUP_A', '唯一性测试班', 'CLASS', 'org-b', 1, ?, ?), "
-                "('class-duplicate-b', 'CLASS_DUP_B', '唯一性测试班', 'CLASS', 'org-b', 1, ?, ?)",
-                (now, now, now, now),
+                "('class-duplicate-b', 'CLASS_DUP_B', '唯一性测试班', 'CLASS', 'org-b', 1, ?, ?), "
+                "('class-same-name-other-scope', 'CLASS_DUP_OTHER', '唯一性测试班', 'CLASS', 'org-a', 1, ?, ?)",
+                (now, now, now, now, now, now),
             )
         preview = self.client.get(
             "/api/v1/iam/org-units/class-name-cleanup", headers=self.admin_headers
@@ -249,11 +250,18 @@ class IamIsolationTests(unittest.TestCase):
         duplicate_nodes = [
             item for item in tree.json()["data"] if item["name"] == "唯一性测试班"
         ]
-        self.assertEqual(len(duplicate_nodes), 2)
-        self.assertEqual(sum(item["is_name_canonical"] for item in duplicate_nodes), 1)
-        self.assertTrue(all(item["duplicate_name"] for item in duplicate_nodes))
+        self.assertEqual(len(duplicate_nodes), 3)
+        self.assertEqual(sum(item["is_name_canonical"] for item in duplicate_nodes), 2)
+        scoped_duplicates = [item for item in duplicate_nodes if item["parent_id"] == "org-b"]
+        other_scope = next(item for item in duplicate_nodes if item["parent_id"] == "org-a")
+        self.assertTrue(all(item["duplicate_name"] for item in scoped_duplicates))
+        self.assertFalse(other_scope["duplicate_name"])
         with transaction() as connection:
-            execute(connection, "UPDATE org_units SET is_active=0 WHERE id IN ('class-duplicate-a', 'class-duplicate-b')")
+            execute(
+                connection,
+                "UPDATE org_units SET is_active=0 WHERE id IN "
+                "('class-duplicate-a', 'class-duplicate-b', 'class-same-name-other-scope')",
+            )
         preview = self.client.get(
             "/api/v1/iam/org-units/class-name-cleanup", headers=self.admin_headers
         )

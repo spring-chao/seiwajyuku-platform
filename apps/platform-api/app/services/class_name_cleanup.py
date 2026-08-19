@@ -36,20 +36,20 @@ def _rows(connection, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, 
 
 def _duplicate_sets(
     connection, class_names: set[str] | None = None
-) -> dict[str, list[dict[str, Any]]]:
+) -> dict[tuple[str | None, str], list[dict[str, Any]]]:
     units = _rows(
         connection,
         "SELECT id, unit_code, name, unit_type, parent_id, created_at FROM org_units "
         "WHERE is_active=1 AND unit_type IN ('CLASS', 'SPECIAL_COHORT') "
         "ORDER BY name, created_at, id",
     )
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    grouped: dict[tuple[str | None, str], list[dict[str, Any]]] = defaultdict(list)
     for unit in units:
-        grouped[unit["name"]].append(unit)
+        grouped[(unit.get("parent_id"), unit["name"])].append(unit)
     return {
-        name: values
-        for name, values in grouped.items()
-        if len(values) > 1 and (class_names is None or name in class_names)
+        key: values
+        for key, values in grouped.items()
+        if len(values) > 1 and (class_names is None or key[1] in class_names)
     }
 
 
@@ -81,7 +81,7 @@ def preview_duplicate_class_cleanup(class_names: set[str] | None = None) -> dict
     with transaction() as connection:
         duplicate_sets = _duplicate_sets(connection, class_names)
         candidates: list[dict[str, Any]] = []
-        for name, units in duplicate_sets.items():
+        for (parent_id, name), units in duplicate_sets.items():
             canonical = units[0]
             duplicates = units[1:]
             duplicate_ids = [unit["id"] for unit in duplicates]
@@ -106,6 +106,7 @@ def preview_duplicate_class_cleanup(class_names: set[str] | None = None) -> dict
             blockers = _blocking_reference_counts(connection, duplicate_ids)
             candidates.append({
                 "class_name": name,
+                "parent_id": parent_id,
                 "canonical_unit_code": canonical["unit_code"],
                 "duplicate_count": len(duplicates),
                 "reference_counts": counts,
@@ -144,7 +145,7 @@ def apply_duplicate_class_cleanup(
         merged = 0
         moved_relations = 0
         moved_events = 0
-        for name, units in duplicate_sets.items():
+        for (_, name), units in duplicate_sets.items():
             canonical = units[0]
             duplicates = units[1:]
             duplicate_ids = [unit["id"] for unit in duplicates]
