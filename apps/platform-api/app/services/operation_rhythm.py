@@ -351,7 +351,36 @@ def _insert_item(
     business_type: str | None = None,
     business_id: str | None = None,
 ) -> None:
-    if _item_exists(connection, cycle_id, item_key):
+    existing = _item_exists(connection, cycle_id, item_key)
+    if existing:
+        if not existing["manual_override"]:
+            now = datetime.now(UTC).isoformat()
+            execute(
+                connection,
+                "UPDATE operation_items SET title=?, status=?, start_date=?, due_date=?, updated_at=? "
+                "WHERE id=? AND manual_override=0",
+                (
+                    title,
+                    "PLANNED" if due_date else "PENDING",
+                    _date_text(start_date),
+                    _date_text(due_date),
+                    now,
+                    existing["id"],
+                ),
+            )
+        elif item_key == "CLASS_MEETING":
+            # 班会日期永远来自班级运营日历；状态或备注人工维护不能切断日期联动。
+            execute(
+                connection,
+                "UPDATE operation_items SET start_date=?, due_date=?, updated_at=? "
+                "WHERE id=?",
+                (
+                    _date_text(start_date),
+                    _date_text(due_date),
+                    datetime.now(UTC).isoformat(),
+                    existing["id"],
+                ),
+            )
         return
     now = datetime.now(UTC).isoformat()
     status = "PLANNED" if due_date else "PENDING"
@@ -379,6 +408,126 @@ def _insert_item(
             now,
         ),
     )
+
+
+def _class_meeting_anchor(
+    connection: Any, class_org_unit_id: str, period: str
+) -> date | None:
+    row = execute(
+        connection,
+        "SELECT planned_class_meeting_at FROM class_operation_monthly "
+        "WHERE class_org_unit_id=? AND period=?",
+        (class_org_unit_id, period),
+    ).fetchone()
+    return _parse_date(row["planned_class_meeting_at"]) if row else None
+
+
+def _scheduled_node_dates(
+    connection: Any,
+    nodes: list[dict[str, Any]],
+    class_org_unit_id: str,
+    year: int,
+    month: int,
+) -> dict[str, tuple[date | None, date | None]]:
+    period = _period(year, month)
+    class_meeting_date = _class_meeting_anchor(connection, class_org_unit_id, period)
+    anchors: dict[str, date] = {}
+    scheduled: dict[str, tuple[date | None, date | None]] = {}
+    for node in nodes:
+        if node["rule_type"] == "BIRTHDAY_MONTH":
+            continue
+        # 班级运营日历是班会的唯一日期来源；模板固定日不能作为回退，
+        # 否则班会及其关联事项会与服务日历脱节。
+        base = (
+            class_meeting_date
+            if node["node_code"] == "CLASS_MEETING"
+            else _node_rule_date(node, year, month, anchors)
+        )
+        if base:
+            anchors[node["node_code"]] = base
+        scheduled[node["node_code"]] = (
+            base + timedelta(days=int(node["start_offset_days"])) if base else None,
+            base + timedelta(days=int(node["due_offset_days"])) if base else None,
+        )
+    return scheduled
+
+
+def sync_operation_cycle_dates(
+    connection: Any,
+    *,
+    class_org_unit_id: str,
+    year: int,
+    month: int,
+    actor_user_id: int | None = None,
+) -> int:
+    """同步班级服务日历日期到尚未人工覆盖的运营事项。"""
+    period = _period(year, month)
+    cycle = execute(
+        connection,
+        "SELECT c.id, c.template_id FROM operation_cycles c "
+        "WHERE c.period=? AND c.org_unit_id=?",
+        (period, class_org_unit_id),
+    ).fetchone()
+    if not cycle:
+        return 0
+    nodes = [
+        dict(row)
+        for row in execute(
+            connection,
+            "SELECT * FROM operation_template_nodes WHERE template_id=? AND is_active=1 "
+            "ORDER BY sort_order, id",
+            (cycle["template_id"],),
+        ).fetchall()
+    ]
+    scheduled = _scheduled_node_dates(
+        connection, nodes, class_org_unit_id, year, month
+    )
+    changed = 0
+    now = datetime.now(UTC).isoformat()
+    for node in nodes:
+        dates = scheduled.get(node["node_code"])
+        if not dates:
+            continue
+        item = execute(
+            connection,
+            "SELECT id, manual_override FROM operation_items "
+            "WHERE cycle_id=? AND item_key=?",
+            (cycle["id"], node["node_code"]),
+        ).fetchone()
+        if not item or (item["manual_override"] and node["node_code"] != "CLASS_MEETING"):
+            continue
+        start_date, due_date = dates
+        if item["manual_override"] and node["node_code"] == "CLASS_MEETING":
+            cursor = execute(
+                connection,
+                "UPDATE operation_items SET start_date=?, due_date=?, updated_at=? WHERE id=?",
+                (_date_text(start_date), _date_text(due_date), now, item["id"]),
+            )
+        else:
+            cursor = execute(
+                connection,
+                "UPDATE operation_items SET status=?, start_date=?, due_date=?, updated_at=? "
+                "WHERE id=? AND manual_override=0",
+                (
+                    "PLANNED" if due_date else "PENDING",
+                    _date_text(start_date),
+                    _date_text(due_date),
+                    now,
+                    item["id"],
+                ),
+            )
+        changed += cursor.rowcount
+    if changed and actor_user_id is not None:
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="operations.rhythm.class_meeting_anchor.sync",
+            resource_type="operation_cycle",
+            resource_id=f"{class_org_unit_id}:{period}",
+            org_unit_id=class_org_unit_id,
+            after={"period": period, "updated_item_count": changed},
+        )
+    return changed
 
 
 def _generate_cycle(
@@ -416,7 +565,7 @@ def _generate_cycle(
             (template["id"],),
         ).fetchall()
     ]
-    anchors: dict[str, date] = {}
+    scheduled = _scheduled_node_dates(connection, nodes, class_org_unit_id, year, month)
     created = 0
     for node in nodes:
         if node["rule_type"] == "BIRTHDAY_MONTH":
@@ -440,13 +589,7 @@ def _generate_cycle(
                 )
                 created += int(before is None)
             continue
-        base = _node_rule_date(node, year, month, anchors)
-        if base:
-            anchors[node["node_code"]] = base
-        start_date = (
-            base + timedelta(days=int(node["start_offset_days"])) if base else None
-        )
-        due_date = base + timedelta(days=int(node["due_offset_days"])) if base else None
+        start_date, due_date = scheduled[node["node_code"]]
         before = _item_exists(connection, cycle_id, node["node_code"])
         _insert_item(
             connection,
@@ -611,6 +754,16 @@ def rhythm_snapshot(
     ]
     counts = {status: sum(1 for item in items if item["status"] == status) for status in RHYTHM_STATUSES}
     has_cycle = bool(items)
+    missing_class_meeting_count = sum(
+        1
+        for item in items
+        if item["item_key"] == "CLASS_MEETING" and not item.get("due_date")
+    )
+    data_quality_notes = [] if has_cycle else ["本月运营事项尚未生成，请由核心运营人员生成本月节奏。"]
+    if missing_class_meeting_count:
+        data_quality_notes.append(
+            f"{missing_class_meeting_count} 个班级未在班级运营与本月服务日历维护班会日期，相关事项暂不推算。"
+        )
     return {
         "period": period,
         "items": items,
@@ -624,7 +777,7 @@ def rhythm_snapshot(
         },
         "data_quality": {
             "generated": has_cycle,
-            "notes": [] if has_cycle else ["本月运营事项尚未生成，请由核心运营人员生成本月节奏。"],
+            "notes": data_quality_notes,
         },
         "policy": "一期由核心运营人员维护；微信群、电话和线下沟通继续保留，系统只记录计划、推进、反馈、结果与异常。",
     }
@@ -647,6 +800,10 @@ def update_rhythm_item(
     if not current:
         raise ValueError("运营事项不存在")
     _assert_scope(user_id, current["org_unit_id"])
+    if current["item_key"] == "CLASS_MEETING" and (
+        start_date is not _UNSET or due_date is not _UNSET
+    ):
+        raise ValueError("班会日期请在班级运营与本月服务日历中维护")
     if status is None and title is None and note is _UNSET and start_date is _UNSET and due_date is _UNSET:
         raise ValueError("没有可更新的运营事项字段")
     next_status = status or current["status"]

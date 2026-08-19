@@ -859,6 +859,9 @@ function changePlan() {
         <el-table-column label="日期" width="130">
           <template #default="{ row }">
             {{ row.due_date || "待确认" }}
+            <small v-if="row.item_key === 'CLASS_MEETING'" class="rhythm-source-note">
+              来自班级服务日历
+            </small>
           </template>
         </el-table-column>
         <el-table-column label="事项" min-width="230">
@@ -887,13 +890,16 @@ function changePlan() {
         <el-table-column label="维护" width="82" fixed="right">
           <template #default="{ row }">
             <el-button
-              v-if="canManageRhythm"
+              v-if="canManageRhythm && row.item_key !== 'CLASS_MEETING'"
               link
               type="primary"
               @click="openRhythmEdit(row)"
             >
               编辑
             </el-button>
+            <span v-else-if="row.item_key === 'CLASS_MEETING'" class="rhythm-source-note">
+              日历维护
+            </span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="160">
@@ -1614,6 +1620,12 @@ h1 {
   margin-top: 3px;
   color: #8a9e95;
   font-size: 12px;
+}
+.rhythm-source-note {
+  display: block;
+  margin-top: 3px;
+  color: #3f8067;
+  font-size: 11px;
 }
 .birthday-title {
   display: flex;

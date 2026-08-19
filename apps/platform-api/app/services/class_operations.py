@@ -8,6 +8,7 @@ from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
 from app.services.organization_policy import is_suzhou_direct_class
+from app.services.operation_rhythm import sync_operation_cycle_dates
 
 
 PRESENT_STATUSES = ("PRESENT", "MANUAL_PRESENT")
@@ -254,6 +255,13 @@ def update_class_operations(
                 execute(connection, "UPDATE group_operation_monthly SET planned_meeting_at=?, updated_by=?, updated_at=? WHERE id=?", (planned, actor_user_id, now, row["id"]))
             else:
                 execute(connection, "INSERT INTO group_operation_monthly(group_org_unit_id, period, planned_meeting_at, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (group_id, period, planned, actor_user_id, now, now))
+        sync_operation_cycle_dates(
+            connection,
+            class_org_unit_id=class_org_unit_id,
+            year=year,
+            month=month,
+            actor_user_id=actor_user_id,
+        )
         write_audit(
             connection, actor_user_id=actor_user_id,
             action="class.operations.monthly.update", resource_type="org_unit",
