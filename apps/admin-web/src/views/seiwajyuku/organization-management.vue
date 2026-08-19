@@ -4,10 +4,13 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import {
   createLearningOrgUnit,
   deactivateLearningOrgUnit,
+  getLearningGroupMemberTransferOptions,
   getLearningOrgManagement,
   getSystemEnvironment,
   moveLearningOrgUnit,
   previewLearningOrgMove,
+  transferLearningGroupMember,
+  type LearningGroupMemberTransferOptions,
   type LearningOrgManagement,
   type ManagedLearningOrgUnit
 } from "@/api/seiwajyuku";
@@ -23,13 +26,20 @@ const classFilter = ref("");
 const statusFilter = ref("ACTIVE");
 const createVisible = ref(false);
 const moveVisible = ref(false);
+const memberTransferVisible = ref(false);
 const movingUnit = ref<ManagedLearningOrgUnit>();
+const memberTransferSource = ref<ManagedLearningOrgUnit>();
+const memberTransferData = ref<LearningGroupMemberTransferOptions>();
 const createForm = reactive({
   unit_type: "CLASS" as "CLASS" | "GROUP",
   name: "",
   parent_id: ""
 });
 const moveForm = reactive({ target_parent_id: "", reason: "" });
+const memberTransferForm = reactive({
+  targetByMember: {} as Record<number, string>,
+  reason: "清理重复小组关联"
+});
 
 const classFilterOptions = computed(() =>
   data.value.units.filter(item => {
@@ -150,6 +160,55 @@ function openMove(item: ManagedLearningOrgUnit) {
   movingUnit.value = item;
   Object.assign(moveForm, { target_parent_id: item.parent_id || "", reason: "" });
   moveVisible.value = true;
+}
+
+async function openMemberTransfer(item: ManagedLearningOrgUnit) {
+  memberTransferSource.value = item;
+  memberTransferData.value = undefined;
+  memberTransferForm.targetByMember = {};
+  memberTransferForm.reason = "清理重复小组关联";
+  try {
+    const response = await getLearningGroupMemberTransferOptions(item.id);
+    memberTransferData.value = response.data;
+    memberTransferVisible.value = true;
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  }
+}
+
+async function transferMember(member: any) {
+  const source = memberTransferSource.value;
+  const transfer = memberTransferData.value;
+  const targetId = memberTransferForm.targetByMember[member.member_id];
+  const target = transfer?.target_groups.find(item => item.id === targetId);
+  if (!source || !target || memberTransferForm.reason.trim().length < 6) {
+    ElMessage.warning("请选择目标小组并填写至少6个字符的迁移依据");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认将“${member.name}”从“${source.name}”迁移到“${target.name}”？原关系会保留为历史记录。`,
+      "确认迁移小组关系",
+      { type: "warning", confirmButtonText: "确认迁移" }
+    );
+    saving.value = true;
+    await transferLearningGroupMember(source.id, {
+      member_id: member.member_id,
+      target_group_org_unit_id: target.id,
+      reason: memberTransferForm.reason.trim(),
+      confirmation: `确认将${member.name}从${source.name}转至${target.name}`
+    });
+    ElMessage.success(`${member.name}已迁移至${target.name}`);
+    await load();
+    const response = await getLearningGroupMemberTransferOptions(source.id);
+    memberTransferData.value = response.data;
+    memberTransferForm.targetByMember = {};
+    if (!response.data.members.length) memberTransferVisible.value = false;
+  } catch (error) {
+    if (error !== "cancel") ElMessage.error(errorText(error));
+  } finally {
+    saving.value = false;
+  }
 }
 
 async function submitMove() {
@@ -274,6 +333,7 @@ onMounted(load);
         <el-table-column label="操作" width="210" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.unit_type === 'CLASS' && row.is_active" link type="primary" :disabled="!writeEnabled" @click="openMove(asManagedUnit(row))">调整归属</el-button>
+            <el-button v-if="row.unit_type === 'GROUP' && row.is_active && row.reference_counts.active_member_relations" link type="primary" :disabled="!writeEnabled || saving" @click="openMemberTransfer(asManagedUnit(row))">查看并迁移（{{ row.reference_counts.active_member_relations }}）</el-button>
             <el-button v-if="row.is_active" link type="danger" :disabled="!writeEnabled || saving" @click="deactivate(asManagedUnit(row))">停用</el-button>
           </template>
         </el-table-column>
@@ -313,6 +373,38 @@ onMounted(load);
         <el-button type="primary" :loading="saving" @click="submitMove">预检并调整</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="memberTransferVisible" :title="`迁移${memberTransferSource?.name || '小组'}关联学员`" width="760px">
+      <p class="transfer-hint">请选择同班目标小组后逐人迁移；迁移完成即可停用来源小组，原关系会保留在历史中。</p>
+      <el-table :data="memberTransferData?.members || []" size="small">
+        <el-table-column prop="name" label="学员" min-width="120" />
+        <el-table-column prop="member_code" label="编号" min-width="140" />
+        <el-table-column prop="phone_masked" label="手机号（脱敏）" min-width="130">
+          <template #default="{ row }">{{ row.phone_masked || "—" }}</template>
+        </el-table-column>
+        <el-table-column label="目标小组" min-width="180">
+          <template #default="{ row }">
+            <el-select v-model="memberTransferForm.targetByMember[row.member_id]" filterable placeholder="请选择目标小组" style="width: 100%">
+              <el-option v-for="target in memberTransferData?.target_groups || []" :key="target.id" :label="target.name" :value="target.id" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="95">
+          <template #default="{ row }">
+            <el-button link type="primary" :loading="saving" @click="transferMember(row)">迁移</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="memberTransferData && !memberTransferData.members.length" description="该小组已无在册关联学员，可以关闭后执行停用" />
+      <el-form label-position="top" class="transfer-reason">
+        <el-form-item label="迁移依据">
+          <el-input v-model="memberTransferForm.reason" type="textarea" :rows="2" maxlength="1000" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="memberTransferVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -327,5 +419,7 @@ onMounted(load);
 .filters { display: flex; gap: 12px; margin-bottom: 18px; }
 .filters .el-select { width: 220px; }
 .el-alert { margin-top: 18px; }
+.transfer-hint { margin: 0 0 14px; color: #677a73; }
+.transfer-reason { margin-top: 18px; }
 @media (max-width: 860px) { .hero { align-items: flex-start; flex-direction: column; } .filters { flex-wrap: wrap; } }
 </style>

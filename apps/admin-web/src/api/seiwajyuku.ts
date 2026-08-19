@@ -602,6 +602,18 @@ export type LearningOrgMovePreview = {
   confirmation: string;
 };
 
+export type LearningGroupMemberTransferOptions = {
+  source_group: { id: string; name: string };
+  class: { id: string; name: string };
+  members: Array<{
+    member_id: number;
+    member_code: string;
+    name: string;
+    phone_masked?: string | null;
+  }>;
+  target_groups: Array<{ id: string; name: string }>;
+};
+
 export type DirectClassPreflight = {
   mode: "READ_ONLY_PRODUCTION_PREFLIGHT";
   automatic_production_write_allowed: false;
@@ -1100,6 +1112,27 @@ export const deactivateLearningOrgUnit = (
   http.request<{ success: boolean; data: { id: string; is_active: boolean } }>(
     "post",
     `/api/v1/iam/org-units/${unitId}/deactivate`,
+    { data }
+  );
+
+export const getLearningGroupMemberTransferOptions = (unitId: string) =>
+  http.request<{ success: boolean; data: LearningGroupMemberTransferOptions }>(
+    "get",
+    `/api/v1/iam/org-units/${unitId}/group-member-transfer-options`
+  );
+
+export const transferLearningGroupMember = (
+  unitId: string,
+  data: {
+    member_id: number;
+    target_group_org_unit_id: string;
+    reason: string;
+    confirmation: string;
+  }
+) =>
+  http.request<{ success: boolean; data: { member_id: number } }>(
+    "post",
+    `/api/v1/iam/org-units/${unitId}/group-member-transfer`,
     { data }
   );
 

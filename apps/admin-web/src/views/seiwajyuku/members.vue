@@ -196,23 +196,7 @@ const classOrgs = computed(() => {
       left.unit_code.localeCompare(right.unit_code, "zh-CN")
     );
 });
-const classOptionLabel = (org: {
-  name: string;
-  parent_id?: string | null;
-  parent_name?: string | null;
-  unit_code: string;
-  duplicate_name?: boolean;
-}) => {
-  if (
-    org.parent_id === "org-suzhou" &&
-    ["先锋班", "神仙班", "黄埔一班", "黄埔二班"].includes(org.name)
-  ) return `${org.name}（苏州塾直属）`;
-  const owner = org.parent_name || orgs.value.find(item => item.id === org.parent_id)?.name;
-  const suffix = owner || "运营归属待核";
-  return org.duplicate_name
-    ? `${org.name}（${suffix} · 组织编码 ${org.unit_code}）`
-    : `${org.name}（${suffix}）`;
-};
+const classOptionLabel = (org: { name: string }) => org.name;
 const classOptions = computed(() => {
   const options = classOrgs.value.map(org => ({
     ...org,
@@ -234,7 +218,7 @@ const classOptions = computed(() => {
       parent_id: current?.parent_id,
       parent_name: current?.parent_name,
       duplicate_name: current?.duplicate_name,
-      option_label: `${name}（当前归属，需复核）`
+      option_label: name
     });
   }
   return options;

@@ -18,9 +18,11 @@ from app.services.class_name_cleanup import (
 from app.services.organization_management import (
     create_learning_org_unit,
     deactivate_learning_org_unit,
+    group_member_transfer_options,
     list_learning_org_units,
     move_learning_org_unit,
     preview_learning_org_move,
+    transfer_group_member_relation,
 )
 
 
@@ -67,6 +69,13 @@ class LearningOrgMovePayload(BaseModel):
 
 
 class LearningOrgDeactivatePayload(BaseModel):
+    reason: str = Field(min_length=6, max_length=1000)
+    confirmation: str = Field(min_length=4, max_length=300)
+
+
+class LearningGroupMemberTransferPayload(BaseModel):
+    member_id: int = Field(gt=0)
+    target_group_org_unit_id: str = Field(min_length=1, max_length=64)
     reason: str = Field(min_length=6, max_length=1000)
     confirmation: str = Field(min_length=4, max_length=300)
 
@@ -197,6 +206,35 @@ def deactivate_learning_org(
 ) -> dict:
     try:
         data = deactivate_learning_org_unit(actor["id"], unit_id, **payload.model_dump())
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/iam/org-units/{unit_id}/group-member-transfer-options")
+def group_member_transfer_preview(
+    unit_id: str,
+    actor: dict = Depends(require_permission("org:manage")),
+) -> dict:
+    try:
+        data = group_member_transfer_options(actor["id"], unit_id)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/iam/org-units/{unit_id}/group-member-transfer")
+def transfer_group_member(
+    unit_id: str,
+    payload: LearningGroupMemberTransferPayload,
+    actor: dict = Depends(require_permission("org:manage")),
+) -> dict:
+    try:
+        data = transfer_group_member_relation(actor["id"], unit_id, **payload.model_dump())
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:
