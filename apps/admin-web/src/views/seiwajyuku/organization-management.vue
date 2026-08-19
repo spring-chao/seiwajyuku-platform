@@ -43,6 +43,59 @@ const memberTransferForm = reactive({
 });
 const kunshanYanwuClasses = ["炎武一班", "炎武二班", "炎武三班", "炎武四班"];
 
+function classReferenceScore(item: ManagedLearningOrgUnit) {
+  const counts = item.reference_counts;
+  return (
+    counts.active_member_relations * 1_000_000 +
+    counts.active_children * 1_000 +
+    counts.active_events
+  );
+}
+
+function preferClass(
+  candidate: ManagedLearningOrgUnit,
+  current: ManagedLearningOrgUnit
+) {
+  const scoreDifference =
+    classReferenceScore(candidate) - classReferenceScore(current);
+  if (scoreDifference !== 0) return scoreDifference > 0;
+  const candidateCreatedAt = candidate.created_at || "9999";
+  const currentCreatedAt = current.created_at || "9999";
+  if (candidateCreatedAt !== currentCreatedAt) {
+    return candidateCreatedAt < currentCreatedAt;
+  }
+  return candidate.id < current.id;
+}
+
+const deduplicatedCenters = computed(() => {
+  const centerScores = new Map<string, number>();
+  data.value.units
+    .filter(item => item.unit_type === "CLASS")
+    .forEach(item => {
+      const centerId = item.parent_id || "";
+      centerScores.set(
+        centerId,
+        (centerScores.get(centerId) || 0) + classReferenceScore(item)
+      );
+    });
+  const winners = new Map<string, { id: string; name: string }>();
+  data.value.centers.forEach(item => {
+    const current = winners.get(item.name);
+    if (
+      !current ||
+      (centerScores.get(item.id) || 0) > (centerScores.get(current.id) || 0) ||
+      ((centerScores.get(item.id) || 0) ===
+        (centerScores.get(current.id) || 0) &&
+        item.id < current.id)
+    ) {
+      winners.set(item.name, item);
+    }
+  });
+  return Array.from(winners.values()).sort((left, right) =>
+    left.name.localeCompare(right.name, "zh-CN")
+  );
+});
+
 const selectedCenterIds = computed(() => {
   if (!centerFilter.value) return undefined;
   const selectedCenter = data.value.centers.find(
@@ -57,8 +110,33 @@ const selectedCenterIds = computed(() => {
   return ids;
 });
 
+const deduplicatedClasses = computed(() => {
+  const centerNames = new Map(
+    data.value.centers.map(item => [item.id, item.name])
+  );
+  const winners = new Map<string, ManagedLearningOrgUnit>();
+  data.value.classes.forEach(item => {
+    const centerScope =
+      centerNames.get(item.parent_id || "") || item.parent_id || "";
+    const key = `${centerScope}\u0000${item.name.trim()}`;
+    const current = winners.get(key);
+    if (!current || preferClass(item, current)) {
+      winners.set(key, item);
+    }
+  });
+  return Array.from(winners.values()).sort((left, right) => {
+    const leftCenter = centerNames.get(left.parent_id || "") || "";
+    const rightCenter = centerNames.get(right.parent_id || "") || "";
+    return (
+      leftCenter.localeCompare(rightCenter, "zh-CN") ||
+      left.name.localeCompare(right.name, "zh-CN") ||
+      left.id.localeCompare(right.id)
+    );
+  });
+});
+
 const classFilterOptions = computed(() =>
-  data.value.classes.filter(item => {
+  deduplicatedClasses.value.filter(item => {
     if (statusFilter.value === "ACTIVE" && !item.is_active) return false;
     if (statusFilter.value === "INACTIVE" && item.is_active) return false;
     return (
@@ -118,7 +196,13 @@ watch([centerFilter, statusFilter], () => {
 });
 
 const availableParents = computed(() =>
-  createForm.unit_type === "CLASS" ? data.value.centers : data.value.classes
+  createForm.unit_type === "CLASS"
+    ? deduplicatedCenters.value
+    : deduplicatedClasses.value.filter(
+        item =>
+          !selectedCenterIds.value ||
+          selectedCenterIds.value.has(item.parent_id || "")
+      )
 );
 
 function errorText(error: unknown) {
@@ -158,7 +242,16 @@ async function load() {
 }
 
 function openCreate(unitType: "CLASS" | "GROUP") {
-  Object.assign(createForm, { unit_type: unitType, name: "", parent_id: "" });
+  const selectedParentId =
+    unitType === "GROUP" &&
+    classFilterOptions.value.some(item => item.id === classFilter.value)
+      ? classFilter.value
+      : "";
+  Object.assign(createForm, {
+    unit_type: unitType,
+    name: "",
+    parent_id: selectedParentId
+  });
   createVisible.value = true;
 }
 
@@ -368,7 +461,7 @@ onMounted(load);
     <section class="content-card">
       <div class="filters">
         <el-select v-model="centerFilter" clearable placeholder="全部分中心">
-          <el-option v-for="item in data.centers" :key="item.id" :label="item.name" :value="item.id" />
+          <el-option v-for="item in deduplicatedCenters" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
         <el-select v-model="classFilter" clearable filterable placeholder="全部班级">
           <el-option v-for="item in classFilterOptions" :key="item.id" :label="item.name" :value="item.id" />
