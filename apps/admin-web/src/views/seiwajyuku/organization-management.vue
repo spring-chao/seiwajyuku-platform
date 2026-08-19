@@ -34,6 +34,7 @@ const memberTransferData = ref<LearningGroupMemberTransferOptions>();
 const createForm = reactive({
   unit_type: "CLASS" as "CLASS" | "GROUP",
   name: "",
+  center_id: "",
   parent_id: ""
 });
 const moveForm = reactive({ target_parent_id: "", reason: "" });
@@ -146,6 +147,20 @@ const classFilterOptions = computed(() =>
   })
 );
 
+const createCenterIds = computed(() => {
+  if (!createForm.center_id) return undefined;
+  const selectedCenter = data.value.centers.find(
+    item => item.id === createForm.center_id
+  );
+  const ids = new Set(
+    data.value.centers
+      .filter(item => !selectedCenter || item.name === selectedCenter.name)
+      .map(item => item.id)
+  );
+  ids.add(createForm.center_id);
+  return ids;
+});
+
 const filteredUnits = computed(() => {
   const classesById = new Map(
     data.value.units
@@ -196,13 +211,24 @@ watch([centerFilter, statusFilter], () => {
 });
 
 const availableParents = computed(() =>
-  createForm.unit_type === "CLASS"
-    ? deduplicatedCenters.value
-    : deduplicatedClasses.value.filter(
-        item =>
-          !selectedCenterIds.value ||
-          selectedCenterIds.value.has(item.parent_id || "")
+  !createForm.center_id
+    ? []
+    : deduplicatedClasses.value.filter(item =>
+        createCenterIds.value?.has(item.parent_id || "")
       )
+);
+
+watch(
+  () => createForm.center_id,
+  () => {
+    if (
+      createForm.unit_type === "GROUP" &&
+      createForm.parent_id &&
+      !availableParents.value.some(item => item.id === createForm.parent_id)
+    ) {
+      createForm.parent_id = "";
+    }
+  }
 );
 
 function errorText(error: unknown) {
@@ -242,6 +268,17 @@ async function load() {
 }
 
 function openCreate(unitType: "CLASS" | "GROUP") {
+  const selectedClass = classFilterOptions.value.find(
+    item => item.id === classFilter.value
+  );
+  const sourceCenterId = centerFilter.value || selectedClass?.parent_id || "";
+  const sourceCenter = data.value.centers.find(
+    item => item.id === sourceCenterId
+  );
+  const centerId =
+    deduplicatedCenters.value.find(
+      item => item.name === sourceCenter?.name
+    )?.id || "";
   const selectedParentId =
     unitType === "GROUP" &&
     classFilterOptions.value.some(item => item.id === classFilter.value)
@@ -250,6 +287,7 @@ function openCreate(unitType: "CLASS" | "GROUP") {
   Object.assign(createForm, {
     unit_type: unitType,
     name: "",
+    center_id: centerId,
     parent_id: selectedParentId
   });
   createVisible.value = true;
@@ -257,8 +295,12 @@ function openCreate(unitType: "CLASS" | "GROUP") {
 
 async function submitCreate() {
   const name = createForm.name.trim();
-  if (!name || !createForm.parent_id) {
-    ElMessage.warning("请填写名称并选择父级组织");
+  const parentId =
+    createForm.unit_type === "CLASS"
+      ? createForm.center_id
+      : createForm.parent_id;
+  if (!name || !createForm.center_id || !parentId) {
+    ElMessage.warning("请填写名称并选择所属分中心及父级组织");
     return;
   }
   const label = typeLabel(createForm.unit_type);
@@ -270,14 +312,19 @@ async function submitCreate() {
   saving.value = true;
   try {
     await createLearningOrgUnit({
-      ...createForm,
       name,
+      unit_type: createForm.unit_type,
+      parent_id: parentId,
       confirmation: `确认新增${label}：${name}`
     });
-    const parent = data.value.units.find(item => item.id === createForm.parent_id);
+    const parent = data.value.units.find(item => item.id === parentId);
     if (createForm.unit_type === "GROUP" && parent) {
-      centerFilter.value = parent.parent_id || "";
+      centerFilter.value = createForm.center_id;
       classFilter.value = parent.id;
+      statusFilter.value = "ACTIVE";
+    } else if (createForm.unit_type === "CLASS") {
+      centerFilter.value = createForm.center_id;
+      classFilter.value = "";
       statusFilter.value = "ACTIVE";
     }
     ElMessage.success(
@@ -503,8 +550,13 @@ onMounted(load);
         <el-form-item :label="`${typeLabel(createForm.unit_type)}名称`">
           <el-input v-model="createForm.name" maxlength="255" />
         </el-form-item>
-        <el-form-item :label="createForm.unit_type === 'CLASS' ? '所属分中心' : '所属班级'">
-          <el-select v-model="createForm.parent_id" filterable style="width: 100%">
+        <el-form-item label="所属分中心" required>
+          <el-select v-model="createForm.center_id" filterable style="width: 100%">
+            <el-option v-for="item in deduplicatedCenters" :key="item.id" :label="item.name" :value="item.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="createForm.unit_type === 'GROUP'" label="所属班级" required>
+          <el-select v-model="createForm.parent_id" filterable :disabled="!createForm.center_id" placeholder="请先选择所属分中心" style="width: 100%">
             <el-option v-for="item in availableParents" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
         </el-form-item>
