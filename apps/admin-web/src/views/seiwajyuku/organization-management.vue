@@ -44,8 +44,7 @@ const memberTransferForm = reactive({
 const kunshanYanwuClasses = ["炎武一班", "炎武二班", "炎武三班", "炎武四班"];
 
 const classFilterOptions = computed(() =>
-  data.value.units.filter(item => {
-    if (item.unit_type !== "CLASS") return false;
+  data.value.classes.filter(item => {
     if (statusFilter.value === "ACTIVE" && !item.is_active) return false;
     if (statusFilter.value === "INACTIVE" && item.is_active) return false;
     return !centerFilter.value || item.parent_id === centerFilter.value;

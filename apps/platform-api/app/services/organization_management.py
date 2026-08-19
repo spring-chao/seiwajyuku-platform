@@ -284,7 +284,8 @@ def list_learning_org_units(actor_user_id: int) -> dict[str, Any]:
         units = _rows(
             connection,
             "SELECT o.id, o.unit_code, o.name, o.unit_type, o.parent_id, "
-            "o.is_active, o.active_from, o.active_until, p.name AS parent_name, "
+            "o.is_active, o.active_from, o.active_until, o.created_at, "
+            "p.name AS parent_name, "
             "p.unit_type AS parent_type FROM org_units o "
             "LEFT JOIN org_units p ON p.id=o.parent_id "
             "WHERE o.unit_type IN ('CLASS','GROUP') "
@@ -299,7 +300,29 @@ def list_learning_org_units(actor_user_id: int) -> dict[str, Any]:
             "SELECT id, name FROM org_units "
             "WHERE unit_type='REGIONAL_CENTER' AND is_active=1 ORDER BY name, id",
         )
-        classes = [row for row in units if row["unit_type"] == "CLASS" and row["is_active"]]
+        active_classes = [
+            row for row in units if row["unit_type"] == "CLASS" and row["is_active"]
+        ]
+        canonical_by_name: dict[str, dict[str, Any]] = {}
+        for row in active_classes:
+            current = canonical_by_name.get(row["name"])
+            if current is None or (
+                row.get("created_at") or "",
+                row["id"],
+            ) < (
+                current.get("created_at") or "",
+                current["id"],
+            ):
+                canonical_by_name[row["name"]] = row
+        for row in active_classes:
+            row["is_name_canonical"] = canonical_by_name[row["name"]]["id"] == row["id"]
+        # Selection controls (for example "新增小组") must never expose
+        # technical duplicate class nodes. The full ``units`` list remains
+        # available for organization review and cleanup.
+        classes = sorted(
+            canonical_by_name.values(),
+            key=lambda row: (row["name"], row["id"]),
+        )
         if allowed is not None:
             centers = [row for row in centers if row["id"] in allowed]
     return {"units": units, "centers": centers, "classes": classes}

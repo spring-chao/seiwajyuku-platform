@@ -214,6 +214,46 @@ class OrganizationManagementTests(unittest.TestCase):
         )
         self.assertEqual(item["reference_counts"]["active_children"], 1)
 
+    def test_management_class_selectors_expose_one_canonical_node_per_name(self) -> None:
+        suffix = uuid4().hex[:10]
+        now = datetime.now(UTC).isoformat()
+        older_id = f"selector-class-a-{suffix}"
+        newer_id = f"selector-class-b-{suffix}"
+        class_name = f"下拉去重测试班-{suffix}"
+        with transaction() as connection:
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'CLASS', 'org-management-a', 1, '2026-01-01T00:00:00+00:00', ?), "
+                "(?, ?, ?, 'CLASS', 'org-management-a', 1, '2026-02-01T00:00:00+00:00', ?)",
+                (
+                    older_id,
+                    f"SELECTOR_A_{suffix}",
+                    class_name,
+                    now,
+                    newer_id,
+                    f"SELECTOR_B_{suffix}",
+                    class_name,
+                    now,
+                ),
+            )
+
+        response = self.client.get(
+            "/api/v1/iam/org-units/learning-management", headers=self.headers
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        selectable = [
+            row for row in response.json()["data"]["classes"]
+            if row["name"] == class_name
+        ]
+        self.assertEqual([row["id"] for row in selectable], [older_id])
+        full_nodes = [
+            row for row in response.json()["data"]["units"]
+            if row["name"] == class_name
+        ]
+        self.assertEqual(len(full_nodes), 2)
+        self.assertEqual(sum(bool(row["is_name_canonical"]) for row in full_nodes), 1)
+
     def test_group_member_transfer_exposes_member_and_keeps_history(self) -> None:
         suffix = uuid4().hex[:10]
         now = datetime.now(UTC).isoformat()
