@@ -1117,6 +1117,16 @@ export const deactivateLearningOrgUnit = (
     { data }
   );
 
+export const applyDuplicateClassCleanup = (data: {
+  confirmation: string;
+  class_names: string[];
+}) =>
+  http.request<{ success: boolean; data: { deactivated_duplicate_classes: number } }>(
+    "post",
+    "/api/v1/iam/org-units/class-name-cleanup",
+    { data }
+  );
+
 export const getLearningGroupMemberTransferOptions = (unitId: string) =>
   http.request<{ success: boolean; data: LearningGroupMemberTransferOptions }>(
     "get",

@@ -53,6 +53,7 @@ class PasswordResetPayload(BaseModel):
 
 class ClassCleanupPayload(BaseModel):
     confirmation: str = Field(min_length=4, max_length=100)
+    class_names: list[str] = Field(default_factory=list, max_length=20)
 
 
 class LearningOrgCreatePayload(BaseModel):
@@ -126,9 +127,10 @@ def reset_password(
 
 @router.get("/iam/org-units/class-name-cleanup")
 def preview_class_name_cleanup(
+    class_name: list[str] = Query(default=[]),
     _: dict = Depends(require_permission("org:manage")),
 ) -> dict:
-    return {"success": True, "data": preview_duplicate_class_cleanup()}
+    return {"success": True, "data": preview_duplicate_class_cleanup(set(class_name) or None)}
 
 
 @router.post("/iam/org-units/class-name-cleanup")
@@ -138,7 +140,8 @@ def apply_class_name_cleanup(
 ) -> dict:
     try:
         data = apply_duplicate_class_cleanup(
-            actor["id"], confirmation=payload.confirmation
+            actor["id"], confirmation=payload.confirmation,
+            class_names=set(payload.class_names) or None,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
