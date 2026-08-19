@@ -183,23 +183,35 @@ const groupFilterOptions = computed(() => {
   return options;
 });
 const classOrgs = computed(() => {
-  const available = orgs.value.filter(
-    item =>
-      ["CLASS", "SPECIAL_COHORT"].includes(item.unit_type) &&
-      (item.parent_id === form.org_unit_id ||
-        (item.parent_id === "org-suzhou" &&
-          ["先锋班", "神仙班", "黄埔一班", "黄埔二班"].includes(item.name))) &&
-      !item.duplicate_name
-  );
-  return available;
+  return orgs.value
+    .filter(
+      item =>
+        ["CLASS", "SPECIAL_COHORT"].includes(item.unit_type) &&
+        (item.parent_id === form.org_unit_id ||
+          (item.parent_id === "org-suzhou" &&
+            ["先锋班", "神仙班", "黄埔一班", "黄埔二班"].includes(item.name)))
+    )
+    .sort((left, right) =>
+      left.name.localeCompare(right.name, "zh-CN") ||
+      left.unit_code.localeCompare(right.unit_code, "zh-CN")
+    );
 });
-const classOptionLabel = (org: { name: string; parent_id?: string | null }) => {
+const classOptionLabel = (org: {
+  name: string;
+  parent_id?: string | null;
+  parent_name?: string | null;
+  unit_code: string;
+  duplicate_name?: boolean;
+}) => {
   if (
     org.parent_id === "org-suzhou" &&
     ["先锋班", "神仙班", "黄埔一班", "黄埔二班"].includes(org.name)
   ) return `${org.name}（苏州塾直属）`;
-  const owner = orgs.value.find(item => item.id === org.parent_id);
-  return `${org.name}（${owner?.name || "运营归属待核"}）`;
+  const owner = org.parent_name || orgs.value.find(item => item.id === org.parent_id)?.name;
+  const suffix = owner || "运营归属待核";
+  return org.duplicate_name
+    ? `${org.name}（${suffix} · 组织编码 ${org.unit_code}）`
+    : `${org.name}（${suffix}）`;
 };
 const classOptions = computed(() => {
   const options = classOrgs.value.map(org => ({
