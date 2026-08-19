@@ -6,6 +6,7 @@ import { useUserStoreHook } from "@/store/modules/user";
 import {
   createRenewalCycleFromMember,
   createRenewalFollowup,
+  getRenewalActionCard,
   getRenewalAssignees,
   getRenewalCoverage,
   getRenewalCycles,
@@ -13,6 +14,7 @@ import {
   getRenewalOverview,
   getSystemEnvironment,
   updateRenewalCycle,
+  type RenewalActionCard,
   type RenewalFollowup,
   type FollowupAssignee,
   type RenewalCycle,
@@ -47,6 +49,7 @@ const cycleDetailLoading = ref(false);
 const cycleSaving = ref(false);
 const followupSaving = ref(false);
 const selectedCycle = ref<RenewalCycle>();
+const actionCard = ref<RenewalActionCard>();
 const followups = ref<RenewalFollowup[]>([]);
 const cycleAssignees = ref<FollowupAssignee[]>([]);
 const writeEnabled = ref(true);
@@ -63,7 +66,6 @@ const filters = reactive<{
 });
 const cycleForm = reactive({
   status: "",
-  phase: "",
   result: "",
   assigned_user_id: undefined as number | undefined
 });
@@ -159,12 +161,23 @@ const coverageStatusType = (status: RenewalCoverageRow["sync_status"]) =>
   })[status] as "success" | "warning" | "primary" | "danger" | "info";
 const channelLabel = (channel: string) =>
   ({
+    NONE: "无需联系",
     PHONE: "电话",
     WECHAT: "微信",
     MEETING: "面谈",
     VISIT: "走访",
     OTHER: "其他"
   })[channel] ?? channel;
+const stageTagType = (code?: string) =>
+  ({
+    PREPARE: "info",
+    OBSERVE_3: "success",
+    RENEW_2: "primary",
+    FOLLOW_1: "warning",
+    DUE_NOW: "danger",
+    RECOVERY: "danger",
+    CLOSED: "info"
+  })[code || ""] as "success" | "primary" | "warning" | "danger" | "info";
 const cycleStatusOptions = [
   ["PENDING_FIRST_CONTACT", "待首次联系"],
   ["CONTACTED_WAITING_REPLY", "已联系待回复"],
@@ -211,22 +224,23 @@ async function load() {
   loading.value = true;
   try {
     const memberName = filters.member_name.trim();
-    const [overviewResponse, cycleResponse, coverageResponse] = await Promise.all([
-      getRenewalOverview(year.value),
-      getRenewalCycles(year.value, {
-        org_unit_id: filters.org_unit_id || undefined,
-        due_month: filters.due_month,
-        renewal_status: filters.renewal_status,
-        member_name: memberName || undefined
-      }),
-      getRenewalCoverage(year.value, {
-        org_unit_id: filters.org_unit_id || undefined,
-        member_name: memberName || undefined,
-        include_synced: false,
-        actionable_only: true,
-        limit: 200
-      })
-    ]);
+    const [overviewResponse, cycleResponse, coverageResponse] =
+      await Promise.all([
+        getRenewalOverview(year.value),
+        getRenewalCycles(year.value, {
+          org_unit_id: filters.org_unit_id || undefined,
+          due_month: filters.due_month,
+          renewal_status: filters.renewal_status,
+          member_name: memberName || undefined
+        }),
+        getRenewalCoverage(year.value, {
+          org_unit_id: filters.org_unit_id || undefined,
+          member_name: memberName || undefined,
+          include_synced: false,
+          actionable_only: true,
+          limit: 200
+        })
+      ]);
     rows.value = overviewResponse.data.rows;
     cycles.value = cycleResponse.data;
     coverage.value = coverageResponse.data;
@@ -304,24 +318,47 @@ function resetFollowupForm() {
   });
 }
 
+async function loadActionCard(cycleId: number) {
+  const response = await getRenewalActionCard(cycleId);
+  actionCard.value = response.data;
+  if (response.data.action.recommended_channel !== "NONE") {
+    followupForm.channel = response.data.action.recommended_channel;
+  }
+}
+
+async function copyReference(value?: string | null) {
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    ElMessage.success("参考内容已复制，请结合真实沟通情况确认后使用");
+  } catch {
+    ElMessage.warning("浏览器未允许复制，请手动选择文字复制");
+  }
+}
+
 async function openCycleDetail(cycle: any) {
   selectedCycle.value = cycle;
   Object.assign(cycleForm, {
     status: cycle.status,
-    phase: cycle.phase || "",
     result: cycle.result || "",
     assigned_user_id: cycle.assigned_user_id
   });
   resetFollowupForm();
   followups.value = [];
+  actionCard.value = undefined;
   cycleAssignees.value = [];
   cycleDetailVisible.value = true;
   cycleDetailLoading.value = true;
   try {
-    const [followupResult, assigneeResult] = await Promise.allSettled([
-      getRenewalFollowups(cycle.id),
-      getRenewalAssignees(cycle.org_unit_id)
-    ]);
+    const [actionCardResult, followupResult, assigneeResult] =
+      await Promise.allSettled([
+        loadActionCard(cycle.id),
+        getRenewalFollowups(cycle.id),
+        getRenewalAssignees(cycle.org_unit_id)
+      ]);
+    if (actionCardResult.status === "rejected") {
+      ElMessage.error(errorText(actionCardResult.reason, "今日行动卡加载失败"));
+    }
     if (followupResult.status === "fulfilled") {
       followups.value = followupResult.value.data;
     } else {
@@ -349,7 +386,6 @@ async function saveCycleDetail() {
   try {
     await updateRenewalCycle(selectedCycle.value.id, {
       status: cycleForm.status,
-      phase: cycleForm.phase || undefined,
       result: cycleForm.result || undefined,
       assigned_user_id: cycleForm.assigned_user_id
     });
@@ -362,12 +398,12 @@ async function saveCycleDetail() {
     selectedCycle.value = {
       ...currentCycle,
       status: cycleForm.status,
-      phase: cycleForm.phase,
       result: cycleForm.result,
       assigned_user_id: cycleForm.assigned_user_id,
       assigned_user_name:
         assignee?.display_name ?? currentCycle.assigned_user_name
     };
+    await loadActionCard(currentCycle.id);
   } catch (error: any) {
     ElMessage.error(errorText(error, "续费周期更新失败"));
   } finally {
@@ -396,6 +432,7 @@ async function submitFollowup() {
     });
     ElMessage.success("跟进记录已保存并写入审计");
     followups.value = (await getRenewalFollowups(selectedCycle.value.id)).data;
+    await loadActionCard(selectedCycle.value.id);
     resetFollowupForm();
   } catch (error: any) {
     ElMessage.error(errorText(error, "跟进记录保存失败"));
@@ -411,7 +448,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="renewal-page" v-loading="loading">
+  <div v-loading="loading" class="renewal-page">
     <section class="hero">
       <div>
         <p class="eyebrow">年度续费运营中心</p>
@@ -511,9 +548,15 @@ onMounted(() => {
         </div>
       </template>
       <div class="coverage-summary">
-        <span>主档匹配 <b>{{ coverage.summary.member_total }}</b></span>
-        <span>在册 <b>{{ coverage.summary.active_member_total }}</b></span>
-        <span>已建周期 <b>{{ coverage.summary.cycle_total }}</b></span>
+        <span
+          >主档匹配 <b>{{ coverage.summary.member_total }}</b></span
+        >
+        <span
+          >在册 <b>{{ coverage.summary.active_member_total }}</b></span
+        >
+        <span
+          >已建周期 <b>{{ coverage.summary.cycle_total }}</b></span
+        >
         <span class="ready"
           >可建立 <b>{{ coverage.summary.ready_to_create_count }}</b></span
         >
@@ -521,8 +564,12 @@ onMounted(() => {
           >缺续费月份
           <b>{{ coverage.summary.missing_renewal_month_count }}</b></span
         >
-        <span>流失 <b>{{ coverage.summary.inactive_member_count }}</b></span>
-        <span>暂停 <b>{{ coverage.summary.suspended_member_count }}</b></span>
+        <span
+          >流失 <b>{{ coverage.summary.inactive_member_count }}</b></span
+        >
+        <span
+          >暂停 <b>{{ coverage.summary.suspended_member_count }}</b></span
+        >
       </div>
       <el-alert
         v-if="coverage.truncated"
@@ -540,15 +587,15 @@ onMounted(() => {
       >
         <el-table-column prop="member_name" label="学员" min-width="120" />
         <el-table-column prop="org_name" label="续费归属" min-width="150" />
-        <el-table-column
-          prop="member_class_name"
-          label="班级"
-          min-width="130"
-        >
-          <template #default="{ row }">{{ row.member_class_name || "—" }}</template>
+        <el-table-column prop="member_class_name" label="班级" min-width="130">
+          <template #default="{ row }">{{
+            row.member_class_name || "—"
+          }}</template>
         </el-table-column>
         <el-table-column label="学员续费月份" min-width="130">
-          <template #default="{ row }">{{ row.renewal_month || "未维护" }}</template>
+          <template #default="{ row }">{{
+            row.renewal_month || "未维护"
+          }}</template>
         </el-table-column>
         <el-table-column label="同步状态" min-width="180">
           <template #default="{ row }">
@@ -662,6 +709,13 @@ onMounted(() => {
         <el-table-column label="到期月" width="100">
           <template #default="{ row }">{{ row.due_month }}月</template>
         </el-table-column>
+        <el-table-column label="自动阶段" min-width="110">
+          <template #default="{ row }">
+            <el-tag :type="stageTagType(row.stage?.code)" effect="light">
+              {{ row.stage?.label || "待判断" }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" min-width="130">
           <template #default="{ row }">{{
             cycleStatusLabel(row.status)
@@ -680,7 +734,7 @@ onMounted(() => {
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openCycleDetail(row)">
-              查看/跟进
+              今日行动
             </el-button>
           </template>
         </el-table-column>
@@ -689,8 +743,8 @@ onMounted(() => {
 
     <el-dialog
       v-model="cycleDetailVisible"
-      :title="`${selectedCycle?.member_name ?? '续费周期'} · 跟进详情`"
-      width="820px"
+      :title="`${selectedCycle?.member_name ?? '续费周期'} · 今日行动`"
+      width="980px"
     >
       <div v-loading="cycleDetailLoading" class="cycle-detail">
         <el-alert
@@ -702,6 +756,160 @@ onMounted(() => {
           show-icon
           class="readonly-alert"
         />
+        <section v-if="actionCard" class="action-card">
+          <div class="action-card-head">
+            <div>
+              <div class="action-card-tags">
+                <el-tag
+                  :type="stageTagType(actionCard.stage.code)"
+                  size="large"
+                >
+                  {{ actionCard.stage.label }}
+                </el-tag>
+                <el-tag effect="plain">
+                  {{ actionCard.cycle.renewal_year }}年{{
+                    actionCard.cycle.due_month
+                  }}月续费
+                </el-tag>
+                <el-tag
+                  v-if="actionCard.current_context.needs_support"
+                  type="warning"
+                >
+                  需要协助
+                </el-tag>
+              </div>
+              <h3>{{ actionCard.member.name }} · 本次目标</h3>
+              <p>{{ actionCard.action.goal }}</p>
+            </div>
+            <div class="member-facts">
+              <span
+                >责任人：{{
+                  actionCard.cycle.assigned_user_name || "待分配"
+                }}</span
+              >
+              <span
+                >同行：{{
+                  actionCard.member.membership_years ?? "待维护"
+                }}年</span
+              >
+              <span>班级：{{ actionCard.member.class_name || "待维护" }}</span>
+              <span>小组：{{ actionCard.member.group_name || "待维护" }}</span>
+            </div>
+          </div>
+
+          <div class="today-advice">
+            <span>今日建议</span>
+            <strong>
+              {{ channelLabel(actionCard.action.recommended_channel) }} ·
+              {{ actionCard.action.goal }}
+            </strong>
+            <p>{{ actionCard.action.recommendation_reason }}</p>
+          </div>
+
+          <div v-if="actionCard.latest_followup" class="continuity-card">
+            <strong>最近一次续费关爱</strong>
+            <span>
+              {{ actionCard.latest_followup.followed_at }} ·
+              {{ channelLabel(actionCard.latest_followup.channel) }}
+            </span>
+            <p>{{ actionCard.latest_followup.summary || "未记录摘要" }}</p>
+            <small>
+              意愿：{{
+                actionCard.current_context.intention || "暂无明确记录"
+              }}； 下一步：{{
+                actionCard.current_context.next_action || "待确认"
+              }}； 下次联系：{{
+                actionCard.current_context.next_followup_at || "待安排"
+              }}
+            </small>
+          </div>
+
+          <div class="memory-block">
+            <strong>经验证的共同经历</strong>
+            <div v-if="actionCard.verified_memories.length" class="memory-list">
+              <el-tag
+                v-for="memory in actionCard.verified_memories"
+                :key="memory.id"
+                type="success"
+                effect="plain"
+              >
+                {{ memory.year }}年{{ memory.month }}月 · {{ memory.title }}
+              </el-tag>
+            </div>
+            <p v-else>
+              暂无可核验的本人学习或活动经历，本次建议已降级为基础关爱，不会编造共同经历。
+            </p>
+          </div>
+
+          <div class="reference-grid">
+            <article>
+              <div class="reference-title">
+                <strong>微信参考</strong>
+                <el-button
+                  v-if="actionCard.action.wechat_reference"
+                  link
+                  type="primary"
+                  @click="copyReference(actionCard.action.wechat_reference)"
+                >
+                  复制
+                </el-button>
+              </div>
+              <p>
+                {{
+                  actionCard.action.wechat_reference ||
+                  "当前阶段无需发送续费关爱信息。"
+                }}
+              </p>
+            </article>
+            <article>
+              <div class="reference-title">
+                <strong>电话开场参考</strong>
+                <el-button
+                  v-if="actionCard.action.phone_opening_reference"
+                  link
+                  type="primary"
+                  @click="
+                    copyReference(actionCard.action.phone_opening_reference)
+                  "
+                >
+                  复制
+                </el-button>
+              </div>
+              <p>
+                {{
+                  actionCard.action.phone_opening_reference ||
+                  "当前阶段无需发起续费电话。"
+                }}
+              </p>
+            </article>
+          </div>
+
+          <div class="guidance-grid">
+            <article>
+              <strong>建议询问</strong>
+              <ol v-if="actionCard.action.questions.length">
+                <li
+                  v-for="question in actionCard.action.questions"
+                  :key="question"
+                >
+                  {{ question }}
+                </li>
+              </ol>
+              <p v-else>当前周期已闭环，无需继续询问续费事项。</p>
+            </article>
+            <article class="do-not-card">
+              <strong>本次不要做</strong>
+              <ul>
+                <li v-for="item in actionCard.action.do_not" :key="item">
+                  {{ item }}
+                </li>
+              </ul>
+            </article>
+          </div>
+          <p class="action-policy">{{ actionCard.policy }}</p>
+        </section>
+
+        <el-divider content-position="left">周期状态与责任人</el-divider>
         <el-descriptions v-if="selectedCycle" :column="3" border>
           <el-descriptions-item label="学员所属分中心">{{
             selectedCycle.org_name
@@ -733,14 +941,6 @@ onMounted(() => {
                 :value="item[0]"
               />
             </el-select>
-          </el-form-item>
-          <el-form-item label="阶段">
-            <el-input
-              v-model="cycleForm.phase"
-              :disabled="!writeEnabled"
-              maxlength="32"
-              placeholder="如：首次联系"
-            />
           </el-form-item>
           <el-form-item label="结果">
             <el-input
@@ -1018,6 +1218,113 @@ onMounted(() => {
 .readonly-alert {
   margin-bottom: 16px;
 }
+.action-card {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  background: #f7fbf9;
+  border: 1px solid #d8ebe2;
+  border-radius: 16px;
+}
+.action-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.action-card-tags,
+.memory-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.action-card h3 {
+  margin: 14px 0 6px;
+  color: #153f33;
+  font-size: 20px;
+}
+.action-card p {
+  margin: 0;
+  line-height: 1.75;
+}
+.member-facts {
+  display: grid;
+  min-width: 245px;
+  gap: 7px;
+  color: #657a71;
+  font-size: 13px;
+}
+.today-advice {
+  padding: 18px 20px;
+  color: #f4fff9;
+  background: linear-gradient(120deg, #17624b, #2c8a68);
+  border-radius: 14px;
+}
+.today-advice span {
+  display: block;
+  margin-bottom: 6px;
+  color: #bcebd8;
+  font-size: 13px;
+}
+.today-advice strong {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 19px;
+}
+.today-advice p {
+  color: #e0f4eb;
+}
+.continuity-card,
+.memory-block {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid #e0ebe6;
+  border-radius: 12px;
+}
+.continuity-card span,
+.continuity-card small,
+.memory-block p {
+  color: #70847b;
+}
+.reference-grid,
+.guidance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.reference-grid article,
+.guidance-grid article {
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #dfeae5;
+  border-radius: 12px;
+}
+.reference-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+.guidance-grid ol,
+.guidance-grid ul {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0 0;
+  padding-left: 22px;
+  color: #546a61;
+  line-height: 1.65;
+}
+.do-not-card {
+  background: #fffaf1 !important;
+  border-color: #f0dfbc !important;
+}
+.action-policy {
+  color: #81948c;
+  font-size: 12px;
+}
 .upload-list {
   display: grid;
   gap: 12px;
@@ -1088,6 +1395,16 @@ onMounted(() => {
     padding: 24px;
   }
   .summary-grid {
+    grid-template-columns: 1fr;
+  }
+  .action-card-head {
+    flex-direction: column;
+  }
+  .member-facts {
+    min-width: 0;
+  }
+  .reference-grid,
+  .guidance-grid {
     grid-template-columns: 1fr;
   }
 }

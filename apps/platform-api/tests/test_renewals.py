@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 from asyncio import run
-from datetime import datetime
+from datetime import UTC, date, datetime
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +24,8 @@ from app.services.renewals import (
     add_followup,
     apply_preview,
     create_cycle_from_member,
+    determine_renewal_stage,
+    get_action_card,
     list_assignees,
     list_cycle_coverage,
     list_cycles,
@@ -34,6 +36,200 @@ from app.services.renewals import (
     save_preview,
     update_cycle,
 )
+
+
+@pytest.mark.parametrize(
+    ("renewal_year", "due_month", "as_of", "status", "expected"),
+    [
+        (2026, 12, date(2026, 8, 19), "PENDING_FIRST_CONTACT", "PREPARE"),
+        (2026, 11, date(2026, 8, 19), "PENDING_FIRST_CONTACT", "OBSERVE_3"),
+        (2026, 10, date(2026, 8, 19), "IN_COMMUNICATION", "RENEW_2"),
+        (2026, 9, date(2026, 8, 19), "IN_COMMUNICATION", "FOLLOW_1"),
+        (2026, 8, date(2026, 8, 19), "IN_COMMUNICATION", "DUE_NOW"),
+        (2026, 7, date(2026, 8, 19), "DEFERRED", "RECOVERY"),
+        (2027, 2, date(2026, 11, 30), "PENDING_FIRST_CONTACT", "OBSERVE_3"),
+        (2026, 11, date(2026, 8, 19), "RENEWED", "CLOSED"),
+        (2026, 11, date(2026, 8, 19), "NOT_RENEWING", "CLOSED"),
+        (2026, 11, date(2026, 8, 19), "EXITED", "CLOSED"),
+    ],
+)
+def test_renewal_stage_engine_is_calendar_based_and_closed_status_wins(
+    renewal_year: int,
+    due_month: int,
+    as_of: date,
+    status: str,
+    expected: str,
+) -> None:
+    stage = determine_renewal_stage(
+        renewal_year, due_month, status, as_of=as_of
+    )
+    assert stage["code"] == expected
+
+
+def _action_card_fixture(*, with_memory: bool = True) -> tuple[int, int, str, int]:
+    # Preserve the module's shared renewal seed before adding scoped fixtures;
+    # several legacy tests intentionally reuse the first member row.
+    if not fetch_one("SELECT id FROM members ORDER BY id LIMIT 1"):
+        seed_now = datetime.now(UTC).isoformat()
+        with transaction() as connection:
+            execute(
+                connection,
+                "INSERT OR IGNORE INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES ('org-renewal-seed', 'RENEWAL_SEED', '续费测试分中心', 'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+                (seed_now, seed_now),
+            )
+            execute(
+                connection,
+                "INSERT INTO members(member_code, name, org_unit_id, status, created_at, updated_at) "
+                "VALUES ('RENEWAL-TEST-SEED', '续费测试学长', ?, 'ACTIVE', ?, ?)",
+                ("org-renewal-seed", seed_now, seed_now),
+            )
+    suffix = uuid4().hex[:8]
+    center_id = f"renewal-action-center-{suffix}"
+    class_id = f"renewal-action-class-{suffix}"
+    group_id = f"renewal-action-group-{suffix}"
+    now = datetime.now(UTC).isoformat()
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin is not None
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+            "VALUES (?, ?, '行动卡测试分中心', 'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+            (center_id, f"ACTION_CENTER_{suffix}", now, now),
+        )
+        for org_id, code, name, unit_type in (
+            (class_id, f"ACTION_CLASS_{suffix}", "行动卡测试班", "CLASS"),
+            (group_id, f"ACTION_GROUP_{suffix}", "行动卡测试组", "GROUP"),
+        ):
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                (org_id, code, name, unit_type, center_id, now, now),
+            )
+        member_id = execute(
+            connection,
+            "INSERT INTO members(member_code, name, org_unit_id, status, join_date, study_start_date, created_at, updated_at) "
+            "VALUES (?, '行动卡测试学长', ?, 'ACTIVE', '2095-03-18', '2095-03-18', ?, ?)",
+            (f"ACTION_MEMBER_{suffix}", center_id, now, now),
+        ).lastrowid
+        for relation_type, org_id in (
+            ("PRIMARY_REGION", center_id),
+            ("STUDY_CLASS", class_id),
+            ("STUDY_GROUP", group_id),
+        ):
+            execute(
+                connection,
+                "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, source_type, created_at, updated_at) "
+                "VALUES (?, ?, ?, 1, 'TEST', ?, ?)",
+                (member_id, org_id, relation_type, now, now),
+            )
+        cycle_id = execute(
+            connection,
+            "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, status, assigned_user_id, created_at, updated_at) "
+            "VALUES (?, 2099, ?, 11, 'IN_COMMUNICATION', ?, ?, ?)",
+            (member_id, center_id, admin["id"], now, now),
+        ).lastrowid
+        execute(
+            connection,
+            "INSERT INTO renewal_followups(renewal_cycle_id, followed_at, followed_by, channel, summary, intention, needs_support, next_action, next_followup_at, created_at) "
+            "VALUES (?, ?, ?, 'WECHAT', '联系电话138-0013-8000，资金安排为人民币1,000,000元，另有五十万元，最近比较忙', '较高', 0, '9月20日再次联系', '2099-09-20', ?)",
+            (cycle_id, now, admin["id"], now),
+        )
+        if with_memory:
+            batch_id = execute(
+                connection,
+                "INSERT INTO import_batches(import_type, source_name, source_sha256, status, preview_json, created_by, created_at) "
+                "VALUES ('LEGACY_ACTIVITY', 'test', ?, 'APPLIED', '{}', ?, ?)",
+                (f"sha-{suffix}", admin["id"], now),
+            ).lastrowid
+            execute(
+                connection,
+                "INSERT INTO member_activity_facts(source_system, source_table, external_id, member_id, org_unit_id, activity_type, occurred_on, participation_status, title, import_batch_id, imported_at) "
+                "VALUES ('TEST', 'activity', ?, ?, ?, 'REPORT_MEETING', '2099-06-18', 'PRESENT', '六月经营报告会', ?, ?)",
+                (f"activity-{suffix}", member_id, center_id, batch_id, now),
+            )
+    allowed_user_id = create_user(
+        admin["id"],
+        username=f"renewal-action-user-{suffix}",
+        display_name="续费行动卡测试",
+        password="renewal-action-test-password",
+        roles=["ops_center_operations"],
+        scopes=[{"scope_type": "SUBTREE", "org_unit_id": center_id}],
+    )
+    return int(cycle_id), allowed_user_id, center_id, int(member_id)
+
+
+def test_action_card_uses_verified_memory_redacts_sensitive_values_and_audits() -> None:
+    cycle_id, user_id, center_id, _ = _action_card_fixture()
+    card = get_action_card(cycle_id, user_id, as_of=date(2099, 8, 19))
+
+    assert card["stage"]["code"] == "OBSERVE_3"
+    assert card["member"]["org_unit_id"] == center_id
+    assert card["member"]["class_name"] == "行动卡测试班"
+    assert card["member"]["group_name"] == "行动卡测试组"
+    assert card["member"]["membership_years"] == 4
+    assert card["verified_memories"][0]["title"] == "六月经营报告会"
+    assert card["verified_memories"][0]["verified"] is True
+    assert card["current_context"]["intention"] == "较高"
+    serialized = json.dumps(card, ensure_ascii=False)
+    assert "138-0013-8000" not in serialized
+    assert "1,000,000元" not in serialized
+    assert "五十万元" not in serialized
+    outbound = " ".join(
+        filter(
+            None,
+            [
+                card["action"]["wechat_reference"],
+                card["action"]["phone_opening_reference"],
+            ],
+        )
+    )
+    assert all(term not in outbound for term in ("缴费", "付款", "续不续", "缴费链接"))
+    audit = fetch_one(
+        "SELECT after_json FROM audit_logs WHERE action='renewals.action_card.view' "
+        "AND resource_id=? ORDER BY id DESC LIMIT 1",
+        (str(cycle_id),),
+    )
+    assert audit is not None
+    assert json.loads(audit["after_json"])["stage"] == "OBSERVE_3"
+
+
+def test_action_card_falls_back_without_inventing_activity_facts() -> None:
+    cycle_id, user_id, _, _ = _action_card_fixture(with_memory=False)
+    card = get_action_card(cycle_id, user_id, as_of=date(2099, 8, 19))
+    assert card["verified_memories"] == []
+    assert card["data_quality"]["memory_fallback_used"] is True
+    assert "有一段时间没和您细聊了" in card["action"]["wechat_reference"]
+    assert "报告会" not in card["action"]["wechat_reference"]
+
+
+def test_action_card_out_of_scope_becomes_http_403() -> None:
+    cycle_id, _, _, _ = _action_card_fixture()
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin is not None
+    suffix = uuid4().hex[:8]
+    other_center = f"renewal-action-other-{suffix}"
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+            "VALUES (?, ?, '其他测试分中心', 'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+            (other_center, f"ACTION_OTHER_{suffix}", now, now),
+        )
+    denied_user_id = create_user(
+        admin["id"],
+        username=f"renewal-action-denied-{suffix}",
+        display_name="续费行动卡越权测试",
+        password="renewal-action-test-password",
+        roles=["ops_center_operations"],
+        scopes=[{"scope_type": "UNIT", "org_unit_id": other_center}],
+    )
+    with pytest.raises(renewals_api.HTTPException) as exc:
+        renewals_api.action_card(cycle_id, user={"id": denied_user_id})
+    assert exc.value.status_code == 403
 
 
 @pytest.mark.parametrize(

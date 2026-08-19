@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,7 @@ from app.core.privacy import encrypt_text, phone_hash
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
+from app.services.member_memories import verified_member_memories
 
 
 CENTER_IDS = {
@@ -39,6 +40,16 @@ RENEWAL_STATUSES = frozenset(
         "EXITED",
     }
 )
+CLOSED_RENEWAL_STATUSES = frozenset({"RENEWED", "NOT_RENEWING", "EXITED"})
+RENEWAL_STAGE_LABELS = {
+    "PREPARE": "日常维护",
+    "OBSERVE_3": "观3",
+    "RENEW_2": "续2",
+    "FOLLOW_1": "追1",
+    "DUE_NOW": "到期冲刺",
+    "RECOVERY": "挽回/复盘",
+    "CLOSED": "已闭环",
+}
 PREVIEW_ROW_FIELDS = (
     "row_no",
     "name",
@@ -133,6 +144,178 @@ def _initial_cycle_status(due_month: int, renewal_year: int, now: datetime) -> s
     if renewal_year == now.year and due_month < now.month:
         return "RENEWED"
     return "PENDING_FIRST_CONTACT"
+
+
+def determine_renewal_stage(
+    renewal_year: int,
+    due_month: int,
+    status: str,
+    *,
+    as_of: date | datetime | None = None,
+) -> dict[str, Any]:
+    """Determine the operational phase from calendar months and cycle status."""
+    if not 1 <= int(due_month) <= 12:
+        raise ValueError("续费月份必须在1至12之间")
+    current = as_of or datetime.now(UTC)
+    current_date = current.date() if isinstance(current, datetime) else current
+    months_until_due = (
+        int(renewal_year) * 12 + int(due_month)
+        - (current_date.year * 12 + current_date.month)
+    )
+    normalised_status = str(status or "").upper()
+    if normalised_status in CLOSED_RENEWAL_STATUSES:
+        code = "CLOSED"
+    elif months_until_due > 3:
+        code = "PREPARE"
+    elif months_until_due == 3:
+        code = "OBSERVE_3"
+    elif months_until_due == 2:
+        code = "RENEW_2"
+    elif months_until_due == 1:
+        code = "FOLLOW_1"
+    elif months_until_due == 0:
+        code = "DUE_NOW"
+    else:
+        code = "RECOVERY"
+    return {
+        "code": code,
+        "label": RENEWAL_STAGE_LABELS[code],
+        "months_until_due": months_until_due,
+        "as_of_month": f"{current_date.year:04d}-{current_date.month:02d}",
+        "source": "CALENDAR_RULE",
+    }
+
+
+def _completed_membership_years(
+    join_date: Any,
+    stored_years: Any,
+    overridden: Any,
+    *,
+    as_of: date,
+) -> int | None:
+    if overridden and stored_years is not None:
+        try:
+            return max(0, int(float(stored_years)))
+        except (TypeError, ValueError):
+            return None
+    if not join_date:
+        return None
+    try:
+        joined = date.fromisoformat(str(join_date)[:10])
+    except ValueError:
+        return None
+    years = as_of.year - joined.year
+    if (as_of.month, as_of.day) < (joined.month, joined.day):
+        years -= 1
+    return max(0, years)
+
+
+_PHONE_IN_TEXT_RE = re.compile(r"(?<!\d)1[3-9](?:[\s-]?\d){9}(?!\d)")
+_PRECISE_AMOUNT_RE = re.compile(
+    r"(?<!\d)(?:人民币\s*|RMB\s*|[￥¥]\s*)?"
+    r"(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?|"
+    r"[零〇一二三四五六七八九十百千万亿两壹贰叁肆伍陆柒捌玖拾佰仟萬]+)"
+    r"\s*(?:亿元|万元|元|亿|万)(?![\d元])",
+    re.IGNORECASE,
+)
+
+
+def _redact_action_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    text = _PHONE_IN_TEXT_RE.sub("[手机号已脱敏]", text)
+    return _PRECISE_AMOUNT_RE.sub("[明确金额已脱敏]", text)
+
+
+def _renewal_action_strategy(
+    stage_code: str,
+    *,
+    latest_followup: dict[str, Any] | None,
+) -> dict[str, Any]:
+    strategies = {
+        "PREPARE": {
+            "goal": "保持日常陪伴，不进入续费动作",
+            "channel": "WECHAT",
+            "reason": "距离续费超过3个月，适合自然保持联系，不提前制造续费压力。",
+            "questions": ["最近学习和生活状态怎么样？", "近期有没有我们可以提供支持的地方？"],
+            "do_not": ["不以续费为本次联系主题。", "不发送付款信息。"],
+        },
+        "OBSERVE_3": {
+            "goal": "重新建立连接、了解近况",
+            "channel": "WECHAT",
+            "reason": "距离续费还有3个月，当前属于观3阶段，应先关爱和了解，不以完成续费为目标。",
+            "questions": [
+                "最近企业和生活状态怎么样？",
+                "今年学习过程中，哪些内容对经营帮助比较大？",
+                "最近有没有什么我们能提供支持的地方？",
+            ],
+            "do_not": ["不直接询问是否续费。", "不直接发送付款信息。"],
+        },
+        "RENEW_2": {
+            "goal": "回顾同行价值、自然确认续费意愿",
+            "channel": "PHONE" if latest_followup else "WECHAT",
+            "reason": "距离续费还有2个月，适合先回顾真实获得，再自然了解后续同行意愿。",
+            "questions": [
+                "今年哪些学习或同行经历对您最有帮助？",
+                "接下来的学习中，您最希望获得哪方面支持？",
+                "关于继续同行，您现在还有哪些考虑？",
+            ],
+            "do_not": ["不跳过价值回顾直接催促决定。", "不把未确认意愿表述成已承诺。"],
+        },
+        "FOLLOW_1": {
+            "goal": "明确意向、识别障碍并协助解决",
+            "channel": "PHONE",
+            "reason": "距离续费还有1个月，需要基于既有沟通明确意向和实际障碍。",
+            "questions": [
+                "关于下一年度继续同行，您目前的考虑是什么？",
+                "现在最需要我们协助解决的障碍是什么？",
+                "下一次确认安排在什么时间比较合适？",
+            ],
+            "do_not": ["不反复施压。", "不替学长推断困难或作出决定。"],
+        },
+        "DUE_NOW": {
+            "goal": "责任到人，确认决定与下一步安排",
+            "channel": "PHONE",
+            "reason": "已进入续费月份，应由责任人确认当前决定、障碍和具体下一步。",
+            "questions": [
+                "目前关于继续同行的决定是否已经明确？",
+                "还有什么事项需要我们协调支持？",
+                "下一步由谁在什么时间跟进最合适？",
+            ],
+            "do_not": ["不在没有确认的情况下代替学长做决定。", "不遗漏责任人和下一步时间。"],
+        },
+        "RECOVERY": {
+            "goal": "确认延期、不续、困难或失联原因并完成复盘",
+            "channel": "PHONE",
+            "reason": "续费月份已过且周期未闭环，需要尊重事实地确认结果和后续关系安排。",
+            "questions": [
+                "目前未完成续费的主要原因是什么？",
+                "是希望延期沟通，还是已经有明确决定？",
+                "后续我们以什么方式保持联系最合适？",
+            ],
+            "do_not": ["不把所有未完成都归因于价格。", "不在明确退出后继续重复打扰。"],
+        },
+        "CLOSED": {
+            "goal": "保持正常关系，不重复发起续费动作",
+            "channel": "NONE",
+            "reason": "当前续费周期已闭环，不应再次触发本周期续费联系。",
+            "questions": [],
+            "do_not": ["不重复发起本周期续费提醒。"],
+        },
+    }
+    strategy = dict(strategies[stage_code])
+    if latest_followup and latest_followup.get("needs_support") and stage_code not in {
+        "PREPARE",
+        "OBSERVE_3",
+        "CLOSED",
+    }:
+        strategy["channel"] = "MEETING"
+        strategy["reason"] += " 最近一次跟进标记需要协助，建议责任人与负责人协同。"
+        strategy["coordination_recommended"] = True
+    else:
+        strategy["coordination_recommended"] = False
+    return strategy
 
 
 def maybe_create_historical_cycle(
@@ -770,6 +953,10 @@ def list_cycles(
     allowed = accessible_org_ids(user_id)
     if allowed is not None:
         rows = [row for row in rows if row["org_unit_id"] in allowed]
+    for row in rows:
+        row["stage"] = determine_renewal_stage(
+            row["renewal_year"], row["due_month"], row["status"]
+        )
     return rows
 
 
@@ -1097,6 +1284,175 @@ def list_followups(cycle_id: int, actor_user_id: int) -> list[dict[str, Any]]:
         "ORDER BY followed_at DESC, id DESC",
         (cycle_id,),
     )
+
+
+def get_action_card(
+    cycle_id: int,
+    actor_user_id: int,
+    *,
+    as_of: date | datetime | None = None,
+) -> dict[str, Any]:
+    """Build a read-only, rules-based action card for one renewal cycle."""
+    current = as_of or datetime.now(UTC)
+    current_date = current.date() if isinstance(current, datetime) else current
+    cycle = fetch_one(
+        "SELECT c.id, c.member_id, c.renewal_year, c.due_month, c.status, "
+        "c.result, c.assigned_user_id, u.display_name AS assigned_user_name, "
+        "m.name AS member_name, m.join_date, m.study_start_date, m.membership_years, "
+        "m.membership_years_overridden, "
+        f"{MEMBER_RENEWAL_ORG_SQL} AS member_org_unit_id, o.name AS org_name, "
+        f"{MEMBER_CLASS_NAME_SQL} AS class_name, "
+        f"{MEMBER_GROUP_NAME_SQL} AS group_name "
+        "FROM renewal_cycles c JOIN members m ON m.id=c.member_id "
+        f"JOIN org_units o ON o.id={MEMBER_RENEWAL_ORG_SQL} "
+        "LEFT JOIN app_users u ON u.id=c.assigned_user_id WHERE c.id=?",
+        (cycle_id,),
+    )
+    if not cycle:
+        raise ValueError("续费周期不存在")
+    allowed = accessible_org_ids(actor_user_id)
+    if allowed is not None and cycle["member_org_unit_id"] not in allowed:
+        raise PermissionError("续费周期不在组织授权范围内")
+
+    latest = fetch_one(
+        "SELECT f.id, f.followed_at, f.channel, f.summary, f.intention, "
+        "f.needs_support, f.next_action, f.next_followup_at, "
+        "u.display_name AS followed_by_name "
+        "FROM renewal_followups f LEFT JOIN app_users u ON u.id=f.followed_by "
+        "WHERE f.renewal_cycle_id=? ORDER BY f.followed_at DESC, f.id DESC LIMIT 1",
+        (cycle_id,),
+    )
+    if latest:
+        latest = dict(latest)
+        latest["summary"] = _redact_action_text(latest.get("summary"))
+        latest["next_action"] = _redact_action_text(latest.get("next_action"))
+        latest["needs_support"] = bool(latest.get("needs_support"))
+
+    stage = determine_renewal_stage(
+        cycle["renewal_year"], cycle["due_month"], cycle["status"], as_of=current_date
+    )
+    memories = verified_member_memories(cycle["member_id"], limit=4, as_of=current_date)
+    strategy = _renewal_action_strategy(stage["code"], latest_followup=latest)
+    salutation = (
+        cycle["member_name"]
+        if str(cycle["member_name"]).endswith(("学长", "学姐"))
+        else f"{cycle['member_name']}学长"
+    )
+    memory = memories[0] if memories else None
+    if stage["code"] == "CLOSED":
+        wechat_reference = None
+        phone_opening_reference = None
+    else:
+        memory_wechat = (
+            f"前段时间想到您参加过的{memory['title']}，也想听听您最近有没有新的感受。"
+            if memory
+            else "有一段时间没和您细聊了，也一直惦记着您的近况。"
+        )
+        recent_contact = "上次联系后，最近还顺利吗？" if latest else "最近还顺利吗？"
+        if stage["code"] in {"PREPARE", "OBSERVE_3"}:
+            wechat_reference = (
+                f"{salutation}好，{memory_wechat}{recent_contact}"
+                "最近企业、学习或生活上如果有我们可以支持的地方，也请随时告诉我。"
+            )
+            phone_opening_reference = (
+                f"{salutation}好，我是盛和塾的运营同仁。今天联系您主要是想关心一下近况，"
+                "也听听您最近学习和经营上的感受，现在方便聊几分钟吗？"
+            )
+        elif stage["code"] == "RENEW_2":
+            wechat_reference = (
+                f"{salutation}好，{memory_wechat}{recent_contact}"
+                "也想和您回顾一下这一年的学习与同行，听听您对下一阶段学习的期待。"
+            )
+            phone_opening_reference = (
+                f"{salutation}好，我是盛和塾的运营同仁。想听听您对这一年学习和同行的真实感受，"
+                "也了解一下接下来最希望获得哪些支持，现在方便聊几分钟吗？"
+            )
+        else:
+            wechat_reference = (
+                f"{salutation}好，{memory_wechat}{recent_contact}"
+                "想和您确认一下下一阶段继续同行的考虑，以及有没有需要我们协调支持的地方。"
+            )
+            phone_opening_reference = (
+                f"{salutation}好，我是盛和塾的运营同仁。今天想基于前面的沟通，"
+                "确认一下您对下一阶段同行的考虑，也看看有没有需要我们协助解决的事项。"
+            )
+
+    join_date = str(cycle["join_date"])[:10] if cycle.get("join_date") else None
+    membership_years = _completed_membership_years(
+        cycle.get("join_date"),
+        cycle.get("membership_years"),
+        cycle.get("membership_years_overridden"),
+        as_of=current_date,
+    )
+    result = {
+        "cycle": {
+            "id": cycle["id"],
+            "renewal_year": cycle["renewal_year"],
+            "due_month": cycle["due_month"],
+            "status": cycle["status"],
+            "result": cycle["result"],
+            "assigned_user_id": cycle["assigned_user_id"],
+            "assigned_user_name": cycle["assigned_user_name"],
+        },
+        "member": {
+            "id": cycle["member_id"],
+            "name": cycle["member_name"],
+            "org_unit_id": cycle["member_org_unit_id"],
+            "org_name": cycle["org_name"],
+            "class_name": cycle["class_name"],
+            "group_name": cycle["group_name"],
+            "join_date": join_date,
+            "study_start_date": (
+                str(cycle["study_start_date"])[:10]
+                if cycle.get("study_start_date")
+                else None
+            ),
+            "membership_years": membership_years,
+        },
+        "stage": stage,
+        "latest_followup": latest,
+        "current_context": {
+            "intention": latest.get("intention") if latest else None,
+            "needs_support": latest.get("needs_support") if latest else False,
+            "next_action": latest.get("next_action") if latest else None,
+            "next_followup_at": latest.get("next_followup_at") if latest else None,
+        },
+        "verified_memories": memories,
+        "action": {
+            "goal": strategy["goal"],
+            "recommended_channel": strategy["channel"],
+            "recommendation_reason": strategy["reason"],
+            "coordination_recommended": strategy["coordination_recommended"],
+            "wechat_reference": wechat_reference,
+            "phone_opening_reference": phone_opening_reference,
+            "questions": strategy["questions"],
+            "do_not": strategy["do_not"],
+            "advice_source": "RULE_TEMPLATE_V1",
+        },
+        "data_quality": {
+            "facts_only": True,
+            "memory_count": len(memories),
+            "memory_fallback_used": not bool(memories),
+            "join_date_available": bool(join_date),
+        },
+        "policy": "阶段由后端月份规则决定；建议仅使用已验证经历，不包含手机号或明确金额，不自动修改续费数据。",
+    }
+    with transaction() as connection:
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="renewals.action_card.view",
+            resource_type="renewal_cycle",
+            resource_id=str(cycle_id),
+            org_unit_id=cycle["member_org_unit_id"],
+            purpose="查看单个学长续费今日行动卡",
+            after={
+                "stage": stage["code"],
+                "memory_count": len(memories),
+                "facts_only": True,
+            },
+        )
+    return result
 
 
 def list_overview(user_id: int, year: int = 2026) -> dict[str, Any]:
