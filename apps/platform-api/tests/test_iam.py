@@ -244,6 +244,14 @@ class IamIsolationTests(unittest.TestCase):
             if item["class_name"] == "唯一性测试班"
         )
         self.assertEqual(candidate["duplicate_count"], 1)
+        tree = self.client.get("/api/v1/org-units/tree", headers=self.admin_headers)
+        self.assertEqual(tree.status_code, 200, tree.text)
+        duplicate_nodes = [
+            item for item in tree.json()["data"] if item["name"] == "唯一性测试班"
+        ]
+        self.assertEqual(len(duplicate_nodes), 2)
+        self.assertEqual(sum(item["is_name_canonical"] for item in duplicate_nodes), 1)
+        self.assertTrue(all(item["duplicate_name"] for item in duplicate_nodes))
         with transaction() as connection:
             execute(connection, "UPDATE org_units SET is_active=0 WHERE id IN ('class-duplicate-a', 'class-duplicate-b')")
         preview = self.client.get(

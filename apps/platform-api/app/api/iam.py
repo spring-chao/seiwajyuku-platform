@@ -246,7 +246,7 @@ def transfer_group_member(
 def org_tree(user: dict = Depends(require_permission("org:read"))) -> dict:
     allowed = accessible_org_ids(user["id"])
     rows = fetch_all(
-        "SELECT o.id, o.unit_code, o.name, o.unit_type, o.parent_id, "
+        "SELECT o.id, o.unit_code, o.name, o.unit_type, o.parent_id, o.created_at, "
         "p.name AS parent_name FROM org_units o "
         "LEFT JOIN org_units p ON p.id=o.parent_id "
         "WHERE o.is_active=1 ORDER BY o.unit_type, p.name, o.name, o.id"
@@ -264,10 +264,26 @@ def org_tree(user: dict = Depends(require_permission("org:read"))) -> dict:
             and candidate["name"] == row["name"]
         ) > 1
     }
+    canonical_class_ids: dict[str, str] = {}
+    for name in duplicate_names:
+        candidates = sorted(
+            (
+                candidate
+                for candidate in rows
+                if candidate["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
+                and candidate["name"] == name
+            ),
+            key=lambda candidate: (candidate.get("created_at") or "", candidate["id"]),
+        )
+        canonical_class_ids[name] = candidates[0]["id"]
     for row in rows:
         row["duplicate_name"] = (
             row["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
             and row["name"] in duplicate_names
+        )
+        row["is_name_canonical"] = (
+            row["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
+            and canonical_class_ids.get(row["name"]) == row["id"]
         )
     return {"success": True, "data": rows}
 

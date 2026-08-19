@@ -569,7 +569,9 @@ export type OrgUnit = {
   unit_type: string;
   parent_id?: string;
   parent_name?: string | null;
+  created_at?: string | null;
   duplicate_name?: boolean;
+  is_name_canonical?: boolean;
 };
 
 export type LearningOrgReferenceCounts = {

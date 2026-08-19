@@ -183,7 +183,7 @@ const groupFilterOptions = computed(() => {
   return options;
 });
 const classOrgs = computed(() => {
-  return orgs.value
+  const candidates = orgs.value
     .filter(
       item =>
         ["CLASS", "SPECIAL_COHORT"].includes(item.unit_type) &&
@@ -191,10 +191,26 @@ const classOrgs = computed(() => {
           (item.parent_id === "org-suzhou" &&
             ["先锋班", "神仙班", "黄埔一班", "黄埔二班"].includes(item.name)))
     )
-    .sort((left, right) =>
-      left.name.localeCompare(right.name, "zh-CN") ||
-      left.unit_code.localeCompare(right.unit_code, "zh-CN")
-    );
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+
+  // Historical imports may have left multiple active organization nodes with
+  // the same class name. A member-edit form must never make operators choose
+  // between those technical duplicates. Use the backend's canonical node for
+  // new assignments; while editing an existing historical relation, retain
+  // that one node as the sole visible option until the audited merge is run.
+  const selectedId = form.class_org_unit_id;
+  const byName = new Map<string, OrgUnit[]>();
+  for (const item of candidates) {
+    const values = byName.get(item.name) || [];
+    values.push(item);
+    byName.set(item.name, values);
+  }
+  return [...byName.values()]
+    .map(values => {
+      const current = values.find(item => item.id === selectedId);
+      return current || values.find(item => item.is_name_canonical) || values[0];
+    })
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 });
 const classOptionLabel = (org: { name: string }) => org.name;
 const classOptions = computed(() => {
