@@ -18,9 +18,11 @@ from app.services.class_name_cleanup import (
 from app.services.organization_management import (
     create_learning_org_unit,
     deactivate_learning_org_unit,
+    group_member_transfer_options,
     list_learning_org_units,
     move_learning_org_unit,
     preview_learning_org_move,
+    transfer_group_member_relation,
 )
 
 
@@ -51,6 +53,7 @@ class PasswordResetPayload(BaseModel):
 
 class ClassCleanupPayload(BaseModel):
     confirmation: str = Field(min_length=4, max_length=100)
+    class_names: list[str] = Field(default_factory=list, max_length=20)
 
 
 class LearningOrgCreatePayload(BaseModel):
@@ -67,6 +70,13 @@ class LearningOrgMovePayload(BaseModel):
 
 
 class LearningOrgDeactivatePayload(BaseModel):
+    reason: str = Field(min_length=6, max_length=1000)
+    confirmation: str = Field(min_length=4, max_length=300)
+
+
+class LearningGroupMemberTransferPayload(BaseModel):
+    member_id: int = Field(gt=0)
+    target_group_org_unit_id: str = Field(min_length=1, max_length=64)
     reason: str = Field(min_length=6, max_length=1000)
     confirmation: str = Field(min_length=4, max_length=300)
 
@@ -117,9 +127,10 @@ def reset_password(
 
 @router.get("/iam/org-units/class-name-cleanup")
 def preview_class_name_cleanup(
+    class_name: list[str] = Query(default=[]),
     _: dict = Depends(require_permission("org:manage")),
 ) -> dict:
-    return {"success": True, "data": preview_duplicate_class_cleanup()}
+    return {"success": True, "data": preview_duplicate_class_cleanup(set(class_name) or None)}
 
 
 @router.post("/iam/org-units/class-name-cleanup")
@@ -129,7 +140,8 @@ def apply_class_name_cleanup(
 ) -> dict:
     try:
         data = apply_duplicate_class_cleanup(
-            actor["id"], confirmation=payload.confirmation
+            actor["id"], confirmation=payload.confirmation,
+            class_names=set(payload.class_names) or None,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -204,32 +216,82 @@ def deactivate_learning_org(
     return {"success": True, "data": data}
 
 
+@router.get("/iam/org-units/{unit_id}/group-member-transfer-options")
+def group_member_transfer_preview(
+    unit_id: str,
+    actor: dict = Depends(require_permission("org:manage")),
+) -> dict:
+    try:
+        data = group_member_transfer_options(actor["id"], unit_id)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/iam/org-units/{unit_id}/group-member-transfer")
+def transfer_group_member(
+    unit_id: str,
+    payload: LearningGroupMemberTransferPayload,
+    actor: dict = Depends(require_permission("org:manage")),
+) -> dict:
+    try:
+        data = transfer_group_member_relation(actor["id"], unit_id, **payload.model_dump())
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
 @router.get("/org-units/tree")
 def org_tree(user: dict = Depends(require_permission("org:read"))) -> dict:
     allowed = accessible_org_ids(user["id"])
     rows = fetch_all(
-        "SELECT o.id, o.unit_code, o.name, o.unit_type, o.parent_id, "
+        "SELECT o.id, o.unit_code, o.name, o.unit_type, o.parent_id, o.created_at, "
         "p.name AS parent_name FROM org_units o "
         "LEFT JOIN org_units p ON p.id=o.parent_id "
         "WHERE o.is_active=1 ORDER BY o.unit_type, p.name, o.name, o.id"
     )
     if allowed is not None:
         rows = [row for row in rows if row["id"] in allowed]
-    duplicate_names = {
-        row["name"]
+    class_scope_keys = {
+        (row.get("parent_id"), row["name"])
         for row in rows
         if row["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
-        and sum(
+    }
+    duplicate_scope_keys = {
+        key
+        for key in class_scope_keys
+        if sum(
             1
             for candidate in rows
             if candidate["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
-            and candidate["name"] == row["name"]
+            and (candidate.get("parent_id"), candidate["name"]) == key
         ) > 1
     }
+    canonical_class_ids: dict[tuple[str | None, str], str] = {}
+    for key in class_scope_keys:
+        candidates = sorted(
+            (
+                candidate
+                for candidate in rows
+                if candidate["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
+                and (candidate.get("parent_id"), candidate["name"]) == key
+            ),
+            key=lambda candidate: (candidate.get("created_at") or "", candidate["id"]),
+        )
+        canonical_class_ids[key] = candidates[0]["id"]
     for row in rows:
+        key = (row.get("parent_id"), row["name"])
         row["duplicate_name"] = (
             row["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
-            and row["name"] in duplicate_names
+            and key in duplicate_scope_keys
+        )
+        row["is_name_canonical"] = (
+            row["unit_type"] in {"CLASS", "SPECIAL_COHORT"}
+            and canonical_class_ids.get(key) == row["id"]
         )
     return {"success": True, "data": rows}
 

@@ -34,17 +34,23 @@ def _rows(connection, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, 
     return [dict(row) for row in execute(connection, sql, params).fetchall()]
 
 
-def _duplicate_sets(connection) -> dict[str, list[dict[str, Any]]]:
+def _duplicate_sets(
+    connection, class_names: set[str] | None = None
+) -> dict[tuple[str | None, str], list[dict[str, Any]]]:
     units = _rows(
         connection,
         "SELECT id, unit_code, name, unit_type, parent_id, created_at FROM org_units "
         "WHERE is_active=1 AND unit_type IN ('CLASS', 'SPECIAL_COHORT') "
         "ORDER BY name, created_at, id",
     )
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    grouped: dict[tuple[str | None, str], list[dict[str, Any]]] = defaultdict(list)
     for unit in units:
-        grouped[unit["name"]].append(unit)
-    return {name: values for name, values in grouped.items() if len(values) > 1}
+        grouped[(unit.get("parent_id"), unit["name"])].append(unit)
+    return {
+        key: values
+        for key, values in grouped.items()
+        if len(values) > 1 and (class_names is None or key[1] in class_names)
+    }
 
 
 def _reference_count(connection, table: str, column: str, duplicate_ids: list[str]) -> int:
@@ -70,12 +76,12 @@ def _blocking_reference_counts(connection, duplicate_ids: list[str]) -> dict[str
     return counts
 
 
-def preview_duplicate_class_cleanup() -> dict[str, Any]:
+def preview_duplicate_class_cleanup(class_names: set[str] | None = None) -> dict[str, Any]:
     """Produce no-write migration candidates; IDs are intentionally omitted."""
     with transaction() as connection:
-        duplicate_sets = _duplicate_sets(connection)
+        duplicate_sets = _duplicate_sets(connection, class_names)
         candidates: list[dict[str, Any]] = []
-        for name, units in duplicate_sets.items():
+        for (parent_id, name), units in duplicate_sets.items():
             canonical = units[0]
             duplicates = units[1:]
             duplicate_ids = [unit["id"] for unit in duplicates]
@@ -100,6 +106,7 @@ def preview_duplicate_class_cleanup() -> dict[str, Any]:
             blockers = _blocking_reference_counts(connection, duplicate_ids)
             candidates.append({
                 "class_name": name,
+                "parent_id": parent_id,
                 "canonical_unit_code": canonical["unit_code"],
                 "duplicate_count": len(duplicates),
                 "reference_counts": counts,
@@ -116,36 +123,67 @@ def preview_duplicate_class_cleanup() -> dict[str, Any]:
         }
 
 
-def apply_duplicate_class_cleanup(actor_user_id: int, *, confirmation: str) -> dict[str, int]:
+def apply_duplicate_class_cleanup(
+    actor_user_id: int, *, confirmation: str, class_names: set[str] | None = None
+) -> dict[str, int]:
     """Repoint references, deactivate duplicates, and create an auditable rollback record.
 
     Class nodes that still own active groups are rejected. Moving those trees
     needs a separately reviewed group-level reconciliation rather than a
     destructive automatic merge.
     """
-    if confirmation.strip() != "确认合并重复班级组织":
+    expected_confirmation = (
+        "确认合并昆山炎武一至四班重复组织"
+        if class_names == {"炎武一班", "炎武二班", "炎武三班", "炎武四班"}
+        else "确认合并重复班级组织"
+    )
+    if confirmation.strip() != expected_confirmation:
         raise ValueError("确认文字不匹配，未执行组织去重")
     now = datetime.now(UTC).isoformat()
     with transaction() as connection:
-        duplicate_sets = _duplicate_sets(connection)
+        duplicate_sets = _duplicate_sets(connection, class_names)
         merged = 0
         moved_relations = 0
         moved_events = 0
-        for name, units in duplicate_sets.items():
+        for (_, name), units in duplicate_sets.items():
             canonical = units[0]
             duplicates = units[1:]
             duplicate_ids = [unit["id"] for unit in duplicates]
             placeholders = ",".join("?" for _ in duplicate_ids)
             children = _rows(
                 connection,
-                f"SELECT id FROM org_units WHERE is_active=1 AND parent_id IN ({placeholders})",
+                f"SELECT id, name FROM org_units WHERE is_active=1 AND unit_type='GROUP' "
+                f"AND parent_id IN ({placeholders})",
                 tuple(duplicate_ids),
             )
-            if children:
-                raise ValueError(f"班级 {name} 仍有小组组织，需人工复核后单独处理")
+            canonical_group_names = {
+                row["name"]
+                for row in _rows(
+                    connection,
+                    "SELECT name FROM org_units WHERE is_active=1 AND unit_type='GROUP' AND parent_id=?",
+                    (canonical["id"],),
+                )
+            }
+            conflicting_groups = sorted(
+                {row["name"] for row in children if row["name"] in canonical_group_names}
+            )
+            if conflicting_groups:
+                raise ValueError(
+                    f"班级 {name} 存在同名小组（{'、'.join(conflicting_groups)}），"
+                    "请先通过“查看并迁移”处理后再归并"
+                )
             blockers = _blocking_reference_counts(connection, duplicate_ids)
             if any(count != 0 for count in blockers.values()):
                 raise ValueError(f"班级 {name} 存在需人工复核的业务引用，未执行归并")
+            # Non-conflicting child groups keep their IDs and all history; only
+            # their parent class changes. Same-name groups are rejected above
+            # so the operation never guesses a learner-group mapping.
+            for child in children:
+                execute(
+                    connection,
+                    "UPDATE org_units SET parent_id=?, updated_at=? WHERE id=?",
+                    (canonical["id"], now, child["id"]),
+                )
             for duplicate in duplicates:
                 duplicate_id = duplicate["id"]
                 # Relation rows have a uniqueness constraint. Preserve a

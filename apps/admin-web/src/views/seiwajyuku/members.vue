@@ -183,24 +183,36 @@ const groupFilterOptions = computed(() => {
   return options;
 });
 const classOrgs = computed(() => {
-  const available = orgs.value.filter(
-    item =>
-      ["CLASS", "SPECIAL_COHORT"].includes(item.unit_type) &&
-      (item.parent_id === form.org_unit_id ||
-        (item.parent_id === "org-suzhou" &&
-          ["先锋班", "神仙班", "黄埔一班", "黄埔二班"].includes(item.name))) &&
-      !item.duplicate_name
-  );
-  return available;
+  const candidates = orgs.value
+    .filter(
+      item =>
+        ["CLASS", "SPECIAL_COHORT"].includes(item.unit_type) &&
+        (item.parent_id === form.org_unit_id ||
+          (item.parent_id === "org-suzhou" &&
+            ["先锋班", "神仙班", "黄埔一班", "黄埔二班"].includes(item.name)))
+    )
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+
+  // Historical imports may have left multiple active organization nodes with
+  // the same class name. A member-edit form must never make operators choose
+  // between those technical duplicates. Use the backend's canonical node for
+  // new assignments; while editing an existing historical relation, retain
+  // that one node as the sole visible option until the audited merge is run.
+  const selectedId = form.class_org_unit_id;
+  const byName = new Map<string, OrgUnit[]>();
+  for (const item of candidates) {
+    const values = byName.get(item.name) || [];
+    values.push(item);
+    byName.set(item.name, values);
+  }
+  return [...byName.values()]
+    .map(values => {
+      const current = values.find(item => item.id === selectedId);
+      return current || values.find(item => item.is_name_canonical) || values[0];
+    })
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 });
-const classOptionLabel = (org: { name: string; parent_id?: string | null }) => {
-  if (
-    org.parent_id === "org-suzhou" &&
-    ["先锋班", "神仙班", "黄埔一班", "黄埔二班"].includes(org.name)
-  ) return `${org.name}（苏州塾直属）`;
-  const owner = orgs.value.find(item => item.id === org.parent_id);
-  return `${org.name}（${owner?.name || "运营归属待核"}）`;
-};
+const classOptionLabel = (org: { name: string }) => org.name;
 const classOptions = computed(() => {
   const options = classOrgs.value.map(org => ({
     ...org,
@@ -222,7 +234,7 @@ const classOptions = computed(() => {
       parent_id: current?.parent_id,
       parent_name: current?.parent_name,
       duplicate_name: current?.duplicate_name,
-      option_label: `${name}（当前归属，需复核）`
+      option_label: name
     });
   }
   return options;

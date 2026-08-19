@@ -139,6 +139,10 @@ export type OperationRhythmItem = {
   id: number;
   org_unit_id: string;
   org_name: string;
+  organization_id?: string | null;
+  organization_name?: string | null;
+  class_org_unit_id?: string | null;
+  class_name?: string | null;
   period: string;
   item_key: string;
   title: string;
@@ -228,6 +232,9 @@ export const getOperationsSnapshot = (params: {
 export const getOperationRhythmSnapshot = (params: {
   year: number;
   month: number;
+  organization_id?: string;
+  class_org_unit_id?: string;
+  status?: OperationRhythmStatus;
 }) =>
   http.request<{ success: boolean; data: OperationRhythmSnapshot }>(
     "get",
@@ -247,7 +254,8 @@ export const generateOperationRhythm = (params: {
 export const updateOperationRhythmItem = (
   itemId: number,
   data: {
-    status: OperationRhythmStatus;
+    status?: OperationRhythmStatus;
+    title?: string;
     note?: string | null;
     start_date?: string | null;
     due_date?: string | null;
@@ -473,7 +481,8 @@ export type BirthdayGreetingMemory = {
   month: number;
   title: string;
   activity_type: string;
-  category: "SPECIAL_EXPERIENCE" | "LONG_TERM_COMPANIONSHIP" | "LEARNING_ACTIVITY";
+  category:
+    "SPECIAL_EXPERIENCE" | "LONG_TERM_COMPANIONSHIP" | "LEARNING_ACTIVITY";
   category_label: string;
   source_type: "ATTENDANCE" | "LEGACY_ACTIVITY_FACT";
   evidence_status: string;
@@ -561,7 +570,9 @@ export type OrgUnit = {
   unit_type: string;
   parent_id?: string;
   parent_name?: string | null;
+  created_at?: string | null;
   duplicate_name?: boolean;
+  is_name_canonical?: boolean;
 };
 
 export type LearningOrgReferenceCounts = {
@@ -592,6 +603,18 @@ export type LearningOrgMovePreview = {
   target_parent_name: string;
   reference_counts: LearningOrgReferenceCounts;
   confirmation: string;
+};
+
+export type LearningGroupMemberTransferOptions = {
+  source_group: { id: string; name: string };
+  class: { id: string; name: string };
+  members: Array<{
+    member_id: number;
+    member_code: string;
+    name: string;
+    phone_masked?: string | null;
+  }>;
+  target_groups: Array<{ id: string; name: string }>;
 };
 
 export type DirectClassPreflight = {
@@ -866,6 +889,84 @@ export type RenewalCycle = {
   assigned_user_name?: string;
   completed_at?: string;
   updated_at: string;
+  stage: RenewalStage;
+};
+
+export type RenewalStageCode =
+  | "PREPARE"
+  | "OBSERVE_3"
+  | "RENEW_2"
+  | "FOLLOW_1"
+  | "DUE_NOW"
+  | "RECOVERY"
+  | "CLOSED";
+
+export type RenewalStage = {
+  code: RenewalStageCode;
+  label: string;
+  months_until_due: number;
+  as_of_month: string;
+  source: "CALENDAR_RULE";
+};
+
+export type RenewalActionCard = {
+  cycle: {
+    id: number;
+    renewal_year: number;
+    due_month: number;
+    status: string;
+    result?: string | null;
+    assigned_user_id?: number | null;
+    assigned_user_name?: string | null;
+  };
+  member: {
+    id: number;
+    name: string;
+    org_unit_id: string;
+    org_name: string;
+    class_name?: string | null;
+    group_name?: string | null;
+    join_date?: string | null;
+    study_start_date?: string | null;
+    membership_years?: number | null;
+  };
+  stage: RenewalStage;
+  latest_followup?: {
+    id: number;
+    followed_at: string;
+    channel: string;
+    summary?: string | null;
+    intention?: string | null;
+    needs_support: boolean;
+    next_action?: string | null;
+    next_followup_at?: string | null;
+    followed_by_name?: string | null;
+  } | null;
+  current_context: {
+    intention?: string | null;
+    needs_support: boolean;
+    next_action?: string | null;
+    next_followup_at?: string | null;
+  };
+  verified_memories: BirthdayGreetingMemory[];
+  action: {
+    goal: string;
+    recommended_channel: "WECHAT" | "PHONE" | "MEETING" | "NONE";
+    recommendation_reason: string;
+    coordination_recommended: boolean;
+    wechat_reference?: string | null;
+    phone_opening_reference?: string | null;
+    questions: string[];
+    do_not: string[];
+    advice_source: "RULE_TEMPLATE_V1";
+  };
+  data_quality: {
+    facts_only: true;
+    memory_count: number;
+    memory_fallback_used: boolean;
+    join_date_available: boolean;
+  };
+  policy: string;
 };
 
 export type RenewalCoverageSummary = {
@@ -1092,6 +1193,36 @@ export const deactivateLearningOrgUnit = (
   http.request<{ success: boolean; data: { id: string; is_active: boolean } }>(
     "post",
     `/api/v1/iam/org-units/${unitId}/deactivate`,
+    { data }
+  );
+
+export const applyDuplicateClassCleanup = (data: {
+  confirmation: string;
+  class_names: string[];
+}) =>
+  http.request<{
+    success: boolean;
+    data: { deactivated_duplicate_classes: number };
+  }>("post", "/api/v1/iam/org-units/class-name-cleanup", { data });
+
+export const getLearningGroupMemberTransferOptions = (unitId: string) =>
+  http.request<{ success: boolean; data: LearningGroupMemberTransferOptions }>(
+    "get",
+    `/api/v1/iam/org-units/${unitId}/group-member-transfer-options`
+  );
+
+export const transferLearningGroupMember = (
+  unitId: string,
+  data: {
+    member_id: number;
+    target_group_org_unit_id: string;
+    reason: string;
+    confirmation: string;
+  }
+) =>
+  http.request<{ success: boolean; data: { member_id: number } }>(
+    "post",
+    `/api/v1/iam/org-units/${unitId}/group-member-transfer`,
     { data }
   );
 
@@ -1633,6 +1764,12 @@ export const getRenewalFollowups = (cycleId: number) =>
   http.request<{ success: boolean; data: RenewalFollowup[] }>(
     "get",
     `/api/v1/renewals/cycles/${cycleId}/followups`
+  );
+
+export const getRenewalActionCard = (cycleId: number) =>
+  http.request<{ success: boolean; data: RenewalActionCard }>(
+    "get",
+    `/api/v1/renewals/cycles/${cycleId}/action-card`
   );
 
 export const createRenewalFollowup = (

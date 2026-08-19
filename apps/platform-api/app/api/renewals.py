@@ -14,6 +14,7 @@ from app.services.renewals import (
     add_followup,
     apply_preview,
     create_cycle_from_member,
+    get_action_card,
     list_assignees,
     list_cycle_coverage,
     list_cycles,
@@ -219,6 +220,20 @@ def edit_cycle(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": {"id": cycle_id}}
+
+
+@router.get("/cycles/{cycle_id}/action-card")
+def action_card(
+    cycle_id: int,
+    user: dict = Depends(require_permission("renewals:read")),
+) -> dict:
+    try:
+        data = get_action_card(cycle_id, user["id"])
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.get("/cycles/{cycle_id}/followups")

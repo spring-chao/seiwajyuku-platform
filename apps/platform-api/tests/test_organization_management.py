@@ -132,6 +132,15 @@ class OrganizationManagementTests(unittest.TestCase):
         )
         self.assertEqual(created_group.status_code, 200, created_group.text)
         group_id = created_group.json()["data"]["id"]
+        listed = self.client.get(
+            "/api/v1/iam/org-units/learning-management", headers=self.headers
+        )
+        self.assertEqual(listed.status_code, 200, listed.text)
+        listed_group = next(
+            row for row in listed.json()["data"]["units"] if row["id"] == group_id
+        )
+        self.assertEqual(listed_group["name"], group_name)
+        self.assertEqual(listed_group["parent_id"], class_id)
         group = fetch_one("SELECT parent_id FROM org_units WHERE id=?", (group_id,))
         self.assertEqual(group["parent_id"], class_id)
         audit = fetch_one(
@@ -213,6 +222,130 @@ class OrganizationManagementTests(unittest.TestCase):
             if row["id"] == "class-management-move"
         )
         self.assertEqual(item["reference_counts"]["active_children"], 1)
+
+    def test_management_class_selectors_expose_one_canonical_node_per_name(self) -> None:
+        suffix = uuid4().hex[:10]
+        now = datetime.now(UTC).isoformat()
+        older_id = f"selector-class-a-{suffix}"
+        newer_id = f"selector-class-b-{suffix}"
+        other_center_id = f"selector-class-c-{suffix}"
+        class_name = f"下拉去重测试班-{suffix}"
+        with transaction() as connection:
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'CLASS', 'org-management-a', 1, '2026-01-01T00:00:00+00:00', ?), "
+                "(?, ?, ?, 'CLASS', 'org-management-a', 1, '2026-02-01T00:00:00+00:00', ?), "
+                "(?, ?, ?, 'CLASS', 'org-management-b', 1, '2025-01-01T00:00:00+00:00', ?)",
+                (
+                    older_id,
+                    f"SELECTOR_A_{suffix}",
+                    class_name,
+                    now,
+                    newer_id,
+                    f"SELECTOR_B_{suffix}",
+                    class_name,
+                    now,
+                    other_center_id,
+                    f"SELECTOR_C_{suffix}",
+                    class_name,
+                    now,
+                ),
+            )
+
+        response = self.client.get(
+            "/api/v1/iam/org-units/learning-management", headers=self.headers
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        selectable = [
+            row for row in response.json()["data"]["classes"]
+            if row["name"] == class_name
+        ]
+        self.assertEqual(
+            {row["id"] for row in selectable}, {older_id, other_center_id}
+        )
+        self.assertEqual(
+            [row["id"] for row in selectable if row["parent_id"] == "org-management-a"],
+            [older_id],
+        )
+        full_nodes = [
+            row for row in response.json()["data"]["units"]
+            if row["name"] == class_name
+        ]
+        self.assertEqual(len(full_nodes), 3)
+        self.assertEqual(sum(bool(row["is_name_canonical"]) for row in full_nodes), 2)
+
+    def test_group_member_transfer_exposes_member_and_keeps_history(self) -> None:
+        suffix = uuid4().hex[:10]
+        now = datetime.now(UTC).isoformat()
+        class_id = f"transfer-class-{suffix}"
+        source_id = f"transfer-source-{suffix}"
+        target_id = f"transfer-target-{suffix}"
+        with transaction() as connection:
+            for unit_id, code, name, unit_type, parent_id in (
+                (class_id, f"TRANSFER_CLASS_{suffix}", "迁移测试班", "CLASS", "org-management-a"),
+                (source_id, f"TRANSFER_SOURCE_{suffix}", "重复小组", "GROUP", class_id),
+                (target_id, f"TRANSFER_TARGET_{suffix}", "正式目标组", "GROUP", class_id),
+            ):
+                execute(
+                    connection,
+                    "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                    (unit_id, code, name, unit_type, parent_id, now, now),
+                )
+            member_id = execute(
+                connection,
+                "INSERT INTO members(member_code, name, org_unit_id, status, class_name, group_name, created_at, updated_at) "
+                "VALUES (?, '待迁移学员', 'org-management-a', 'ACTIVE', '迁移测试班', '重复小组', ?, ?)",
+                (f"TRANSFER-MEMBER-{suffix}", now, now),
+            ).lastrowid
+            for relation_type, org_unit_id in (("STUDY_CLASS", class_id), ("STUDY_GROUP", source_id)):
+                execute(
+                    connection,
+                    "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, source_type, created_at, updated_at) "
+                    "VALUES (?, ?, ?, 1, 'TEST', ?, ?)",
+                    (member_id, org_unit_id, relation_type, now, now),
+                )
+
+        options = self.client.get(
+            f"/api/v1/iam/org-units/{source_id}/group-member-transfer-options",
+            headers=self.headers,
+        )
+        self.assertEqual(options.status_code, 200, options.text)
+        self.assertEqual(options.json()["data"]["members"][0]["member_id"], member_id)
+        self.assertEqual(options.json()["data"]["target_groups"][0]["id"], target_id)
+
+        moved = self.client.post(
+            f"/api/v1/iam/org-units/{source_id}/group-member-transfer",
+            headers=self.headers,
+            json={
+                "member_id": member_id,
+                "target_group_org_unit_id": target_id,
+                "reason": "清理重复小组关联",
+                "confirmation": "确认将待迁移学员从重复小组转至正式目标组",
+            },
+        )
+        self.assertEqual(moved.status_code, 200, moved.text)
+        member = fetch_one("SELECT group_name FROM members WHERE id=?", (member_id,))
+        self.assertEqual(member["group_name"], "正式目标组")
+        current = fetch_one(
+            "SELECT org_unit_id FROM member_org_relations WHERE member_id=? "
+            "AND relation_type='STUDY_GROUP' AND valid_until IS NULL",
+            (member_id,),
+        )
+        self.assertEqual(current["org_unit_id"], target_id)
+        history = fetch_one(
+            "SELECT valid_until FROM member_org_relations WHERE member_id=? AND org_unit_id=? "
+            "AND relation_type='STUDY_GROUP' ORDER BY id DESC LIMIT 1",
+            (member_id, source_id),
+        )
+        self.assertTrue(history["valid_until"])
+        audit = fetch_one(
+            "SELECT action FROM audit_logs WHERE action='org.learning_group.member.transfer' "
+            "AND resource_id=? ORDER BY id DESC LIMIT 1",
+            (f"{member_id}:{source_id}:{target_id}",),
+        )
+        self.assertEqual(audit["action"], "org.learning_group.member.transfer")
 
     def test_member_and_renewal_views_ignore_ended_or_legacy_class_text(self) -> None:
         suffix = uuid4().hex[:10]

@@ -8,6 +8,7 @@ import pytest
 from app.services import operation_rhythm as operation_rhythm_service
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.iam import create_user
+from app.services.class_operations import update_class_operations
 from app.services.operation_rhythm import (
     generate_rhythm_cycles,
     rhythm_snapshot,
@@ -63,6 +64,16 @@ def _insert_scope() -> tuple[str, str, int, int]:
 
 def test_generate_rhythm_is_idempotent_and_expands_birthday_care() -> None:
     _, class_id, member_id, user_id = _insert_scope()
+    update_class_operations(
+        actor_user_id=user_id,
+        class_org_unit_id=class_id,
+        year=2026,
+        month=8,
+        updates={
+            "planned_class_meeting_at": "2026-08-22 09:00:00",
+            "groups": [],
+        },
+    )
 
     first = generate_rhythm_cycles(user_id, 2026, 8)
     second = generate_rhythm_cycles(user_id, 2026, 8)
@@ -80,14 +91,72 @@ def test_generate_rhythm_is_idempotent_and_expands_birthday_care() -> None:
     credit = next(row for row in rows if row["item_key"] == "CREDIT_SUBMISSION")
     assert birthday["business_id"] == str(member_id)
     assert birthday["due_date"] == "2026-08-26"
-    assert prep["start_date"] == "2026-08-21"
-    assert prep["due_date"] == "2026-08-27"
+    assert prep["start_date"] == "2026-08-15"
+    assert prep["due_date"] == "2026-08-21"
+    meeting = next(row for row in rows if row["item_key"] == "CLASS_MEETING")
+    teaching = next(row for row in rows if row["item_key"] == "TEACHING_REVIEW")
+    presentation = next(row for row in rows if row["item_key"] == "PRESENTATION_REVIEW")
+    review = next(row for row in rows if row["item_key"] == "CLASS_MEETING_REVIEW")
+    assert meeting["due_date"] == "2026-08-22"
+    assert teaching["due_date"] == "2026-08-12"
+    assert presentation["due_date"] == "2026-08-17"
+    assert review["due_date"] == "2026-08-22"
     assert credit["due_date"] == "2026-09-02"
 
     snapshot = rhythm_snapshot(user_id, 2026, 8)
     assert snapshot["data_quality"]["generated"] is True
     assert snapshot["summary"]["total"] == 10
     assert any(item["business_type"] == "BIRTHDAY_CARE" for item in snapshot["items"])
+
+
+def test_class_calendar_date_change_syncs_related_rhythm_items() -> None:
+    _, class_id, _, user_id = _insert_scope()
+    update_class_operations(
+        actor_user_id=user_id,
+        class_org_unit_id=class_id,
+        year=2026,
+        month=8,
+        updates={"planned_class_meeting_at": "2026-08-22 09:00:00", "groups": []},
+    )
+    generate_rhythm_cycles(user_id, 2026, 8)
+
+    update_class_operations(
+        actor_user_id=user_id,
+        class_org_unit_id=class_id,
+        year=2026,
+        month=8,
+        updates={"planned_class_meeting_at": "2026-08-25 09:00:00", "groups": []},
+    )
+    rows = fetch_all(
+        "SELECT item_key, start_date, due_date FROM operation_items "
+        "WHERE org_unit_id=? AND period='2026-08'",
+        (class_id,),
+    )
+    by_key = {row["item_key"]: row for row in rows}
+    assert by_key["CLASS_MEETING"]["due_date"] == "2026-08-25"
+    assert by_key["TEACHING_REVIEW"]["due_date"] == "2026-08-15"
+    assert by_key["CLASS_MEETING_PREPARATION"]["start_date"] == "2026-08-18"
+    assert by_key["CLASS_MEETING_PREPARATION"]["due_date"] == "2026-08-24"
+    assert by_key["CLASS_MEETING_REVIEW"]["due_date"] == "2026-08-25"
+
+
+def test_class_meeting_date_must_be_maintained_in_class_calendar() -> None:
+    _, class_id, _, user_id = _insert_scope()
+    update_class_operations(
+        actor_user_id=user_id,
+        class_org_unit_id=class_id,
+        year=2026,
+        month=8,
+        updates={"planned_class_meeting_at": "2026-08-22 09:00:00", "groups": []},
+    )
+    generate_rhythm_cycles(user_id, 2026, 8)
+    item = fetch_one(
+        "SELECT id FROM operation_items WHERE org_unit_id=? AND item_key='CLASS_MEETING'",
+        (class_id,),
+    )
+    assert item
+    with pytest.raises(ValueError, match="班级运营与本月服务日历"):
+        update_rhythm_item(user_id, item["id"], due_date="2026-08-28")
 
 
 def test_snapshot_normalizes_mysql_date_values(monkeypatch) -> None:
@@ -113,6 +182,58 @@ def test_snapshot_normalizes_mysql_date_values(monkeypatch) -> None:
         item["due_date"] is None or isinstance(item["due_date"], str)
         for item in snapshot["items"]
     )
+    assert any("未在班级运营与本月服务日历维护班会日期" in note for note in snapshot["data_quality"]["notes"])
+
+
+def test_snapshot_supports_organization_class_and_status_filters() -> None:
+    center_id, class_id, _, user_id = _insert_scope()
+    generate_rhythm_cycles(user_id, 2026, 8)
+
+    organization_snapshot = rhythm_snapshot(
+        user_id, 2026, 8, organization_id=center_id
+    )
+    class_snapshot = rhythm_snapshot(
+        user_id, 2026, 8, class_org_unit_id=class_id
+    )
+    planned_snapshot = rhythm_snapshot(
+        user_id, 2026, 8, status="PLANNED"
+    )
+
+    assert len(organization_snapshot["items"]) == 10
+    assert len(class_snapshot["items"]) == 10
+    assert class_snapshot["items"][0]["class_org_unit_id"] == class_id
+    assert class_snapshot["items"][0]["organization_id"] == center_id
+    assert planned_snapshot["items"]
+    assert all(item["status"] == "PLANNED" for item in planned_snapshot["items"])
+
+
+def test_update_rhythm_item_supports_audited_title_and_date_override() -> None:
+    _, class_id, _, user_id = _insert_scope()
+    generate_rhythm_cycles(user_id, 2026, 8)
+    item = fetch_one(
+        "SELECT id FROM operation_items WHERE org_unit_id=? AND business_type='BIRTHDAY_CARE'",
+        (class_id,),
+    )
+    assert item
+
+    result = update_rhythm_item(
+        user_id,
+        item["id"],
+        title="陈巧宝学长生日关怀（已核对）",
+        start_date="2026-08-20",
+        due_date="2026-08-27",
+    )
+
+    assert result["title"] == "陈巧宝学长生日关怀（已核对）"
+    assert result["start_date"] == "2026-08-20"
+    assert result["due_date"] == "2026-08-27"
+    assert fetch_one(
+        "SELECT manual_override FROM operation_items WHERE id=?", (item["id"],)
+    )["manual_override"] == 1
+
+    status_result = update_rhythm_item(user_id, item["id"], status="COMPLETED")
+    assert status_result["title"] == "陈巧宝学长生日关怀（已核对）"
+    assert status_result["due_date"] == "2026-08-27"
 
 
 def test_update_rhythm_item_records_status_and_audited_note() -> None:
@@ -154,4 +275,4 @@ def test_update_rhythm_item_rejects_out_of_scope_item() -> None:
         update_rhythm_item(scoped_user_id, item["id"], status="ATTENTION")
     assert fetch_one(
         "SELECT status FROM operation_items WHERE id=?", (item["id"],)
-    )["status"] == "PLANNED"
+    )["status"] == "PENDING"

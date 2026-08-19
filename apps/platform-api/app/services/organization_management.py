@@ -33,7 +33,7 @@ def _ensure_allowed(actor_user_id: int, *unit_ids: str) -> None:
 
 
 def _reference_counts(connection, unit: dict[str, Any]) -> dict[str, int]:
-    today = datetime.now(UTC).date().isoformat()
+    now = datetime.now(UTC).isoformat()
     active_member_relations = int(
         execute(
             connection,
@@ -42,7 +42,7 @@ def _reference_counts(connection, unit: dict[str, Any]) -> dict[str, int]:
             "WHERE r.org_unit_id=? AND m.status='ACTIVE' "
             "AND (r.valid_from IS NULL OR r.valid_from<=?) "
             "AND (r.valid_until IS NULL OR r.valid_until>=?)",
-            (unit["id"], today, today),
+            (unit["id"], now, now),
         ).fetchone()["count"]
     )
     active_children = int(
@@ -64,6 +64,127 @@ def _reference_counts(connection, unit: dict[str, Any]) -> dict[str, int]:
         "active_member_relations": active_member_relations,
         "active_children": active_children,
         "active_events": active_events,
+    }
+
+
+def group_member_transfer_options(actor_user_id: int, unit_id: str) -> dict[str, Any]:
+    """Return current group members and safe sibling targets before a one-person transfer."""
+    _ensure_allowed(actor_user_id, unit_id)
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        source = _unit(connection, unit_id)
+        if not source or source["unit_type"] != "GROUP" or not source["is_active"]:
+            raise ValueError("仅允许迁移启用小组中的当前关联学员")
+        parent = _unit(connection, source["parent_id"])
+        if not parent or parent["unit_type"] != "CLASS" or not parent["is_active"]:
+            raise ValueError("该小组所属班级不存在或已停用")
+        _ensure_allowed(actor_user_id, parent["id"])
+        members = _rows(
+            connection,
+            "SELECT DISTINCT m.id AS member_id, m.member_code, m.name, m.phone_masked "
+            "FROM member_org_relations r JOIN members m ON m.id=r.member_id "
+            "WHERE r.org_unit_id=? AND r.relation_type='STUDY_GROUP' AND m.status='ACTIVE' "
+            "AND (r.valid_from IS NULL OR r.valid_from<=?) "
+            "AND (r.valid_until IS NULL OR r.valid_until>=?) "
+            "ORDER BY m.name, m.id",
+            (unit_id, now, now),
+        )
+        targets = _rows(
+            connection,
+            "SELECT id, name FROM org_units WHERE parent_id=? AND unit_type='GROUP' "
+            "AND is_active=1 AND id<>? ORDER BY name, id",
+            (parent["id"], unit_id),
+        )
+        allowed = accessible_org_ids(actor_user_id)
+        if allowed is not None:
+            targets = [item for item in targets if item["id"] in allowed]
+    return {
+        "source_group": {"id": source["id"], "name": source["name"]},
+        "class": {"id": parent["id"], "name": parent["name"]},
+        "members": members,
+        "target_groups": targets,
+    }
+
+
+def transfer_group_member_relation(
+    actor_user_id: int,
+    unit_id: str,
+    *,
+    member_id: int,
+    target_group_org_unit_id: str,
+    reason: str,
+    confirmation: str,
+) -> dict[str, Any]:
+    """Move one active learner relation between sibling groups and retain history."""
+    if len(reason.strip()) < 6:
+        raise ValueError("迁移依据至少需要6个字符")
+    _ensure_allowed(actor_user_id, unit_id, target_group_org_unit_id)
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        source = _unit(connection, unit_id)
+        target = _unit(connection, target_group_org_unit_id)
+        if not source or source["unit_type"] != "GROUP" or not source["is_active"]:
+            raise ValueError("来源小组不存在或已停用")
+        if not target or target["unit_type"] != "GROUP" or not target["is_active"]:
+            raise ValueError("目标小组不存在或已停用")
+        if source["parent_id"] != target["parent_id"]:
+            raise ValueError("目标小组必须属于同一班级")
+        relation = execute(
+            connection,
+            "SELECT r.id, m.name FROM member_org_relations r JOIN members m ON m.id=r.member_id "
+            "WHERE r.member_id=? AND r.org_unit_id=? AND r.relation_type='STUDY_GROUP' "
+            "AND m.status='ACTIVE' AND (r.valid_from IS NULL OR r.valid_from<=?) "
+            "AND (r.valid_until IS NULL OR r.valid_until>=?) ORDER BY r.id DESC LIMIT 1",
+            (member_id, unit_id, now, now),
+        ).fetchone()
+        if not relation:
+            raise ValueError("该学长已不在来源小组的当前关联中，请刷新后重试")
+        expected = f"确认将{relation['name']}从{source['name']}转至{target['name']}"
+        if confirmation.strip() != expected:
+            raise ValueError("确认文字不匹配，未迁移小组关系")
+        conflicting = execute(
+            connection,
+            "SELECT r.id FROM member_org_relations r JOIN org_units g ON g.id=r.org_unit_id "
+            "WHERE r.member_id=? AND r.relation_type='STUDY_GROUP' AND g.parent_id=? "
+            "AND r.org_unit_id NOT IN (?, ?) AND (r.valid_from IS NULL OR r.valid_from<=?) "
+            "AND (r.valid_until IS NULL OR r.valid_until>=?) LIMIT 1",
+            (member_id, source["parent_id"], unit_id, target_group_org_unit_id, now, now),
+        ).fetchone()
+        if conflicting:
+            raise ValueError("该学长在本班还有其他有效小组关系，请先完成关系核对")
+        execute(
+            connection,
+            "UPDATE member_org_relations SET is_primary=0, valid_until=?, updated_at=? WHERE id=?",
+            (now, now, relation["id"]),
+        )
+        execute(
+            connection,
+            "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, "
+            "source_type, valid_from, created_at, updated_at) VALUES (?, ?, 'STUDY_GROUP', 1, "
+            "'ORG_MANUAL_TRANSFER', ?, ?, ?)",
+            (member_id, target["id"], now, now, now),
+        )
+        execute(
+            connection,
+            "UPDATE members SET group_name=?, updated_at=? WHERE id=?",
+            (target["name"], now, member_id),
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="org.learning_group.member.transfer",
+            resource_type="member_org_relation",
+            resource_id=f"{member_id}:{source['id']}:{target['id']}",
+            org_unit_id=source["parent_id"],
+            purpose=reason.strip(),
+            before={"member_id": member_id, "group_id": source["id"], "group_name": source["name"]},
+            after={"member_id": member_id, "group_id": target["id"], "group_name": target["name"]},
+        )
+    return {
+        "member_id": member_id,
+        "member_name": relation["name"],
+        "source_group_id": source["id"],
+        "target_group_id": target["id"],
     }
 
 
@@ -163,7 +284,8 @@ def list_learning_org_units(actor_user_id: int) -> dict[str, Any]:
         units = _rows(
             connection,
             "SELECT o.id, o.unit_code, o.name, o.unit_type, o.parent_id, "
-            "o.is_active, o.active_from, o.active_until, p.name AS parent_name, "
+            "o.is_active, o.active_from, o.active_until, o.created_at, "
+            "p.name AS parent_name, "
             "p.unit_type AS parent_type FROM org_units o "
             "LEFT JOIN org_units p ON p.id=o.parent_id "
             "WHERE o.unit_type IN ('CLASS','GROUP') "
@@ -178,7 +300,33 @@ def list_learning_org_units(actor_user_id: int) -> dict[str, Any]:
             "SELECT id, name FROM org_units "
             "WHERE unit_type='REGIONAL_CENTER' AND is_active=1 ORDER BY name, id",
         )
-        classes = [row for row in units if row["unit_type"] == "CLASS" and row["is_active"]]
+        active_classes = [
+            row for row in units if row["unit_type"] == "CLASS" and row["is_active"]
+        ]
+        canonical_by_scope_and_name: dict[tuple[str | None, str], dict[str, Any]] = {}
+        for row in active_classes:
+            key = (row.get("parent_id"), row["name"])
+            current = canonical_by_scope_and_name.get(key)
+            if current is None or (
+                row.get("created_at") or "",
+                row["id"],
+            ) < (
+                current.get("created_at") or "",
+                current["id"],
+            ):
+                canonical_by_scope_and_name[key] = row
+        for row in active_classes:
+            key = (row.get("parent_id"), row["name"])
+            row["is_name_canonical"] = (
+                canonical_by_scope_and_name[key]["id"] == row["id"]
+            )
+        # Selection controls (for example "新增小组") must never expose
+        # technical duplicate class nodes. The full ``units`` list remains
+        # available for organization review and cleanup.
+        classes = sorted(
+            canonical_by_scope_and_name.values(),
+            key=lambda row: (row.get("parent_name") or "", row["name"], row["id"]),
+        )
         if allowed is not None:
             centers = [row for row in centers if row["id"] in allowed]
     return {"units": units, "centers": centers, "classes": classes}
