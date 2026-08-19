@@ -132,6 +132,15 @@ class OrganizationManagementTests(unittest.TestCase):
         )
         self.assertEqual(created_group.status_code, 200, created_group.text)
         group_id = created_group.json()["data"]["id"]
+        listed = self.client.get(
+            "/api/v1/iam/org-units/learning-management", headers=self.headers
+        )
+        self.assertEqual(listed.status_code, 200, listed.text)
+        listed_group = next(
+            row for row in listed.json()["data"]["units"] if row["id"] == group_id
+        )
+        self.assertEqual(listed_group["name"], group_name)
+        self.assertEqual(listed_group["parent_id"], class_id)
         group = fetch_one("SELECT parent_id FROM org_units WHERE id=?", (group_id,))
         self.assertEqual(group["parent_id"], class_id)
         audit = fetch_one(

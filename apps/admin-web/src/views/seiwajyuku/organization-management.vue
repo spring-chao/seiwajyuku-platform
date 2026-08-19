@@ -147,7 +147,15 @@ async function submitCreate() {
       name,
       confirmation: `确认新增${label}：${name}`
     });
-    ElMessage.success(`${label}已新增并记录审计`);
+    const parent = data.value.units.find(item => item.id === createForm.parent_id);
+    if (createForm.unit_type === "GROUP" && parent) {
+      centerFilter.value = parent.parent_id || "";
+      classFilter.value = parent.id;
+      statusFilter.value = "ACTIVE";
+    }
+    ElMessage.success(
+      `${label}“${name}”已新增并记录审计，已定位到所属${createForm.unit_type === "GROUP" ? "班级" : "分中心"}`
+    );
     createVisible.value = false;
     await load();
   } catch (error) {
