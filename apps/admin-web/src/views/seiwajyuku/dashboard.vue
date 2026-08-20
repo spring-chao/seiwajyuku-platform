@@ -38,6 +38,11 @@ import { useUserStoreHook } from "@/store/modules/user";
 
 defineOptions({ name: "MpDashboard" });
 
+type CareListFilter =
+  "all" | MemberCareAction["urgency"] | MemberCareAction["source"];
+type ManagementExceptionFilter =
+  "all" | "overdue" | "support" | "recovery" | "unassigned" | "no_schedule";
+
 const loading = ref(false);
 const router = useRouter();
 const plans = ref<AnnualPlan[]>([]);
@@ -49,9 +54,13 @@ const rhythm = ref<OperationRhythmSnapshot>();
 const memberCare = ref<MemberCareActions>();
 const memberCareError = ref(false);
 const memberCareDialogVisible = ref(false);
+const careAllDialogVisible = ref(false);
+const careFilter = ref<CareListFilter>("all");
 const selectedCarePerson = ref<MemberCarePerson>();
 const memberCareManagement = ref<MemberCareManagementOverview>();
 const memberCareManagementError = ref(false);
+const managementAllDialogVisible = ref(false);
+const managementFilter = ref<ManagementExceptionFilter>("all");
 const renewalAnnualAnalytics = ref<RenewalAnnualAnalytics>();
 const renewalAnnualAnalyticsError = ref(false);
 const rhythmView = ref<"today" | "next_7_days" | "month" | "attention">(
@@ -417,7 +426,175 @@ const careNavigationLabel = (
 const careDueDate = (value?: string | null) =>
   value ? dayjs(value).format("YYYY-MM-DD") : "待确认时间";
 
+const careUrgencyRank: Record<MemberCareAction["urgency"], number> = {
+  OVERDUE: 0,
+  ATTENTION: 1,
+  TODAY: 2,
+  WINDOW: 3
+};
+const careFilterLabel = (filter: CareListFilter) =>
+  ({
+    all: "全部",
+    OVERDUE: "逾期",
+    TODAY: "今天",
+    ATTENTION: "需要协助",
+    WINDOW: "窗口",
+    BIRTHDAY: "生日关怀",
+    RENEWAL: "续费关爱",
+    FOLLOWUP: "日常关怀/走访"
+  })[filter];
+const carePersonActions = (person: MemberCarePerson) => [
+  person.primary_action,
+  ...person.actions
+];
+const careActionOverdueDays = (action: MemberCareAction, asOf?: string) => {
+  if (action.urgency !== "OVERDUE" || !action.due_date) return 0;
+  const dueDate = dayjs(action.due_date);
+  const referenceDate = dayjs(asOf || memberCare.value?.as_of);
+  if (!dueDate.isValid() || !referenceDate.isValid()) return 0;
+  return Math.max(
+    0,
+    referenceDate.startOf("day").diff(dueDate.startOf("day"), "day")
+  );
+};
+const careActionDueTimestamp = (action: MemberCareAction) => {
+  if (!action.due_date) return Number.MAX_SAFE_INTEGER;
+  const timestamp = dayjs(action.due_date).valueOf();
+  return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
+};
+const sortCarePeople = (people: MemberCarePerson[]) => {
+  const asOf = memberCare.value?.as_of;
+  return [...people].sort((left, right) => {
+    const leftActions = carePersonActions(left);
+    const rightActions = carePersonActions(right);
+    const leftPriority = Math.min(
+      ...leftActions.map(action => careUrgencyRank[action.urgency])
+    );
+    const rightPriority = Math.min(
+      ...rightActions.map(action => careUrgencyRank[action.urgency])
+    );
+    if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+
+    const leftOverdueDays = Math.max(
+      ...leftActions.map(action => careActionOverdueDays(action, asOf)),
+      0
+    );
+    const rightOverdueDays = Math.max(
+      ...rightActions.map(action => careActionOverdueDays(action, asOf)),
+      0
+    );
+    if (leftOverdueDays !== rightOverdueDays)
+      return rightOverdueDays - leftOverdueDays;
+
+    const leftDueTimestamp = Math.min(
+      ...leftActions.map(careActionDueTimestamp)
+    );
+    const rightDueTimestamp = Math.min(
+      ...rightActions.map(careActionDueTimestamp)
+    );
+    if (leftDueTimestamp !== rightDueTimestamp)
+      return leftDueTimestamp - rightDueTimestamp;
+    return left.member_name.localeCompare(right.member_name, "zh-CN");
+  });
+};
+const sortedCarePeople = computed(() =>
+  sortCarePeople(memberCare.value?.people || [])
+);
+const filteredCarePeople = computed(() => {
+  if (careFilter.value === "all") return sortedCarePeople.value;
+  return sortedCarePeople.value.filter(person => {
+    const actions = carePersonActions(person);
+    if (
+      careFilter.value === "OVERDUE" ||
+      careFilter.value === "TODAY" ||
+      careFilter.value === "ATTENTION" ||
+      careFilter.value === "WINDOW"
+    ) {
+      return actions.some(action => action.urgency === careFilter.value);
+    }
+    return actions.some(action => action.source === careFilter.value);
+  });
+});
+
+const managementExceptionPriority: Record<
+  MemberCareManagementExceptionType,
+  number
+> = {
+  CARE_OVERDUE: 0,
+  RENEWAL_SUPPORT_NEEDED: 1,
+  RENEWAL_RECOVERY_OPEN: 2,
+  RENEWAL_UNASSIGNED: 3,
+  RENEWAL_STAGE_UNTOUCHED: 4,
+  FOLLOWUP_NO_SCHEDULE: 5
+};
+const managementFilterLabel = (filter: ManagementExceptionFilter) =>
+  ({
+    all: "全部",
+    overdue: "逾期",
+    support: "需要协助",
+    recovery: "未闭环",
+    unassigned: "待分配",
+    no_schedule: "无下一时间"
+  })[filter];
+const managementFilterTypes: Record<
+  Exclude<ManagementExceptionFilter, "all">,
+  MemberCareManagementExceptionType[]
+> = {
+  overdue: ["CARE_OVERDUE"],
+  support: ["RENEWAL_SUPPORT_NEEDED"],
+  recovery: ["RENEWAL_RECOVERY_OPEN"],
+  unassigned: ["RENEWAL_UNASSIGNED"],
+  no_schedule: ["FOLLOWUP_NO_SCHEDULE"]
+};
+const sortManagementExceptions = (
+  exceptions: MemberCareManagementException[]
+) =>
+  [...exceptions].sort((left, right) => {
+    const priorityDifference =
+      managementExceptionPriority[left.exception_type] -
+      managementExceptionPriority[right.exception_type];
+    if (priorityDifference) return priorityDifference;
+    const overdueDifference =
+      (right.days_overdue ?? 0) - (left.days_overdue ?? 0);
+    if (overdueDifference) return overdueDifference;
+    return (left.member_name || "").localeCompare(
+      right.member_name || "",
+      "zh-CN"
+    );
+  });
+const sortedManagementExceptions = computed(() =>
+  sortManagementExceptions(memberCareManagement.value?.exceptions || [])
+);
+const filteredManagementExceptions = computed(() => {
+  if (managementFilter.value === "all") return sortedManagementExceptions.value;
+  const allowedTypes = managementFilterTypes[managementFilter.value];
+  return sortedManagementExceptions.value.filter(item =>
+    allowedTypes.includes(item.exception_type)
+  );
+});
+const managementFilterOptions = computed(() =>
+  (
+    [
+      { value: "all", label: "全部" },
+      { value: "overdue", label: "逾期" },
+      { value: "support", label: "需要协助" },
+      { value: "recovery", label: "未闭环" },
+      { value: "unassigned", label: "待分配" },
+      { value: "no_schedule", label: "无下一时间" }
+    ] as const
+  ).map(option => ({
+    ...option,
+    count:
+      option.value === "all"
+        ? sortedManagementExceptions.value.length
+        : sortedManagementExceptions.value.filter(item =>
+            managementFilterTypes[option.value].includes(item.exception_type)
+          ).length
+  }))
+);
+
 function openCarePerson(person: unknown) {
+  careAllDialogVisible.value = false;
   selectedCarePerson.value = person as MemberCarePerson;
   memberCareDialogVisible.value = true;
 }
@@ -473,6 +650,7 @@ const managementSourceLabel = (
   })[source];
 
 async function navigateManagementException(item: unknown) {
+  managementAllDialogVisible.value = false;
   const exception = item as MemberCareManagementException;
   if (exception.navigation_type === "BIRTHDAY") {
     await openBirthdayGreeting({ member_id: exception.navigation_id });
@@ -937,33 +1115,83 @@ function changePlan() {
       />
       <template v-else-if="memberCare">
         <div class="care-center-summary">
-          <span class="overdue"
-            >🔴 逾期 <b>{{ memberCare.summary.overdue_people_count }}</b></span
+          <button
+            type="button"
+            class="care-center-summary-button all"
+            :class="{ active: careFilter === 'all' }"
+            :aria-pressed="careFilter === 'all'"
+            @click="careFilter = 'all'"
           >
-          <span class="today"
-            >🔵 今天 <b>{{ memberCare.summary.today_people_count }}</b></span
+            全部 <b>{{ memberCare.summary.people_total }}</b>
+          </button>
+          <button
+            type="button"
+            class="care-center-summary-button overdue"
+            :class="{ active: careFilter === 'OVERDUE' }"
+            :aria-pressed="careFilter === 'OVERDUE'"
+            @click="careFilter = 'OVERDUE'"
           >
-          <span class="attention"
-            >🟠 需要协助
-            <b>{{ memberCare.summary.attention_people_count }}</b></span
+            🔴 逾期 <b>{{ memberCare.summary.overdue_people_count }}</b>
+          </button>
+          <button
+            type="button"
+            class="care-center-summary-button today"
+            :class="{ active: careFilter === 'TODAY' }"
+            :aria-pressed="careFilter === 'TODAY'"
+            @click="careFilter = 'TODAY'"
           >
-          <span class="birthday"
-            >🎂 生日关怀
-            <b>{{ memberCare.summary.birthday_people_count }}</b></span
+            🔵 今天 <b>{{ memberCare.summary.today_people_count }}</b>
+          </button>
+          <button
+            type="button"
+            class="care-center-summary-button attention"
+            :class="{ active: careFilter === 'ATTENTION' }"
+            :aria-pressed="careFilter === 'ATTENTION'"
+            @click="careFilter = 'ATTENTION'"
           >
-          <span class="renewal"
-            >♻️ 续费关爱
-            <b>{{ memberCare.summary.renewal_people_count }}</b></span
+            🟠 需要协助
+            <b>{{ memberCare.summary.attention_people_count }}</b>
+          </button>
+          <button
+            type="button"
+            class="care-center-summary-button birthday"
+            :class="{ active: careFilter === 'BIRTHDAY' }"
+            :aria-pressed="careFilter === 'BIRTHDAY'"
+            @click="careFilter = 'BIRTHDAY'"
           >
-          <span class="followup"
-            >🤝 日常关怀/走访
-            <b>{{ memberCare.summary.followup_people_count }}</b></span
+            🎂 生日关怀
+            <b>{{ memberCare.summary.birthday_people_count }}</b>
+          </button>
+          <button
+            type="button"
+            class="care-center-summary-button renewal"
+            :class="{ active: careFilter === 'RENEWAL' }"
+            :aria-pressed="careFilter === 'RENEWAL'"
+            @click="careFilter = 'RENEWAL'"
           >
+            ♻️ 续费关爱
+            <b>{{ memberCare.summary.renewal_people_count }}</b>
+          </button>
+          <button
+            type="button"
+            class="care-center-summary-button followup"
+            :class="{ active: careFilter === 'FOLLOWUP' }"
+            :aria-pressed="careFilter === 'FOLLOWUP'"
+            @click="careFilter = 'FOLLOWUP'"
+          >
+            🤝 日常关怀/走访
+            <b>{{ memberCare.summary.followup_people_count }}</b>
+          </button>
         </div>
         <el-table
-          :data="memberCare.people"
+          :data="filteredCarePeople"
+          max-height="420"
           stripe
-          empty-text="今天暂无确定性学长关爱行动"
+          :empty-text="
+            careFilter === 'all'
+              ? '今天暂无确定性学长关爱行动'
+              : `当前筛选「${careFilterLabel(careFilter)}」暂无学长`
+          "
           class="care-center-table"
         >
           <el-table-column prop="member_name" label="学长" min-width="130" />
@@ -1012,6 +1240,15 @@ function changePlan() {
             </template>
           </el-table-column>
         </el-table>
+        <div class="dashboard-table-footer">
+          <span>
+            当前显示 {{ filteredCarePeople.length }} /
+            {{ memberCare.summary.people_total }} 位，已按优先级排序
+          </span>
+          <el-button link type="primary" @click="careAllDialogVisible = true">
+            查看全部 {{ memberCare.summary.people_total }} 位 →
+          </el-button>
+        </div>
       </template>
     </section>
 
@@ -1037,13 +1274,25 @@ function changePlan() {
       />
       <template v-else-if="memberCareManagement">
         <div class="management-summary-grid">
-          <article>
+          <button
+            type="button"
+            class="management-summary-card"
+            :class="{ active: managementFilter === 'all' }"
+            :aria-pressed="managementFilter === 'all'"
+            @click="managementFilter = 'all'"
+          >
             <span>今日关爱人数</span>
             <strong>{{
               memberCareManagement.summary.today_care_people_count
             }}</strong>
-          </article>
-          <article class="danger">
+          </button>
+          <button
+            type="button"
+            class="management-summary-card danger"
+            :class="{ active: managementFilter === 'overdue' }"
+            :aria-pressed="managementFilter === 'overdue'"
+            @click="managementFilter = 'overdue'"
+          >
             <span>逾期未处理人数</span>
             <strong>{{
               memberCareManagement.summary.overdue_people_count
@@ -1052,39 +1301,63 @@ function changePlan() {
               >最早逾期
               {{ memberCareManagement.summary.oldest_overdue_days }} 天</small
             >
-          </article>
-          <article class="warning">
+          </button>
+          <button
+            type="button"
+            class="management-summary-card warning"
+            :class="{ active: managementFilter === 'support' }"
+            :aria-pressed="managementFilter === 'support'"
+            @click="managementFilter = 'support'"
+          >
             <span>需要协助</span>
             <strong>{{
               managementCountLabel(
                 memberCareManagement.summary.renewal_support_needed_count
               )
             }}</strong>
-          </article>
-          <article>
+          </button>
+          <button
+            type="button"
+            class="management-summary-card"
+            :class="{ active: managementFilter === 'recovery' }"
+            :aria-pressed="managementFilter === 'recovery'"
+            @click="managementFilter = 'recovery'"
+          >
             <span>续费挽回未闭环</span>
             <strong>{{
               managementCountLabel(
                 memberCareManagement.summary.renewal_recovery_open_count
               )
             }}</strong>
-          </article>
-          <article>
+          </button>
+          <button
+            type="button"
+            class="management-summary-card"
+            :class="{ active: managementFilter === 'unassigned' }"
+            :aria-pressed="managementFilter === 'unassigned'"
+            @click="managementFilter = 'unassigned'"
+          >
             <span>责任人待分配</span>
             <strong>{{
               managementCountLabel(
                 memberCareManagement.summary.renewal_unassigned_count
               )
             }}</strong>
-          </article>
-          <article>
+          </button>
+          <button
+            type="button"
+            class="management-summary-card"
+            :class="{ active: managementFilter === 'no_schedule' }"
+            :aria-pressed="managementFilter === 'no_schedule'"
+            @click="managementFilter = 'no_schedule'"
+          >
             <span>无下一时间</span>
             <strong>{{
               managementCountLabel(
                 memberCareManagement.summary.followup_no_schedule_count
               )
             }}</strong>
-          </article>
+          </button>
         </div>
         <div class="management-coverage">
           <span>当前数据覆盖：</span>
@@ -1196,10 +1469,28 @@ function changePlan() {
         </el-table>
 
         <h3 class="management-subheading">需要管理支持的事项</h3>
+        <div class="management-exception-filters" aria-label="管理事项筛选">
+          <button
+            v-for="option in managementFilterOptions"
+            :key="option.value"
+            type="button"
+            class="management-exception-filter"
+            :class="{ active: managementFilter === option.value }"
+            :aria-pressed="managementFilter === option.value"
+            @click="managementFilter = option.value"
+          >
+            {{ option.label }} <b>{{ option.count }}</b>
+          </button>
+        </div>
         <el-table
-          :data="memberCareManagement.exceptions"
+          :data="filteredManagementExceptions"
+          max-height="420"
           stripe
-          empty-text="当前没有确定性管理异常"
+          :empty-text="
+            managementFilter === 'all'
+              ? '当前没有确定性管理异常'
+              : `当前筛选「${managementFilterLabel(managementFilter)}」暂无事项`
+          "
           class="management-exception-table"
         >
           <el-table-column label="异常" min-width="170">
@@ -1241,6 +1532,19 @@ function changePlan() {
             </template>
           </el-table-column>
         </el-table>
+        <div class="dashboard-table-footer management-exception-footer">
+          <span>
+            当前显示 {{ filteredManagementExceptions.length }} /
+            {{ memberCareManagement.exceptions.length }} 项，已按优先级排序
+          </span>
+          <el-button
+            link
+            type="primary"
+            @click="managementAllDialogVisible = true"
+          >
+            查看全部 {{ memberCareManagement.exceptions.length }} 项 →
+          </el-button>
+        </div>
       </template>
     </section>
 
@@ -1894,6 +2198,133 @@ function changePlan() {
         </el-table>
       </template>
     </section>
+
+    <el-dialog
+      v-model="careAllDialogVisible"
+      title="今日关爱 · 全部学长"
+      width="min(1280px, 96vw)"
+    >
+      <div class="dashboard-dialog-note">
+        <span>共 {{ sortedCarePeople.length }} 位</span>
+        <span>
+          已按逾期、需要协助、今天和普通窗口排序；主页面当前筛选为“{{
+            careFilterLabel(careFilter)
+          }}”。
+        </span>
+      </div>
+      <el-table
+        :data="sortedCarePeople"
+        max-height="560"
+        stripe
+        empty-text="今天暂无确定性学长关爱行动"
+      >
+        <el-table-column prop="member_name" label="学长" min-width="130" />
+        <el-table-column label="归属" min-width="190">
+          <template #default="{ row }">
+            {{ row.org_name }}
+            <span v-if="row.class_name" class="muted-inline">
+              · {{ row.class_name }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="今天为什么出现" min-width="330">
+          <template #default="{ row }">
+            <div class="care-action-tags">
+              <el-tag
+                v-for="action in row.actions"
+                :key="`${action.source}-${action.source_id}`"
+                :type="careUrgencyType(action.urgency)"
+                effect="light"
+              >
+                {{ action.label }}
+              </el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="先处理" min-width="150">
+          <template #default="{ row }">
+            <el-tag :type="careUrgencyType(row.primary_action.urgency)">
+              {{ careUrgencyLabel(row.primary_action.urgency) }}
+            </el-tag>
+            <span class="muted-inline">
+              · {{ careActionTypeLabel(row.primary_action) }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="责任人" min-width="120">
+          <template #default="{ row }">
+            {{ row.primary_action.assigned_user_name || "按现有流程" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openCarePerson(row)">
+              查看关爱
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <el-dialog
+      v-model="managementAllDialogVisible"
+      title="需要管理支持的事项 · 全部"
+      width="min(1280px, 96vw)"
+    >
+      <div class="dashboard-dialog-note">
+        <span>共 {{ sortedManagementExceptions.length }} 项</span>
+        <span>
+          已按严重逾期、需要协助、未闭环、待分配和无下一时间排序；主页面当前筛选为“{{
+            managementFilterLabel(managementFilter)
+          }}”。
+        </span>
+      </div>
+      <el-table
+        :data="sortedManagementExceptions"
+        max-height="560"
+        stripe
+        empty-text="当前没有确定性管理异常"
+      >
+        <el-table-column label="异常" min-width="170">
+          <template #default="{ row }">
+            <el-tag :type="managementExceptionType(row.exception_type)">
+              {{ managementExceptionLabel(row.exception_type) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="org_name" label="分中心" min-width="140" />
+        <el-table-column label="学长" min-width="120">
+          <template #default="{ row }">{{ row.member_name || "—" }}</template>
+        </el-table-column>
+        <el-table-column label="来源" width="105">
+          <template #default="{ row }">{{
+            managementSourceLabel(row.source)
+          }}</template>
+        </el-table-column>
+        <el-table-column prop="reason" label="事实依据" min-width="300" />
+        <el-table-column label="逾期" width="80">
+          <template #default="{ row }">
+            {{ row.days_overdue ? `${row.days_overdue}天` : "—" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="责任人" width="120">
+          <template #default="{ row }">
+            {{ row.assigned_user_name || "待分配" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              link
+              type="primary"
+              @click="navigateManagementException(row)"
+            >
+              去处理
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
 
     <el-dialog
       v-model="memberCareDialogVisible"
@@ -2650,36 +3081,77 @@ h1 {
   gap: 9px;
   margin: 4px 0 16px;
 }
-.care-center-summary span {
+.care-center-summary-button {
   padding: 8px 12px;
+  border: 1px solid transparent;
   color: #60756c;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
   background: #f3f8f5;
   border-radius: 10px;
-  font-size: 13px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
-.care-center-summary span.overdue {
+.care-center-summary-button:hover,
+.care-center-summary-button.active {
+  border-color: #86bca2;
+  box-shadow: 0 4px 12px rgb(31 78 61 / 10%);
+  transform: translateY(-1px);
+}
+.care-center-summary-button.all {
+  padding: 8px 12px;
+  background: #f3f8f5;
+}
+.care-center-summary-button.overdue {
   color: #9e3d31;
   background: #fff0ed;
 }
-.care-center-summary span.today {
+.care-center-summary-button.today {
   color: #245a94;
   background: #edf5ff;
 }
-.care-center-summary span.attention {
+.care-center-summary-button.attention {
   color: #996217;
   background: #fff6e7;
 }
-.care-center-summary span.birthday {
+.care-center-summary-button.birthday {
   color: #8a5a2b;
   background: #fff7e8;
 }
-.care-center-summary span.renewal {
+.care-center-summary-button.renewal {
   color: #17624b;
   background: #e8f7f0;
+}
+.care-center-summary-button.followup {
+  color: #4a6b62;
+  background: #eef5f3;
 }
 .care-center-summary b {
   margin-left: 4px;
   color: inherit;
+}
+.dashboard-table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  color: #82958d;
+  font-size: 12px;
+}
+.dashboard-dialog-note {
+  margin-bottom: 12px;
+  color: #60756c;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.care-center-table :deep(.el-table__body-wrapper),
+.management-exception-table :deep(.el-table__body-wrapper) {
+  max-height: 420px !important;
 }
 .care-action-tags {
   display: flex;
@@ -2848,16 +3320,30 @@ h1 {
   gap: 10px;
   margin: 8px 0 14px;
 }
-.management-summary-grid article {
+.management-summary-card {
   min-height: 94px;
   padding: 14px 15px;
+  border: 1px solid transparent;
+  font: inherit;
+  text-align: left;
   background: #f4f8f6;
   border-radius: 10px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
-.management-summary-grid article.danger {
+.management-summary-card:hover,
+.management-summary-card.active {
+  border-color: #86bca2;
+  box-shadow: 0 4px 12px rgb(31 78 61 / 10%);
+  transform: translateY(-1px);
+}
+.management-summary-card.danger {
   background: #fff0ed;
 }
-.management-summary-grid article.warning {
+.management-summary-card.warning {
   background: #fff6e7;
 }
 .management-summary-grid span,
@@ -2874,10 +3360,10 @@ h1 {
   color: #194b3b;
   font-size: 24px;
 }
-.management-summary-grid article.danger strong {
+.management-summary-card.danger strong {
   color: #a33d32;
 }
-.management-summary-grid article.warning strong {
+.management-summary-card.warning strong {
   color: #996217;
 }
 .management-summary-grid small {
@@ -2901,6 +3387,36 @@ h1 {
   margin: 18px 0 10px;
   color: #245f4b;
   font-size: 16px;
+}
+.management-exception-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.management-exception-filter {
+  padding: 7px 11px;
+  border: 1px solid #dce8e2;
+  color: #60756c;
+  font: inherit;
+  font-size: 12px;
+  background: #f7faf8;
+  border-radius: 9px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease;
+}
+.management-exception-filter:hover,
+.management-exception-filter.active {
+  border-color: #86bca2;
+  color: #245f4b;
+  background: #eaf7ef;
+}
+.management-exception-filter b {
+  margin-left: 4px;
+  color: inherit;
 }
 .management-breakdown {
   color: #60756c;
@@ -3212,6 +3728,17 @@ h1 {
   .care-person-action {
     align-items: stretch;
     flex-direction: column;
+  }
+  .dashboard-table-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .dashboard-table-footer .el-button {
+    align-self: flex-end;
+  }
+  .care-center-table :deep(.el-table__body-wrapper),
+  .management-exception-table :deep(.el-table__body-wrapper) {
+    max-height: 320px !important;
   }
   .section-heading {
     align-items: stretch;
