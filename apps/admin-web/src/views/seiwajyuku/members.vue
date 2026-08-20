@@ -16,6 +16,7 @@ import {
   getMembers,
   getOrgUnits,
   applyDirectClassWorkbook,
+  applyMemberRosterWorkbook,
   applyFullClassRosterOrganization,
   applyFullClassRosterRelations,
   getMemberChangeHistory,
@@ -24,8 +25,10 @@ import {
   updateMember,
   previewDirectClassWorkbook,
   previewFullClassRosterWorkbook,
+  previewMemberRosterWorkbook,
   type DirectClassPreflight,
   type FullClassRosterPreflight,
+  type MemberRosterImportPreview,
   type Member,
   type MemberChangeHistory,
   type MemberServiceSignal,
@@ -65,6 +68,10 @@ const fullOrgImportLoading = ref(false);
 const fullRelationImportLoading = ref(false);
 const fullPreflightFiles = ref<UploadUserFile[]>([]);
 const fullPreflightResult = ref<FullClassRosterPreflight>();
+const memberRosterImportVisible = ref(false);
+const memberRosterImportLoading = ref(false);
+const memberRosterFiles = ref<UploadUserFile[]>([]);
+const memberRosterImportResult = ref<MemberRosterImportPreview>();
 const selectedOrg = ref("");
 const keyword = ref("");
 const classFilter = ref("");
@@ -75,6 +82,14 @@ const router = useRouter();
 const suppressEditDialogReturn = ref(false);
 const unassignedFilterValue = "__UNASSIGNED__";
 const fullOrgConfirmationText = "确认创建20个普通班和112个普通班小组";
+const memberRosterConfirmationText = "确认补充导入学员主档";
+const canApplyMemberRosterImport = computed(() => {
+  const result = memberRosterImportResult.value;
+  return Boolean(
+    result &&
+      result.matching.existing_member_count + result.matching.new_member_count > 0
+  );
+});
 const canApplyFullOrgImport = computed(() => {
   const result = fullPreflightResult.value;
   if (!result) return false;
@@ -297,6 +312,7 @@ const form = reactive({
   district: "",
   company_address: "",
   class_name: "",
+  class_committee_name: "",
   group_name: "",
   class_org_unit_id: "",
   group_org_unit_id: "",
@@ -375,6 +391,7 @@ function openCreate() {
     district: "",
     company_address: "",
     class_name: "",
+    class_committee_name: "",
     group_name: "",
     class_org_unit_id: "",
     group_org_unit_id: "",
@@ -414,6 +431,7 @@ async function openEdit(row: any) {
     district: "",
     company_address: "",
     class_name: "",
+    class_committee_name: "",
     group_name: "",
     class_org_unit_id: "",
     group_org_unit_id: "",
@@ -452,6 +470,7 @@ async function openEdit(row: any) {
       gender: data.gender || "",
       district: data.district || "",
       company_address: data.company_address || "",
+      class_committee_name: data.class_committee_name || "",
       class_org_unit_id: data.class_org_unit_id || "",
       group_org_unit_id: data.group_org_unit_id || "",
       birthday: data.birthday || "",
@@ -571,6 +590,7 @@ function historyLabel(key: string) {
     status: "状态",
     phone_masked: "手机号（脱敏）",
     company_name: "公司名称",
+    class_committee_name: "班组委名称",
     notes: "备注",
     class_name: "班级",
     group_name: "小组"
@@ -596,6 +616,7 @@ function historySummary(item: any) {
     "status",
     "phone_masked",
     "company_name",
+    "class_committee_name",
     "notes",
     "class_name",
     "group_name"
@@ -788,6 +809,7 @@ async function submit() {
         gender: form.gender || null,
         district: form.district.trim() || null,
         company_address: form.company_address.trim() || null,
+        class_committee_name: form.class_committee_name.trim() || null,
         birthday: form.birthday || null,
         join_date: form.join_date || null,
         study_start_date: form.study_start_date || null,
@@ -827,6 +849,7 @@ async function submit() {
         gender: form.gender || undefined,
         district: form.district.trim() || undefined,
         company_address: form.company_address.trim() || undefined,
+        class_committee_name: form.class_committee_name.trim() || undefined,
         class_org_unit_id: form.class_org_unit_id || undefined,
         group_org_unit_id: form.group_org_unit_id || undefined,
         birthday: form.birthday || undefined,
@@ -876,6 +899,81 @@ function selectFullPreflightFile(file: UploadFile) {
   fullPreflightFiles.value = [file];
   fullPreflightResult.value = undefined;
   return false;
+}
+
+function selectMemberRosterFile(file: UploadFile) {
+  memberRosterFiles.value = [file];
+  memberRosterImportResult.value = undefined;
+  return false;
+}
+
+async function runMemberRosterPreflight() {
+  const workbook = memberRosterFiles.value[0]?.raw;
+  if (!workbook) {
+    ElMessage.warning("请先选择学员基本信息表 .xlsx 文件");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      "文件只在服务器内存中用于受保护匹配；预检只返回汇总数量，不返回姓名、手机号或成员编号，也不会写入生产数据。",
+      "确认进行学员主档补充只读预检",
+      {
+        confirmButtonText: "开始只读预检",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+  } catch {
+    return;
+  }
+  memberRosterImportLoading.value = true;
+  try {
+    memberRosterImportResult.value = (
+      await previewMemberRosterWorkbook(workbook)
+    ).data;
+    ElMessage.success("学员主档补充预检已完成，未写入生产数据");
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    memberRosterImportLoading.value = false;
+  }
+}
+
+async function applyMemberRosterImport() {
+  const workbook = memberRosterFiles.value[0]?.raw;
+  if (!workbook || !canApplyMemberRosterImport.value) return;
+  let confirmationText = "";
+  try {
+    const prompt = await ElMessageBox.prompt(
+      `本次只导入预检通过的 ${memberRosterImportResult.value?.matching.existing_member_count ?? 0} 个已有档案和 ${memberRosterImportResult.value?.matching.new_member_count ?? 0} 个新增档案；${memberRosterImportResult.value?.matching.manual_review_count ?? 0} 条异常记录会跳过，不覆盖已有非空字段。请输入：${memberRosterConfirmationText}`,
+      "确认补充导入学员主档",
+      {
+        confirmButtonText: "执行补充导入",
+        cancelButtonText: "取消",
+        type: "warning",
+        inputValidator: value =>
+          value === memberRosterConfirmationText || "确认文字不完整，已禁止写入"
+      }
+    );
+    confirmationText = prompt.value;
+  } catch {
+    return;
+  }
+  memberRosterImportLoading.value = true;
+  try {
+    const result = await applyMemberRosterWorkbook(workbook, confirmationText);
+    ElMessage.success(
+      `补充导入完成：新增 ${result.data.created ?? 0} 人、更新 ${result.data.updated ?? 0} 人、资料字段 ${result.data.fields ?? 0} 项、组织关系 ${result.data.relations ?? 0} 条；跳过复核 ${result.data.skipped_manual_review ?? 0} 条`
+    );
+    memberRosterImportResult.value = (
+      await previewMemberRosterWorkbook(workbook)
+    ).data;
+    await load();
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    memberRosterImportLoading.value = false;
+  }
 }
 
 async function runFullClassPreflight() {
@@ -1038,6 +1136,9 @@ onMounted(async () => {
         <el-button size="large" @click="fullPreflightVisible = true">
           全量班级预检
         </el-button>
+        <el-button size="large" @click="memberRosterImportVisible = true">
+          学员资料补充
+        </el-button>
         <el-button size="large" @click="preflightVisible = true">
           直属四班预检
         </el-button>
@@ -1048,7 +1149,7 @@ onMounted(async () => {
     </section>
 
     <el-alert
-      title="先选择一个分中心开展小范围试点；正式批量导入前需提供已填写的学员基本信息表。"
+      title="学员主档补充导入需使用最新学员基本信息表并先完成只读预检；已有非空资料不会被覆盖。"
       type="warning"
       :closable="false"
       show-icon
@@ -1138,6 +1239,106 @@ onMounted(async () => {
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-dialog
+      v-model="memberRosterImportVisible"
+      title="学员主档补充导入"
+      width="980px"
+      class="preflight-dialog"
+    >
+      <el-alert
+        title="补充导入规则"
+        description="只补空白资料；已有非空字段、当前状态和分中心归属不自动覆盖。手机号必须唯一匹配，异常记录会停在预检阶段。"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
+      <el-upload
+        class="preflight-upload"
+        accept=".xlsx"
+        :auto-upload="false"
+        :limit="1"
+        :file-list="memberRosterFiles"
+        :on-change="selectMemberRosterFile"
+      >
+        <el-button>选择最新学员基本信息表 .xlsx</el-button>
+      </el-upload>
+      <el-button
+        type="primary"
+        :loading="memberRosterImportLoading"
+        @click="runMemberRosterPreflight"
+      >
+        生成补充导入预检
+      </el-button>
+      <div v-if="memberRosterImportResult" class="preflight-result">
+        <el-descriptions :column="4" border>
+          <el-descriptions-item label="工作表">
+            {{ memberRosterImportResult.source.sheet_name }}
+          </el-descriptions-item>
+          <el-descriptions-item label="源表记录">
+            {{ memberRosterImportResult.source.row_count }} 条
+          </el-descriptions-item>
+          <el-descriptions-item label="可更新">
+            {{ memberRosterImportResult.matching.existing_member_count }} 人
+          </el-descriptions-item>
+          <el-descriptions-item label="可新增">
+            {{ memberRosterImportResult.matching.new_member_count }} 人
+          </el-descriptions-item>
+          <el-descriptions-item label="需人工复核" :span="2">
+            <el-tag :type="memberRosterImportResult.matching.manual_review_count ? 'danger' : 'success'">
+              {{ memberRosterImportResult.matching.manual_review_count }} 人
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="可补班级关系">
+            {{ memberRosterImportResult.organization.class_relation_ready_count }} 条
+          </el-descriptions-item>
+          <el-descriptions-item label="可补小组关系">
+            {{ memberRosterImportResult.organization.group_relation_ready_count }} 条
+          </el-descriptions-item>
+          <el-descriptions-item label="销售收入源数据" :span="2">
+            {{ memberRosterImportResult.sensitive.annual_sales_source_count }} 条
+            <span v-if="memberRosterImportResult.sensitive.requires_enterprise_permission" class="muted-inline">
+              （需要企业敏感资料权限）
+            </span>
+          </el-descriptions-item>
+          <el-descriptions-item label="补充字段" :span="2">
+            <el-tag v-for="item in memberRosterImportResult.matching.field_fill_counts" :key="item.field" class="result-tag" type="info">
+              {{ item.field }}：{{ item.count }}
+            </el-tag>
+          </el-descriptions-item>
+        </el-descriptions>
+        <el-alert
+          v-if="memberRosterImportResult.issues.length"
+          class="result-alert"
+          :title="`需人工复核：${memberRosterImportResult.issues.map(item => `${item.code} ${item.count}`).join('；')}`"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+        <p class="form-hint">
+          文件指纹：{{ memberRosterImportResult.source_sha256 }}。正式导入必须再次确认同一文件。
+        </p>
+        <el-button
+          v-if="canApplyMemberRosterImport"
+          type="danger"
+          :loading="memberRosterImportLoading"
+          @click="applyMemberRosterImport"
+        >
+          执行补充导入
+        </el-button>
+        <el-alert
+          v-else
+          title="当前预检存在异常或待人工复核记录，暂不开放正式导入。"
+          type="info"
+          :closable="false"
+          show-icon
+          class="result-alert"
+        />
+      </div>
+      <template #footer>
+        <el-button @click="memberRosterImportVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="preflightVisible"
@@ -1499,6 +1700,9 @@ onMounted(async () => {
               :value="org.id"
             />
             </el-select>
+          </el-form-item>
+          <el-form-item label="班组委名称">
+            <el-input v-model="form.class_committee_name" placeholder="如：班组委/委员名称" />
           </el-form-item>
           <el-form-item label="行业分类">
             <el-input v-model="form.industry_category" />

@@ -135,6 +135,7 @@ def create_member(
     district: str | None = None,
     company_address: str | None = None,
     class_name: str | None = None,
+    class_committee_name: str | None = None,
     group_name: str | None = None,
     class_org_unit_id: str | None = None,
     group_org_unit_id: str | None = None,
@@ -296,16 +297,16 @@ def create_member(
             connection,
             "INSERT INTO members(member_code, name, org_unit_id, development_org_unit_id, status, "
             "phone_ciphertext, phone_hash, phone_last4, phone_masked, company_name, "
-            "gender, district, company_address, class_name, group_name, birthday, join_date, "
+            "gender, district, company_address, class_name, class_committee_name, group_name, birthday, join_date, "
             "study_start_date, membership_years, membership_years_overridden, renewal_month, renewal_month_overridden, position, referrer, "
             "referrer_center, industry_category, industry, company_products, employee_count, company_size, notes, "
             "enterprise_financial_ciphertext, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 member_code, name, org_unit_id, development_org_unit_id, status,
                 fields["phone_ciphertext"], fields["phone_hash"], fields["phone_last4"],
                 fields["phone_masked"], company_name, gender, district, company_address,
-                class_name, group_name, birthday, join_date, study_start_date,
+                class_name, class_committee_name, group_name, birthday, join_date, study_start_date,
                 membership_years, 1 if membership_years is not None else 0,
                 renewal_month, 1 if renewal_month_overridden else 0, position, referrer, referrer_center,
                 industry_category, industry, company_products, employee_count,
@@ -379,7 +380,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     """Update a member profile and its formal organization relations atomically."""
     current = fetch_one(
         "SELECT id, name, org_unit_id, development_org_unit_id, status, phone_masked, "
-        "company_name, gender, district, company_address, birthday, join_date, "
+        "company_name, gender, district, company_address, class_committee_name, birthday, join_date, "
         "study_start_date, membership_years, membership_years_overridden, renewal_month, renewal_month_overridden, position, referrer, "
         "referrer_center, industry_category, industry, company_products, employee_count, company_size, "
         "notes, class_name, group_name, enterprise_financial_ciphertext "
@@ -392,7 +393,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         raise ValueError("至少提供一项需要修改的字段")
     allowed_fields = {
         "name", "status", "phone", "company_name", "notes",
-        "gender", "district", "company_address", "birthday", "join_date",
+        "gender", "district", "company_address", "class_committee_name", "birthday", "join_date",
         "study_start_date", "membership_years", "renewal_month", "renewal_month_overridden", "position",
         "referrer", "referrer_center", "industry_category", "industry",
         "company_products", "annual_sales", "employee_count", "company_size", "profit_margin",
@@ -570,7 +571,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         key: current[key]
         for key in (
             "name", "org_unit_id", "development_org_unit_id", "status",
-            "phone_masked", "company_name", "gender", "district", "company_address",
+            "phone_masked", "company_name", "gender", "district", "company_address", "class_committee_name",
             "birthday", "join_date", "study_start_date", "membership_years",
             "membership_years_overridden",
             "renewal_month", "renewal_month_overridden", "position", "referrer", "referrer_center",
@@ -582,7 +583,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     column_values: dict[str, Any] = {}
     for key in (
         "name", "status", "company_name", "gender", "district",
-        "company_address", "birthday", "join_date", "study_start_date",
+        "company_address", "class_committee_name", "birthday", "join_date", "study_start_date",
         "membership_years", "membership_years_overridden", "renewal_month", "renewal_month_overridden", "position", "referrer",
         "referrer_center", "industry_category", "industry", "company_products",
         "employee_count", "company_size", "notes",
@@ -990,7 +991,7 @@ def get_member_detail(member_id: int, actor_user_id: int) -> dict[str, Any]:
         "m.phone_masked, m.phone_last4, "
         "m.gender, m.birthday, m.district, "
         f"{CURRENT_STUDY_CLASS_NAME_SQL} AS class_name, "
-        f"{CURRENT_STUDY_GROUP_NAME_SQL} AS group_name, m.join_date, "
+        f"{CURRENT_STUDY_GROUP_NAME_SQL} AS group_name, m.class_committee_name, m.join_date, "
         "m.study_start_date, m.membership_years, m.membership_years_overridden, m.renewal_month, m.status, m.position, "
         "m.referrer, m.referrer_center "
         "FROM members m "
@@ -1035,7 +1036,7 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
         raise PermissionError("当前角色不能编辑学员资料")
     member = fetch_one(
         "SELECT id, name, org_unit_id, development_org_unit_id, status, "
-        "phone_ciphertext, company_name, gender, district, company_address, "
+        "phone_ciphertext, company_name, gender, district, company_address, class_committee_name, "
         "birthday, join_date, study_start_date, membership_years, membership_years_overridden, renewal_month, renewal_month_overridden, "
         "position, referrer, referrer_center, industry_category, industry, "
         "company_products, employee_count, company_size, notes, enterprise_financial_ciphertext "
@@ -1167,6 +1168,7 @@ def get_member_change_history(
         "development_org_unit_id",
         "status",
         "phone_masked",
+        "class_committee_name",
         "class_name",
         "group_name",
         "class_org_unit_id",

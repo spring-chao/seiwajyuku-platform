@@ -44,6 +44,7 @@ class MemberCreatePayload(BaseModel):
     district: str | None = Field(default=None, max_length=255)
     company_address: str | None = Field(default=None, max_length=1000)
     class_name: str | None = Field(default=None, max_length=255)
+    class_committee_name: str | None = Field(default=None, max_length=255)
     group_name: str | None = Field(default=None, max_length=255)
     class_org_unit_id: str | None = None
     group_org_unit_id: str | None = None
@@ -81,6 +82,7 @@ class MemberUpdatePayload(BaseModel):
     gender: str | None = Field(default=None, max_length=32)
     district: str | None = Field(default=None, max_length=255)
     company_address: str | None = Field(default=None, max_length=1000)
+    class_committee_name: str | None = Field(default=None, max_length=255)
     birthday: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
     join_date: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
     study_start_date: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")

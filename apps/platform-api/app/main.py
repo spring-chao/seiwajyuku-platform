@@ -22,6 +22,7 @@ from app.api.member_care_management import router as member_care_management_rout
 from app.api.imports import router as imports_router
 from app.api.direct_class_preflight import router as direct_class_preflight_router
 from app.api.direct_class_import import router as direct_class_import_router
+from app.api.member_roster_import import router as member_roster_import_router
 from app.api.plans import router as plans_router
 from app.api.operation_rhythm import router as operation_rhythm_router
 from app.api.renewals import router as renewals_router
@@ -42,6 +43,7 @@ READ_ONLY_ALLOWED_POST_PATHS = frozenset({
     "/api/v1/auth/refresh",
     "/api/v1/class-roster-preflight/preview",
     "/api/v1/direct-class-preflight/preview",
+    "/api/v1/member-roster-import/preview",
     # Renewal matching is also allowed in read-only production, but the
     # endpoint must remain ephemeral there: it parses and compares the two
     # workbooks without creating an import batch or staging rows.
@@ -123,6 +125,7 @@ app.include_router(class_roster_preflight_router)
 app.include_router(class_roster_org_import_router)
 app.include_router(direct_class_preflight_router)
 app.include_router(direct_class_import_router)
+app.include_router(member_roster_import_router)
 app.include_router(plans_router)
 app.include_router(operation_rhythm_router)
 app.include_router(renewals_router)

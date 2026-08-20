@@ -519,6 +519,7 @@ export type Member = {
   district?: string;
   company_address?: string;
   class_name?: string;
+  class_committee_name?: string;
   group_name?: string;
   class_org_unit_id?: string;
   group_org_unit_id?: string;
@@ -665,6 +666,7 @@ export type MemberEditProfile = {
   gender?: string | null;
   district?: string | null;
   company_address?: string | null;
+  class_committee_name?: string | null;
   birthday?: string | null;
   join_date?: string | null;
   study_start_date?: string | null;
@@ -830,6 +832,36 @@ export type FullClassRosterPreflight = {
       field: string;
       count: number;
     }[];
+  };
+  issues: { code: string; count: number }[];
+  write_gates: string[];
+};
+
+export type MemberRosterImportPreview = {
+  mode: "READ_ONLY_MEMBER_PROFILE_SUPPLEMENT";
+  automatic_production_write_allowed: false;
+  source_name: string;
+  source_sha256: string;
+  source: {
+    sheet_name: string;
+    row_count: number;
+    status_counts: { status: string; count: number }[];
+    field_non_empty_counts: { field: string; count: number }[];
+  };
+  matching: {
+    summary: { status: string; count: number }[];
+    new_member_count: number;
+    existing_member_count: number;
+    manual_review_count: number;
+    field_fill_counts: { field: string; count: number }[];
+  };
+  organization: {
+    class_relation_ready_count: number;
+    group_relation_ready_count: number;
+  };
+  sensitive: {
+    annual_sales_source_count: number;
+    requires_enterprise_permission: boolean;
   };
   issues: { code: string; count: number }[];
   write_gates: string[];
@@ -1377,6 +1409,7 @@ export const createMember = (data: {
   gender?: string;
   district?: string;
   company_address?: string;
+  class_committee_name?: string;
   class_name?: string;
   group_name?: string;
   class_org_unit_id?: string;
@@ -1518,6 +1551,45 @@ export const previewFullClassRosterWorkbook = (workbook: File) => {
     data,
     headers: { "Content-Type": "multipart/form-data" },
     timeout: 120000
+  });
+};
+
+export const previewMemberRosterWorkbook = (workbook: File) => {
+  const data = new FormData();
+  data.append("workbook", workbook);
+  return http.request<{
+    success: boolean;
+    data: MemberRosterImportPreview;
+  }>("post", "/api/v1/member-roster-import/preview", {
+    data,
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 120000
+  });
+};
+
+export const applyMemberRosterWorkbook = (
+  workbook: File,
+  confirmationText: string
+) => {
+  const data = new FormData();
+  data.append("workbook", workbook);
+  data.append("confirmation_text", confirmationText);
+  return http.request<{
+    success: boolean;
+    data: {
+      batch_id: number;
+      status: "APPLIED" | "ALREADY_APPLIED";
+      created?: number;
+      updated?: number;
+      fields?: number;
+      relations?: number;
+      skipped_manual_review?: number;
+      source_sha256: string;
+    };
+  }>("post", "/api/v1/member-roster-import/apply", {
+    data,
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 180000
   });
 };
 
@@ -1783,6 +1855,7 @@ export const updateMember = (
     gender?: string | null;
     district?: string | null;
     company_address?: string | null;
+    class_committee_name?: string | null;
     birthday?: string | null;
     join_date?: string | null;
     study_start_date?: string | null;
