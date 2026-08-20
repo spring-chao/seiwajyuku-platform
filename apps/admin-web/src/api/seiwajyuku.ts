@@ -862,8 +862,19 @@ export type MemberRosterImportPreview = {
   sensitive: {
     annual_sales_source_count: number;
     requires_enterprise_permission: boolean;
+    enterprise_financial_write_allowed: boolean;
+    annual_sales_ready_count: number | null;
   };
   issues: { code: string; count: number }[];
+  manual_review_items: {
+    source_row: number;
+    name: string;
+    phone_masked: string | null;
+    center_name: string | null;
+    class_name: string | null;
+    group_name: string | null;
+    reasons: string[];
+  }[];
   write_gates: string[];
 };
 
@@ -1583,6 +1594,7 @@ export const applyMemberRosterWorkbook = (
       updated?: number;
       fields?: number;
       relations?: number;
+      annual_sales_applied?: number;
       skipped_manual_review?: number;
       source_sha256: string;
     };

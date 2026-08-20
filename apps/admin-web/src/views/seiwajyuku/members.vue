@@ -83,11 +83,22 @@ const suppressEditDialogReturn = ref(false);
 const unassignedFilterValue = "__UNASSIGNED__";
 const fullOrgConfirmationText = "确认创建20个普通班和112个普通班小组";
 const memberRosterConfirmationText = "确认补充导入学员主档";
+const memberRosterReviewReasonLabels: Record<string, string> = {
+  CENTER_NOT_UNIQUE: "分中心无法唯一匹配",
+  DUPLICATE_PRODUCTION_PHONE: "生产档案手机号重复",
+  DUPLICATE_SOURCE_PHONE: "源表手机号重复",
+  MISSING_OR_INVALID_PHONE: "手机号缺失或格式无效",
+  NAME_EXISTS_PHONE_UNMATCHED: "同名但手机号未匹配",
+  NAME_PHONE_CONFLICT: "姓名与手机号档案冲突",
+  ORG_SCOPE: "当前账号无该分中心处理范围"
+};
 const canApplyMemberRosterImport = computed(() => {
   const result = memberRosterImportResult.value;
   return Boolean(
     result &&
-      result.matching.existing_member_count + result.matching.new_member_count > 0
+      result.matching.existing_member_count + result.matching.new_member_count > 0 &&
+      (!result.sensitive.requires_enterprise_permission ||
+        result.sensitive.enterprise_financial_write_allowed)
   );
 });
 const canApplyFullOrgImport = computed(() => {
@@ -907,6 +918,44 @@ function selectMemberRosterFile(file: UploadFile) {
   return false;
 }
 
+function memberRosterReviewReasonText(reason: string) {
+  return memberRosterReviewReasonLabels[reason] || reason;
+}
+
+function quoteCsvCell(value: unknown) {
+  const text = String(value ?? "");
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function downloadMemberRosterManualReview() {
+  const items = memberRosterImportResult.value?.manual_review_items ?? [];
+  if (!items.length) {
+    ElMessage.info("当前预检没有需要人工复核的记录");
+    return;
+  }
+  const lines = [
+    ["源表行号", "姓名", "手机号（脱敏）", "分中心", "班级", "小组", "复核原因"],
+    ...items.map(item => [
+      item.source_row,
+      item.name,
+      item.phone_masked || "",
+      item.center_name || "",
+      item.class_name || "",
+      item.group_name || "",
+      item.reasons.map(memberRosterReviewReasonText).join("；")
+    ])
+  ].map(row => row.map(quoteCsvCell).join(","));
+  const blob = new Blob([`\uFEFF${lines.join("\r\n")}`], {
+    type: "text/csv;charset=utf-8"
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "学员主档补充导入-人工复核清单.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 async function runMemberRosterPreflight() {
   const workbook = memberRosterFiles.value[0]?.raw;
   if (!workbook) {
@@ -963,7 +1012,7 @@ async function applyMemberRosterImport() {
   try {
     const result = await applyMemberRosterWorkbook(workbook, confirmationText);
     ElMessage.success(
-      `补充导入完成：新增 ${result.data.created ?? 0} 人、更新 ${result.data.updated ?? 0} 人、资料字段 ${result.data.fields ?? 0} 项、组织关系 ${result.data.relations ?? 0} 条；跳过复核 ${result.data.skipped_manual_review ?? 0} 条`
+      `补充导入完成：新增 ${result.data.created ?? 0} 人、更新 ${result.data.updated ?? 0} 人、资料字段 ${result.data.fields ?? 0} 项、销售收入 ${result.data.annual_sales_applied ?? 0} 条、组织关系 ${result.data.relations ?? 0} 条；跳过复核 ${result.data.skipped_manual_review ?? 0} 条`
     );
     memberRosterImportResult.value = (
       await previewMemberRosterWorkbook(workbook)
@@ -1297,8 +1346,11 @@ onMounted(async () => {
           </el-descriptions-item>
           <el-descriptions-item label="销售收入源数据" :span="2">
             {{ memberRosterImportResult.sensitive.annual_sales_source_count }} 条
-            <span v-if="memberRosterImportResult.sensitive.requires_enterprise_permission" class="muted-inline">
-              （需要企业敏感资料权限）
+            <span v-if="memberRosterImportResult.sensitive.enterprise_financial_write_allowed" class="muted-inline">
+              （本账号可写入；待补充 {{ memberRosterImportResult.sensitive.annual_sales_ready_count ?? 0 }} 条）
+            </span>
+            <span v-else-if="memberRosterImportResult.sensitive.requires_enterprise_permission" class="muted-inline">
+              （当前账号缺少企业敏感资料权限，暂不允许正式导入）
             </span>
           </el-descriptions-item>
           <el-descriptions-item label="补充字段" :span="2">
@@ -1315,6 +1367,36 @@ onMounted(async () => {
           :closable="false"
           show-icon
         />
+        <section
+          v-if="memberRosterImportResult.manual_review_items.length"
+          class="member-roster-review-list"
+        >
+          <div class="member-roster-review-list__head">
+            <strong>人工复核清单（{{ memberRosterImportResult.manual_review_items.length }} 人）</strong>
+            <el-button size="small" @click="downloadMemberRosterManualReview">
+              导出脱敏复核清单
+            </el-button>
+          </div>
+          <el-table
+            :data="memberRosterImportResult.manual_review_items"
+            size="small"
+            max-height="300"
+          >
+            <el-table-column prop="source_row" label="源表行" width="82" />
+            <el-table-column prop="name" label="姓名" min-width="100" />
+            <el-table-column prop="phone_masked" label="手机号" min-width="120">
+              <template #default="scope">{{ scope.row.phone_masked || "—" }}</template>
+            </el-table-column>
+            <el-table-column prop="center_name" label="分中心" min-width="130" />
+            <el-table-column prop="class_name" label="班级" min-width="130" />
+            <el-table-column prop="group_name" label="小组" min-width="120" />
+            <el-table-column label="复核原因" min-width="260">
+              <template #default="scope">
+                {{ scope.row.reasons.map(memberRosterReviewReasonText).join("；") }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </section>
         <p class="form-hint">
           文件指纹：{{ memberRosterImportResult.source_sha256 }}。正式导入必须再次确认同一文件。
         </p>
@@ -1328,7 +1410,7 @@ onMounted(async () => {
         </el-button>
         <el-alert
           v-else
-          title="当前预检存在异常或待人工复核记录，暂不开放正式导入。"
+          :title="memberRosterImportResult.sensitive.requires_enterprise_permission && !memberRosterImportResult.sensitive.enterprise_financial_write_allowed ? '当前账号缺少企业敏感资料权限。请使用已授权账号导入，确保销售收入加密写入。' : '当前预检没有可安全导入的记录。'"
           type="info"
           :closable="false"
           show-icon
@@ -2153,6 +2235,20 @@ onMounted(async () => {
 }
 .result-alert {
   margin-top: 4px;
+}
+.member-roster-review-list {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+.member-roster-review-list__head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
 }
 .timeline-profile {
   margin-bottom: 18px;

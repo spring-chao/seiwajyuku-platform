@@ -215,8 +215,41 @@ def _member_fields_for_response(fields: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in fields.items() if key not in {"annual_sales", "phone"}}
 
 
+def _masked_phone(phone: dict[str, Any] | None) -> str | None:
+    """Return a reviewer-safe phone hint without retaining a raw number."""
+    last4 = _text((phone or {}).get("phone_last4"))
+    return f"****{last4}" if last4 else None
+
+
+def _financial_data(member: dict[str, Any] | None) -> dict[str, Any]:
+    """Read encrypted financial data only for an already-authorized internal decision."""
+    ciphertext = (member or {}).get("enterprise_financial_ciphertext")
+    if not ciphertext:
+        return {}
+    try:
+        return json.loads(decrypt_text(ciphertext))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def _manual_review_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Reviewer identity is minimal: name, source row and masked phone only."""
+    row = item["row"]
+    return {
+        "source_row": row["source_row"],
+        "name": _text(row.get("姓名")),
+        "phone_masked": _masked_phone(item.get("phone")),
+        "center_name": _text(row.get("所在分中心")) or None,
+        "class_name": _text(row.get("所属班级")) or None,
+        "group_name": _text(row.get("所属小组")) or None,
+        "reasons": sorted(item["reasons"]),
+    }
+
+
 def _build_plan(rows: list[dict[str, Any]], *, actor_user_id: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     allowed = accessible_org_ids(actor_user_id)
+    actor = user_context(actor_user_id)
+    allow_sensitive = bool(actor and "members:enterprise_view" in actor["permissions"])
     units = _active_units()
     centers_by_name: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for unit in units:
@@ -315,10 +348,19 @@ def _build_plan(rows: list[dict[str, Any]], *, actor_user_id: int) -> tuple[list
         if fields.get("annual_sales"):
             sensitive_count += 1
         if item["status"] == "READY_NEW":
-            field_fill.update(fields.keys())
+            field_fill.update(
+                key for key in fields if key != "annual_sales" or allow_sensitive
+            )
         else:
             member = item["member"]
-            field_fill.update(key for key, value in fields.items() if value not in (None, "") and not member.get(key))
+            current_financial = _financial_data(member) if allow_sensitive else {}
+            field_fill.update(
+                key
+                for key, value in fields.items()
+                if value not in (None, "")
+                and not (current_financial.get("annual_sales") if key == "annual_sales" else member.get(key))
+                and (key != "annual_sales" or allow_sensitive)
+            )
         relation_ready["class"] += bool(item["relation_ids"].get("class_id"))
         relation_ready["group"] += bool(item["relation_ids"].get("group_id"))
     issue_counter = Counter(reason for item in prepared for reason in item["reasons"])
@@ -337,8 +379,15 @@ def _build_plan(rows: list[dict[str, Any]], *, actor_user_id: int) -> tuple[list
         "sensitive": {
             "annual_sales_source_count": sensitive_count,
             "requires_enterprise_permission": sensitive_count > 0,
+            "enterprise_financial_write_allowed": allow_sensitive,
+            "annual_sales_ready_count": field_fill["annual_sales"] if allow_sensitive else None,
         },
         "issues": _counter_rows(issue_counter, "code"),
+        "manual_review_items": [
+            _manual_review_item(item)
+            for item in prepared
+            if item["status"] == "MANUAL_REVIEW"
+        ],
     }
 
 
@@ -430,7 +479,7 @@ def apply_member_roster(content: bytes, source_name: str, actor_user_id: int, co
     if plan["sensitive"]["requires_enterprise_permission"] and not allow_sensitive:
         raise PermissionError("当前账号缺少企业敏感资料权限，无法导入销售收入")
     now = datetime.now(UTC).isoformat()
-    created = updated = field_count = relation_count = 0
+    created = updated = field_count = relation_count = annual_sales_applied = 0
     with transaction() as connection:
         cursor = execute(
             connection,
@@ -440,6 +489,10 @@ def apply_member_roster(content: bytes, source_name: str, actor_user_id: int, co
         )
         batch_id = cursor.lastrowid
         for item in prepared:
+            if item["status"] == "MANUAL_REVIEW":
+                # These rows are listed for human reconciliation and must never
+                # reach the existing-member update path.
+                continue
             row = item["row"]
             fields = dict(item["source_fields"])
             if not allow_sensitive:
@@ -454,6 +507,7 @@ def apply_member_roster(content: bytes, source_name: str, actor_user_id: int, co
                 group_name = _text(row.get("所属小组")) or None
                 financial_data = {"annual_sales": fields.pop("annual_sales")} if fields.get("annual_sales") else {}
                 financial_ciphertext = encrypt_text(json.dumps(financial_data, ensure_ascii=False)) if financial_data else None
+                annual_sales_applied += int(bool(financial_data.get("annual_sales")))
                 columns = {
                     "member_code": member_code,
                     "name": _text(row.get("姓名")),
@@ -490,14 +544,17 @@ def apply_member_roster(content: bytes, source_name: str, actor_user_id: int, co
             current = fetch_one("SELECT * FROM members WHERE id=?", (item["member"]["id"],))
             if not current:
                 raise ValueError("导入期间学员记录发生变化，已停止写入")
+            current_financial = _financial_data(current) if allow_sensitive else {}
+            current["annual_sales"] = current_financial.get("annual_sales")
             changes = _apply_fields(current, fields, allow_sensitive=allow_sensitive)
             center_id = item["center_id"]
             if center_id and not current.get("development_org_unit_id"):
                 changes["development_org_unit_id"] = center_id
             if "annual_sales" in changes:
-                financial_data = json.loads(decrypt_text(current["enterprise_financial_ciphertext"])) if current.get("enterprise_financial_ciphertext") else {}
+                financial_data = current_financial
                 financial_data["annual_sales"] = changes.pop("annual_sales")
                 changes["enterprise_financial_ciphertext"] = encrypt_text(json.dumps(financial_data, ensure_ascii=False))
+                annual_sales_applied += 1
             if current.get("join_date") in (None, "") and changes.get("join_date") and "membership_years" not in changes:
                 changes["membership_years_overridden"] = 0
             if "renewal_month" in changes:
@@ -529,6 +586,7 @@ def apply_member_roster(content: bytes, source_name: str, actor_user_id: int, co
         "updated": updated,
         "fields": field_count,
         "relations": relation_count,
+        "annual_sales_applied": annual_sales_applied,
         "skipped_manual_review": plan["matching"]["manual_review_count"],
         "source_sha256": source_sha256,
     }
