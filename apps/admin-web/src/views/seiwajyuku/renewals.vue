@@ -22,6 +22,8 @@ import {
   type RenewalCoverage,
   type RenewalCoverageRow,
   type RenewalOverviewRow,
+  type RenewalStageCode,
+  type RenewalTodayActionReason,
   type RenewalTodayAction,
   type RenewalTodayActions
 } from "@/api/seiwajyuku";
@@ -32,6 +34,7 @@ const year = ref(2026);
 const loading = ref(false);
 const rows = ref<RenewalOverviewRow[]>([]);
 const cycles = ref<RenewalCycle[]>([]);
+const stageCycles = ref<RenewalCycle[]>([]);
 const coverage = ref<RenewalCoverage>({
   year: 2026,
   summary: {
@@ -75,6 +78,11 @@ const followups = ref<RenewalFollowup[]>([]);
 const cycleAssignees = ref<FollowupAssignee[]>([]);
 const writeEnabled = ref(true);
 const cycleManagementExpanded = ref<string[]>([]);
+const secondaryView = ref<"WORKBENCH" | "LEDGER" | "COVERAGE">("WORKBENCH");
+const todayActionFilter = ref<"ALL" | RenewalTodayActionReason["code"]>("ALL");
+const stageFilter = ref<"ALL" | RenewalStageCode>("ALL");
+const generatedScriptChannel = ref<"WECHAT" | "PHONE">("WECHAT");
+const scriptGenerated = ref(false);
 const filters = reactive<{
   org_unit_id: string;
   due_month: number | undefined;
@@ -111,6 +119,20 @@ const canEditRenewals = computed(
   () => canManageRenewals.value && writeEnabled.value
 );
 const isClosedStage = computed(() => actionCard.value?.stage.code === "CLOSED");
+
+const stageDefinitions: {
+  code: RenewalStageCode;
+  label: string;
+  note: string;
+}[] = [
+  { code: "PREPARE", label: "日常维护", note: "保持连接" },
+  { code: "OBSERVE_3", label: "观3", note: "重新建立连接" },
+  { code: "RENEW_2", label: "续2", note: "回顾同行价值" },
+  { code: "FOLLOW_1", label: "追1", note: "明确意向与障碍" },
+  { code: "DUE_NOW", label: "到期冲刺", note: "确认结果" },
+  { code: "RECOVERY", label: "挽回/复盘", note: "支持与复盘" },
+  { code: "CLOSED", label: "已闭环", note: "保留结果" }
+];
 
 const centerNames = computed(() => [
   ...new Set(rows.value.map(item => item.org_name))
@@ -156,6 +178,47 @@ const monthlyRows = computed(() =>
     };
   })
 );
+const currentMonth = new Date().getMonth() + 1;
+const currentMonthRow = computed(
+  () =>
+    monthlyRows.value.find(row => row.month === currentMonth) ||
+    monthlyRows.value[0]
+);
+const currentMonthRenewed = computed(() => currentMonthRow.value?.renewed || 0);
+const completionRate = computed(() =>
+  total.value ? Math.round((renewed.value / total.value) * 1000) / 10 : 0
+);
+const stageCounts = computed(() => {
+  const counts = Object.fromEntries(
+    stageDefinitions.map(stage => [stage.code, 0])
+  ) as Record<RenewalStageCode, number>;
+  stageCycles.value.forEach(cycle => {
+    const code = cycle.stage?.code;
+    if (code && code in counts) counts[code] += 1;
+  });
+  return counts;
+});
+const visibleTodayActions = computed(() =>
+  todayActions.value.items.filter(item => {
+    const matchesStage =
+      stageFilter.value === "ALL" || item.stage === stageFilter.value;
+    const matchesReason =
+      todayActionFilter.value === "ALL" ||
+      item.reason_codes.includes(todayActionFilter.value);
+    return matchesStage && matchesReason;
+  })
+);
+const visibleLedgerCycles = computed(() =>
+  stageFilter.value === "ALL"
+    ? cycles.value
+    : stageCycles.value.filter(row => row.stage?.code === stageFilter.value)
+);
+const generatedScript = computed(() => {
+  if (!scriptGenerated.value || !actionCard.value) return "";
+  return generatedScriptChannel.value === "WECHAT"
+    ? actionCard.value.action.wechat_reference || ""
+    : actionCard.value.action.phone_opening_reference || "";
+});
 
 const statusLabel = (status: string) =>
   ({
@@ -266,26 +329,37 @@ async function load() {
   loading.value = true;
   try {
     const memberName = filters.member_name.trim();
-    const [overviewResponse, cycleResponse, coverageResponse] =
-      await Promise.all([
-        getRenewalOverview(year.value),
-        getRenewalCycles(year.value, {
-          org_unit_id: filters.org_unit_id || undefined,
-          due_month: filters.due_month,
-          renewal_status: filters.renewal_status,
-          member_name: memberName || undefined
-        }),
-        getRenewalCoverage(year.value, {
-          org_unit_id: filters.org_unit_id || undefined,
-          member_name: memberName || undefined,
-          include_synced: false,
-          actionable_only: true,
-          limit: 200
-        })
-      ]);
+    const [
+      overviewResponse,
+      cycleResponse,
+      coverageResponse,
+      stageCycleResponse
+    ] = await Promise.all([
+      getRenewalOverview(year.value),
+      getRenewalCycles(year.value, {
+        org_unit_id: filters.org_unit_id || undefined,
+        due_month: filters.due_month,
+        renewal_status: filters.renewal_status,
+        member_name: memberName || undefined
+      }),
+      getRenewalCoverage(year.value, {
+        org_unit_id: filters.org_unit_id || undefined,
+        member_name: memberName || undefined,
+        include_synced: false,
+        actionable_only: true,
+        limit: 200
+      }),
+      getRenewalCycles(year.value, {
+        org_unit_id: filters.org_unit_id || undefined,
+        member_name: memberName || undefined,
+        renewal_status: "ALL",
+        include_past: true
+      })
+    ]);
     rows.value = overviewResponse.data.rows;
     cycles.value = cycleResponse.data;
     coverage.value = coverageResponse.data;
+    stageCycles.value = stageCycleResponse.data;
     await loadTodayActions();
   } catch (error: any) {
     ElMessage.error(errorText(error, "续费台账加载失败，请稍后重试"));
@@ -307,6 +381,53 @@ async function loadTodayActions() {
   } finally {
     todayActionsLoading.value = false;
   }
+}
+
+function setTodayActionFilter(
+  filter: "ALL" | RenewalTodayActionReason["code"]
+) {
+  todayActionFilter.value = filter;
+  stageFilter.value = "ALL";
+  secondaryView.value = "WORKBENCH";
+}
+
+function selectStage(stage: RenewalStageCode) {
+  stageFilter.value = stage;
+  todayActionFilter.value = "ALL";
+  const actionStages: RenewalStageCode[] = [
+    "OBSERVE_3",
+    "RENEW_2",
+    "FOLLOW_1",
+    "DUE_NOW",
+    "RECOVERY"
+  ];
+  secondaryView.value = actionStages.includes(stage) ? "WORKBENCH" : "LEDGER";
+  if (secondaryView.value === "WORKBENCH") {
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector(".today-actions-card")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+}
+
+function selectMonth(month: number) {
+  stageFilter.value = "ALL";
+  todayActionFilter.value = "ALL";
+  secondaryView.value = "LEDGER";
+  Object.assign(filters, {
+    due_month: month,
+    renewal_status: "ALL"
+  });
+  load();
+}
+
+function selectRenewalStatus(status: "UNRENEWED" | "RENEWED" | "ALL") {
+  stageFilter.value = "ALL";
+  todayActionFilter.value = "ALL";
+  secondaryView.value = "LEDGER";
+  filters.renewal_status = status;
+  load();
 }
 
 async function openTodayAction(item: any) {
@@ -393,6 +514,9 @@ function resetFilters() {
     renewal_status: "UNRENEWED",
     member_name: ""
   });
+  stageFilter.value = "ALL";
+  todayActionFilter.value = "ALL";
+  secondaryView.value = "WORKBENCH";
   load();
 }
 
@@ -413,6 +537,9 @@ async function loadActionCard(cycleId: number) {
     const response = await getRenewalActionCard(cycleId);
     actionCard.value = response.data;
     followupForm.channel = response.data.action.recommended_channel;
+    generatedScriptChannel.value =
+      response.data.action.recommended_channel === "PHONE" ? "PHONE" : "WECHAT";
+    scriptGenerated.value = false;
   } catch (error) {
     actionCard.value = undefined;
     actionCardError.value = true;
@@ -433,11 +560,20 @@ async function reloadActionCard() {
   }
 }
 
-async function copyReference(value?: string | null) {
+function generateCareScript(channel: "WECHAT" | "PHONE") {
+  if (!actionCard.value) return;
+  generatedScriptChannel.value = channel;
+  scriptGenerated.value = true;
+}
+
+async function copyReference(
+  value?: string | null,
+  successMessage = "参考内容已复制，请结合真实沟通情况确认后使用"
+) {
   if (!value) return;
   try {
     await navigator.clipboard.writeText(value);
-    ElMessage.success("参考内容已复制，请结合真实沟通情况确认后使用");
+    ElMessage.success(successMessage);
   } catch {
     ElMessage.warning("浏览器未允许复制，请手动选择文字复制");
   }
@@ -455,6 +591,7 @@ async function openCycleDetail(cycle: any) {
   followups.value = [];
   actionCard.value = undefined;
   actionCardError.value = false;
+  scriptGenerated.value = false;
   cycleAssignees.value = [];
   cycleDetailVisible.value = true;
   cycleDetailLoading.value = true;
@@ -602,29 +739,76 @@ onMounted(async () => {
     </section>
 
     <section class="summary-grid">
-      <article>
-        <span>年度续费对象</span>
-        <strong>{{ total }}</strong>
-        <small>已进入正式续费周期的学员</small>
-      </article>
-      <article>
-        <span>覆盖分中心</span>
-        <strong>{{ centerNames.length }} / 6</strong>
-        <small>续费发展归属按六大分中心统计</small>
-      </article>
-      <article>
-        <span>已完成续费</span>
-        <strong>{{ renewed }}</strong>
-        <small>状态已确认完成</small>
-      </article>
-      <article class="attention">
-        <span>当前需跟进</span>
-        <strong>{{ needsAttention }}</strong>
-        <small>待联系、待回复或沟通中的学员</small>
-      </article>
+      <button class="summary-tile primary" @click="setTodayActionFilter('ALL')">
+        <span>今日应行动</span>
+        <strong>{{ todayActions.summary.total }}</strong>
+        <small>今天真正需要联系的学长 · 点击查看</small>
+      </button>
+      <button
+        class="summary-tile danger"
+        @click="setTodayActionFilter('FOLLOWUP_OVERDUE')"
+      >
+        <span>逾期未跟进</span>
+        <strong>{{ todayActions.summary.overdue_count }}</strong>
+        <small>第一优先处理 · 点击筛选</small>
+      </button>
+      <button
+        class="summary-tile warning"
+        @click="setTodayActionFilter('SUPPORT_NEEDED')"
+      >
+        <span>需要协助</span>
+        <strong>{{ todayActions.summary.support_needed_count }}</strong>
+        <small>需要班主任或负责人介入</small>
+      </button>
+      <button class="summary-tile" @click="selectMonth(currentMonth)">
+        <span>本月到期</span>
+        <strong>{{ currentMonthRow?.total || 0 }}</strong>
+        <small>{{ currentMonth }}月冲刺盘 · 点击查看</small>
+      </button>
+      <button
+        class="summary-tile success"
+        @click="selectRenewalStatus('RENEWED')"
+      >
+        <span>本月已续</span>
+        <strong>{{ currentMonthRenewed }}</strong>
+        <small>当前月已确认完成</small>
+      </button>
+      <button class="summary-tile" @click="selectRenewalStatus('ALL')">
+        <span>续费完成率</span>
+        <strong>{{ completionRate }}%</strong>
+        <small>{{ renewed }} / {{ total }} 人已完成 · 点击查看台账</small>
+      </button>
     </section>
 
-    <section class="content-grid">
+    <section class="stage-board-card">
+      <div class="card-title">
+        <div>
+          <h2>观3 · 续2 · 追1 阶段盘</h2>
+          <p>阶段由续费月份规则计算；点击阶段即可进入对应工作区。</p>
+        </div>
+        <span class="stage-board-asof">{{
+          todayActions.as_of || "正在读取"
+        }}</span>
+      </div>
+      <div class="stage-board">
+        <button
+          v-for="stage in stageDefinitions"
+          :key="stage.code"
+          class="stage-tile"
+          :class="[
+            `stage-${stage.code.toLowerCase()}`,
+            { active: stageFilter === stage.code }
+          ]"
+          @click="selectStage(stage.code)"
+        >
+          <span>{{ stage.label }}</span>
+          <strong>{{ stageCounts[stage.code] || 0 }}</strong>
+          <small>{{ stage.note }}</small>
+        </button>
+      </div>
+    </section>
+
+    <section v-if="secondaryView === 'WORKBENCH'" class="content-grid">
       <el-card shadow="never" class="timeline-card">
         <template #header>
           <div class="card-title">
@@ -634,34 +818,23 @@ onMounted(async () => {
             </div>
           </div>
         </template>
-        <el-table :data="monthlyRows" stripe>
-          <el-table-column prop="month" label="到期月份" min-width="100">
-            <template #default="{ row }">{{ row.month }}月</template>
-          </el-table-column>
-          <el-table-column
-            prop="total"
-            label="续费对象"
-            min-width="100"
-            align="right"
-          />
-          <el-table-column
-            prop="renewed"
-            label="已续费"
-            min-width="100"
-            align="right"
-          />
-          <el-table-column
-            prop="attention"
-            label="待推进"
-            min-width="100"
-            align="right"
-          />
-          <el-table-column label="完成率" min-width="130" align="right">
-            <template #default="{ row }">
-              {{ row.total ? Math.round((row.renewed / row.total) * 100) : 0 }}%
-            </template>
-          </el-table-column>
-        </el-table>
+        <div class="month-rhythm-grid">
+          <button
+            v-for="row in monthlyRows"
+            :key="row.month"
+            class="month-rhythm-item"
+            :class="{ current: row.month === currentMonth }"
+            @click="selectMonth(row.month)"
+          >
+            <span>{{ row.month }}月</span>
+            <strong>{{ row.renewed }}/{{ row.total }}</strong>
+            <small
+              >{{
+                row.total ? Math.round((row.renewed / row.total) * 100) : 0
+              }}% 已续</small
+            >
+          </button>
+        </div>
       </el-card>
     </section>
 
@@ -669,8 +842,10 @@ onMounted(async () => {
       <template #header>
         <div class="card-title">
           <div>
-            <h2>今日应行动</h2>
-            <p>只显示有明确事实依据的行动，不使用续费概率或黑箱评分。</p>
+            <h2>今天有 {{ todayActions.summary.total }} 位学长值得关注</h2>
+            <p>
+              按逾期、需要协助、今日约定和阶段优先排序；点击“去关爱”打开工作台。
+            </p>
           </div>
           <el-button
             link
@@ -699,31 +874,55 @@ onMounted(async () => {
       </el-alert>
       <div v-else v-loading="todayActionsLoading" class="today-actions-body">
         <div class="today-actions-summary">
-          <span
-            >建议行动 <b>{{ todayActions.summary.total }}</b> 人</span
+          <button
+            class="action-filter"
+            :class="{
+              active: todayActionFilter === 'ALL' && stageFilter === 'ALL'
+            }"
+            @click="setTodayActionFilter('ALL')"
           >
-          <span class="overdue"
-            >逾期 <b>{{ todayActions.summary.overdue_count }}</b></span
+            全部 <b>{{ todayActions.summary.total }}</b>
+          </button>
+          <button
+            class="action-filter overdue"
+            :class="{ active: todayActionFilter === 'FOLLOWUP_OVERDUE' }"
+            @click="setTodayActionFilter('FOLLOWUP_OVERDUE')"
           >
-          <span class="today"
-            >今日约定 <b>{{ todayActions.summary.today_count }}</b></span
+            逾期 <b>{{ todayActions.summary.overdue_count }}</b>
+          </button>
+          <button
+            class="action-filter today"
+            :class="{ active: todayActionFilter === 'FOLLOWUP_TODAY' }"
+            @click="setTodayActionFilter('FOLLOWUP_TODAY')"
           >
-          <span class="support"
-            >需要协助
-            <b>{{ todayActions.summary.support_needed_count }}</b></span
+            今日约定 <b>{{ todayActions.summary.today_count }}</b>
+          </button>
+          <button
+            class="action-filter support"
+            :class="{ active: todayActionFilter === 'SUPPORT_NEEDED' }"
+            @click="setTodayActionFilter('SUPPORT_NEEDED')"
           >
-          <span class="untouched"
-            >新阶段未触达
-            <b>{{ todayActions.summary.stage_untouched_count }}</b></span
+            需要协助 <b>{{ todayActions.summary.support_needed_count }}</b>
+          </button>
+          <button
+            class="action-filter untouched"
+            :class="{ active: todayActionFilter === 'STAGE_UNTOUCHED' }"
+            @click="setTodayActionFilter('STAGE_UNTOUCHED')"
           >
-          <span
-            >下一步缺失
-            <b>{{ todayActions.summary.next_step_missing_count }}</b></span
+            新阶段未触达 <b>{{ todayActions.summary.stage_untouched_count }}</b>
+          </button>
+          <button
+            class="action-filter"
+            :class="{ active: todayActionFilter === 'NEXT_STEP_MISSING' }"
+            @click="setTodayActionFilter('NEXT_STEP_MISSING')"
           >
+            下一步缺失 <b>{{ todayActions.summary.next_step_missing_count }}</b>
+          </button>
         </div>
         <el-table
-          :data="todayActions.items"
+          :data="visibleTodayActions"
           stripe
+          max-height="420"
           empty-text="今天暂无确定性续费行动"
           class="today-actions-table"
         >
@@ -757,9 +956,12 @@ onMounted(async () => {
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="下次联系" min-width="145">
+          <el-table-column label="下一步" min-width="180">
             <template #default="{ row }">
-              {{ formatActionDate(row.next_followup_at) }}
+              <span>{{ row.next_action || "待明确" }}</span>
+              <small v-if="row.next_followup_at" class="table-subtext">
+                {{ formatActionDate(row.next_followup_at) }}
+              </small>
             </template>
           </el-table-column>
           <el-table-column label="责任人" min-width="120">
@@ -770,7 +972,7 @@ onMounted(async () => {
           <el-table-column label="操作" width="120" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="openTodayAction(row)">
-                今日行动
+                去关爱
               </el-button>
             </template>
           </el-table-column>
@@ -778,7 +980,40 @@ onMounted(async () => {
       </div>
     </el-card>
 
+    <nav class="secondary-nav" aria-label="续费运营辅助区域">
+      <button
+        :class="{ active: secondaryView === 'WORKBENCH' }"
+        @click="secondaryView = 'WORKBENCH'"
+      >
+        续费工作台
+      </button>
+      <button
+        :class="{ active: secondaryView === 'LEDGER' }"
+        @click="secondaryView = 'LEDGER'"
+      >
+        全部台账
+      </button>
+      <button
+        :class="{ active: secondaryView === 'COVERAGE' }"
+        @click="secondaryView = 'COVERAGE'"
+      >
+        数据检查
+        <el-badge
+          v-if="
+            coverage.summary.ready_to_create_count ||
+            coverage.summary.missing_renewal_month_count
+          "
+          :value="
+            coverage.summary.ready_to_create_count +
+            coverage.summary.missing_renewal_month_count
+          "
+          class="secondary-badge"
+        />
+      </button>
+    </nav>
+
     <el-alert
+      v-if="secondaryView === 'COVERAGE'"
       class="source-alert"
       title="学员数据唯一来源：学员管理数据库"
       description="姓名、归属、班级、小组和续费月份均实时读取学员管理。已建立周期继续保留跟进状态；未建立周期或缺少续费月份的学员会在同步检查中明确显示，不再静默缺失。"
@@ -787,7 +1022,11 @@ onMounted(async () => {
       show-icon
     />
 
-    <el-card shadow="never" class="coverage-card">
+    <el-card
+      v-if="secondaryView === 'COVERAGE'"
+      shadow="never"
+      class="coverage-card"
+    >
       <template #header>
         <div class="card-title">
           <div>
@@ -882,7 +1121,11 @@ onMounted(async () => {
       </el-table>
     </el-card>
 
-    <el-card shadow="never" class="cycle-card">
+    <el-card
+      v-if="secondaryView === 'LEDGER'"
+      shadow="never"
+      class="cycle-card"
+    >
       <template #header>
         <div class="card-title">
           <div>
@@ -950,7 +1193,11 @@ onMounted(async () => {
         :closable="false"
         show-icon
       />
-      <el-table :data="cycles" stripe empty-text="暂无正式续费周期">
+      <el-table
+        :data="visibleLedgerCycles"
+        stripe
+        empty-text="暂无正式续费周期"
+      >
         <el-table-column prop="member_name" label="学员" min-width="120" />
         <el-table-column
           prop="org_name"
@@ -985,18 +1232,30 @@ onMounted(async () => {
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openCycleDetail(row)">
-              今日行动
+              去关爱
             </el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
 
-    <el-dialog
+    <el-drawer
       v-model="cycleDetailVisible"
-      :title="`${selectedCycle?.member_name ?? '续费周期'} · 今日行动`"
-      width="980px"
+      direction="rtl"
+      size="min(760px, 92vw)"
+      class="renewal-drawer"
     >
+      <template #header>
+        <div class="drawer-header">
+          <div>
+            <span class="drawer-eyebrow">续费关爱工作台</span>
+            <h2>{{ selectedCycle?.member_name ?? "续费周期" }}学长</h2>
+          </div>
+          <el-button link type="primary" @click="cycleDetailVisible = false">
+            关闭
+          </el-button>
+        </div>
+      </template>
       <div v-loading="cycleDetailLoading" class="cycle-detail">
         <el-alert
           v-if="!canManageRenewals"
@@ -1103,6 +1362,55 @@ onMounted(async () => {
             </p>
           </div>
 
+          <section class="script-panel">
+            <div class="script-panel-head">
+              <div>
+                <strong>一键生成本次关爱话术</strong>
+                <p>
+                  依据当前阶段、已核验经历和最近沟通生成；复制后请结合真实情况调整。
+                </p>
+              </div>
+              <div class="script-actions">
+                <el-button
+                  :type="
+                    generatedScriptChannel === 'WECHAT' ? 'primary' : 'default'
+                  "
+                  @click="generateCareScript('WECHAT')"
+                >
+                  生成微信话术
+                </el-button>
+                <el-button
+                  :type="
+                    generatedScriptChannel === 'PHONE' ? 'primary' : 'default'
+                  "
+                  @click="generateCareScript('PHONE')"
+                >
+                  生成电话开场
+                </el-button>
+              </div>
+            </div>
+            <div v-if="generatedScript" class="generated-script">
+              <div class="reference-title">
+                <strong
+                  >{{ channelLabel(generatedScriptChannel) }}关爱话术</strong
+                >
+                <el-button
+                  link
+                  type="primary"
+                  @click="
+                    copyReference(
+                      generatedScript,
+                      '话术已复制，请在实际发送前确认内容'
+                    )
+                  "
+                >
+                  复制话术
+                </el-button>
+              </div>
+              <p>{{ generatedScript }}</p>
+            </div>
+          </section>
+
           <div class="reference-grid">
             <article>
               <div class="reference-title">
@@ -1206,7 +1514,9 @@ onMounted(async () => {
         />
 
         <template v-if="canManageRenewals && !isClosedStage">
-          <el-divider content-position="left">本次行动后记录</el-divider>
+          <el-divider content-position="left"
+            >完成本次关爱并安排下一步</el-divider
+          >
           <el-form
             :model="followupForm"
             label-position="top"
@@ -1226,6 +1536,9 @@ onMounted(async () => {
                 <el-option label="无需联系" value="NONE" disabled />
               </el-select>
             </el-form-item>
+            <p class="completion-hint">
+              记录一次真实发生的微信、电话或面谈；保存后今日行动会按新的下一步重新判断。
+            </p>
             <el-form-item label="跟进摘要" required>
               <el-input
                 v-model="followupForm.summary"
@@ -1269,7 +1582,7 @@ onMounted(async () => {
                 :disabled="!canEditRenewals"
                 @click="submitFollowup"
               >
-                保存跟进记录
+                保存并完成本次关爱
               </el-button>
             </el-form-item>
           </el-form>
@@ -1378,7 +1691,7 @@ onMounted(async () => {
           </el-collapse-item>
         </el-collapse>
       </div>
-    </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -1388,6 +1701,29 @@ onMounted(async () => {
   gap: 18px;
   padding: 20px;
   color: #163d32;
+}
+.renewal-page > .hero {
+  order: 1;
+}
+.renewal-page > .summary-grid {
+  order: 2;
+}
+.renewal-page > .stage-board-card {
+  order: 3;
+}
+.renewal-page > .today-actions-card {
+  order: 4;
+}
+.renewal-page > .content-grid {
+  order: 5;
+}
+.renewal-page > .secondary-nav {
+  order: 6;
+}
+.renewal-page > .source-alert,
+.renewal-page > .coverage-card,
+.renewal-page > .cycle-card {
+  order: 7;
 }
 .hero {
   display: flex;
@@ -1422,16 +1758,124 @@ onMounted(async () => {
 }
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 14px;
 }
-.summary-grid article {
+.summary-tile {
   display: grid;
   gap: 8px;
+  min-width: 0;
+  padding: 18px 19px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: var(--el-bg-color);
+  border: 1px solid #dce9e3;
+  border-radius: 16px;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+.summary-tile:hover,
+.summary-tile:focus-visible {
+  border-color: #62a98b;
+  box-shadow: 0 8px 20px rgb(31 104 76 / 10%);
+  outline: none;
+  transform: translateY(-1px);
+}
+.summary-tile.primary {
+  background: #effaf5;
+  border-color: #bce5d2;
+}
+.summary-tile.danger {
+  background: #fff4f1;
+  border-color: #f0c7bf;
+}
+.summary-tile.warning {
+  background: #fff9ed;
+  border-color: #f0d9aa;
+}
+.summary-tile.success {
+  background: #f1faf4;
+  border-color: #c6e6cc;
+}
+.summary-tile span {
+  color: #6d8179;
+}
+.summary-tile strong {
+  font-size: 30px;
+  color: #123f32;
+}
+.summary-tile small {
+  color: #879991;
+  line-height: 1.45;
+}
+.stage-board-card {
+  display: grid;
+  gap: 16px;
   padding: 20px 22px;
   background: var(--el-bg-color);
   border: 1px solid #dce9e3;
   border-radius: 16px;
+}
+.stage-board-asof {
+  color: #82958d;
+  font-size: 13px;
+}
+.stage-board {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+}
+.stage-tile {
+  display: grid;
+  gap: 5px;
+  min-height: 104px;
+  padding: 13px 14px;
+  color: #527066;
+  text-align: left;
+  cursor: pointer;
+  background: #f7faf8;
+  border: 1px solid #e1ebe6;
+  border-radius: 13px;
+  transition: 0.2s ease;
+}
+.stage-tile:hover,
+.stage-tile:focus-visible,
+.stage-tile.active {
+  border-color: #5a9e82;
+  box-shadow: 0 7px 16px rgb(31 104 76 / 9%);
+  outline: none;
+  transform: translateY(-1px);
+}
+.stage-tile strong {
+  color: #153f33;
+  font-size: 26px;
+}
+.stage-tile small {
+  color: #82958d;
+  line-height: 1.4;
+}
+.stage-observe_3 {
+  background: #f0faf4;
+  border-color: #c7e9d2;
+}
+.stage-renew_2 {
+  background: #f0f6ff;
+  border-color: #c9ddfa;
+}
+.stage-follow_1 {
+  background: #fff8eb;
+  border-color: #f1dfb9;
+}
+.stage-due_now,
+.stage-recovery {
+  background: #fff3f0;
+  border-color: #efc9c1;
+}
+.stage-closed {
+  background: #f5f7f7;
 }
 .summary-grid span {
   color: #6d8179;
@@ -1452,12 +1896,73 @@ onMounted(async () => {
   grid-template-columns: 1fr;
   gap: 18px;
 }
+.month-rhythm-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 8px;
+}
+.month-rhythm-item {
+  display: grid;
+  gap: 8px;
+  min-height: 92px;
+  padding: 10px 8px;
+  color: #557267;
+  text-align: center;
+  cursor: pointer;
+  background: #f7faf8;
+  border: 1px solid #e1ebe6;
+  border-radius: 10px;
+}
+.month-rhythm-item:hover,
+.month-rhythm-item:focus-visible,
+.month-rhythm-item.current {
+  color: #164f3b;
+  background: #eaf8f0;
+  border-color: #77b897;
+  outline: none;
+}
+.month-rhythm-item strong {
+  color: #163d32;
+  font-size: 17px;
+}
+.month-rhythm-item small {
+  color: #82958d;
+  font-size: 11px;
+}
 .timeline-card {
   border-color: #dce9e3;
   border-radius: 16px;
 }
 .source-alert {
   border: 1px solid #cce9dc;
+}
+.secondary-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px;
+  background: #edf5f1;
+  border: 1px solid #d7e9df;
+  border-radius: 12px;
+}
+.secondary-nav button {
+  padding: 9px 14px;
+  color: #60786e;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+}
+.secondary-nav button:hover,
+.secondary-nav button:focus-visible,
+.secondary-nav button.active {
+  color: #15543f;
+  background: #fff;
+  box-shadow: 0 2px 7px rgb(31 104 76 / 10%);
+  outline: none;
+}
+.secondary-badge {
+  margin-left: 6px;
 }
 .today-actions-card {
   border-color: #dce9e3;
@@ -1471,6 +1976,40 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 14px;
+}
+.action-filter {
+  padding: 8px 12px;
+  color: #657a71;
+  cursor: pointer;
+  background: #f2f7f5;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+.action-filter:hover,
+.action-filter:focus-visible,
+.action-filter.active {
+  border-color: #78b697;
+  outline: none;
+}
+.action-filter.overdue {
+  color: #9c3c31;
+  background: #fff0ed;
+}
+.action-filter.today {
+  color: #245a94;
+  background: #edf5ff;
+}
+.action-filter.support {
+  color: #996217;
+  background: #fff6e7;
+}
+.action-filter.untouched {
+  color: #17624b;
+  background: #e8f7f0;
+}
+.action-filter b {
+  margin-left: 4px;
+  color: inherit;
 }
 .today-actions-summary span {
   padding: 8px 12px;
@@ -1497,6 +2036,12 @@ onMounted(async () => {
 .today-actions-summary b {
   margin-left: 4px;
   color: inherit;
+}
+.table-subtext {
+  display: block;
+  margin-top: 3px;
+  color: #82958d;
+  font-size: 12px;
 }
 .today-reasons {
   display: flex;
@@ -1587,6 +2132,41 @@ onMounted(async () => {
   background: #f7fbf9;
   border: 1px solid #d8ebe2;
   border-radius: 16px;
+}
+.script-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  background: #f0f8f4;
+  border: 1px solid #cfe8da;
+  border-radius: 13px;
+}
+.script-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.script-panel-head p {
+  margin-top: 5px;
+  color: #71867c;
+  font-size: 13px;
+}
+.script-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.generated-script {
+  padding: 14px 15px;
+  background: #fff;
+  border: 1px solid #dcebe2;
+  border-radius: 10px;
+}
+.generated-script p {
+  color: #294f42;
+  line-height: 1.8;
 }
 .action-card-head {
   display: flex;
@@ -1697,6 +2277,37 @@ onMounted(async () => {
   color: #81948c;
   font-size: 12px;
 }
+.completion-hint {
+  grid-column: 1 / -1;
+  margin: -4px 0 0;
+  color: #758a81;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+.drawer-header h2 {
+  margin: 3px 0 0;
+  color: #153f33;
+  font-size: 20px;
+}
+.drawer-eyebrow {
+  color: #4b8c70;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+.renewal-drawer :deep(.el-drawer__body) {
+  padding: 0 22px 24px;
+}
+.renewal-drawer :deep(.el-drawer__header) {
+  margin-bottom: 12px;
+  padding: 22px 22px 0;
+}
 .cycle-management {
   margin-top: 18px;
   border-top: 1px solid #e0ebe6;
@@ -1756,7 +2367,10 @@ onMounted(async () => {
 }
 @media (max-width: 1100px) {
   .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .stage-board {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .content-grid {
     grid-template-columns: 1fr;
@@ -1773,6 +2387,18 @@ onMounted(async () => {
   }
   .summary-grid {
     grid-template-columns: 1fr;
+  }
+  .stage-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .month-rhythm-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .script-panel-head {
+    flex-direction: column;
+  }
+  .script-actions {
+    justify-content: flex-start;
   }
   .action-card-head {
     flex-direction: column;
