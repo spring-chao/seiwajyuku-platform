@@ -1190,6 +1190,95 @@ export type RenewalCoverage = {
   truncated: boolean;
 };
 
+export type RenewalAnnualOrganization = {
+  org_unit_id: string | null;
+  org_name: string;
+  total_cycles: number;
+  renewed_count: number;
+  not_renewing_count: number;
+  exited_count: number;
+  deferred_count: number;
+  open_count: number;
+  reliable_completion_count: number;
+  unreliable_completion_count: number;
+  before_due_count: number;
+  due_month_count: number;
+  after_due_count: number;
+  before_due_rate_among_reliable_renewals: number | null;
+};
+
+export type RenewalEvidenceType =
+  | "LIVE_STATUS_TRANSITION"
+  | "IMPORT_SNAPSHOT"
+  | "HISTORICAL_AUTO_RECONCILIATION"
+  | "UNKNOWN";
+
+export type RenewalEvidenceSample = {
+  cycle_id: number;
+  member_id: number;
+  member_name: string;
+  org_unit_id: string | null;
+  org_name: string;
+  due_month: number;
+  status: string;
+  evidence_type: RenewalEvidenceType;
+  completion_time_reliable: boolean;
+  result_recorded: boolean;
+  completion_stage?: RenewalStageCode;
+  completion_stage_label?: string;
+  completion_date?: string | null;
+};
+
+export type RenewalAnnualAnalytics = {
+  year: number;
+  as_of: string;
+  org_unit_id?: string | null;
+  outcome_summary: {
+    total_cycles: number;
+    renewed_count: number;
+    not_renewing_count: number;
+    exited_count: number;
+    deferred_count: number;
+    open_count: number;
+    outcome_status_counts: Record<string, number>;
+  };
+  completion_quality: {
+    renewed_count: number;
+    reliable_completion_count: number;
+    unreliable_completion_count: number;
+    reliable_completion_rate: number | null;
+    evidence_counts: Record<RenewalEvidenceType, number>;
+  };
+  timing_distribution: {
+    reliable_renewed_total: number;
+    stage_counts: Record<RenewalStageCode, number>;
+    stage_labels: Record<string, string>;
+    before_due_count: number;
+    due_month_count: number;
+    after_due_count: number;
+    before_due_rate_among_reliable_renewals: number | null;
+  };
+  organizations: RenewalAnnualOrganization[];
+  evidence_samples: RenewalEvidenceSample[];
+  policy: string;
+  total_cycles: number;
+  renewed_count: number;
+  not_renewing_count: number;
+  exited_count: number;
+  deferred_count: number;
+  open_count: number;
+  outcome_status_counts: Record<string, number>;
+  reliable_completion_count: number;
+  unreliable_completion_count: number;
+  reliable_completion_rate: number | null;
+  evidence_counts: Record<RenewalEvidenceType, number>;
+  stage_counts: Record<RenewalStageCode, number>;
+  before_due_count: number;
+  due_month_count: number;
+  after_due_count: number;
+  before_due_rate_among_reliable_renewals: number | null;
+};
+
 export type SystemEnvironment = {
   environment: string;
   production: boolean;
@@ -1838,6 +1927,13 @@ export const getRenewalOverview = (year: number) =>
     success: boolean;
     data: { year: number; rows: RenewalOverviewRow[] };
   }>("get", "/api/v1/renewals/overview", { params: { year } });
+
+export const getRenewalAnnualAnalytics = (year: number, orgUnitId?: string) =>
+  http.request<{ success: boolean; data: RenewalAnnualAnalytics }>(
+    "get",
+    "/api/v1/renewals/analytics/annual",
+    { params: { year, ...(orgUnitId ? { org_unit_id: orgUnitId } : {}) } }
+  );
 
 export const getRenewalTodayActions = (
   year: number,

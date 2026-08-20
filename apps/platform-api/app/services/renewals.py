@@ -172,14 +172,13 @@ def _initial_cycle_status(due_month: int, renewal_year: int, now: datetime) -> s
     return "PENDING_FIRST_CONTACT"
 
 
-def determine_renewal_stage(
+def determine_calendar_stage(
     renewal_year: int,
     due_month: int,
-    status: str,
     *,
     as_of: date | datetime | None = None,
 ) -> dict[str, Any]:
-    """Determine the operational phase from calendar months and cycle status."""
+    """Determine the time-based renewal stage without considering terminal status."""
     if not 1 <= int(due_month) <= 12:
         raise ValueError("续费月份必须在1至12之间")
     current = as_of or datetime.now(UTC)
@@ -188,10 +187,7 @@ def determine_renewal_stage(
         int(renewal_year) * 12 + int(due_month)
         - (current_date.year * 12 + current_date.month)
     )
-    normalised_status = str(status or "").upper()
-    if normalised_status in CLOSED_RENEWAL_STATUSES:
-        code = "CLOSED"
-    elif months_until_due > 3:
+    if months_until_due > 3:
         code = "PREPARE"
     elif months_until_due == 3:
         code = "OBSERVE_3"
@@ -210,6 +206,27 @@ def determine_renewal_stage(
         "as_of_month": f"{current_date.year:04d}-{current_date.month:02d}",
         "source": "CALENDAR_RULE",
     }
+
+
+def determine_renewal_stage(
+    renewal_year: int,
+    due_month: int,
+    status: str,
+    *,
+    as_of: date | datetime | None = None,
+) -> dict[str, Any]:
+    """Determine the operational phase from calendar months and cycle status."""
+    normalised_status = str(status or "").upper()
+    if normalised_status in CLOSED_RENEWAL_STATUSES:
+        current = as_of or datetime.now(UTC)
+        current_date = current.date() if isinstance(current, datetime) else current
+        calendar = determine_calendar_stage(renewal_year, due_month, as_of=current_date)
+        return {
+            **calendar,
+            "code": "CLOSED",
+            "label": RENEWAL_STAGE_LABELS["CLOSED"],
+        }
+    return determine_calendar_stage(renewal_year, due_month, as_of=as_of)
 
 
 def _completed_membership_years(

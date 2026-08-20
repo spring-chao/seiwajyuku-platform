@@ -10,6 +10,7 @@ import {
   getBirthdayGreetingContext,
   getMemberCareActionsToday,
   getMemberCareManagementOverview,
+  getRenewalAnnualAnalytics,
   getAnnualPlans,
   getMpDashboard,
   getOperationRhythmSnapshot,
@@ -27,6 +28,7 @@ import {
   type MemberCareManagementExceptionType,
   type MemberCareManagementOverview,
   type MemberCarePerson,
+  type RenewalAnnualAnalytics,
   type OperationRhythmItem,
   type OperationRhythmSnapshot,
   type OperationRhythmStatus,
@@ -50,6 +52,8 @@ const memberCareDialogVisible = ref(false);
 const selectedCarePerson = ref<MemberCarePerson>();
 const memberCareManagement = ref<MemberCareManagementOverview>();
 const memberCareManagementError = ref(false);
+const renewalAnnualAnalytics = ref<RenewalAnnualAnalytics>();
+const renewalAnnualAnalyticsError = ref(false);
 const rhythmView = ref<"today" | "next_7_days" | "month" | "attention">(
   "next_7_days"
 );
@@ -715,11 +719,52 @@ const annualAchievement = (row: any) => {
 };
 const unitLabel = (unit?: string) =>
   ({ PERCENT: "百分比", PERSON: "人数", SCORE: "分数" })[unit ?? ""] ?? "数值";
+const renewalTimingStages = [
+  "PREPARE",
+  "OBSERVE_3",
+  "RENEW_2",
+  "FOLLOW_1",
+  "DUE_NOW",
+  "RECOVERY"
+] as const;
+const renewalTimingFallbackLabels: Record<
+  (typeof renewalTimingStages)[number],
+  string
+> = {
+  PREPARE: "观3之前",
+  OBSERVE_3: "观3",
+  RENEW_2: "续2",
+  FOLLOW_1: "追1",
+  DUE_NOW: "到期月",
+  RECOVERY: "到期后"
+};
+const renewalEvidenceLabels: Record<string, string> = {
+  LIVE_STATUS_TRANSITION: "人工状态变更（可信）",
+  IMPORT_SNAPSHOT: "正式导入快照",
+  HISTORICAL_AUTO_RECONCILIATION: "历史自动补录",
+  UNKNOWN: "来源未知"
+};
+const renewalStatusLabels: Record<string, string> = {
+  RENEWED: "已续费",
+  NOT_RENEWING: "明确不续",
+  EXITED: "已退出",
+  DEFERRED: "延期",
+  PENDING_FIRST_CONTACT: "待首次联系",
+  CONTACTED_WAITING_REPLY: "等待回复",
+  IN_COMMUNICATION: "沟通中"
+};
+const renewalRateLabel = (value: number | null | undefined) =>
+  value === null || value === undefined ? "—" : `${(value * 100).toFixed(1)}%`;
+const renewalStageLabel = (analytics: RenewalAnnualAnalytics, stage: string) =>
+  analytics.timing_distribution.stage_labels[stage] ||
+  renewalTimingFallbackLabels[stage as (typeof renewalTimingStages)[number]] ||
+  stage;
 
 async function load() {
   loading.value = true;
   memberCareError.value = false;
   memberCareManagementError.value = false;
+  renewalAnnualAnalyticsError.value = false;
   try {
     const [
       snapshot,
@@ -727,7 +772,8 @@ async function load() {
       variance,
       rhythmSnapshot,
       careActions,
-      careManagement
+      careManagement,
+      renewalAnalytics
     ] = await Promise.allSettled([
       getOperationsSnapshot({
         year: year.value,
@@ -741,7 +787,8 @@ async function load() {
       planId.value ? getTargetVariances(planId.value) : Promise.resolve(null),
       getOperationRhythmSnapshot({ year: year.value, month: month.value }),
       getMemberCareActionsToday(),
-      getMemberCareManagementOverview()
+      getMemberCareManagementOverview(),
+      getRenewalAnnualAnalytics(year.value)
     ]);
 
     if (snapshot.status === "fulfilled") {
@@ -802,6 +849,12 @@ async function load() {
     } else {
       memberCareManagement.value = undefined;
       memberCareManagementError.value = true;
+    }
+    if (renewalAnalytics.status === "fulfilled") {
+      renewalAnnualAnalytics.value = renewalAnalytics.value.data;
+    } else {
+      renewalAnnualAnalytics.value = undefined;
+      renewalAnnualAnalyticsError.value = true;
     }
   } finally {
     loading.value = false;
@@ -1185,6 +1238,166 @@ function changePlan() {
               >
                 去处理
               </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+    </section>
+
+    <section class="content-card annual-renewal-card">
+      <div class="section-title management-heading">
+        <div>
+          <p class="eyebrow dark">ANNUAL RENEWAL INSIGHT</p>
+          <h2>年度续费洞察</h2>
+          <p>
+            年度结果反映当前记录状态；续费节奏只使用可证明完成时点的样本，不做阶段漏斗或分中心排名。
+          </p>
+        </div>
+        <el-button link type="primary" @click="load">刷新年度洞察</el-button>
+      </div>
+      <el-alert
+        v-if="renewalAnnualAnalyticsError"
+        title="年度续费洞察暂时不可用"
+        description="当前账号没有续费读取权限，或年度分析接口暂时不可用。"
+        type="info"
+        :closable="false"
+        show-icon
+      />
+      <template v-else-if="renewalAnnualAnalytics">
+        <div class="annual-renewal-summary-grid">
+          <article>
+            <span>年度周期</span>
+            <strong>{{ renewalAnnualAnalytics.total_cycles }}</strong>
+          </article>
+          <article class="success">
+            <span>已续费</span>
+            <strong>{{ renewalAnnualAnalytics.renewed_count }}</strong>
+          </article>
+          <article>
+            <span>明确不续</span>
+            <strong>{{ renewalAnnualAnalytics.not_renewing_count }}</strong>
+          </article>
+          <article>
+            <span>已退出</span>
+            <strong>{{ renewalAnnualAnalytics.exited_count }}</strong>
+          </article>
+          <article class="warning">
+            <span>延期</span>
+            <strong>{{ renewalAnnualAnalytics.deferred_count }}</strong>
+          </article>
+          <article>
+            <span>推进中</span>
+            <strong>{{ renewalAnnualAnalytics.open_count }}</strong>
+          </article>
+        </div>
+
+        <div class="annual-renewal-quality">
+          <div>
+            <h3>数据可信度</h3>
+            <p>
+              已续费
+              {{ renewalAnnualAnalytics.completion_quality.renewed_count }} 人；
+              有可信完成时点
+              {{
+                renewalAnnualAnalytics.completion_quality
+                  .reliable_completion_count
+              }}
+              人； 历史/导入时点不可用于节奏分析
+              {{
+                renewalAnnualAnalytics.completion_quality
+                  .unreliable_completion_count
+              }}
+              人。
+            </p>
+            <p class="muted-inline">
+              续费节奏分析仅基于具有可信完成时点的已续费周期。
+            </p>
+          </div>
+          <div class="annual-renewal-evidence-tags">
+            <el-tag
+              v-for="evidence in Object.keys(renewalEvidenceLabels)"
+              :key="evidence"
+              effect="plain"
+            >
+              {{ renewalEvidenceLabels[evidence] }}
+              {{
+                renewalAnnualAnalytics.completion_quality.evidence_counts[
+                  evidence
+                ] || 0
+              }}
+            </el-tag>
+          </div>
+        </div>
+
+        <div class="annual-renewal-timing">
+          <div class="annual-renewal-timing-heading">
+            <div>
+              <h3>可信样本的续费节奏</h3>
+              <p>
+                以下续费节奏仅统计具有可信完成时点的已续费周期，不代表全部已续费学长。
+              </p>
+            </div>
+            <el-tag type="success" effect="plain">
+              到期前完成比例
+              {{
+                renewalRateLabel(
+                  renewalAnnualAnalytics.before_due_rate_among_reliable_renewals
+                )
+              }}
+            </el-tag>
+          </div>
+          <div class="annual-renewal-stage-grid">
+            <article v-for="stage in renewalTimingStages" :key="stage">
+              <span>{{
+                renewalStageLabel(renewalAnnualAnalytics, stage)
+              }}</span>
+              <strong>{{
+                renewalAnnualAnalytics.stage_counts[stage] || 0
+              }}</strong>
+            </article>
+          </div>
+          <p class="muted-inline">
+            到期前 {{ renewalAnnualAnalytics.before_due_count }} 人 · 到期月
+            {{ renewalAnnualAnalytics.due_month_count }} 人 · 到期后
+            {{ renewalAnnualAnalytics.after_due_count }} 人
+          </p>
+        </div>
+
+        <h3 class="management-subheading">各分中心续费结果与数据覆盖</h3>
+        <el-table
+          :data="renewalAnnualAnalytics.organizations"
+          stripe
+          empty-text="当前覆盖范围内暂无年度续费周期"
+          class="annual-renewal-org-table"
+        >
+          <el-table-column prop="org_name" label="分中心" min-width="150" />
+          <el-table-column prop="total_cycles" label="年度周期" width="90" />
+          <el-table-column prop="renewed_count" label="已续费" width="85" />
+          <el-table-column
+            prop="not_renewing_count"
+            label="明确不续"
+            width="100"
+          />
+          <el-table-column prop="exited_count" label="已退出" width="85" />
+          <el-table-column prop="deferred_count" label="延期" width="75" />
+          <el-table-column prop="open_count" label="推进中" width="85" />
+          <el-table-column label="可信/不可用" width="120">
+            <template #default="{ row }">
+              {{ row.reliable_completion_count }} /
+              {{ row.unreliable_completion_count }}
+            </template>
+          </el-table-column>
+          <el-table-column label="到期前/当月/到期后" min-width="160">
+            <template #default="{ row }">
+              {{ row.before_due_count }} / {{ row.due_month_count }} /
+              {{ row.after_due_count }}
+            </template>
+          </el-table-column>
+          <el-table-column label="可信样本到期前比例" min-width="145">
+            <template #default="{ row }">
+              {{
+                renewalRateLabel(row.before_due_rate_among_reliable_renewals)
+              }}
             </template>
           </el-table-column>
         </el-table>
@@ -2521,6 +2734,108 @@ h1 {
 .management-card {
   margin-bottom: 18px;
 }
+.annual-renewal-card {
+  margin-bottom: 18px;
+}
+.annual-renewal-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin: 8px 0 18px;
+}
+.annual-renewal-summary-grid article {
+  min-height: 88px;
+  padding: 14px 15px;
+  background: #f4f8f6;
+  border-radius: 10px;
+}
+.annual-renewal-summary-grid article.success {
+  background: #eaf8ef;
+}
+.annual-renewal-summary-grid article.warning {
+  background: #fff6e7;
+}
+.annual-renewal-summary-grid span,
+.annual-renewal-summary-grid strong {
+  display: block;
+}
+.annual-renewal-summary-grid span {
+  color: #72877e;
+  font-size: 12px;
+}
+.annual-renewal-summary-grid strong {
+  margin-top: 7px;
+  color: #194b3b;
+  font-size: 24px;
+}
+.annual-renewal-quality,
+.annual-renewal-timing {
+  padding: 15px 16px;
+  margin-bottom: 16px;
+  background: #f7faf8;
+  border: 1px solid #e0ebe6;
+  border-radius: 11px;
+}
+.annual-renewal-quality {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.annual-renewal-quality h3,
+.annual-renewal-timing h3 {
+  margin: 0;
+  color: #245f4b;
+  font-size: 16px;
+}
+.annual-renewal-quality p,
+.annual-renewal-timing p {
+  margin: 6px 0 0;
+  color: #60756c;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.annual-renewal-evidence-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.annual-renewal-timing-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.annual-renewal-stage-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+.annual-renewal-stage-grid article {
+  padding: 12px;
+  text-align: center;
+  background: #fff;
+  border: 1px solid #e0ebe6;
+  border-radius: 10px;
+}
+.annual-renewal-stage-grid span,
+.annual-renewal-stage-grid strong {
+  display: block;
+}
+.annual-renewal-stage-grid span {
+  color: #72877e;
+  font-size: 12px;
+}
+.annual-renewal-stage-grid strong {
+  margin-top: 7px;
+  color: #194b3b;
+  font-size: 22px;
+}
+.annual-renewal-org-table {
+  margin-bottom: 4px;
+}
 .management-heading {
   display: flex;
   align-items: flex-start;
@@ -2840,6 +3155,16 @@ h1 {
   .management-summary-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+  .annual-renewal-summary-grid,
+  .annual-renewal-stage-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .annual-renewal-quality {
+    flex-direction: column;
+  }
+  .annual-renewal-evidence-tags {
+    justify-content: flex-start;
+  }
   .management-heading {
     align-items: stretch;
     flex-direction: column;
@@ -2874,6 +3199,14 @@ h1 {
   }
   .management-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .annual-renewal-summary-grid,
+  .annual-renewal-stage-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .annual-renewal-timing-heading {
+    align-items: stretch;
+    flex-direction: column;
   }
   .care-center-heading-actions,
   .care-person-action {

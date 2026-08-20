@@ -27,6 +27,7 @@ from app.services.renewals import (
     save_preview,
     update_cycle,
 )
+from app.services.renewal_analytics import get_annual_renewal_analytics
 
 router = APIRouter(prefix="/api/v1/renewals", tags=["renewals"])
 
@@ -63,6 +64,23 @@ class RenewalCycleFromMemberPayload(BaseModel):
 @router.get("/overview")
 def overview(year: int = 2026, user: dict = Depends(require_permission("renewals:read"))) -> dict:
     return {"success": True, "data": list_overview(user["id"], year)}
+
+
+@router.get("/analytics/annual")
+def annual_analytics(
+    year: int = Query(default=2026, ge=2020, le=2100),
+    org_unit_id: str | None = None,
+    user: dict = Depends(require_permission("renewals:read")),
+) -> dict:
+    try:
+        data = get_annual_renewal_analytics(
+            user["id"], year, org_unit_id=org_unit_id
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.get("/actions/today")
