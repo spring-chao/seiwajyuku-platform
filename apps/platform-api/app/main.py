@@ -18,6 +18,7 @@ from app.api.identity_admin import router as identity_admin_router
 from app.api.integrations import router as integrations_router
 from app.api.legacy_operations import router as legacy_operations_router
 from app.api.member_care_actions import router as member_care_actions_router
+from app.api.member_care_management import router as member_care_management_router
 from app.api.imports import router as imports_router
 from app.api.direct_class_preflight import router as direct_class_preflight_router
 from app.api.direct_class_import import router as direct_class_import_router
@@ -130,5 +131,6 @@ app.include_router(followups_router)
 app.include_router(integrations_router)
 app.include_router(legacy_operations_router)
 app.include_router(member_care_actions_router)
+app.include_router(member_care_management_router)
 app.include_router(checkin_rosters_router)
 app.include_router(attendance_router)

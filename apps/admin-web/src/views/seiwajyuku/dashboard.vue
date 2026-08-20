@@ -9,6 +9,7 @@ import {
   getClassOperations,
   getBirthdayGreetingContext,
   getMemberCareActionsToday,
+  getMemberCareManagementOverview,
   getAnnualPlans,
   getMpDashboard,
   getOperationRhythmSnapshot,
@@ -22,6 +23,9 @@ import {
   type DashboardItem,
   type MemberCareAction,
   type MemberCareActions,
+  type MemberCareManagementException,
+  type MemberCareManagementExceptionType,
+  type MemberCareManagementOverview,
   type MemberCarePerson,
   type OperationRhythmItem,
   type OperationRhythmSnapshot,
@@ -44,6 +48,8 @@ const memberCare = ref<MemberCareActions>();
 const memberCareError = ref(false);
 const memberCareDialogVisible = ref(false);
 const selectedCarePerson = ref<MemberCarePerson>();
+const memberCareManagement = ref<MemberCareManagementOverview>();
+const memberCareManagementError = ref(false);
 const rhythmView = ref<"today" | "next_7_days" | "month" | "attention">(
   "next_7_days"
 );
@@ -431,6 +437,56 @@ async function navigateCareAction(action: MemberCareAction) {
   });
 }
 
+const managementExceptionLabels: Record<
+  MemberCareManagementExceptionType,
+  string
+> = {
+  CARE_OVERDUE: "关爱逾期",
+  RENEWAL_RECOVERY_OPEN: "续费挽回未闭环",
+  RENEWAL_SUPPORT_NEEDED: "续费需要协助",
+  RENEWAL_STAGE_UNTOUCHED: "当前阶段尚未留下关爱记录",
+  RENEWAL_UNASSIGNED: "续费责任人待分配",
+  FOLLOWUP_NO_SCHEDULE: "关怀任务缺少下一时间"
+};
+const managementExceptionLabel = (type: MemberCareManagementExceptionType) =>
+  managementExceptionLabels[type] ?? type;
+const managementExceptionType = (type: MemberCareManagementExceptionType) =>
+  type === "CARE_OVERDUE"
+    ? "danger"
+    : type === "RENEWAL_SUPPORT_NEEDED"
+      ? "warning"
+      : "info";
+const managementCountLabel = (value: number | null | undefined) =>
+  value === null || value === undefined ? "未授权" : String(value);
+const managementSourceLabel = (
+  source: MemberCareManagementException["source"]
+) =>
+  ({
+    RENEWAL: "续费",
+    FOLLOWUP: "日常关怀",
+    ENTERPRISE_VISIT: "企业走访",
+    BIRTHDAY: "生日关怀"
+  })[source];
+
+async function navigateManagementException(item: unknown) {
+  const exception = item as MemberCareManagementException;
+  if (exception.navigation_type === "BIRTHDAY") {
+    await openBirthdayGreeting({ member_id: exception.navigation_id });
+    return;
+  }
+  if (exception.navigation_type === "RENEWAL") {
+    await router.push({
+      path: "/operations/renewals",
+      query: { cycle_id: String(exception.navigation_id) }
+    });
+    return;
+  }
+  await router.push({
+    path: "/operations/followups",
+    query: { task_id: String(exception.navigation_id) }
+  });
+}
+
 async function generateRhythm() {
   rhythmGenerating.value = true;
   try {
@@ -663,22 +719,30 @@ const unitLabel = (unit?: string) =>
 async function load() {
   loading.value = true;
   memberCareError.value = false;
+  memberCareManagementError.value = false;
   try {
-    const [snapshot, dashboard, variance, rhythmSnapshot, careActions] =
-      await Promise.allSettled([
-        getOperationsSnapshot({
-          year: year.value,
-          month: month.value,
-          birthday_month:
-            birthdayMonth.value === "ALL" ? 0 : Number(birthdayMonth.value)
-        }),
-        planId.value
-          ? getMpDashboard({ plan_id: planId.value, month: month.value })
-          : Promise.resolve(null),
-        planId.value ? getTargetVariances(planId.value) : Promise.resolve(null),
-        getOperationRhythmSnapshot({ year: year.value, month: month.value }),
-        getMemberCareActionsToday()
-      ]);
+    const [
+      snapshot,
+      dashboard,
+      variance,
+      rhythmSnapshot,
+      careActions,
+      careManagement
+    ] = await Promise.allSettled([
+      getOperationsSnapshot({
+        year: year.value,
+        month: month.value,
+        birthday_month:
+          birthdayMonth.value === "ALL" ? 0 : Number(birthdayMonth.value)
+      }),
+      planId.value
+        ? getMpDashboard({ plan_id: planId.value, month: month.value })
+        : Promise.resolve(null),
+      planId.value ? getTargetVariances(planId.value) : Promise.resolve(null),
+      getOperationRhythmSnapshot({ year: year.value, month: month.value }),
+      getMemberCareActionsToday(),
+      getMemberCareManagementOverview()
+    ]);
 
     if (snapshot.status === "fulfilled") {
       operations.value = snapshot.value.data;
@@ -731,6 +795,13 @@ async function load() {
     } else {
       memberCare.value = undefined;
       memberCareError.value = true;
+    }
+
+    if (careManagement.status === "fulfilled") {
+      memberCareManagement.value = careManagement.value.data;
+    } else {
+      memberCareManagement.value = undefined;
+      memberCareManagementError.value = true;
     }
   } finally {
     loading.value = false;
@@ -884,6 +955,235 @@ function changePlan() {
             <template #default="{ row }">
               <el-button link type="primary" @click="openCarePerson(row)">
                 查看关爱
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+    </section>
+
+    <section class="content-card management-card">
+      <div class="section-title management-heading">
+        <div>
+          <p class="eyebrow dark">CARE OPERATIONS HEALTH</p>
+          <h2>关爱运营健康</h2>
+          <p>
+            只看逾期、未闭环、责任人和下一时间等确定性支持需求，不做员工或分中心排名。
+          </p>
+        </div>
+        <el-button link type="primary" @click="load">刷新健康看板</el-button>
+      </div>
+      <el-alert
+        v-if="memberCareManagementError"
+        title="关爱运营健康暂时不可用"
+        description="当前账号没有可见的关爱来源，或管理聚合接口暂时不可用；不会把未授权来源显示为 0。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="care-center-alert"
+      />
+      <template v-else-if="memberCareManagement">
+        <div class="management-summary-grid">
+          <article>
+            <span>今日关爱人数</span>
+            <strong>{{
+              memberCareManagement.summary.today_care_people_count
+            }}</strong>
+          </article>
+          <article class="danger">
+            <span>逾期未处理人数</span>
+            <strong>{{
+              memberCareManagement.summary.overdue_people_count
+            }}</strong>
+            <small
+              >最早逾期
+              {{ memberCareManagement.summary.oldest_overdue_days }} 天</small
+            >
+          </article>
+          <article class="warning">
+            <span>需要协助</span>
+            <strong>{{
+              managementCountLabel(
+                memberCareManagement.summary.renewal_support_needed_count
+              )
+            }}</strong>
+          </article>
+          <article>
+            <span>续费挽回未闭环</span>
+            <strong>{{
+              managementCountLabel(
+                memberCareManagement.summary.renewal_recovery_open_count
+              )
+            }}</strong>
+          </article>
+          <article>
+            <span>责任人待分配</span>
+            <strong>{{
+              managementCountLabel(
+                memberCareManagement.summary.renewal_unassigned_count
+              )
+            }}</strong>
+          </article>
+          <article>
+            <span>无下一时间</span>
+            <strong>{{
+              managementCountLabel(
+                memberCareManagement.summary.followup_no_schedule_count
+              )
+            }}</strong>
+          </article>
+        </div>
+        <div class="management-coverage">
+          <span>当前数据覆盖：</span>
+          <el-tag
+            :type="
+              memberCareManagement.source_coverage.renewal.accessible
+                ? 'success'
+                : 'info'
+            "
+            effect="plain"
+          >
+            {{
+              memberCareManagement.source_coverage.renewal.accessible
+                ? "✓ 续费关爱"
+                : "— 续费关爱（无权限）"
+            }}
+          </el-tag>
+          <el-tag
+            :type="
+              memberCareManagement.source_coverage.birthday.accessible
+                ? 'success'
+                : 'info'
+            "
+            effect="plain"
+          >
+            {{
+              memberCareManagement.source_coverage.birthday.accessible
+                ? "✓ 生日关怀"
+                : "— 生日关怀（无权限）"
+            }}
+          </el-tag>
+          <el-tag
+            :type="
+              memberCareManagement.source_coverage.followup.accessible
+                ? 'success'
+                : 'info'
+            "
+            effect="plain"
+          >
+            {{
+              memberCareManagement.source_coverage.followup.accessible
+                ? "✓ 普通关怀/走访"
+                : "— 普通关怀/走访（无权限）"
+            }}
+          </el-tag>
+        </div>
+
+        <h3 class="management-subheading">各分中心当前需要支持的事项</h3>
+        <el-table
+          :data="memberCareManagement.organizations"
+          stripe
+          empty-text="当前覆盖范围内暂无管理异常"
+          class="management-org-table"
+        >
+          <el-table-column prop="org_name" label="分中心" min-width="150" />
+          <el-table-column
+            prop="today_care_people_count"
+            label="今日关爱"
+            width="95"
+          />
+          <el-table-column
+            prop="overdue_people_count"
+            label="已逾期"
+            width="85"
+          />
+          <el-table-column label="最早逾期" width="100">
+            <template #default="{ row }">
+              {{
+                row.oldest_overdue_days ? `${row.oldest_overdue_days}天` : "—"
+              }}
+            </template>
+          </el-table-column>
+          <el-table-column label="需要协助" width="100">
+            <template #default="{ row }">{{
+              managementCountLabel(row.renewal_support_needed_count)
+            }}</template>
+          </el-table-column>
+          <el-table-column label="阶段未触达" width="105">
+            <template #default="{ row }">{{
+              managementCountLabel(row.renewal_stage_untouched_count)
+            }}</template>
+          </el-table-column>
+          <el-table-column label="续费挽回" width="100">
+            <template #default="{ row }">{{
+              managementCountLabel(row.renewal_recovery_open_count)
+            }}</template>
+          </el-table-column>
+          <el-table-column label="待分责任人" width="110">
+            <template #default="{ row }">{{
+              managementCountLabel(row.renewal_unassigned_count)
+            }}</template>
+          </el-table-column>
+          <el-table-column label="无下一时间" width="110">
+            <template #default="{ row }">{{
+              managementCountLabel(row.followup_no_schedule_count)
+            }}</template>
+          </el-table-column>
+          <el-table-column label="逾期来源" min-width="270">
+            <template #default="{ row }">
+              <span class="management-breakdown">
+                续费 {{ managementCountLabel(row.renewal_overdue_count) }} ·
+                关怀 {{ managementCountLabel(row.followup_overdue_count) }} ·
+                走访
+                {{ managementCountLabel(row.enterprise_visit_overdue_count) }}
+                · 生日 {{ managementCountLabel(row.birthday_overdue_count) }}
+              </span>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <h3 class="management-subheading">需要管理支持的事项</h3>
+        <el-table
+          :data="memberCareManagement.exceptions"
+          stripe
+          empty-text="当前没有确定性管理异常"
+          class="management-exception-table"
+        >
+          <el-table-column label="异常" min-width="170">
+            <template #default="{ row }">
+              <el-tag :type="managementExceptionType(row.exception_type)">
+                {{ managementExceptionLabel(row.exception_type) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="org_name" label="分中心" min-width="140" />
+          <el-table-column label="学长" min-width="120">
+            <template #default="{ row }">{{ row.member_name || "—" }}</template>
+          </el-table-column>
+          <el-table-column label="来源" width="105">
+            <template #default="{ row }">{{
+              managementSourceLabel(row.source)
+            }}</template>
+          </el-table-column>
+          <el-table-column prop="reason" label="事实依据" min-width="300" />
+          <el-table-column label="逾期" width="80">
+            <template #default="{ row }">
+              {{ row.days_overdue ? `${row.days_overdue}天` : "—" }}
+            </template>
+          </el-table-column>
+          <el-table-column label="责任人" width="120">
+            <template #default="{ row }">{{
+              row.assigned_user_name || "待分配"
+            }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="120" fixed="right">
+            <template #default="{ row }">
+              <el-button
+                link
+                type="primary"
+                @click="navigateManagementException(row)"
+              >
+                去处理
               </el-button>
             </template>
           </el-table-column>
@@ -2218,6 +2518,84 @@ h1 {
   color: #82958d;
   font-size: 12px;
 }
+.management-card {
+  margin-bottom: 18px;
+}
+.management-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.management-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin: 8px 0 14px;
+}
+.management-summary-grid article {
+  min-height: 94px;
+  padding: 14px 15px;
+  background: #f4f8f6;
+  border-radius: 10px;
+}
+.management-summary-grid article.danger {
+  background: #fff0ed;
+}
+.management-summary-grid article.warning {
+  background: #fff6e7;
+}
+.management-summary-grid span,
+.management-summary-grid strong,
+.management-summary-grid small {
+  display: block;
+}
+.management-summary-grid span {
+  color: #72877e;
+  font-size: 12px;
+}
+.management-summary-grid strong {
+  margin-top: 7px;
+  color: #194b3b;
+  font-size: 24px;
+}
+.management-summary-grid article.danger strong {
+  color: #a33d32;
+}
+.management-summary-grid article.warning strong {
+  color: #996217;
+}
+.management-summary-grid small {
+  margin-top: 3px;
+  color: #82958d;
+  font-size: 11px;
+}
+.management-coverage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  color: #60756c;
+  font-size: 13px;
+  background: #f5f9f7;
+  border-radius: 10px;
+}
+.management-subheading {
+  margin: 18px 0 10px;
+  color: #245f4b;
+  font-size: 16px;
+}
+.management-breakdown {
+  color: #60756c;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.management-exception-table .el-table__row:hover,
+.management-org-table .el-table__row:hover {
+  cursor: default;
+}
 .section-heading {
   display: flex;
   align-items: flex-end;
@@ -2459,6 +2837,13 @@ h1 {
     align-items: stretch;
     flex-direction: column;
   }
+  .management-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .management-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .analysis-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2486,6 +2871,9 @@ h1 {
   }
   .rhythm-summary {
     grid-template-columns: 1fr;
+  }
+  .management-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .care-center-heading-actions,
   .care-person-action {

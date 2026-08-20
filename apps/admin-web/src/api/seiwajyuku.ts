@@ -226,6 +226,71 @@ export type MemberCareActions = {
   people: MemberCarePerson[];
 };
 
+export type MemberCareManagementExceptionType =
+  | "CARE_OVERDUE"
+  | "RENEWAL_RECOVERY_OPEN"
+  | "RENEWAL_SUPPORT_NEEDED"
+  | "RENEWAL_STAGE_UNTOUCHED"
+  | "RENEWAL_UNASSIGNED"
+  | "FOLLOWUP_NO_SCHEDULE";
+
+export type MemberCareManagementException = {
+  exception_type: MemberCareManagementExceptionType;
+  org_unit_id: string;
+  org_name: string;
+  member_id?: number | null;
+  member_name?: string | null;
+  source: "RENEWAL" | "FOLLOWUP" | "ENTERPRISE_VISIT" | "BIRTHDAY";
+  source_id: number;
+  reason: string;
+  days_overdue?: number | null;
+  assigned_user_name?: string | null;
+  navigation_type: "RENEWAL" | "FOLLOWUP" | "ENTERPRISE_VISIT" | "BIRTHDAY";
+  navigation_id: number;
+};
+
+export type MemberCareManagementOrganization = {
+  org_unit_id: string;
+  org_name: string;
+  today_care_people_count: number;
+  overdue_people_count: number;
+  oldest_overdue_days: number;
+  renewal_support_needed_count: number | null;
+  renewal_stage_untouched_count: number | null;
+  renewal_recovery_open_count: number | null;
+  renewal_unassigned_count: number | null;
+  followup_no_schedule_count: number | null;
+  birthday_overdue_count: number | null;
+  followup_overdue_count: number | null;
+  enterprise_visit_overdue_count: number | null;
+  renewal_overdue_count: number | null;
+};
+
+export type MemberCareManagementOverview = {
+  as_of: string;
+  summary: {
+    today_care_people_count: number;
+    today_care_action_count: number;
+    overdue_people_count: number;
+    oldest_overdue_days: number;
+    renewal_support_needed_count: number | null;
+    renewal_recovery_open_count: number | null;
+    renewal_unassigned_count: number | null;
+    followup_no_schedule_count: number | null;
+    renewal_overdue_count: number | null;
+    followup_overdue_count: number | null;
+    enterprise_visit_overdue_count: number | null;
+    birthday_overdue_count: number | null;
+  };
+  source_coverage: {
+    renewal: { accessible: boolean };
+    followup: { accessible: boolean };
+    birthday: { accessible: boolean };
+  };
+  organizations: MemberCareManagementOrganization[];
+  exceptions: MemberCareManagementException[];
+};
+
 type AttendanceRate = {
   event_count: number;
   eligible_count: number;
@@ -359,6 +424,16 @@ export const getMemberCareActionsToday = () =>
   http.request<{ success: boolean; data: MemberCareActions }>(
     "get",
     "/api/v1/operations/member-actions/today"
+  );
+
+export const getMemberCareManagementOverview = (params?: {
+  as_of?: string;
+  org_unit_id?: string;
+}) =>
+  http.request<{ success: boolean; data: MemberCareManagementOverview }>(
+    "get",
+    "/api/v1/operations/member-care/management-overview",
+    { params }
   );
 
 export const getPeriodValues = (params: {
