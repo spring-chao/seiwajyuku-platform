@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
 import {
@@ -100,6 +100,7 @@ const followupForm = reactive({
   next_followup_at: ""
 });
 const router = useRouter();
+const route = useRoute();
 const canManageMembers = computed(() =>
   useUserStoreHook().permissions.includes("members:manage")
 );
@@ -563,9 +564,24 @@ async function submitFollowup() {
   }
 }
 
-onMounted(() => {
+async function openCycleFromRoute() {
+  const cycleId = Number(route.query.cycle_id || 0);
+  if (!cycleId) return;
+  const cycle = cycles.value.find(item => item.id === cycleId);
+  if (cycle) {
+    await openCycleDetail(cycle);
+    return;
+  }
+  const action = todayActions.value.items.find(
+    item => item.cycle_id === cycleId
+  );
+  if (action) await openTodayAction(action);
+}
+
+onMounted(async () => {
   loadEnvironment();
-  load();
+  await load();
+  await openCycleFromRoute();
 });
 </script>
 

@@ -2,11 +2,13 @@
 import { computed, onMounted, ref } from "vue";
 import dayjs from "dayjs";
 import { ElMessage } from "element-plus";
+import { useRouter } from "vue-router";
 import {
   generateBirthdayGreetingDraft as requestBirthdayGreetingDraft,
   generateOperationRhythm,
   getClassOperations,
   getBirthdayGreetingContext,
+  getMemberCareActionsToday,
   getAnnualPlans,
   getMpDashboard,
   getOperationRhythmSnapshot,
@@ -18,6 +20,9 @@ import {
   type BirthdayGreetingContext,
   type ClassOperationsDetail,
   type DashboardItem,
+  type MemberCareAction,
+  type MemberCareActions,
+  type MemberCarePerson,
   type OperationRhythmItem,
   type OperationRhythmSnapshot,
   type OperationRhythmStatus,
@@ -28,12 +33,17 @@ import { useUserStoreHook } from "@/store/modules/user";
 defineOptions({ name: "MpDashboard" });
 
 const loading = ref(false);
+const router = useRouter();
 const plans = ref<AnnualPlan[]>([]);
 const planId = ref<number>();
 const year = ref(new Date().getFullYear());
 const month = ref(Math.min(new Date().getMonth() + 1, 12));
 const operations = ref<OperationsSnapshot>();
 const rhythm = ref<OperationRhythmSnapshot>();
+const memberCare = ref<MemberCareActions>();
+const memberCareError = ref(false);
+const memberCareDialogVisible = ref(false);
+const selectedCarePerson = ref<MemberCarePerson>();
 const rhythmView = ref<"today" | "next_7_days" | "month" | "attention">(
   "next_7_days"
 );
@@ -78,7 +88,11 @@ const classForm = ref({
   learning_progress: "",
   revenue_growing_member_count: undefined as number | undefined,
   revenue_comparable_member_count: undefined as number | undefined,
-  groups: [] as { group_org_unit_id: string; name: string; planned_meeting_at: string }[]
+  groups: [] as {
+    group_org_unit_id: string;
+    name: string;
+    planned_meeting_at: string;
+  }[]
 });
 const variances = ref<
   { metric_key: string; difference: number; aggregation: string }[]
@@ -91,10 +105,7 @@ const centers = computed(() => [
   ...new Set(items.value.map(item => item.org_name))
 ]);
 const metrics = computed(() => {
-  const result = new Map<
-    string,
-    { key: string; name: string; unit: string }
-  >();
+  const result = new Map<string, { key: string; name: string; unit: string }>();
   items.value.forEach(item => {
     result.set(item.metric_key, {
       key: item.metric_key,
@@ -248,30 +259,40 @@ const rhythmItems = computed(() => {
       (!rhythmOrganizationId.value ||
         item.organization_id === rhythmOrganizationId.value) &&
       (!rhythmClassOrgUnitId.value ||
-        (item.class_org_unit_id || item.org_unit_id) === rhythmClassOrgUnitId.value) &&
+        (item.class_org_unit_id || item.org_unit_id) ===
+          rhythmClassOrgUnitId.value) &&
       (!rhythmStatus.value || item.status === rhythmStatus.value)
   );
 });
 const classMeetingRows = computed(() => {
   if (!classDetail.value) return [];
-  if (classDetail.value.class_meetings.length) return classDetail.value.class_meetings;
+  if (classDetail.value.class_meetings.length)
+    return classDetail.value.class_meetings;
   if (classDetail.value.planned_class_meeting_at) {
-    return [{
-      id: null,
-      title: "计划班会（尚未形成正式活动事实）",
-      event_date: classDetail.value.planned_class_meeting_at,
-      activity_type: "CLASS_MEETING",
-      org_name: classDetail.value.org_name,
-      class_org_unit_id: classDetail.value.class_org_unit_id,
-      class_name: classDetail.value.class_name,
-      status: "PLANNED" as const
-    }];
+    return [
+      {
+        id: null,
+        title: "计划班会（尚未形成正式活动事实）",
+        event_date: classDetail.value.planned_class_meeting_at,
+        activity_type: "CLASS_MEETING",
+        org_name: classDetail.value.org_name,
+        class_org_unit_id: classDetail.value.class_org_unit_id,
+        class_name: classDetail.value.class_name,
+        status: "PLANNED" as const
+      }
+    ];
   }
   return [];
 });
 const otherScheduleRows = computed(() => [
-  ...(operations.value?.courses || []).map(item => ({ ...item, category: "课程" })),
-  ...(operations.value?.activities || []).map(item => ({ ...item, category: "活动" }))
+  ...(operations.value?.courses || []).map(item => ({
+    ...item,
+    category: "课程"
+  })),
+  ...(operations.value?.activities || []).map(item => ({
+    ...item,
+    category: "活动"
+  }))
 ]);
 const birthdayCenterOptions = computed(() => {
   const options = new Map<string, string>();
@@ -284,7 +305,8 @@ const birthdayClassOptions = computed(() => {
   const options = new Map<string, string>();
   (operations.value?.birthday_members || [])
     .filter(
-      item => !birthdayCenterId.value || item.org_unit_id === birthdayCenterId.value
+      item =>
+        !birthdayCenterId.value || item.org_unit_id === birthdayCenterId.value
     )
     .forEach(item => {
       if (item.class_org_unit_id && item.class_name) {
@@ -300,7 +322,8 @@ const birthdayMonthOptions = Array.from({ length: 12 }, (_, index) => {
 const filteredBirthdayMembers = computed(() =>
   (operations.value?.birthday_members || []).filter(
     item =>
-      (!birthdayCenterId.value || item.org_unit_id === birthdayCenterId.value) &&
+      (!birthdayCenterId.value ||
+        item.org_unit_id === birthdayCenterId.value) &&
       (!birthdayClassOrgUnitId.value ||
         item.class_org_unit_id === birthdayClassOrgUnitId.value) &&
       (birthdayMonth.value === "ALL" ||
@@ -337,7 +360,7 @@ const rhythmStatusLabel = (status: OperationRhythmStatus) =>
   })[status];
 
 const rhythmStatusType = (
-  status: OperationRhythmStatus,
+  status: OperationRhythmStatus
 ): "primary" | "success" | "warning" | "info" | "danger" =>
   ({
     PENDING: "info",
@@ -348,6 +371,65 @@ const rhythmStatusType = (
     ATTENTION: "danger",
     CANCELLED: "info"
   })[status] as "primary" | "success" | "warning" | "info" | "danger";
+
+const careUrgencyType = (urgency: MemberCareAction["urgency"]) =>
+  ({
+    OVERDUE: "danger",
+    TODAY: "primary",
+    ATTENTION: "warning",
+    WINDOW: "success"
+  })[urgency] as "primary" | "success" | "warning" | "danger";
+const careUrgencyLabel = (urgency: MemberCareAction["urgency"]) =>
+  ({ OVERDUE: "逾期", TODAY: "今天", ATTENTION: "需协助", WINDOW: "窗口" })[
+    urgency
+  ];
+const careActionTypeLabel = (action: MemberCareAction) =>
+  ({
+    RENEWAL: "续费关爱",
+    BIRTHDAY: "生日关怀",
+    ENTERPRISE_VISIT: "企业走访",
+    PHONE: "电话关怀",
+    WECHAT: "微信关怀",
+    MEETING: "面谈关怀",
+    CARE: "日常关怀",
+    COURSE: "学习关怀",
+    OTHER: "日常关怀"
+  })[action.action_type] ?? action.action_type;
+const careNavigationLabel = (
+  navigationType: MemberCareAction["navigation_type"]
+) =>
+  ({
+    RENEWAL: "去续费今日行动",
+    FOLLOWUP: "去关怀跟进",
+    ENTERPRISE_VISIT: "去企业走访",
+    BIRTHDAY: "去生日关怀"
+  })[navigationType];
+const careDueDate = (value?: string | null) =>
+  value ? dayjs(value).format("YYYY-MM-DD") : "待确认时间";
+
+function openCarePerson(person: unknown) {
+  selectedCarePerson.value = person as MemberCarePerson;
+  memberCareDialogVisible.value = true;
+}
+
+async function navigateCareAction(action: MemberCareAction) {
+  memberCareDialogVisible.value = false;
+  if (action.navigation_type === "BIRTHDAY") {
+    await openBirthdayGreeting({ member_id: action.navigation_id });
+    return;
+  }
+  if (action.navigation_type === "RENEWAL") {
+    await router.push({
+      path: "/operations/renewals",
+      query: { cycle_id: String(action.navigation_id) }
+    });
+    return;
+  }
+  await router.push({
+    path: "/operations/followups",
+    query: { task_id: String(action.navigation_id) }
+  });
+}
 
 async function generateRhythm() {
   rhythmGenerating.value = true;
@@ -447,9 +529,7 @@ async function openBirthdayGreeting(row: unknown) {
   }
 }
 
-async function generateBirthdayDraft(
-  tone = birthdayGreetingTone.value
-) {
+async function generateBirthdayDraft(tone = birthdayGreetingTone.value) {
   if (!birthdayGreeting.value) return;
   birthdayGreetingTone.value = tone;
   birthdayGreetingDraftLoading.value = true;
@@ -469,7 +549,9 @@ async function generateBirthdayDraft(
   }
 }
 
-function formatBirthdayMemory(memory: BirthdayGreetingContext["memories"][number]) {
+function formatBirthdayMemory(
+  memory: BirthdayGreetingContext["memories"][number]
+) {
   return `${memory.year}年${memory.month}月 · ${memory.title}`;
 }
 
@@ -486,7 +568,9 @@ async function copyBirthdayGreeting() {
 }
 
 const percentLabel = (value?: number | null) =>
-  value === null || value === undefined ? "未接入" : `${(value * 100).toFixed(1)}%`;
+  value === null || value === undefined
+    ? "未接入"
+    : `${(value * 100).toFixed(1)}%`;
 
 async function openClassOperations(row: unknown) {
   const classOrgUnitId = String(
@@ -574,24 +658,27 @@ const annualAchievement = (row: any) => {
   return actual / annualTarget;
 };
 const unitLabel = (unit?: string) =>
-  ({ PERCENT: "百分比", PERSON: "人数", SCORE: "分数" })[unit ?? ""] ??
-  "数值";
+  ({ PERCENT: "百分比", PERSON: "人数", SCORE: "分数" })[unit ?? ""] ?? "数值";
 
 async function load() {
   loading.value = true;
+  memberCareError.value = false;
   try {
-    const [snapshot, dashboard, variance, rhythmSnapshot] = await Promise.allSettled([
-      getOperationsSnapshot({
-        year: year.value,
-        month: month.value,
-        birthday_month: birthdayMonth.value === "ALL" ? 0 : Number(birthdayMonth.value)
-      }),
-      planId.value
-        ? getMpDashboard({ plan_id: planId.value, month: month.value })
-        : Promise.resolve(null),
-      planId.value ? getTargetVariances(planId.value) : Promise.resolve(null),
-      getOperationRhythmSnapshot({ year: year.value, month: month.value })
-    ]);
+    const [snapshot, dashboard, variance, rhythmSnapshot, careActions] =
+      await Promise.allSettled([
+        getOperationsSnapshot({
+          year: year.value,
+          month: month.value,
+          birthday_month:
+            birthdayMonth.value === "ALL" ? 0 : Number(birthdayMonth.value)
+        }),
+        planId.value
+          ? getMpDashboard({ plan_id: planId.value, month: month.value })
+          : Promise.resolve(null),
+        planId.value ? getTargetVariances(planId.value) : Promise.resolve(null),
+        getOperationRhythmSnapshot({ year: year.value, month: month.value }),
+        getMemberCareActionsToday()
+      ]);
 
     if (snapshot.status === "fulfilled") {
       operations.value = snapshot.value.data;
@@ -638,6 +725,13 @@ async function load() {
     if (variance.status === "fulfilled") {
       variances.value = variance.value?.data || [];
     }
+
+    if (careActions.status === "fulfilled") {
+      memberCare.value = careActions.value.data;
+    } else {
+      memberCare.value = undefined;
+      memberCareError.value = true;
+    }
   } finally {
     loading.value = false;
   }
@@ -660,13 +754,14 @@ function changePlan() {
 </script>
 
 <template>
-  <div class="page-shell" v-loading="loading">
+  <div v-loading="loading" class="page-shell">
     <section class="hero">
       <div>
         <p class="eyebrow">月度实况 · 组织盘面 · 服务节奏</p>
         <h1>运营驾驶舱</h1>
         <p class="subtitle">
-          先看当月续费、新增、在册、生日与活动排期，再下钻年度 MP 目标差距；所有数字来自统一平台数据库。
+          先看当月续费、新增、在册、生日与活动排期，再下钻年度 MP
+          目标差距；所有数字来自统一平台数据库。
         </p>
       </div>
       <div class="filters">
@@ -693,6 +788,109 @@ function changePlan() {
       </div>
     </section>
 
+    <section class="content-card care-center-card">
+      <div class="section-title care-center-heading">
+        <div>
+          <p class="eyebrow dark">MEMBER CARE CENTER</p>
+          <h2>今日关爱</h2>
+          <p>以学长为中心合并续费、日常关怀/走访和生日行动。</p>
+        </div>
+        <div class="care-center-heading-actions">
+          <strong v-if="memberCare" class="care-center-count">
+            今天有 {{ memberCare.summary.people_total }} 位学长值得关注
+          </strong>
+          <el-button link type="primary" @click="load"> 刷新 </el-button>
+        </div>
+      </div>
+      <el-alert
+        v-if="memberCareError"
+        title="今日关爱暂时不可用"
+        description="当前账号没有可见的关爱来源，或聚合接口暂时不可用；不会根据不完整数据臆造行动。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="care-center-alert"
+      />
+      <template v-else-if="memberCare">
+        <div class="care-center-summary">
+          <span class="overdue"
+            >🔴 逾期 <b>{{ memberCare.summary.overdue_people_count }}</b></span
+          >
+          <span class="today"
+            >🔵 今天 <b>{{ memberCare.summary.today_people_count }}</b></span
+          >
+          <span class="attention"
+            >🟠 需要协助
+            <b>{{ memberCare.summary.attention_people_count }}</b></span
+          >
+          <span class="birthday"
+            >🎂 生日关怀
+            <b>{{ memberCare.summary.birthday_people_count }}</b></span
+          >
+          <span class="renewal"
+            >♻️ 续费关爱
+            <b>{{ memberCare.summary.renewal_people_count }}</b></span
+          >
+          <span class="followup"
+            >🤝 日常关怀/走访
+            <b>{{ memberCare.summary.followup_people_count }}</b></span
+          >
+        </div>
+        <el-table
+          :data="memberCare.people"
+          stripe
+          empty-text="今天暂无确定性学长关爱行动"
+          class="care-center-table"
+        >
+          <el-table-column prop="member_name" label="学长" min-width="130" />
+          <el-table-column label="归属" min-width="190">
+            <template #default="{ row }">
+              {{ row.org_name }}
+              <span v-if="row.class_name" class="muted-inline">
+                · {{ row.class_name }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="今天为什么出现" min-width="330">
+            <template #default="{ row }">
+              <div class="care-action-tags">
+                <el-tag
+                  v-for="action in row.actions"
+                  :key="`${action.source}-${action.source_id}`"
+                  :type="careUrgencyType(action.urgency)"
+                  effect="light"
+                >
+                  {{ action.label }}
+                </el-tag>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="先处理" min-width="150">
+            <template #default="{ row }">
+              <el-tag :type="careUrgencyType(row.primary_action.urgency)">
+                {{ careUrgencyLabel(row.primary_action.urgency) }}
+              </el-tag>
+              <span class="muted-inline">
+                · {{ careActionTypeLabel(row.primary_action) }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="责任人" min-width="120">
+            <template #default="{ row }">
+              {{ row.primary_action.assigned_user_name || "按现有流程" }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="120" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openCarePerson(row)">
+                查看关爱
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+    </section>
+
     <section class="section-heading">
       <div>
         <p class="eyebrow dark">MONTHLY OPERATIONS</p>
@@ -709,7 +907,9 @@ function changePlan() {
         :class="{ unavailable: card.value === null }"
       >
         <span>{{ card.label }}</span>
-        <strong v-if="card.value !== null">{{ card.value }}<small>{{ card.unit }}</small></strong>
+        <strong v-if="card.value !== null"
+          >{{ card.value }}<small>{{ card.unit }}</small></strong
+        >
         <strong v-else class="not-ready">未接入</strong>
         <p>{{ card.note }}</p>
       </article>
@@ -769,7 +969,9 @@ function changePlan() {
         <div>
           <p class="eyebrow dark">OPERATION RHYTHM</p>
           <h2>本月运营节奏</h2>
-          <p>由核心运营人员维护；微信群、电话和线下沟通继续保留，班主任无需登录。</p>
+          <p>
+            由核心运营人员维护；微信群、电话和线下沟通继续保留，班主任无需登录。
+          </p>
         </div>
         <el-button
           v-if="canManageRhythm"
@@ -792,10 +994,21 @@ function changePlan() {
       />
 
       <div class="rhythm-summary">
-        <article><span>本月事项</span><strong>{{ rhythm?.summary.total || 0 }}</strong></article>
-        <article><span>今日运营</span><strong>{{ rhythm?.summary.today_count || 0 }}</strong></article>
-        <article><span>未来 7 天</span><strong>{{ rhythm?.summary.next_7_days_count || 0 }}</strong></article>
-        <article class="attention"><span>需关注</span><strong>{{ rhythm?.summary.attention_count || 0 }}</strong></article>
+        <article>
+          <span>本月事项</span><strong>{{ rhythm?.summary.total || 0 }}</strong>
+        </article>
+        <article>
+          <span>今日运营</span
+          ><strong>{{ rhythm?.summary.today_count || 0 }}</strong>
+        </article>
+        <article>
+          <span>未来 7 天</span
+          ><strong>{{ rhythm?.summary.next_7_days_count || 0 }}</strong>
+        </article>
+        <article class="attention">
+          <span>需关注</span
+          ><strong>{{ rhythm?.summary.attention_count || 0 }}</strong>
+        </article>
       </div>
 
       <div class="rhythm-toolbar">
@@ -855,11 +1068,19 @@ function changePlan() {
         </div>
       </div>
 
-      <el-table :data="rhythmItems" stripe size="small" empty-text="当前视图暂无运营事项">
+      <el-table
+        :data="rhythmItems"
+        stripe
+        size="small"
+        empty-text="当前视图暂无运营事项"
+      >
         <el-table-column label="日期" width="130">
           <template #default="{ row }">
             {{ row.due_date || "待确认" }}
-            <small v-if="row.item_key === 'CLASS_MEETING'" class="rhythm-source-note">
+            <small
+              v-if="row.item_key === 'CLASS_MEETING'"
+              class="rhythm-source-note"
+            >
               来自班级服务日历
             </small>
           </template>
@@ -882,7 +1103,10 @@ function changePlan() {
         <el-table-column label="责任角色" min-width="150">
           <template #default="{ row }">
             {{ row.responsibility_role || "待确认" }}
-            <small v-if="row.external_responsibility_role" class="rhythm-external-role">
+            <small
+              v-if="row.external_responsibility_role"
+              class="rhythm-external-role"
+            >
               外部：{{ row.external_responsibility_role }}
             </small>
           </template>
@@ -897,7 +1121,10 @@ function changePlan() {
             >
               编辑
             </el-button>
-            <span v-else-if="row.item_key === 'CLASS_MEETING'" class="rhythm-source-note">
+            <span
+              v-else-if="row.item_key === 'CLASS_MEETING'"
+              class="rhythm-source-note"
+            >
               日历维护
             </span>
           </template>
@@ -909,7 +1136,9 @@ function changePlan() {
               :model-value="row.status"
               size="small"
               :loading="rhythmItemSaving === row.id"
-              @update:model-value="(value: OperationRhythmStatus) => saveRhythmStatus(row, value)"
+              @update:model-value="
+                (value: OperationRhythmStatus) => saveRhythmStatus(row, value)
+              "
             >
               <el-option label="待确认" value="PENDING" />
               <el-option label="已计划" value="PLANNED" />
@@ -934,7 +1163,11 @@ function changePlan() {
       >
         <el-form label-width="88px" @submit.prevent>
           <el-form-item label="事项名称" required>
-            <el-input v-model="rhythmEditForm.title" maxlength="255" show-word-limit />
+            <el-input
+              v-model="rhythmEditForm.title"
+              maxlength="255"
+              show-word-limit
+            />
           </el-form-item>
           <el-form-item label="开始日期">
             <el-date-picker
@@ -967,7 +1200,11 @@ function changePlan() {
         </el-form>
         <template #footer>
           <el-button @click="rhythmEditVisible = false">取消</el-button>
-          <el-button type="primary" :loading="rhythmEditSaving" @click="saveRhythmEdit">
+          <el-button
+            type="primary"
+            :loading="rhythmEditSaving"
+            @click="saveRhythmEdit"
+          >
             保存维护
           </el-button>
         </template>
@@ -978,7 +1215,9 @@ function changePlan() {
       <article class="content-card">
         <div class="section-title birthday-title">
           <h2>各分中心当前在册</h2>
-          <p>按学员管理主档所属分中心统计；直属学习班保留独立口径，不并入六个分中心。</p>
+          <p>
+            按学员管理主档所属分中心统计；直属学习班保留独立口径，不并入六个分中心。
+          </p>
         </div>
         <div class="center-list">
           <div v-for="center in operations?.centers || []" :key="center.id">
@@ -1054,7 +1293,9 @@ function changePlan() {
           </el-table-column>
           <el-table-column prop="org_name" label="分中心" min-width="130" />
           <el-table-column label="班级" min-width="120">
-            <template #default="{ row }">{{ row.class_name || "未分班" }}</template>
+            <template #default="{ row }">{{
+              row.class_name || "未分班"
+            }}</template>
           </el-table-column>
         </el-table>
       </article>
@@ -1063,7 +1304,9 @@ function changePlan() {
     <section class="content-card schedule-card">
       <div class="section-title">
         <h2>班级运营与本月服务日历</h2>
-        <p>按班级组织自身的运营归属列出正式班级；不会根据班内学长的发展分中心改变班级归属。</p>
+        <p>
+          按班级组织自身的运营归属列出正式班级；不会根据班内学长的发展分中心改变班级归属。
+        </p>
       </div>
       <el-table :data="classRows" stripe empty-text="当前授权范围暂无正式班级">
         <el-table-column label="班级" min-width="150">
@@ -1076,24 +1319,50 @@ function changePlan() {
         <el-table-column prop="org_name" label="班级运营归属" min-width="150" />
         <el-table-column label="本月班会" width="130">
           <template #default="{ row }">
-            {{ row.class_meeting_at ? dayjs(row.class_meeting_at).format("MM 月 DD 日") : "待排期" }}
+            {{
+              row.class_meeting_at
+                ? dayjs(row.class_meeting_at).format("MM 月 DD 日")
+                : "待排期"
+            }}
           </template>
         </el-table-column>
         <el-table-column label="班会次序" width="130">
           <template #default="{ row }">
-            {{ row.year_sequence ? `本年第 ${row.year_sequence} 次` : row.status === "PLANNED" ? "待正式记录" : "待维护" }}
+            {{
+              row.year_sequence
+                ? `本年第 ${row.year_sequence} 次`
+                : row.status === "PLANNED"
+                  ? "待正式记录"
+                  : "待维护"
+            }}
           </template>
         </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'SCHEDULED' ? 'success' : row.status === 'PLANNED' ? 'warning' : 'info'">
-              {{ row.status === "SCHEDULED" ? "已接入事实" : row.status === "PLANNED" ? "已维护排期" : "待排期" }}
+            <el-tag
+              :type="
+                row.status === 'SCHEDULED'
+                  ? 'success'
+                  : row.status === 'PLANNED'
+                    ? 'warning'
+                    : 'info'
+              "
+            >
+              {{
+                row.status === "SCHEDULED"
+                  ? "已接入事实"
+                  : row.status === "PLANNED"
+                    ? "已维护排期"
+                    : "待排期"
+              }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="运营分析" width="120">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openClassOperations(row)">查看分析</el-button>
+            <el-button link type="primary" @click="openClassOperations(row)"
+              >查看分析</el-button
+            >
           </template>
         </el-table-column>
       </el-table>
@@ -1102,7 +1371,9 @@ function changePlan() {
         <el-divider content-position="left">本月课程与其他活动</el-divider>
         <el-table :data="otherScheduleRows" stripe>
           <el-table-column label="日期" width="120">
-            <template #default="{ row }">{{ dayjs(row.event_date).format("MM 月 DD 日") }}</template>
+            <template #default="{ row }">{{
+              dayjs(row.event_date).format("MM 月 DD 日")
+            }}</template>
           </el-table-column>
           <el-table-column prop="category" label="类型" width="90" />
           <el-table-column prop="org_name" label="组织" min-width="150" />
@@ -1111,9 +1382,61 @@ function changePlan() {
       </template>
     </section>
 
+    <el-dialog
+      v-model="memberCareDialogVisible"
+      :title="
+        selectedCarePerson
+          ? `${selectedCarePerson.member_name}学长 · 今日关爱`
+          : '今日关爱'
+      "
+      width="760px"
+    >
+      <template v-if="selectedCarePerson">
+        <section class="care-person-profile">
+          <strong>{{ selectedCarePerson.member_name }}学长</strong>
+          <span>
+            {{ selectedCarePerson.org_name }} ·
+            {{ selectedCarePerson.class_name || "未分班" }}
+            <template v-if="selectedCarePerson.group_name">
+              · {{ selectedCarePerson.group_name }}
+            </template>
+          </span>
+          <small>今天有 {{ selectedCarePerson.action_count }} 项值得关注</small>
+        </section>
+        <div class="care-person-actions">
+          <article
+            v-for="action in selectedCarePerson.actions"
+            :key="`${action.source}-${action.source_id}`"
+            class="care-person-action"
+          >
+            <div>
+              <div class="care-person-action-head">
+                <el-tag :type="careUrgencyType(action.urgency)">
+                  {{ careUrgencyLabel(action.urgency) }}
+                </el-tag>
+                <strong>{{ action.label }}</strong>
+              </div>
+              <p>{{ action.reason }}</p>
+              <small>
+                {{ action.assigned_user_name || "按现有流程" }} ·
+                {{ careDueDate(action.due_date) }}
+              </small>
+            </div>
+            <el-button type="primary" plain @click="navigateCareAction(action)">
+              {{ careNavigationLabel(action.navigation_type) }}
+            </el-button>
+          </article>
+        </div>
+      </template>
+    </el-dialog>
+
     <el-drawer
       v-model="birthdayGreetingVisible"
-      :title="birthdayGreeting ? `${birthdayGreeting.member.name}学长 · 生日关怀` : '生日关怀助手'"
+      :title="
+        birthdayGreeting
+          ? `${birthdayGreeting.member.name}学长 · 生日关怀`
+          : '生日关怀助手'
+      "
       size="min(680px, 96vw)"
     >
       <div v-loading="birthdayGreetingLoading" class="birthday-greeting-drawer">
@@ -1124,13 +1447,26 @@ function changePlan() {
               🎂 {{ birthdayGreeting.member.birthday_month_day }} 生日
             </span>
             <span>
-              {{ birthdayGreeting.member.join_date ? `${birthdayGreeting.member.join_date.slice(0, 7)} 入塾` : "入塾日期待维护" }}
-              <template v-if="birthdayGreeting.member.membership_years !== null && birthdayGreeting.member.membership_years !== undefined">
+              {{
+                birthdayGreeting.member.join_date
+                  ? `${birthdayGreeting.member.join_date.slice(0, 7)} 入塾`
+                  : "入塾日期待维护"
+              }}
+              <template
+                v-if="
+                  birthdayGreeting.member.membership_years !== null &&
+                  birthdayGreeting.member.membership_years !== undefined
+                "
+              >
                 · 已同行 {{ birthdayGreeting.member.membership_years }} 年
               </template>
             </span>
             <span>
-              {{ birthdayGreeting.member.org_name }} · {{ birthdayGreeting.member.class_name || "未分班" }}<template v-if="birthdayGreeting.member.group_name"> · {{ birthdayGreeting.member.group_name }}</template>
+              {{ birthdayGreeting.member.org_name }} ·
+              {{ birthdayGreeting.member.class_name || "未分班"
+              }}<template v-if="birthdayGreeting.member.group_name">
+                · {{ birthdayGreeting.member.group_name }}</template
+              >
             </span>
           </section>
 
@@ -1148,11 +1484,17 @@ function changePlan() {
             <div class="birthday-drawer-heading">
               <div>
                 <h3>我们的共同记忆</h3>
-                <p>只展示已核验的本人出席或完成记录，可勾选 0～4 条写入祝福。</p>
+                <p>
+                  只展示已核验的本人出席或完成记录，可勾选 0～4 条写入祝福。
+                </p>
               </div>
               <el-tag type="success">事实资料</el-tag>
             </div>
-            <el-checkbox-group v-model="selectedBirthdayMemoryIds" class="birthday-memory-list" @change="changeBirthdayMemorySelection">
+            <el-checkbox-group
+              v-model="selectedBirthdayMemoryIds"
+              class="birthday-memory-list"
+              @change="changeBirthdayMemorySelection"
+            >
               <el-checkbox
                 v-for="memory in birthdayGreeting.memories"
                 :key="memory.id"
@@ -1160,10 +1502,21 @@ function changePlan() {
                 class="birthday-memory"
               >
                 <span>{{ formatBirthdayMemory(memory) }}</span>
-                <small>{{ memory.category_label }} · {{ memory.source_type === "ATTENDANCE" ? "正式签到" : "历史学习记录" }}</small>
+                <small
+                  >{{ memory.category_label }} ·
+                  {{
+                    memory.source_type === "ATTENDANCE"
+                      ? "正式签到"
+                      : "历史学习记录"
+                  }}</small
+                >
               </el-checkbox>
             </el-checkbox-group>
-            <el-empty v-if="!birthdayGreeting.memories.length" description="暂无可核验的共同记忆" :image-size="60" />
+            <el-empty
+              v-if="!birthdayGreeting.memories.length"
+              description="暂无可核验的共同记忆"
+              :image-size="60"
+            />
           </section>
 
           <section class="birthday-draft-section">
@@ -1173,8 +1526,14 @@ function changePlan() {
                 <p>文案可以直接编辑；生成器只围绕上方事实，不补造经历。</p>
               </div>
               <div class="birthday-tone-actions">
-                <el-button size="small" @click="generateBirthdayDraft('warm')">更温暖</el-button>
-                <el-button size="small" @click="generateBirthdayDraft('concise')">更简洁</el-button>
+                <el-button size="small" @click="generateBirthdayDraft('warm')"
+                  >更温暖</el-button
+                >
+                <el-button
+                  size="small"
+                  @click="generateBirthdayDraft('concise')"
+                  >更简洁</el-button
+                >
               </div>
             </div>
             <div v-loading="birthdayGreetingDraftLoading">
@@ -1187,8 +1546,17 @@ function changePlan() {
               />
             </div>
             <div class="birthday-draft-actions">
-              <el-button :loading="birthdayGreetingDraftLoading" @click="generateBirthdayDraft()">重新生成</el-button>
-              <el-button type="primary" :disabled="!birthdayGreetingDraft" @click="copyBirthdayGreeting">复制祝福</el-button>
+              <el-button
+                :loading="birthdayGreetingDraftLoading"
+                @click="generateBirthdayDraft()"
+                >重新生成</el-button
+              >
+              <el-button
+                type="primary"
+                :disabled="!birthdayGreetingDraft"
+                @click="copyBirthdayGreeting"
+                >复制祝福</el-button
+              >
             </div>
           </section>
         </template>
@@ -1197,18 +1565,52 @@ function changePlan() {
 
     <el-drawer
       v-model="classDrawerVisible"
-      :title="classDetail ? `${classDetail.class_name} · 班级运营分析` : '班级运营分析'"
+      :title="
+        classDetail
+          ? `${classDetail.class_name} · 班级运营分析`
+          : '班级运营分析'
+      "
       size="min(760px, 96vw)"
     >
       <div v-loading="classDetailLoading" class="class-analysis">
         <template v-if="classDetail">
           <section class="analysis-grid">
-            <article><span>在册学长</span><strong>{{ classDetail.active_member_count }} 人</strong></article>
-            <article><span>经营者占比</span><strong>{{ percentLabel(classDetail.entrepreneur_ratio) }}</strong></article>
-            <article><span>高管占比</span><strong>{{ percentLabel(classDetail.executive_ratio) }}</strong></article>
-            <article><span>业绩增长占比</span><strong>{{ classDetail.revenue_growth_authorized ? percentLabel(classDetail.revenue_growth_ratio) : "无权查看" }}</strong></article>
-            <article><span>班会参会率</span><strong>{{ percentLabel(classDetail.class_attendance.rate) }}</strong></article>
-            <article><span>学习月份</span><strong>{{ classDetail.learning_month ? `第 ${classDetail.learning_month} 个月` : "待维护" }}</strong></article>
+            <article>
+              <span>在册学长</span
+              ><strong>{{ classDetail.active_member_count }} 人</strong>
+            </article>
+            <article>
+              <span>经营者占比</span
+              ><strong>{{
+                percentLabel(classDetail.entrepreneur_ratio)
+              }}</strong>
+            </article>
+            <article>
+              <span>高管占比</span
+              ><strong>{{ percentLabel(classDetail.executive_ratio) }}</strong>
+            </article>
+            <article>
+              <span>业绩增长占比</span
+              ><strong>{{
+                classDetail.revenue_growth_authorized
+                  ? percentLabel(classDetail.revenue_growth_ratio)
+                  : "无权查看"
+              }}</strong>
+            </article>
+            <article>
+              <span>班会参会率</span
+              ><strong>{{
+                percentLabel(classDetail.class_attendance.rate)
+              }}</strong>
+            </article>
+            <article>
+              <span>学习月份</span
+              ><strong>{{
+                classDetail.learning_month
+                  ? `第 ${classDetail.learning_month} 个月`
+                  : "待维护"
+              }}</strong>
+            </article>
           </section>
 
           <el-alert
@@ -1221,54 +1623,123 @@ function changePlan() {
           <el-form label-position="top" class="operations-form">
             <div class="form-grid">
               <el-form-item label="周例会时间">
-                <el-date-picker v-model="classForm.weekly_meeting_at" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="待维护" :disabled="!canManageClassOperations" />
+                <el-date-picker
+                  v-model="classForm.weekly_meeting_at"
+                  type="datetime"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  placeholder="待维护"
+                  :disabled="!canManageClassOperations"
+                />
               </el-form-item>
               <el-form-item label="计划班会时间">
-                <el-date-picker v-model="classForm.planned_class_meeting_at" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="待维护" :disabled="!canManageClassOperations" />
+                <el-date-picker
+                  v-model="classForm.planned_class_meeting_at"
+                  type="datetime"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  placeholder="待维护"
+                  :disabled="!canManageClassOperations"
+                />
               </el-form-item>
               <el-form-item label="班会学习第几个月">
-                <el-input-number v-model="classForm.learning_month" :min="1" :max="240" :disabled="!canManageClassOperations" />
+                <el-input-number
+                  v-model="classForm.learning_month"
+                  :min="1"
+                  :max="240"
+                  :disabled="!canManageClassOperations"
+                />
               </el-form-item>
-              <el-form-item v-if="classDetail.revenue_growth_authorized" label="业绩增长人数 / 可比人数">
+              <el-form-item
+                v-if="classDetail.revenue_growth_authorized"
+                label="业绩增长人数 / 可比人数"
+              >
                 <div class="count-pair">
-                  <el-input-number v-model="classForm.revenue_growing_member_count" :min="0" :disabled="!canManageClassOperations" />
+                  <el-input-number
+                    v-model="classForm.revenue_growing_member_count"
+                    :min="0"
+                    :disabled="!canManageClassOperations"
+                  />
                   <span>/</span>
-                  <el-input-number v-model="classForm.revenue_comparable_member_count" :min="0" :disabled="!canManageClassOperations" />
+                  <el-input-number
+                    v-model="classForm.revenue_comparable_member_count"
+                    :min="0"
+                    :disabled="!canManageClassOperations"
+                  />
                 </div>
               </el-form-item>
             </div>
             <el-form-item label="学习进度到哪里">
-              <el-input v-model="classForm.learning_progress" type="textarea" :rows="3" placeholder="例如：经营十二条第 4 条、课题进度与本月行动" :disabled="!canManageClassOperations" />
+              <el-input
+                v-model="classForm.learning_progress"
+                type="textarea"
+                :rows="3"
+                placeholder="例如：经营十二条第 4 条、课题进度与本月行动"
+                :disabled="!canManageClassOperations"
+              />
             </el-form-item>
           </el-form>
 
           <h3>本月班会</h3>
-          <el-table :data="classMeetingRows" size="small" empty-text="本月尚未维护班会排期">
+          <el-table
+            :data="classMeetingRows"
+            size="small"
+            empty-text="本月尚未维护班会排期"
+          >
             <el-table-column prop="event_date" label="日期" width="120" />
             <el-table-column prop="title" label="事项" min-width="220" />
           </el-table>
-          <p v-if="classDetail.planned_class_meeting_at && !classDetail.class_meetings.length" class="form-hint">
+          <p
+            v-if="
+              classDetail.planned_class_meeting_at &&
+              !classDetail.class_meetings.length
+            "
+            class="form-hint"
+          >
             这是已维护的计划时间；班会次序仍需正式活动事实接入后确认，不会根据计划日期估算。
           </p>
 
           <h3>小组运营与参会率</h3>
-          <el-table :data="classForm.groups" size="small" empty-text="当前班级暂无正式小组">
+          <el-table
+            :data="classForm.groups"
+            size="small"
+            empty-text="当前班级暂无正式小组"
+          >
             <el-table-column prop="name" label="小组" min-width="120" />
             <el-table-column label="小组会时间" min-width="220">
               <template #default="{ row }">
-                <el-date-picker v-model="row.planned_meeting_at" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="待维护" :disabled="!canManageClassOperations" />
+                <el-date-picker
+                  v-model="row.planned_meeting_at"
+                  type="datetime"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  placeholder="待维护"
+                  :disabled="!canManageClassOperations"
+                />
               </template>
             </el-table-column>
             <el-table-column label="本月参会率" width="120">
               <template #default="{ row }">
-                {{ percentLabel(classDetail.groups.find(group => group.id === row.group_org_unit_id)?.attendance.rate) }}
+                {{
+                  percentLabel(
+                    classDetail.groups.find(
+                      group => group.id === row.group_org_unit_id
+                    )?.attendance.rate
+                  )
+                }}
               </template>
             </el-table-column>
           </el-table>
 
           <div v-if="canManageClassOperations" class="drawer-actions">
-            <el-button type="primary" :loading="classSaving" @click="saveClassOperations">保存班级运营事项</el-button>
-            <span v-if="classDetail.updated_at" class="save-status">最近保存：{{ dayjs(classDetail.updated_at).format("YYYY-MM-DD HH:mm") }}</span>
+            <el-button
+              type="primary"
+              :loading="classSaving"
+              @click="saveClassOperations"
+              >保存班级运营事项</el-button
+            >
+            <span v-if="classDetail.updated_at" class="save-status"
+              >最近保存：{{
+                dayjs(classDetail.updated_at).format("YYYY-MM-DD HH:mm")
+              }}</span
+            >
           </div>
         </template>
       </div>
@@ -1323,7 +1794,9 @@ function changePlan() {
         <strong class="metric-name">{{
           selectedMetric?.name ?? "请选择指标"
         }}</strong>
-        <small>{{ unitLabel(selectedMetric?.unit) }}口径，六分中心横向比较</small>
+        <small
+          >{{ unitLabel(selectedMetric?.unit) }}口径，六分中心横向比较</small
+        >
       </article>
       <article class="summary-card">
         <span>已填实绩中心</span>
@@ -1370,7 +1843,11 @@ function changePlan() {
         <span><b>预定达成率</b>：实绩 ÷ 预定</span>
         <span><b>年度目标达成率</b>：当月实绩 ÷ 年度目标</span>
       </div>
-      <el-table :data="selectedItems" stripe empty-text="当前月份暂无该指标数据">
+      <el-table
+        :data="selectedItems"
+        stripe
+        empty-text="当前月份暂无该指标数据"
+      >
         <el-table-column prop="org_name" label="区域分中心" min-width="150" />
         <el-table-column label="年度目标" min-width="125" align="right">
           <template #default="{ row }">
@@ -1397,9 +1874,7 @@ function changePlan() {
             <el-tag
               v-if="toNumber(row.forecast_achievement) !== null"
               :type="
-                toNumber(row.forecast_achievement)! >= 1
-                  ? 'success'
-                  : 'warning'
+                toNumber(row.forecast_achievement)! >= 1 ? 'success' : 'warning'
               "
             >
               {{ formatAchievement(row.forecast_achievement) }}
@@ -1407,11 +1882,7 @@ function changePlan() {
             <span v-else>—</span>
           </template>
         </el-table-column>
-        <el-table-column
-          label="年度目标达成率"
-          min-width="155"
-          align="right"
-        >
+        <el-table-column label="年度目标达成率" min-width="155" align="right">
           <template #default="{ row }">
             <el-tag
               v-if="annualAchievement(row) !== null"
@@ -1638,6 +2109,114 @@ h1 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin: 18px 0;
+}
+.care-center-card {
+  margin-bottom: 18px;
+}
+.care-center-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.care-center-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.care-center-count {
+  color: #1b6049;
+  font-size: 18px;
+}
+.care-center-alert {
+  margin-top: 12px;
+}
+.care-center-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin: 4px 0 16px;
+}
+.care-center-summary span {
+  padding: 8px 12px;
+  color: #60756c;
+  background: #f3f8f5;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.care-center-summary span.overdue {
+  color: #9e3d31;
+  background: #fff0ed;
+}
+.care-center-summary span.today {
+  color: #245a94;
+  background: #edf5ff;
+}
+.care-center-summary span.attention {
+  color: #996217;
+  background: #fff6e7;
+}
+.care-center-summary span.birthday {
+  color: #8a5a2b;
+  background: #fff7e8;
+}
+.care-center-summary span.renewal {
+  color: #17624b;
+  background: #e8f7f0;
+}
+.care-center-summary b {
+  margin-left: 4px;
+  color: inherit;
+}
+.care-action-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.muted-inline {
+  color: #82958d;
+  font-size: 12px;
+}
+.care-person-profile {
+  display: grid;
+  gap: 6px;
+  padding: 15px 16px;
+  margin-bottom: 14px;
+  color: #5e756a;
+  background: #f1f8f4;
+  border: 1px solid #d4eadc;
+  border-radius: 12px;
+}
+.care-person-profile strong {
+  color: #173f33;
+  font-size: 20px;
+}
+.care-person-actions {
+  display: grid;
+  gap: 10px;
+}
+.care-person-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  background: #fbfdfc;
+  border: 1px solid #e0ebe6;
+  border-radius: 11px;
+}
+.care-person-action-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.care-person-action p {
+  margin: 8px 0 4px;
+  color: #60756c;
+}
+.care-person-action small {
+  color: #82958d;
+  font-size: 12px;
 }
 .section-heading {
   display: flex;
@@ -1876,6 +2455,10 @@ h1 {
   .rhythm-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .care-center-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .analysis-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1903,6 +2486,11 @@ h1 {
   }
   .rhythm-summary {
     grid-template-columns: 1fr;
+  }
+  .care-center-heading-actions,
+  .care-person-action {
+    align-items: stretch;
+    flex-direction: column;
   }
   .section-heading {
     align-items: stretch;

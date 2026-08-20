@@ -2,6 +2,7 @@
 import { computed, h, onMounted, reactive, ref, watch } from "vue";
 import dayjs from "dayjs";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { useRoute } from "vue-router";
 import {
   acceptFollowupInvitation,
   closeFollowupTask,
@@ -48,6 +49,7 @@ const assignees = ref<FollowupAssignee[]>([]);
 const dialogVisible = ref(false);
 const dialogMode = ref<DialogMode>("create");
 const activeTask = ref<FollowupTask>();
+const route = useRoute();
 const companionDialogVisible = ref(false);
 const companionInvitation = ref<FollowupInvitation>();
 
@@ -68,7 +70,8 @@ const canViewFullProfile = computed(() =>
 );
 const dialogTitle = computed(() => {
   if (dialogMode.value === "create") return copy.value.createTitle;
-  if (dialogMode.value === "record") return `记录跟进 · ${activeTask.value?.member_name}`;
+  if (dialogMode.value === "record")
+    return `记录跟进 · ${activeTask.value?.member_name}`;
   return `记录企业走访 · ${activeTask.value?.member_name}`;
 });
 
@@ -107,8 +110,7 @@ const taskForm = reactive({
   service_purpose: "",
   assigned_user_id: undefined as number | undefined,
   due_at: "",
-  confidentiality_level: "ASSIGNEE"
-  ,
+  confidentiality_level: "ASSIGNEE",
   invitation_mode: false,
   invitation_message: "",
   invitation_valid_until: ""
@@ -212,11 +214,11 @@ async function load() {
   try {
     const [tasks, memberResult, capabilities, invitationResult] =
       await Promise.all([
-      getFollowupTasks(status.value),
-      getMembers(),
-      getFollowupCapabilities(),
-      getMyFollowupInvitations()
-    ]);
+        getFollowupTasks(status.value),
+        getMembers(),
+        getFollowupCapabilities(),
+        getMyFollowupInvitations()
+      ]);
     rows.value = tasks.data;
     members.value = memberResult.data;
     invitationEnabled.value = capabilities.data.enabled;
@@ -323,13 +325,10 @@ async function submit() {
         service_purpose: taskForm.service_purpose.trim(),
         assigned_user_id: taskForm.assigned_user_id,
         due_at: taskForm.due_at || undefined,
-        confidentiality_level: taskForm.confidentiality_level
-        ,
+        confidentiality_level: taskForm.confidentiality_level,
         invitation_mode: taskForm.invitation_mode,
-        invitation_message:
-          taskForm.invitation_message.trim() || undefined,
-        invitation_valid_until:
-          taskForm.invitation_valid_until || undefined
+        invitation_message: taskForm.invitation_message.trim() || undefined,
+        invitation_valid_until: taskForm.invitation_valid_until || undefined
       });
       ElMessage.success(copy.value.created);
     } else if (dialogMode.value === "record" && activeTask.value) {
@@ -402,17 +401,33 @@ async function reveal(task: any) {
         ["姓名", profile.name],
         ["手机号", profile.phone],
         ["所属中心", profile.org_name],
-        ["班级 / 小组", [profile.class_name, profile.group_name].filter(Boolean).join(" / ")],
+        [
+          "班级 / 小组",
+          [profile.class_name, profile.group_name].filter(Boolean).join(" / ")
+        ],
         ["职务", profile.position],
         ["公司名称", profile.company_name],
         ["公司地址", profile.company_address],
-        ["行业", [profile.industry_category, profile.industry].filter(Boolean).join(" / ")],
+        [
+          "行业",
+          [profile.industry_category, profile.industry]
+            .filter(Boolean)
+            .join(" / ")
+        ],
         ["公司产品", profile.company_products],
-        ["员工人数", profile.employee_count ? `${profile.employee_count}人` : null],
-        ["公司销售额", profile.annual_sales ? `${profile.annual_sales}万元` : null],
+        [
+          "员工人数",
+          profile.employee_count ? `${profile.employee_count}人` : null
+        ],
+        [
+          "公司销售额",
+          profile.annual_sales ? `${profile.annual_sales}万元` : null
+        ],
         ["利润率", profile.profit_margin],
         ["备注", profile.notes]
-      ].filter(([, value]) => value !== null && value !== undefined && value !== "");
+      ].filter(
+        ([, value]) => value !== null && value !== undefined && value !== ""
+      );
       await ElMessageBox.alert(
         h(
           "div",
@@ -435,7 +450,8 @@ async function reveal(task: any) {
       `查看 ${task.member_name} 的联系方式`,
       {
         inputPlaceholder: "填写具体联系用途（至少 4 个字）",
-        inputValidator: value => value.trim().length >= 4 || "用途至少填写 4 个字",
+        inputValidator: value =>
+          value.trim().length >= 4 || "用途至少填写 4 个字",
         confirmButtonText: "确认查看",
         cancelButtonText: "取消"
       }
@@ -463,7 +479,8 @@ async function closeTask(task: any) {
       `${copy.value.closeTitle} · ${task.member_name}`,
       {
         inputPlaceholder: `填写${copy.value.closeNote}（至少 4 个字）`,
-        inputValidator: value => value.trim().length >= 4 || "说明至少填写 4 个字",
+        inputValidator: value =>
+          value.trim().length >= 4 || "说明至少填写 4 个字",
         confirmButtonText: copy.value.close,
         cancelButtonText: "取消"
       }
@@ -510,7 +527,8 @@ async function suggestAnotherTime(invitation: FollowupInvitation) {
       "补充说明",
       {
         inputPlaceholder: "例如：本周已有服务安排",
-        inputValidator: value => value.trim().length >= 2 || "请至少填写 2 个字",
+        inputValidator: value =>
+          value.trim().length >= 2 || "请至少填写 2 个字",
         confirmButtonText: "发送建议",
         cancelButtonText: "取消"
       }
@@ -535,7 +553,8 @@ async function temporarilyUnavailable(invitation: FollowupInvitation) {
       "本次暂时无法参与",
       {
         inputPlaceholder: "例如：本周时间暂时无法妥善安排",
-        inputValidator: value => value.trim().length >= 2 || "请至少填写 2 个字",
+        inputValidator: value =>
+          value.trim().length >= 2 || "请至少填写 2 个字",
         confirmButtonText: "温暖回应",
         cancelButtonText: "取消"
       }
@@ -595,11 +614,26 @@ async function submitCompanionInvitation() {
   }
 }
 
-onMounted(load);
+async function openTaskFromRoute() {
+  const taskId = Number(route.query.task_id || 0);
+  if (!taskId) return;
+  const task = rows.value.find(item => item.id === taskId);
+  if (!task) return;
+  if (String(task.task_type).toUpperCase() === "VISIT") {
+    openVisit(task);
+  } else {
+    openRecord(task);
+  }
+}
+
+onMounted(async () => {
+  await load();
+  await openTaskFromRoute();
+});
 </script>
 
 <template>
-  <div class="followup-page" v-loading="loading">
+  <div v-loading="loading" class="followup-page">
     <section class="page-head">
       <div>
         <p>{{ copy.pageKicker }}</p>
@@ -649,7 +683,11 @@ onMounted(load);
         >
           <div>
             <el-tag type="success" effect="plain">
-              {{ invitation.invitation_type === "ASSIGNEE" ? "邀请担当" : "同行邀请" }}
+              {{
+                invitation.invitation_type === "ASSIGNEE"
+                  ? "邀请担当"
+                  : "同行邀请"
+              }}
             </el-tag>
             <h3>{{ invitation.member_name }} · {{ invitation.org_name }}</h3>
             <p>{{ invitation.service_purpose }}</p>
@@ -657,8 +695,8 @@ onMounted(load);
               {{ invitation.inviter_name }}：{{ invitation.invitation_message }}
             </blockquote>
             <small>
-              {{ invitationStatusText[invitation.status] }} ·
-              邀请有效至 {{ dayjs(invitation.valid_until).format("YYYY-MM-DD HH:mm") }}
+              {{ invitationStatusText[invitation.status] }} · 邀请有效至
+              {{ dayjs(invitation.valid_until).format("YYYY-MM-DD HH:mm") }}
             </small>
           </div>
           <div class="invitation-actions">
@@ -691,13 +729,23 @@ onMounted(load);
 
     <el-card shadow="never">
       <el-table :data="rows" stripe :empty-text="copy.empty">
-        <el-table-column prop="member_name" label="学员" min-width="105" fixed />
+        <el-table-column
+          prop="member_name"
+          label="学员"
+          min-width="105"
+          fixed
+        />
         <el-table-column prop="phone_masked" label="联系方式" min-width="135" />
         <el-table-column prop="company_name" label="企业" min-width="150">
           <template #default="{ row }">{{ row.company_name || "—" }}</template>
         </el-table-column>
         <el-table-column prop="org_name" label="所属中心" min-width="135" />
-        <el-table-column prop="service_purpose" label="服务目的" min-width="220" show-overflow-tooltip />
+        <el-table-column
+          prop="service_purpose"
+          label="服务目的"
+          min-width="220"
+          show-overflow-tooltip
+        />
         <el-table-column prop="assignee_name" label="责任人" min-width="105" />
         <el-table-column label="状态" width="95">
           <template #default="{ row }">
@@ -714,14 +762,25 @@ onMounted(load);
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="next_followup_at" label="下次跟进" min-width="170">
+        <el-table-column
+          prop="next_followup_at"
+          label="下次跟进"
+          min-width="170"
+        >
           <template #default="{ row }">
-            {{ row.next_followup_at ? dayjs(row.next_followup_at).format("YYYY-MM-DD HH:mm") : "—" }}
+            {{
+              row.next_followup_at
+                ? dayjs(row.next_followup_at).format("YYYY-MM-DD HH:mm")
+                : "—"
+            }}
           </template>
         </el-table-column>
         <el-table-column label="操作" width="315" fixed="right">
           <template #default="{ row }">
-            <div v-if="row.status !== 'CLOSED' && row.can_record" class="row-actions">
+            <div
+              v-if="row.status !== 'CLOSED' && row.can_record"
+              class="row-actions"
+            >
               <el-button
                 v-if="row.can_close"
                 link
@@ -730,8 +789,12 @@ onMounted(load);
               >
                 {{ canViewFullProfile ? "查看资料" : "联系" }}
               </el-button>
-              <el-button link type="primary" @click="openRecord(row)">记跟进</el-button>
-              <el-button link type="primary" @click="openVisit(row)">记走访</el-button>
+              <el-button link type="primary" @click="openRecord(row)"
+                >记跟进</el-button
+              >
+              <el-button link type="primary" @click="openVisit(row)"
+                >记走访</el-button
+              >
               <el-button
                 v-if="row.can_close"
                 link
@@ -750,7 +813,11 @@ onMounted(load);
     </el-card>
 
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="720px">
-      <el-form v-if="dialogMode === 'create'" :model="taskForm" label-position="top">
+      <el-form
+        v-if="dialogMode === 'create'"
+        :model="taskForm"
+        label-position="top"
+      >
         <div class="form-grid">
           <el-form-item label="学员">
             <el-select
@@ -840,10 +907,7 @@ onMounted(load);
                 placeholder="说明为什么想到邀请对方，以及期待获得的支持"
               />
             </el-form-item>
-            <el-form-item
-              v-if="taskForm.invitation_mode"
-              label="邀请有效期"
-            >
+            <el-form-item v-if="taskForm.invitation_mode" label="邀请有效期">
               <el-date-picker
                 v-model="taskForm.invitation_valid_until"
                 type="datetime"
@@ -855,32 +919,70 @@ onMounted(load);
         </div>
       </el-form>
 
-      <el-form v-else-if="dialogMode === 'record'" :model="recordForm" label-position="top">
+      <el-form
+        v-else-if="dialogMode === 'record'"
+        :model="recordForm"
+        label-position="top"
+      >
         <div class="form-grid">
           <el-form-item label="联系渠道">
             <el-select v-model="recordForm.channel">
-              <el-option v-for="[value, label] in channelOptions" :key="value" :label="label" :value="value" />
+              <el-option
+                v-for="[value, label] in channelOptions"
+                :key="value"
+                :label="label"
+                :value="value"
+              />
             </el-select>
           </el-form-item>
           <el-form-item label="联系时间">
-            <el-date-picker v-model="recordForm.contacted_at" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" />
+            <el-date-picker
+              v-model="recordForm.contacted_at"
+              type="datetime"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+            />
           </el-form-item>
           <el-form-item label="联系结果">
             <el-select v-model="recordForm.outcome_code">
-              <el-option v-for="[value, label] in outcomeOptions" :key="value" :label="label" :value="value" />
+              <el-option
+                v-for="[value, label] in outcomeOptions"
+                :key="value"
+                :label="label"
+                :value="value"
+              />
             </el-select>
           </el-form-item>
           <el-form-item label="下次跟进">
-            <el-date-picker v-model="recordForm.next_followup_at" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="可选" />
+            <el-date-picker
+              v-model="recordForm.next_followup_at"
+              type="datetime"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+              placeholder="可选"
+            />
           </el-form-item>
           <el-form-item class="full" label="学员陈述">
-            <el-input v-model="recordForm.subject_statement" type="textarea" :rows="2" placeholder="学员本人表达的需求或情况" />
+            <el-input
+              v-model="recordForm.subject_statement"
+              type="textarea"
+              :rows="2"
+              placeholder="学员本人表达的需求或情况"
+            />
           </el-form-item>
           <el-form-item class="full" label="客观事实">
-            <el-input v-model="recordForm.objective_facts" type="textarea" :rows="2" placeholder="已经确认的客观信息" />
+            <el-input
+              v-model="recordForm.objective_facts"
+              type="textarea"
+              :rows="2"
+              placeholder="已经确认的客观信息"
+            />
           </el-form-item>
           <el-form-item class="full" label="工作人员判断">
-            <el-input v-model="recordForm.staff_judgment" type="textarea" :rows="2" placeholder="与客观事实分开填写" />
+            <el-input
+              v-model="recordForm.staff_judgment"
+              type="textarea"
+              :rows="2"
+              placeholder="与客观事实分开填写"
+            />
           </el-form-item>
           <el-form-item class="full" label="下一步行动">
             <el-input v-model="recordForm.next_action" />
@@ -891,10 +993,19 @@ onMounted(load);
       <el-form v-else :model="visitForm" label-position="top">
         <div class="form-grid">
           <el-form-item label="预约时间">
-            <el-date-picker v-model="visitForm.appointment_at" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="可选" />
+            <el-date-picker
+              v-model="visitForm.appointment_at"
+              type="datetime"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+              placeholder="可选"
+            />
           </el-form-item>
           <el-form-item label="实际走访时间">
-            <el-date-picker v-model="visitForm.visited_at" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" />
+            <el-date-picker
+              v-model="visitForm.visited_at"
+              type="datetime"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+            />
           </el-form-item>
           <el-form-item label="地点类型">
             <el-select v-model="visitForm.location_type">
@@ -905,34 +1016,64 @@ onMounted(load);
             </el-select>
           </el-form-item>
           <el-form-item label="参与人员">
-            <el-input v-model="visitForm.participants_text" placeholder="用逗号分隔" />
+            <el-input
+              v-model="visitForm.participants_text"
+              placeholder="用逗号分隔"
+            />
           </el-form-item>
           <el-form-item class="full" label="走访目的">
             <el-input v-model="visitForm.purpose" />
           </el-form-item>
           <el-form-item class="full" label="客观事实">
-            <el-input v-model="visitForm.objective_facts" type="textarea" :rows="3" />
+            <el-input
+              v-model="visitForm.objective_facts"
+              type="textarea"
+              :rows="3"
+            />
           </el-form-item>
           <el-form-item label="表达需求">
-            <el-input v-model="visitForm.expressed_needs" type="textarea" :rows="2" />
+            <el-input
+              v-model="visitForm.expressed_needs"
+              type="textarea"
+              :rows="2"
+            />
           </el-form-item>
           <el-form-item label="已提供支持">
-            <el-input v-model="visitForm.support_provided" type="textarea" :rows="2" />
+            <el-input
+              v-model="visitForm.support_provided"
+              type="textarea"
+              :rows="2"
+            />
           </el-form-item>
           <el-form-item label="工作人员判断">
-            <el-input v-model="visitForm.staff_judgment" type="textarea" :rows="2" />
+            <el-input
+              v-model="visitForm.staff_judgment"
+              type="textarea"
+              :rows="2"
+            />
           </el-form-item>
           <el-form-item label="下一步行动">
-            <el-input v-model="visitForm.next_action" type="textarea" :rows="2" />
+            <el-input
+              v-model="visitForm.next_action"
+              type="textarea"
+              :rows="2"
+            />
           </el-form-item>
           <el-form-item label="下次跟进">
-            <el-date-picker v-model="visitForm.next_followup_at" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="可选" />
+            <el-date-picker
+              v-model="visitForm.next_followup_at"
+              type="datetime"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+              placeholder="可选"
+            />
           </el-form-item>
         </div>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="submit"
+          >保存</el-button
+        >
       </template>
     </el-dialog>
 
@@ -946,7 +1087,11 @@ onMounted(load);
         type="info"
         :closable="false"
       />
-      <el-form :model="companionForm" label-position="top" class="companion-form">
+      <el-form
+        :model="companionForm"
+        label-position="top"
+        class="companion-form"
+      >
         <el-form-item label="同行伙伴">
           <el-select
             v-model="companionForm.invited_user_id"

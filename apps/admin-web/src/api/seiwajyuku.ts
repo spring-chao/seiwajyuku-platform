@@ -181,6 +181,51 @@ export type OperationRhythmSnapshot = {
   policy: string;
 };
 
+export type MemberCareUrgency = "OVERDUE" | "TODAY" | "ATTENTION" | "WINDOW";
+
+export type MemberCareAction = {
+  source: "RENEWAL" | "FOLLOWUP" | "BIRTHDAY";
+  source_id: number;
+  action_type: string;
+  label: string;
+  reason: string;
+  urgency: MemberCareUrgency;
+  due_date?: string | null;
+  assigned_user_id?: number | null;
+  assigned_user_name?: string | null;
+  navigation_type: "RENEWAL" | "FOLLOWUP" | "ENTERPRISE_VISIT" | "BIRTHDAY";
+  navigation_id: number;
+};
+
+export type MemberCarePerson = {
+  member_id: number;
+  member_name: string;
+  org_unit_id: string;
+  org_name: string;
+  class_name?: string | null;
+  group_name?: string | null;
+  primary_action: MemberCareAction;
+  actions: MemberCareAction[];
+  action_count: number;
+  has_overdue: boolean;
+};
+
+export type MemberCareActions = {
+  as_of: string;
+  summary: {
+    people_total: number;
+    action_total: number;
+    overdue_people_count: number;
+    today_people_count: number;
+    attention_people_count: number;
+    renewal_people_count: number;
+    birthday_people_count: number;
+    followup_people_count: number;
+    enterprise_visit_people_count: number;
+  };
+  people: MemberCarePerson[];
+};
+
 type AttendanceRate = {
   event_count: number;
   eligible_count: number;
@@ -310,6 +355,12 @@ export const getTargetVariances = (planId: number) =>
     params: { plan_id: planId }
   });
 
+export const getMemberCareActionsToday = () =>
+  http.request<{ success: boolean; data: MemberCareActions }>(
+    "get",
+    "/api/v1/operations/member-actions/today"
+  );
+
 export const getPeriodValues = (params: {
   plan_id: number;
   month: number;
@@ -342,6 +393,7 @@ export type FollowupTask = {
   company_name?: string;
   org_unit_id: string;
   org_name: string;
+  task_type: string;
   service_purpose: string;
   assignee_name: string;
   status: "OPEN" | "IN_PROGRESS" | "CLOSED";
