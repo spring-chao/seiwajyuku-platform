@@ -228,6 +228,7 @@ export type MemberCareActions = {
 
 export type MemberCareManagementExceptionType =
   | "CARE_OVERDUE"
+  | "BIRTHDAY_CARE_MISSED"
   | "RENEWAL_RECOVERY_OPEN"
   | "RENEWAL_SUPPORT_NEEDED"
   | "RENEWAL_STAGE_UNTOUCHED"
@@ -244,6 +245,7 @@ export type MemberCareManagementException = {
   source_id: number;
   reason: string;
   days_overdue?: number | null;
+  due_date?: string | null;
   assigned_user_name?: string | null;
   navigation_type: "RENEWAL" | "FOLLOWUP" | "ENTERPRISE_VISIT" | "BIRTHDAY";
   navigation_id: number;
@@ -261,6 +263,7 @@ export type MemberCareManagementOrganization = {
   renewal_unassigned_count: number | null;
   followup_no_schedule_count: number | null;
   birthday_overdue_count: number | null;
+  birthday_care_missed_count: number | null;
   followup_overdue_count: number | null;
   enterprise_visit_overdue_count: number | null;
   renewal_overdue_count: number | null;
@@ -277,6 +280,7 @@ export type MemberCareManagementOverview = {
     renewal_recovery_open_count: number | null;
     renewal_unassigned_count: number | null;
     followup_no_schedule_count: number | null;
+    birthday_care_missed_count: number | null;
     renewal_overdue_count: number | null;
     followup_overdue_count: number | null;
     enterprise_visit_overdue_count: number | null;

@@ -749,8 +749,15 @@ def rhythm_snapshot(
     attention_rows = [
         item
         for item in items
-        if item["status"] == "ATTENTION"
-        or (item.get("due_date") and item["due_date"] < today.isoformat() and item["status"] not in {"COMPLETED", "CANCELLED"})
+        if item.get("business_type") != "BIRTHDAY_CARE"
+        and (
+            item["status"] == "ATTENTION"
+            or (
+                item.get("due_date")
+                and item["due_date"] < today.isoformat()
+                and item["status"] not in {"COMPLETED", "CANCELLED"}
+            )
+        )
     ]
     counts = {status: sum(1 for item in items if item["status"] == status) for status in RHYTHM_STATUSES}
     has_cycle = bool(items)

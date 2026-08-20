@@ -615,6 +615,13 @@ async function submitCompanionInvitation() {
 }
 
 async function openTaskFromRoute() {
+  const memberId = Number(route.query.member_id || 0);
+  if (memberId) {
+    await openCreate();
+    taskForm.member_id = memberId;
+    await memberChanged(memberId);
+    return;
+  }
   const taskId = Number(route.query.task_id || 0);
   if (!taskId) return;
   const task = rows.value.find(item => item.id === taskId);

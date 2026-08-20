@@ -141,14 +141,14 @@ def _birthday_items(user_id: int, today: date) -> list[dict[str, Any]]:
         if today < due_date:
             days_until = (due_date - today).days
             urgency = "WINDOW"
-            reason = f"{days_until}天后生日｜已进入关怀窗口"
+            reason = "明天生日" if days_until == 1 else f"{days_until}天后生日｜已进入关怀窗口"
         elif today == due_date:
             urgency = "TODAY"
             reason = "今天生日"
         else:
-            days_overdue = (today - due_date).days
-            urgency = "OVERDUE"
-            reason = f"生日关怀已逾期{days_overdue}天"
+            # 生日是关系提醒，不是可以补发的逾期任务。错过生日后由
+            # member_care_management 生成内部复盘异常，避免继续打扰前台运营。
+            continue
         result.append(
             {
                 "member_id": member_id,
@@ -244,10 +244,18 @@ def _renewal_actions(user_id: int, year: int, today: date) -> list[dict[str, Any
     return result
 
 
+def _action_priority_rank(action: dict[str, Any]) -> int:
+    # 明天生日仍属于窗口，但要在普通窗口前提醒；不复用 ATTENTION，
+    # 避免把生日误计入“需要协助”人数。
+    if action.get("action_type") == "BIRTHDAY" and action.get("reason") == "明天生日":
+        return 1
+    return URGENCY_RANK[action["urgency"]]
+
+
 def _action_sort_key(action: dict[str, Any]) -> tuple[Any, ...]:
     due_date = _calendar_date(action.get("due_date")) or date.max
     return (
-        URGENCY_RANK[action["urgency"]],
+        _action_priority_rank(action),
         SOURCE_RANK[action["source"]],
         due_date,
         int(action["source_id"]),
@@ -318,7 +326,7 @@ def build_member_care_actions(
         output_people.append(person)
     output_people.sort(
         key=lambda person: (
-            URGENCY_RANK[person["primary_action"]["urgency"]],
+            _action_priority_rank(person["primary_action"]),
             SOURCE_RANK[person["primary_action"]["source"]],
             _calendar_date(person["primary_action"].get("due_date")) or date.max,
             str(person["member_name"] or ""),

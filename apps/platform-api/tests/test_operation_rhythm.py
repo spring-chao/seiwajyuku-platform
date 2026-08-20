@@ -185,6 +185,26 @@ def test_snapshot_normalizes_mysql_date_values(monkeypatch) -> None:
     assert any("未在班级运营与本月服务日历维护班会日期" in note for note in snapshot["data_quality"]["notes"])
 
 
+def test_snapshot_excludes_missed_birthday_from_attention_view() -> None:
+    _, class_id, _, user_id = _insert_scope()
+    generate_rhythm_cycles(user_id, 2026, 8)
+    birthday = fetch_one(
+        "SELECT id FROM operation_items WHERE org_unit_id=? AND business_type='BIRTHDAY_CARE'",
+        (class_id,),
+    )
+    assert birthday
+    update_rhythm_item(
+        user_id,
+        birthday["id"],
+        start_date="1999-12-25",
+        due_date="2000-01-01",
+    )
+
+    snapshot = rhythm_snapshot(user_id, 2026, 8)
+
+    assert not any(item["id"] == birthday["id"] for item in snapshot["views"]["attention"])
+
+
 def test_snapshot_supports_organization_class_and_status_filters() -> None:
     center_id, class_id, _, user_id = _insert_scope()
     generate_rhythm_cycles(user_id, 2026, 8)
@@ -251,6 +271,8 @@ def test_update_rhythm_item_records_status_and_audited_note() -> None:
         note="已通过微信群完成生日关怀，文案已人工确认。",
     )
     assert result["status"] == "COMPLETED"
+    assert result["actual_at"]
+    assert result["completion_note"] == "已通过微信群完成生日关怀，文案已人工确认。"
     progress = fetch_one(
         "SELECT status, note, source_type FROM operation_progress_records WHERE item_id=? ORDER BY id DESC LIMIT 1",
         (item["id"],),

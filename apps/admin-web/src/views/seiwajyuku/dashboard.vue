@@ -41,7 +41,13 @@ defineOptions({ name: "MpDashboard" });
 type CareListFilter =
   "all" | MemberCareAction["urgency"] | MemberCareAction["source"];
 type ManagementExceptionFilter =
-  "all" | "overdue" | "support" | "recovery" | "unassigned" | "no_schedule";
+  | "all"
+  | "overdue"
+  | "support"
+  | "recovery"
+  | "unassigned"
+  | "no_schedule"
+  | "birthday_missed";
 
 const loading = ref(false);
 const router = useRouter();
@@ -87,6 +93,10 @@ const birthdayGreetingVisible = ref(false);
 const birthdayGreetingLoading = ref(false);
 const birthdayGreetingDraftLoading = ref(false);
 const birthdayGreeting = ref<BirthdayGreetingContext>();
+const birthdayOperationItemId = ref<number>();
+const birthdayCareMissed = ref(false);
+const birthdayCompletionLoading = ref(false);
+const birthdayCompletionNote = ref("");
 const selectedBirthdayMemoryIds = ref<string[]>([]);
 const birthdayGreetingTone = ref<"standard" | "warm" | "concise">("warm");
 const birthdayGreetingDraft = ref("");
@@ -525,7 +535,8 @@ const managementExceptionPriority: Record<
   RENEWAL_RECOVERY_OPEN: 2,
   RENEWAL_UNASSIGNED: 3,
   RENEWAL_STAGE_UNTOUCHED: 4,
-  FOLLOWUP_NO_SCHEDULE: 5
+  FOLLOWUP_NO_SCHEDULE: 5,
+  BIRTHDAY_CARE_MISSED: 6
 };
 const managementFilterLabel = (filter: ManagementExceptionFilter) =>
   ({
@@ -534,7 +545,8 @@ const managementFilterLabel = (filter: ManagementExceptionFilter) =>
     support: "需要协助",
     recovery: "未闭环",
     unassigned: "待分配",
-    no_schedule: "无下一时间"
+    no_schedule: "无下一时间",
+    birthday_missed: "生日未及时完成"
   })[filter];
 const managementFilterTypes: Record<
   Exclude<ManagementExceptionFilter, "all">,
@@ -544,7 +556,8 @@ const managementFilterTypes: Record<
   support: ["RENEWAL_SUPPORT_NEEDED"],
   recovery: ["RENEWAL_RECOVERY_OPEN"],
   unassigned: ["RENEWAL_UNASSIGNED"],
-  no_schedule: ["FOLLOWUP_NO_SCHEDULE"]
+  no_schedule: ["FOLLOWUP_NO_SCHEDULE"],
+  birthday_missed: ["BIRTHDAY_CARE_MISSED"]
 };
 const sortManagementExceptions = (
   exceptions: MemberCareManagementException[]
@@ -580,7 +593,8 @@ const managementFilterOptions = computed(() =>
       { value: "support", label: "需要协助" },
       { value: "recovery", label: "未闭环" },
       { value: "unassigned", label: "待分配" },
-      { value: "no_schedule", label: "无下一时间" }
+      { value: "no_schedule", label: "无下一时间" },
+      { value: "birthday_missed", label: "生日未及时完成" }
     ] as const
   ).map(option => ({
     ...option,
@@ -602,7 +616,10 @@ function openCarePerson(person: unknown) {
 async function navigateCareAction(action: MemberCareAction) {
   memberCareDialogVisible.value = false;
   if (action.navigation_type === "BIRTHDAY") {
-    await openBirthdayGreeting({ member_id: action.navigation_id });
+    await openBirthdayGreeting({
+      member_id: action.navigation_id,
+      operation_item_id: action.source_id
+    });
     return;
   }
   if (action.navigation_type === "RENEWAL") {
@@ -623,6 +640,7 @@ const managementExceptionLabels: Record<
   string
 > = {
   CARE_OVERDUE: "关爱逾期",
+  BIRTHDAY_CARE_MISSED: "生日关怀未及时完成",
   RENEWAL_RECOVERY_OPEN: "续费挽回未闭环",
   RENEWAL_SUPPORT_NEEDED: "续费需要协助",
   RENEWAL_STAGE_UNTOUCHED: "当前阶段尚未留下关爱记录",
@@ -634,7 +652,7 @@ const managementExceptionLabel = (type: MemberCareManagementExceptionType) =>
 const managementExceptionType = (type: MemberCareManagementExceptionType) =>
   type === "CARE_OVERDUE"
     ? "danger"
-    : type === "RENEWAL_SUPPORT_NEEDED"
+    : type === "RENEWAL_SUPPORT_NEEDED" || type === "BIRTHDAY_CARE_MISSED"
       ? "warning"
       : "info";
 const managementCountLabel = (value: number | null | undefined) =>
@@ -653,7 +671,11 @@ async function navigateManagementException(item: unknown) {
   managementAllDialogVisible.value = false;
   const exception = item as MemberCareManagementException;
   if (exception.navigation_type === "BIRTHDAY") {
-    await openBirthdayGreeting({ member_id: exception.navigation_id });
+    await openBirthdayGreeting({
+      member_id: exception.navigation_id,
+      operation_item_id: exception.source_id,
+      missed: exception.exception_type === "BIRTHDAY_CARE_MISSED"
+    });
     return;
   }
   if (exception.navigation_type === "RENEWAL") {
@@ -741,24 +763,36 @@ async function saveRhythmEdit() {
 function openRhythmBusinessItem(item: any) {
   if (item.business_type !== "BIRTHDAY_CARE") return;
   const memberId = Number(item.business_id || 0);
-  if (memberId) openBirthdayGreeting({ member_id: memberId });
+  if (memberId) {
+    openBirthdayGreeting({
+      member_id: memberId,
+      operation_item_id: Number(item.id || 0) || undefined
+    });
+  }
 }
 
 async function openBirthdayGreeting(row: unknown) {
-  const memberId = Number(
-    (row as { member_id?: number } | null)?.member_id || 0
-  );
+  const birthdayRow = row as {
+    member_id?: number;
+    operation_item_id?: number;
+    missed?: boolean;
+  } | null;
+  const memberId = Number(birthdayRow?.member_id || 0);
   if (!memberId) return;
   birthdayGreetingVisible.value = true;
   birthdayGreetingLoading.value = true;
   birthdayGreeting.value = undefined;
+  birthdayOperationItemId.value =
+    Number(birthdayRow?.operation_item_id || 0) || undefined;
+  birthdayCareMissed.value = birthdayRow?.missed === true;
+  birthdayCompletionNote.value = "";
   birthdayGreetingDraft.value = "";
   selectedBirthdayMemoryIds.value = [];
   try {
     const response = await getBirthdayGreetingContext(memberId);
     birthdayGreeting.value = response.data;
     selectedBirthdayMemoryIds.value = [...response.data.selected_memory_ids];
-    await generateBirthdayDraft();
+    if (!birthdayCareMissed.value) await generateBirthdayDraft();
   } catch (error) {
     birthdayGreetingVisible.value = false;
     ElMessage.error("生日关怀资料加载失败，请稍后重试");
@@ -802,7 +836,45 @@ function changeBirthdayMemorySelection(ids: string[]) {
 async function copyBirthdayGreeting() {
   if (!birthdayGreetingDraft.value) return;
   await navigator.clipboard.writeText(birthdayGreetingDraft.value);
-  ElMessage.success("祝福已复制，可人工确认后使用");
+  ElMessage.success(
+    "已复制祝福。实际发送后，请点击“已微信发送”完成本次关怀记录。"
+  );
+}
+
+async function completeBirthdayCare(channel: "WECHAT" | "PHONE") {
+  const itemId = birthdayOperationItemId.value;
+  if (!itemId || birthdayCareMissed.value) return;
+  birthdayCompletionLoading.value = true;
+  const channelLabel = channel === "WECHAT" ? "微信祝福" : "电话关爱";
+  const note = birthdayCompletionNote.value.trim();
+  const completionNote = `生日关怀已完成｜${channelLabel}${note ? `｜${note}` : ""}`;
+  try {
+    const response = await updateOperationRhythmItem(itemId, {
+      status: "COMPLETED",
+      note: completionNote
+    });
+    birthdayGreetingVisible.value = false;
+    birthdayOperationItemId.value = undefined;
+    birthdayCompletionNote.value = "";
+    await load();
+    ElMessage.success(
+      `已记录：${dayjs(response.data.actual_at || new Date()).format("M月D日 HH:mm")} · ${channelLabel}`
+    );
+  } catch (error) {
+    ElMessage.error("生日关怀完成记录保存失败，请稍后重试");
+  } finally {
+    birthdayCompletionLoading.value = false;
+  }
+}
+
+async function transferMissedBirthdayToDailyCare() {
+  const memberId = birthdayGreeting.value?.member.id;
+  if (!memberId) return;
+  birthdayGreetingVisible.value = false;
+  await router.push({
+    path: "/operations/followups",
+    query: { member_id: String(memberId) }
+  });
 }
 
 const percentLabel = (value?: number | null) =>
@@ -1462,7 +1534,6 @@ function changePlan() {
                 关怀 {{ managementCountLabel(row.followup_overdue_count) }} ·
                 走访
                 {{ managementCountLabel(row.enterprise_visit_overdue_count) }}
-                · 生日 {{ managementCountLabel(row.birthday_overdue_count) }}
               </span>
             </template>
           </el-table-column>
@@ -1527,7 +1598,11 @@ function changePlan() {
                 type="primary"
                 @click="navigateManagementException(row)"
               >
-                去处理
+                {{
+                  row.exception_type === "BIRTHDAY_CARE_MISSED"
+                    ? "查看 / 转日常关爱"
+                    : "去处理"
+                }}
               </el-button>
             </template>
           </el-table-column>
@@ -2319,7 +2394,11 @@ function changePlan() {
               type="primary"
               @click="navigateManagementException(row)"
             >
-              去处理
+              {{
+                row.exception_type === "BIRTHDAY_CARE_MISSED"
+                  ? "查看 / 转日常关爱"
+                  : "去处理"
+              }}
             </el-button>
           </template>
         </el-table-column>
@@ -2463,7 +2542,17 @@ function changePlan() {
             />
           </section>
 
-          <section class="birthday-draft-section">
+          <el-alert
+            v-if="birthdayCareMissed"
+            title="本年度生日关怀未及时完成"
+            description="生日已过去，仅用于内部运营复盘，不建议补发生日祝福；如仍想关心学长，请转为日常关爱。"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="birthday-missed-alert"
+          />
+
+          <section v-if="!birthdayCareMissed" class="birthday-draft-section">
             <div class="birthday-drawer-heading">
               <div>
                 <h3>生日祝福</h3>
@@ -2501,6 +2590,57 @@ function changePlan() {
                 @click="copyBirthdayGreeting"
                 >复制祝福</el-button
               >
+            </div>
+          </section>
+
+          <section
+            v-if="!birthdayCareMissed && birthdayOperationItemId"
+            class="birthday-completion-section"
+          >
+            <div class="birthday-drawer-heading">
+              <div>
+                <h3>完成本次生日关怀</h3>
+                <p>复制祝福不等于已完成，请在实际发送或电话关爱后确认。</p>
+              </div>
+              <el-tag type="warning">完成后停止提醒</el-tag>
+            </div>
+            <el-input
+              v-model="birthdayCompletionNote"
+              type="textarea"
+              :rows="2"
+              resize="vertical"
+              maxlength="300"
+              show-word-limit
+              placeholder="可选备注，例如：聊了约 15 分钟，学长最近状态不错。"
+            />
+            <div class="birthday-completion-actions">
+              <el-button
+                type="primary"
+                :loading="birthdayCompletionLoading"
+                @click="completeBirthdayCare('WECHAT')"
+              >
+                ✓ 已微信发送
+              </el-button>
+              <el-button
+                :loading="birthdayCompletionLoading"
+                @click="completeBirthdayCare('PHONE')"
+              >
+                ☎ 已电话关爱
+              </el-button>
+            </div>
+          </section>
+
+          <section
+            v-if="birthdayCareMissed"
+            class="birthday-completion-section"
+          >
+            <div class="birthday-completion-actions">
+              <el-button
+                type="primary"
+                @click="transferMissedBirthdayToDailyCare"
+              >
+                转日常关爱
+              </el-button>
             </div>
           </section>
         </template>
@@ -2920,6 +3060,9 @@ h1 {
 .birthday-note {
   margin-bottom: 10px;
 }
+.birthday-missed-alert {
+  margin-top: 18px;
+}
 .birthday-drawer-heading {
   display: flex;
   align-items: flex-start;
@@ -2971,6 +3114,22 @@ h1 {
 .birthday-draft-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.birthday-completion-section {
+  padding: 16px;
+  margin-top: 22px;
+  background: #fffaf0;
+  border: 1px solid #f1dfb9;
+  border-radius: 12px;
+}
+.birthday-completion-section .birthday-drawer-heading {
+  margin-top: 0;
+}
+.birthday-completion-actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
 }

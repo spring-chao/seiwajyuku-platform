@@ -267,6 +267,22 @@ def test_member_care_actions_respect_source_permissions_and_scope() -> None:
     } == {"BIRTHDAY"}
 
 
+def test_member_care_actions_remove_missed_birthdays_from_daily_list() -> None:
+    fixture = _care_fixture()
+    result = build_member_care_actions(
+        int(fixture["user_id"]), as_of=date(2099, 8, 24)
+    )
+
+    assert not [
+        action
+        for person in result["people"]
+        for action in person["actions"]
+        if action["source"] == "BIRTHDAY"
+    ]
+    assert result["summary"]["birthday_people_count"] == 0
+    assert "生日关怀已逾期" not in json.dumps(result, ensure_ascii=False)
+
+
 def test_member_care_api_denies_user_without_source_permission() -> None:
     fixture = _care_fixture()
     with pytest.raises(member_care_api.HTTPException) as exc:

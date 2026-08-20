@@ -96,21 +96,22 @@ def test_management_overview_aggregates_exceptions_and_deduplicates_people() -> 
 
     assert result["summary"] == {
         "today_care_people_count": 4,
-        "today_care_action_count": 9,
+        "today_care_action_count": 8,
         "overdue_people_count": 2,
-        "oldest_overdue_days": 10,
+        "oldest_overdue_days": 1,
         "renewal_support_needed_count": 1,
         "renewal_recovery_open_count": 1,
         "renewal_unassigned_count": 3,
         "followup_no_schedule_count": 1,
+        "birthday_care_missed_count": 1,
         "renewal_overdue_count": 1,
         "followup_overdue_count": 1,
         "enterprise_visit_overdue_count": 1,
-        "birthday_overdue_count": 1,
+        "birthday_overdue_count": 0,
     }
     assert len(result["organizations"]) == 1
     assert result["organizations"][0]["overdue_people_count"] == 2
-    assert result["organizations"][0]["oldest_overdue_days"] == 10
+    assert result["organizations"][0]["oldest_overdue_days"] == 1
     assert {item["exception_type"] for item in result["exceptions"]} == {
         "CARE_OVERDUE",
         "RENEWAL_RECOVERY_OPEN",
@@ -118,8 +119,15 @@ def test_management_overview_aggregates_exceptions_and_deduplicates_people() -> 
         "RENEWAL_STAGE_UNTOUCHED",
         "RENEWAL_UNASSIGNED",
         "FOLLOWUP_NO_SCHEDULE",
+        "BIRTHDAY_CARE_MISSED",
     }
-    assert sum(item["exception_type"] == "CARE_OVERDUE" for item in result["exceptions"]) == 4
+    assert sum(item["exception_type"] == "CARE_OVERDUE" for item in result["exceptions"]) == 3
+    birthday_exception = next(
+        item for item in result["exceptions"] if item["exception_type"] == "BIRTHDAY_CARE_MISSED"
+    )
+    assert birthday_exception["due_date"] == "2099-08-10"
+    assert "生日关怀未及时完成" not in birthday_exception["reason"]
+    assert "不建议补发生日祝福" in birthday_exception["reason"]
     assert result["exceptions"][0]["exception_type"] == "CARE_OVERDUE"
 
     care_people = build_member_care_actions(

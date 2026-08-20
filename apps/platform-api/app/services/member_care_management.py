@@ -6,7 +6,7 @@ from typing import Any, Callable
 from app.db import fetch_all
 from app.services.followups import OPEN_STATES, list_tasks
 from app.services.iam import accessible_org_ids, user_context
-from app.services.member_care_actions import build_member_care_actions
+from app.services.member_care_actions import _member_contexts, build_member_care_actions
 from app.services.renewals import (
     CLOSED_RENEWAL_STATUSES,
     MEMBER_RENEWAL_ORG_SQL,
@@ -25,6 +25,7 @@ EXCEPTION_RANK = {
     "RENEWAL_UNASSIGNED": 3,
     "RENEWAL_STAGE_UNTOUCHED": 4,
     "FOLLOWUP_NO_SCHEDULE": 5,
+    "BIRTHDAY_CARE_MISSED": 6,
 }
 
 
@@ -85,6 +86,7 @@ def _exception(
     assigned_user_name: str | None = None,
     navigation_type: str,
     navigation_id: int,
+    due_date: str | None = None,
 ) -> dict[str, Any]:
     return {
         "exception_type": exception_type,
@@ -99,6 +101,7 @@ def _exception(
         "assigned_user_name": assigned_user_name,
         "navigation_type": navigation_type,
         "navigation_id": navigation_id,
+        "due_date": due_date,
     }
 
 
@@ -160,6 +163,8 @@ def _care_overdue_exceptions(
         for action in person.get("actions", []):
             if action.get("urgency") != "OVERDUE":
                 continue
+            if action.get("source") == "BIRTHDAY" or action.get("navigation_type") == "BIRTHDAY":
+                continue
             due_date = _calendar_date(action.get("due_date"))
             days_overdue = (as_of - due_date).days if due_date else None
             source = (
@@ -185,6 +190,77 @@ def _care_overdue_exceptions(
                     navigation_id=int(action["navigation_id"]),
                 ),
             )
+
+
+def _birthday_missed_exceptions(
+    as_of: date,
+    *,
+    allowed_org_ids: set[str] | None,
+    org_unit_id: str | None,
+    exceptions: list[dict[str, Any]],
+    seen: set[tuple[str, str, int]],
+) -> None:
+    conditions = [
+        "i.business_type='BIRTHDAY_CARE'",
+        "i.period LIKE ?",
+        "i.due_date IS NOT NULL",
+        "i.due_date < ?",
+    ]
+    params: list[Any] = [f"{as_of.year}-%", as_of.isoformat()]
+    rows = fetch_all(
+        "SELECT i.id, i.business_id, i.due_date, i.status, i.actual_at "
+        "FROM operation_items i WHERE " + " AND ".join(conditions) + " ORDER BY i.due_date, i.id",
+        tuple(params),
+    )
+    member_ids: set[int] = set()
+    normalized_rows: list[tuple[dict[str, Any], int, date]] = []
+    for row in rows:
+        try:
+            member_id = int(row.get("business_id"))
+        except (TypeError, ValueError):
+            continue
+        due_date = _calendar_date(row.get("due_date"))
+        if not due_date or due_date >= as_of:
+            continue
+        member_ids.add(member_id)
+        normalized_rows.append((row, member_id, due_date))
+
+    contexts = _member_contexts(member_ids, allowed_org_ids)
+    for row, member_id, due_date in normalized_rows:
+        context = contexts.get(member_id)
+        if not context or (org_unit_id and context["org_unit_id"] != org_unit_id):
+            continue
+        status = str(row.get("status") or "").upper()
+        actual_at = _calendar_date(row.get("actual_at"))
+        if status == "COMPLETED" and (not actual_at or actual_at <= due_date):
+            continue
+        if status == "COMPLETED" and actual_at:
+            reason = (
+                f"生日为{due_date.month}月{due_date.day}日，本年度生日关怀在"
+                f"{actual_at.month}月{actual_at.day}日后才完成，仅用于内部运营复盘，不建议补发生日祝福"
+            )
+        else:
+            reason = (
+                f"生日为{due_date.month}月{due_date.day}日，本年度生日关怀未在生日当天前留下完成记录，"
+                "仅用于内部运营复盘，不建议补发生日祝福"
+            )
+        _add_once(
+            exceptions,
+            seen,
+            _exception(
+                exception_type="BIRTHDAY_CARE_MISSED",
+                org_unit_id=context["org_unit_id"],
+                org_name=context["org_name"],
+                member_id=member_id,
+                member_name=context.get("member_name"),
+                source="BIRTHDAY",
+                source_id=int(row["id"]),
+                reason=reason,
+                navigation_type="BIRTHDAY",
+                navigation_id=member_id,
+                due_date=due_date.isoformat(),
+            ),
+        )
 
 
 def _renewal_exceptions(
@@ -357,6 +433,7 @@ def _empty_org(org_unit_id: str, org_name: str, coverage: dict[str, dict[str, bo
         "renewal_unassigned_count": 0 if coverage["renewal"]["accessible"] else None,
         "followup_no_schedule_count": 0 if coverage["followup"]["accessible"] else None,
         "birthday_overdue_count": 0 if coverage["birthday"]["accessible"] else None,
+        "birthday_care_missed_count": 0 if coverage["birthday"]["accessible"] else None,
         "followup_overdue_count": 0 if coverage["followup"]["accessible"] else None,
         "enterprise_visit_overdue_count": 0 if coverage["followup"]["accessible"] else None,
         "renewal_overdue_count": 0 if coverage["renewal"]["accessible"] else None,
@@ -389,6 +466,14 @@ def build_member_care_management_overview(
     exceptions: list[dict[str, Any]] = []
     seen: set[tuple[str, str, int]] = set()
     _care_overdue_exceptions(care_data={"people": people}, as_of=today, exceptions=exceptions, seen=seen)
+    if coverage["birthday"]["accessible"]:
+        _birthday_missed_exceptions(
+            today,
+            allowed_org_ids=allowed_org_ids,
+            org_unit_id=org_unit_id,
+            exceptions=exceptions,
+            seen=seen,
+        )
 
     renewal_rows: list[dict[str, Any]] = []
     if coverage["renewal"]["accessible"]:
@@ -445,6 +530,8 @@ def build_member_care_management_overview(
             org["renewal_unassigned_count"] += 1
         elif item["exception_type"] == "FOLLOWUP_NO_SCHEDULE":
             org["followup_no_schedule_count"] += 1
+        elif item["exception_type"] == "BIRTHDAY_CARE_MISSED":
+            org["birthday_care_missed_count"] += 1
 
     for org_id, org in organizations.items():
         org["overdue_people_count"] = sum(1 for item in overdue_people if item[0] == org_id)
@@ -471,6 +558,7 @@ def build_member_care_management_overview(
         "renewal_recovery_open_count": exception_count("RENEWAL_RECOVERY_OPEN"),
         "renewal_unassigned_count": exception_count("RENEWAL_UNASSIGNED"),
         "followup_no_schedule_count": exception_count("FOLLOWUP_NO_SCHEDULE"),
+        "birthday_care_missed_count": exception_count("BIRTHDAY_CARE_MISSED"),
         "renewal_overdue_count": (
             _count_visible(exceptions, lambda item: item["exception_type"] == "CARE_OVERDUE" and item["source"] == "RENEWAL")
             if coverage["renewal"]["accessible"]
