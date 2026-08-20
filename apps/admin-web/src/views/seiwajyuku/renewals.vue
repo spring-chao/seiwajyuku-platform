@@ -50,9 +50,12 @@ const cycleSaving = ref(false);
 const followupSaving = ref(false);
 const selectedCycle = ref<RenewalCycle>();
 const actionCard = ref<RenewalActionCard>();
+const actionCardError = ref(false);
+const actionCardReloading = ref(false);
 const followups = ref<RenewalFollowup[]>([]);
 const cycleAssignees = ref<FollowupAssignee[]>([]);
 const writeEnabled = ref(true);
+const cycleManagementExpanded = ref<string[]>([]);
 const filters = reactive<{
   org_unit_id: string;
   due_month: number | undefined;
@@ -81,6 +84,13 @@ const router = useRouter();
 const canManageMembers = computed(() =>
   useUserStoreHook().permissions.includes("members:manage")
 );
+const canManageRenewals = computed(() =>
+  useUserStoreHook().permissions.includes("renewals:manage")
+);
+const canEditRenewals = computed(
+  () => canManageRenewals.value && writeEnabled.value
+);
+const isClosedStage = computed(() => actionCard.value?.stage.code === "CLOSED");
 
 const centerNames = computed(() => [
   ...new Set(rows.value.map(item => item.org_name))
@@ -253,7 +263,11 @@ async function load() {
 
 async function createMissingCycle(row: RenewalCoverageRow | any) {
   if (!row.can_create_cycle || !row.due_month) return;
-  if (!writeEnabled.value) {
+  if (!canManageRenewals.value) {
+    ElMessage.warning("当前账号没有续费管理权限，不能建立续费周期");
+    return;
+  }
+  if (!canEditRenewals.value) {
     ElMessage.warning("当前环境处于只读状态，不能建立续费周期");
     return;
   }
@@ -319,10 +333,28 @@ function resetFollowupForm() {
 }
 
 async function loadActionCard(cycleId: number) {
-  const response = await getRenewalActionCard(cycleId);
-  actionCard.value = response.data;
-  if (response.data.action.recommended_channel !== "NONE") {
+  actionCardError.value = false;
+  try {
+    const response = await getRenewalActionCard(cycleId);
+    actionCard.value = response.data;
     followupForm.channel = response.data.action.recommended_channel;
+  } catch (error) {
+    actionCard.value = undefined;
+    actionCardError.value = true;
+    throw error;
+  }
+}
+
+async function reloadActionCard() {
+  if (!selectedCycle.value) return;
+  actionCardReloading.value = true;
+  try {
+    await loadActionCard(selectedCycle.value.id);
+  } catch {
+    // The fixed in-page fallback remains visible and does not replace itself
+    // with an invented recommendation.
+  } finally {
+    actionCardReloading.value = false;
   }
 }
 
@@ -344,21 +376,21 @@ async function openCycleDetail(cycle: any) {
     assigned_user_id: cycle.assigned_user_id
   });
   resetFollowupForm();
+  cycleManagementExpanded.value = [];
   followups.value = [];
   actionCard.value = undefined;
+  actionCardError.value = false;
   cycleAssignees.value = [];
   cycleDetailVisible.value = true;
   cycleDetailLoading.value = true;
   try {
-    const [actionCardResult, followupResult, assigneeResult] =
-      await Promise.allSettled([
-        loadActionCard(cycle.id),
-        getRenewalFollowups(cycle.id),
-        getRenewalAssignees(cycle.org_unit_id)
-      ]);
-    if (actionCardResult.status === "rejected") {
-      ElMessage.error(errorText(actionCardResult.reason, "今日行动卡加载失败"));
-    }
+    const [, followupResult, assigneeResult] = await Promise.allSettled([
+      loadActionCard(cycle.id),
+      getRenewalFollowups(cycle.id),
+      canManageRenewals.value
+        ? getRenewalAssignees(cycle.org_unit_id)
+        : Promise.resolve({ data: [] as FollowupAssignee[] })
+    ]);
     if (followupResult.status === "fulfilled") {
       followups.value = followupResult.value.data;
     } else {
@@ -366,7 +398,7 @@ async function openCycleDetail(cycle: any) {
     }
     if (assigneeResult.status === "fulfilled") {
       cycleAssignees.value = assigneeResult.value.data;
-    } else {
+    } else if (canManageRenewals.value) {
       ElMessage.warning(
         errorText(assigneeResult.reason, "责任人列表加载失败，仍可查看跟进记录")
       );
@@ -378,7 +410,11 @@ async function openCycleDetail(cycle: any) {
 
 async function saveCycleDetail() {
   if (!selectedCycle.value) return;
-  if (!writeEnabled.value) {
+  if (!canManageRenewals.value) {
+    ElMessage.warning("当前账号为查看模式，不能修改续费周期");
+    return;
+  }
+  if (!canEditRenewals.value) {
     ElMessage.warning("当前环境处于只读状态，修改不会保存");
     return;
   }
@@ -403,7 +439,7 @@ async function saveCycleDetail() {
       assigned_user_name:
         assignee?.display_name ?? currentCycle.assigned_user_name
     };
-    await loadActionCard(currentCycle.id);
+    await loadActionCard(currentCycle.id).catch(() => undefined);
   } catch (error: any) {
     ElMessage.error(errorText(error, "续费周期更新失败"));
   } finally {
@@ -416,7 +452,11 @@ async function submitFollowup() {
     ElMessage.warning("请填写至少 4 个字符的跟进摘要");
     return;
   }
-  if (!writeEnabled.value) {
+  if (!canManageRenewals.value) {
+    ElMessage.warning("当前账号为查看模式，不能新增跟进记录");
+    return;
+  }
+  if (!canEditRenewals.value) {
     ElMessage.warning("当前环境处于只读状态，跟进记录不会保存");
     return;
   }
@@ -431,9 +471,16 @@ async function submitFollowup() {
       next_followup_at: followupForm.next_followup_at.trim() || undefined
     });
     ElMessage.success("跟进记录已保存并写入审计");
-    followups.value = (await getRenewalFollowups(selectedCycle.value.id)).data;
-    await loadActionCard(selectedCycle.value.id);
     resetFollowupForm();
+    const [followupResult] = await Promise.allSettled([
+      getRenewalFollowups(selectedCycle.value.id),
+      loadActionCard(selectedCycle.value.id)
+    ]);
+    if (followupResult.status === "fulfilled") {
+      followups.value = followupResult.value.data;
+    } else {
+      ElMessage.error(errorText(followupResult.reason, "加载跟进记录失败"));
+    }
   } catch (error: any) {
     ElMessage.error(errorText(error, "跟进记录保存失败"));
   } finally {
@@ -607,10 +654,10 @@ onMounted(() => {
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button
-              v-if="row.can_create_cycle"
+              v-if="canManageRenewals && row.can_create_cycle"
               link
               type="primary"
-              :disabled="!writeEnabled"
+              :disabled="!canEditRenewals"
               :loading="cycleCreatingMemberId === row.member_id"
               @click="createMissingCycle(row)"
             >
@@ -748,7 +795,16 @@ onMounted(() => {
     >
       <div v-loading="cycleDetailLoading" class="cycle-detail">
         <el-alert
-          v-if="!writeEnabled"
+          v-if="!canManageRenewals"
+          title="当前账号为查看模式"
+          description="可以查看今日行动、共同经历和历史关爱，但不会显示可编辑跟进表单或周期管理。"
+          type="info"
+          :closable="false"
+          show-icon
+          class="readonly-alert"
+        />
+        <el-alert
+          v-else-if="!writeEnabled"
           title="当前为只读状态"
           description="可以查看续费周期和历史跟进，但修改与新增保存已被禁用。"
           type="warning"
@@ -756,6 +812,26 @@ onMounted(() => {
           show-icon
           class="readonly-alert"
         />
+        <el-alert
+          v-if="actionCardError"
+          title="今日行动建议暂时不可用"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="action-card-error"
+        >
+          <p>
+            系统暂时无法取得本次关爱建议。您仍然可以查看历史关爱记录；请不要根据系统缺失的信息自行推断学长情况。
+          </p>
+          <el-button
+            type="warning"
+            plain
+            :loading="actionCardReloading"
+            @click="reloadActionCard"
+          >
+            重新加载行动建议
+          </el-button>
+        </el-alert>
         <section v-if="actionCard" class="action-card">
           <div class="action-card-head">
             <div>
@@ -804,24 +880,6 @@ onMounted(() => {
               {{ actionCard.action.goal }}
             </strong>
             <p>{{ actionCard.action.recommendation_reason }}</p>
-          </div>
-
-          <div v-if="actionCard.latest_followup" class="continuity-card">
-            <strong>最近一次续费关爱</strong>
-            <span>
-              {{ actionCard.latest_followup.followed_at }} ·
-              {{ channelLabel(actionCard.latest_followup.channel) }}
-            </span>
-            <p>{{ actionCard.latest_followup.summary || "未记录摘要" }}</p>
-            <small>
-              意愿：{{
-                actionCard.current_context.intention || "暂无明确记录"
-              }}； 下一步：{{
-                actionCard.current_context.next_action || "待确认"
-              }}； 下次联系：{{
-                actionCard.current_context.next_followup_at || "待安排"
-              }}
-            </small>
           </div>
 
           <div class="memory-block">
@@ -906,145 +964,114 @@ onMounted(() => {
               </ul>
             </article>
           </div>
+          <p class="reference-note">
+            以下内容仅供运营参考，请结合学长真实情况调整后再沟通，系统不会自动发送。
+          </p>
           <p class="action-policy">{{ actionCard.policy }}</p>
         </section>
 
-        <el-divider content-position="left">周期状态与责任人</el-divider>
-        <el-descriptions v-if="selectedCycle" :column="3" border>
-          <el-descriptions-item label="学员所属分中心">{{
-            selectedCycle.org_name
-          }}</el-descriptions-item>
-          <el-descriptions-item label="班级">{{
-            selectedCycle.member_class_name || "—"
-          }}</el-descriptions-item>
-          <el-descriptions-item label="小组">{{
-            selectedCycle.member_group_name || "—"
-          }}</el-descriptions-item>
-          <el-descriptions-item label="到期月份"
-            >{{ selectedCycle.due_month }}月</el-descriptions-item
+        <section v-if="actionCard" class="continuity-card">
+          <strong>最近关爱 / 沟通连续性</strong>
+          <template v-if="actionCard.latest_followup">
+            <span>
+              {{ actionCard.latest_followup.followed_at }} ·
+              {{ channelLabel(actionCard.latest_followup.channel) }}
+            </span>
+            <p>{{ actionCard.latest_followup.summary || "未记录摘要" }}</p>
+            <small>
+              意愿：{{
+                actionCard.current_context.intention || "暂无明确记录"
+              }}； 下一步：{{
+                actionCard.current_context.next_action || "待确认"
+              }}； 下次联系：{{
+                actionCard.current_context.next_followup_at || "待安排"
+              }}
+            </small>
+          </template>
+          <p v-else>暂无历史关爱记录，本次行动将从基础关心开始。</p>
+        </section>
+
+        <el-alert
+          v-if="isClosedStage"
+          title="本周期已闭环，无需再次发起续费行动。"
+          description="历史关爱记录仍可查看。"
+          type="success"
+          :closable="false"
+          show-icon
+          class="closed-stage-alert"
+        />
+
+        <template v-if="canManageRenewals && !isClosedStage">
+          <el-divider content-position="left">本次行动后记录</el-divider>
+          <el-form
+            :model="followupForm"
+            label-position="top"
+            class="followup-form"
           >
-          <el-descriptions-item label="学员编号">{{
-            selectedCycle.member_code
-          }}</el-descriptions-item>
-        </el-descriptions>
-        <el-form :model="cycleForm" inline class="cycle-edit-form">
-          <el-form-item label="状态">
-            <el-select
-              v-model="cycleForm.status"
-              :disabled="!writeEnabled"
-              style="width: 170px"
-            >
-              <el-option
-                v-for="item in cycleStatusOptions"
-                :key="item[0]"
-                :label="item[1]"
-                :value="item[0]"
+            <el-form-item label="联系渠道">
+              <el-select
+                v-model="followupForm.channel"
+                :disabled="!canEditRenewals"
+                style="width: 150px"
+              >
+                <el-option label="电话" value="PHONE" />
+                <el-option label="微信" value="WECHAT" />
+                <el-option label="面谈" value="MEETING" />
+                <el-option label="走访" value="VISIT" />
+                <el-option label="其他" value="OTHER" />
+                <el-option label="无需联系" value="NONE" disabled />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="跟进摘要" required>
+              <el-input
+                v-model="followupForm.summary"
+                :disabled="!canEditRenewals"
+                type="textarea"
+                :rows="2"
+                maxlength="4000"
               />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="结果">
-            <el-input
-              v-model="cycleForm.result"
-              :disabled="!writeEnabled"
-              maxlength="64"
-              placeholder="简要记录结果"
-            />
-          </el-form-item>
-          <el-form-item label="责任人">
-            <el-select
-              v-model="cycleForm.assigned_user_id"
-              :disabled="!writeEnabled"
-              placeholder="选择续费归属范围内的责任人"
-              style="width: 220px"
-            >
-              <el-option
-                v-for="user in cycleAssignees"
-                :key="user.id"
-                :label="user.display_name"
-                :value="user.id"
+            </el-form-item>
+            <el-form-item label="意愿">
+              <el-input
+                v-model="followupForm.intention"
+                :disabled="!canEditRenewals"
+                maxlength="64"
               />
-            </el-select>
-          </el-form-item>
-          <el-form-item>
-            <el-button
-              type="primary"
-              :loading="cycleSaving"
-              :disabled="!writeEnabled"
-              @click="saveCycleDetail"
-            >
-              保存周期状态
-            </el-button>
-          </el-form-item>
-        </el-form>
+            </el-form-item>
+            <el-form-item label="下一步行动">
+              <el-input
+                v-model="followupForm.next_action"
+                :disabled="!canEditRenewals"
+                maxlength="4000"
+              />
+            </el-form-item>
+            <el-form-item label="下次跟进时间">
+              <el-input
+                v-model="followupForm.next_followup_at"
+                :disabled="!canEditRenewals"
+                placeholder="YYYY-MM-DD HH:mm"
+              />
+            </el-form-item>
+            <el-form-item label="需要协助">
+              <el-switch
+                v-model="followupForm.needs_support"
+                :disabled="!canEditRenewals"
+              />
+            </el-form-item>
+            <el-form-item>
+              <el-button
+                type="success"
+                :loading="followupSaving"
+                :disabled="!canEditRenewals"
+                @click="submitFollowup"
+              >
+                保存跟进记录
+              </el-button>
+            </el-form-item>
+          </el-form>
+        </template>
 
-        <el-divider content-position="left">新增跟进</el-divider>
-        <el-form
-          :model="followupForm"
-          label-position="top"
-          class="followup-form"
-        >
-          <el-form-item label="联系渠道">
-            <el-select
-              v-model="followupForm.channel"
-              :disabled="!writeEnabled"
-              style="width: 150px"
-            >
-              <el-option label="电话" value="PHONE" />
-              <el-option label="微信" value="WECHAT" />
-              <el-option label="面谈" value="MEETING" />
-              <el-option label="走访" value="VISIT" />
-              <el-option label="其他" value="OTHER" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="跟进摘要" required>
-            <el-input
-              v-model="followupForm.summary"
-              :disabled="!writeEnabled"
-              type="textarea"
-              :rows="2"
-              maxlength="4000"
-            />
-          </el-form-item>
-          <el-form-item label="意愿">
-            <el-input
-              v-model="followupForm.intention"
-              :disabled="!writeEnabled"
-              maxlength="64"
-            />
-          </el-form-item>
-          <el-form-item label="下一步行动">
-            <el-input
-              v-model="followupForm.next_action"
-              :disabled="!writeEnabled"
-              maxlength="4000"
-            />
-          </el-form-item>
-          <el-form-item label="下次跟进时间">
-            <el-input
-              v-model="followupForm.next_followup_at"
-              :disabled="!writeEnabled"
-              placeholder="YYYY-MM-DD HH:mm"
-            />
-          </el-form-item>
-          <el-form-item label="需要协助">
-            <el-switch
-              v-model="followupForm.needs_support"
-              :disabled="!writeEnabled"
-            />
-          </el-form-item>
-          <el-form-item>
-            <el-button
-              type="success"
-              :loading="followupSaving"
-              :disabled="!writeEnabled"
-              @click="submitFollowup"
-            >
-              保存跟进记录
-            </el-button>
-          </el-form-item>
-        </el-form>
-
-        <el-divider content-position="left">历史跟进</el-divider>
+        <el-divider content-position="left">历史关爱</el-divider>
         <el-table :data="followups" stripe empty-text="暂无跟进记录">
           <el-table-column prop="followed_at" label="时间" min-width="160" />
           <el-table-column label="渠道" width="90">
@@ -1071,6 +1098,81 @@ onMounted(() => {
             }}</template>
           </el-table-column>
         </el-table>
+
+        <el-collapse
+          v-if="canManageRenewals"
+          v-model="cycleManagementExpanded"
+          class="cycle-management"
+        >
+          <el-collapse-item name="cycle-management" title="更多 · 周期管理">
+            <el-descriptions v-if="selectedCycle" :column="3" border>
+              <el-descriptions-item label="学员所属分中心">{{
+                selectedCycle.org_name
+              }}</el-descriptions-item>
+              <el-descriptions-item label="班级">{{
+                selectedCycle.member_class_name || "—"
+              }}</el-descriptions-item>
+              <el-descriptions-item label="小组">{{
+                selectedCycle.member_group_name || "—"
+              }}</el-descriptions-item>
+              <el-descriptions-item label="到期月份"
+                >{{ selectedCycle.due_month }}月</el-descriptions-item
+              >
+              <el-descriptions-item label="学员编号">{{
+                selectedCycle.member_code
+              }}</el-descriptions-item>
+            </el-descriptions>
+            <el-form :model="cycleForm" inline class="cycle-edit-form">
+              <el-form-item label="状态">
+                <el-select
+                  v-model="cycleForm.status"
+                  :disabled="!canEditRenewals"
+                  style="width: 170px"
+                >
+                  <el-option
+                    v-for="item in cycleStatusOptions"
+                    :key="item[0]"
+                    :label="item[1]"
+                    :value="item[0]"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="结果">
+                <el-input
+                  v-model="cycleForm.result"
+                  :disabled="!canEditRenewals"
+                  maxlength="64"
+                  placeholder="简要记录结果"
+                />
+              </el-form-item>
+              <el-form-item label="责任人">
+                <el-select
+                  v-model="cycleForm.assigned_user_id"
+                  :disabled="!canEditRenewals"
+                  placeholder="选择续费归属范围内的责任人"
+                  style="width: 220px"
+                >
+                  <el-option
+                    v-for="user in cycleAssignees"
+                    :key="user.id"
+                    :label="user.display_name"
+                    :value="user.id"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item>
+                <el-button
+                  type="primary"
+                  :loading="cycleSaving"
+                  :disabled="!canEditRenewals"
+                  @click="saveCycleDetail"
+                >
+                  保存周期状态
+                </el-button>
+              </el-form-item>
+            </el-form>
+          </el-collapse-item>
+        </el-collapse>
       </div>
     </el-dialog>
   </div>
@@ -1218,6 +1320,14 @@ onMounted(() => {
 .readonly-alert {
   margin-bottom: 16px;
 }
+.action-card-error,
+.closed-stage-alert {
+  margin-bottom: 16px;
+}
+.action-card-error p {
+  margin: 0 0 10px;
+  line-height: 1.7;
+}
 .action-card {
   display: grid;
   gap: 16px;
@@ -1308,6 +1418,16 @@ onMounted(() => {
   gap: 10px;
   margin-bottom: 9px;
 }
+.reference-note {
+  margin: 0;
+  padding: 10px 12px;
+  color: #5c756a;
+  background: #eef7f2;
+  border: 1px solid #d6eade;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.65;
+}
 .guidance-grid ol,
 .guidance-grid ul {
   display: grid;
@@ -1324,6 +1444,11 @@ onMounted(() => {
 .action-policy {
   color: #81948c;
   font-size: 12px;
+}
+.cycle-management {
+  margin-top: 18px;
+  border-top: 1px solid #e0ebe6;
+  border-bottom: 1px solid #e0ebe6;
 }
 .upload-list {
   display: grid;
