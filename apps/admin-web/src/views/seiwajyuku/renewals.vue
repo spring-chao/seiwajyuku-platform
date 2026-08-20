@@ -12,6 +12,7 @@ import {
   getRenewalCycles,
   getRenewalFollowups,
   getRenewalOverview,
+  getRenewalTodayActions,
   getSystemEnvironment,
   updateRenewalCycle,
   type RenewalActionCard,
@@ -20,7 +21,9 @@ import {
   type RenewalCycle,
   type RenewalCoverage,
   type RenewalCoverageRow,
-  type RenewalOverviewRow
+  type RenewalOverviewRow,
+  type RenewalTodayAction,
+  type RenewalTodayActions
 } from "@/api/seiwajyuku";
 
 defineOptions({ name: "RenewalOperations" });
@@ -43,6 +46,22 @@ const coverage = ref<RenewalCoverage>({
   rows: [],
   truncated: false
 });
+const todayActions = ref<RenewalTodayActions>({
+  year: 2026,
+  as_of: "",
+  summary: {
+    total: 0,
+    overdue_count: 0,
+    today_count: 0,
+    support_needed_count: 0,
+    stage_untouched_count: 0,
+    next_step_missing_count: 0,
+    stage_counts: {}
+  },
+  items: []
+});
+const todayActionsLoading = ref(false);
+const todayActionsError = ref(false);
 const cycleCreatingMemberId = ref<number>();
 const cycleDetailVisible = ref(false);
 const cycleDetailLoading = ref(false);
@@ -188,6 +207,18 @@ const stageTagType = (code?: string) =>
     RECOVERY: "danger",
     CLOSED: "info"
   })[code || ""] as "success" | "primary" | "warning" | "danger" | "info";
+const todayReasonTagType = (code?: string) =>
+  ({
+    FOLLOWUP_OVERDUE: "danger",
+    FOLLOWUP_TODAY: "primary",
+    SUPPORT_NEEDED: "warning",
+    STAGE_UNTOUCHED: "success",
+    NEXT_STEP_MISSING: "info"
+  })[code || ""] as "success" | "primary" | "warning" | "danger" | "info";
+const reasonLabel = (reason: RenewalTodayAction["reasons"][number]) =>
+  reason.label;
+const formatActionDate = (value?: string | null) =>
+  value ? String(value).slice(0, 16).replace("T", " ") : "—";
 const cycleStatusOptions = [
   ["PENDING_FIRST_CONTACT", "待首次联系"],
   ["CONTACTED_WAITING_REPLY", "已联系待回复"],
@@ -254,11 +285,54 @@ async function load() {
     rows.value = overviewResponse.data.rows;
     cycles.value = cycleResponse.data;
     coverage.value = coverageResponse.data;
+    await loadTodayActions();
   } catch (error: any) {
     ElMessage.error(errorText(error, "续费台账加载失败，请稍后重试"));
   } finally {
     loading.value = false;
   }
+}
+
+async function loadTodayActions() {
+  todayActionsLoading.value = true;
+  todayActionsError.value = false;
+  try {
+    const response = await getRenewalTodayActions(year.value, {
+      org_unit_id: filters.org_unit_id || undefined
+    });
+    todayActions.value = response.data;
+  } catch {
+    todayActionsError.value = true;
+  } finally {
+    todayActionsLoading.value = false;
+  }
+}
+
+async function openTodayAction(item: any) {
+  const cycle = cycles.value.find(row => row.id === item.cycle_id) || {
+    id: item.cycle_id,
+    member_id: item.member_id,
+    member_code: "",
+    member_name: item.member_name,
+    renewal_year: item.renewal_year,
+    org_unit_id: item.org_unit_id,
+    org_name: item.org_name,
+    due_month: item.due_month,
+    phase: "",
+    status: item.status,
+    result: "",
+    assigned_user_id: item.assigned_user_id ?? undefined,
+    assigned_user_name: item.assigned_user_name ?? undefined,
+    updated_at: "",
+    stage: {
+      code: item.stage,
+      label: item.stage_label,
+      months_until_due: 0,
+      as_of_month: todayActions.value.as_of.slice(0, 7),
+      source: "CALENDAR_RULE"
+    }
+  };
+  await openCycleDetail(cycle);
 }
 
 async function createMissingCycle(row: RenewalCoverageRow | any) {
@@ -481,6 +555,7 @@ async function submitFollowup() {
     } else {
       ElMessage.error(errorText(followupResult.reason, "加载跟进记录失败"));
     }
+    await loadTodayActions();
   } catch (error: any) {
     ElMessage.error(errorText(error, "跟进记录保存失败"));
   } finally {
@@ -573,6 +648,119 @@ onMounted(() => {
         </el-table>
       </el-card>
     </section>
+
+    <el-card shadow="never" class="today-actions-card">
+      <template #header>
+        <div class="card-title">
+          <div>
+            <h2>今日应行动</h2>
+            <p>只显示有明确事实依据的行动，不使用续费概率或黑箱评分。</p>
+          </div>
+          <el-button
+            link
+            type="primary"
+            :loading="todayActionsLoading"
+            @click="loadTodayActions"
+          >
+            刷新队列
+          </el-button>
+        </div>
+      </template>
+      <el-alert
+        v-if="todayActionsError"
+        title="今日应行动暂时不可用"
+        description="队列读取失败；不会根据不完整数据臆造行动建议，请稍后重试。"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="today-actions-error"
+      >
+        <template #default>
+          <el-button link type="primary" @click="loadTodayActions">
+            重新加载队列
+          </el-button>
+        </template>
+      </el-alert>
+      <div v-else v-loading="todayActionsLoading" class="today-actions-body">
+        <div class="today-actions-summary">
+          <span
+            >建议行动 <b>{{ todayActions.summary.total }}</b> 人</span
+          >
+          <span class="overdue"
+            >逾期 <b>{{ todayActions.summary.overdue_count }}</b></span
+          >
+          <span class="today"
+            >今日约定 <b>{{ todayActions.summary.today_count }}</b></span
+          >
+          <span class="support"
+            >需要协助
+            <b>{{ todayActions.summary.support_needed_count }}</b></span
+          >
+          <span class="untouched"
+            >新阶段未触达
+            <b>{{ todayActions.summary.stage_untouched_count }}</b></span
+          >
+          <span
+            >下一步缺失
+            <b>{{ todayActions.summary.next_step_missing_count }}</b></span
+          >
+        </div>
+        <el-table
+          :data="todayActions.items"
+          stripe
+          empty-text="今天暂无确定性续费行动"
+          class="today-actions-table"
+        >
+          <el-table-column prop="member_name" label="学长" min-width="120" />
+          <el-table-column label="阶段" min-width="110">
+            <template #default="{ row }">
+              <el-tag :type="stageTagType(row.stage)" effect="light">
+                {{ row.stage_label }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="为什么今天行动" min-width="280">
+            <template #default="{ row }">
+              <div class="today-reasons">
+                <el-tag
+                  v-for="item in row.reasons"
+                  :key="item.code"
+                  :type="todayReasonTagType(item.code)"
+                  effect="light"
+                >
+                  {{ reasonLabel(item) }}
+                </el-tag>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="最近关爱" min-width="155">
+            <template #default="{ row }">
+              {{ formatActionDate(row.latest_followup_at) }}
+              <span v-if="row.latest_channel" class="muted-inline">
+                · {{ channelLabel(row.latest_channel) }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="下次联系" min-width="145">
+            <template #default="{ row }">
+              {{ formatActionDate(row.next_followup_at) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="责任人" min-width="120">
+            <template #default="{ row }">
+              {{ row.assigned_user_name || "待分配" }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="120" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openTodayAction(row)">
+                今日行动
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </el-card>
 
     <el-alert
       class="source-alert"
@@ -1254,6 +1442,54 @@ onMounted(() => {
 }
 .source-alert {
   border: 1px solid #cce9dc;
+}
+.today-actions-card {
+  border-color: #dce9e3;
+  border-radius: 16px;
+}
+.today-actions-error {
+  margin-bottom: 14px;
+}
+.today-actions-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.today-actions-summary span {
+  padding: 8px 12px;
+  color: #657a71;
+  background: #f2f7f5;
+  border-radius: 10px;
+}
+.today-actions-summary span.overdue {
+  color: #9c3c31;
+  background: #fff0ed;
+}
+.today-actions-summary span.today {
+  color: #245a94;
+  background: #edf5ff;
+}
+.today-actions-summary span.support {
+  color: #996217;
+  background: #fff6e7;
+}
+.today-actions-summary span.untouched {
+  color: #17624b;
+  background: #e8f7f0;
+}
+.today-actions-summary b {
+  margin-left: 4px;
+  color: inherit;
+}
+.today-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.muted-inline {
+  color: #82958d;
+  font-size: 12px;
 }
 .coverage-card {
   border-color: #dce9e3;

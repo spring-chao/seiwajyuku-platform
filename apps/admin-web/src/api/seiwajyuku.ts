@@ -969,6 +969,58 @@ export type RenewalActionCard = {
   policy: string;
 };
 
+export type RenewalTodayActionReason = {
+  code:
+    | "FOLLOWUP_OVERDUE"
+    | "FOLLOWUP_TODAY"
+    | "SUPPORT_NEEDED"
+    | "STAGE_UNTOUCHED"
+    | "NEXT_STEP_MISSING";
+  label: string;
+  days_overdue?: number;
+};
+
+export type RenewalTodayAction = {
+  cycle_id: number;
+  member_id: number;
+  member_name: string;
+  org_unit_id: string;
+  org_name: string;
+  class_name?: string | null;
+  group_name?: string | null;
+  renewal_year: number;
+  due_month: number;
+  status: string;
+  stage: RenewalStageCode;
+  stage_label: string;
+  assigned_user_id?: number | null;
+  assigned_user_name?: string | null;
+  latest_followup_at?: string | null;
+  latest_channel?: string | null;
+  intention?: string | null;
+  needs_support: boolean;
+  next_action?: string | null;
+  next_followup_at?: string | null;
+  primary_reason: RenewalTodayActionReason["code"];
+  reasons: RenewalTodayActionReason[];
+  reason_codes: RenewalTodayActionReason["code"][];
+};
+
+export type RenewalTodayActions = {
+  year: number;
+  as_of: string;
+  summary: {
+    total: number;
+    overdue_count: number;
+    today_count: number;
+    support_needed_count: number;
+    stage_untouched_count: number;
+    next_step_missing_count: number;
+    stage_counts: Partial<Record<RenewalStageCode, number>>;
+  };
+  items: RenewalTodayAction[];
+};
+
 export type RenewalCoverageSummary = {
   member_total: number;
   active_member_total: number;
@@ -1659,6 +1711,20 @@ export const getRenewalOverview = (year: number) =>
     success: boolean;
     data: { year: number; rows: RenewalOverviewRow[] };
   }>("get", "/api/v1/renewals/overview", { params: { year } });
+
+export const getRenewalTodayActions = (
+  year: number,
+  params: {
+    org_unit_id?: string;
+    stage?: RenewalStageCode;
+    reason?: RenewalTodayActionReason["code"];
+  } = {}
+) =>
+  http.request<{ success: boolean; data: RenewalTodayActions }>(
+    "get",
+    "/api/v1/renewals/actions/today",
+    { params: { year, ...params } }
+  );
 
 export const previewRenewalImport = (renewalFile: File, masterFile: File) => {
   const data = new FormData();

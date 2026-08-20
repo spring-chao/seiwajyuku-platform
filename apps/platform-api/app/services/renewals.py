@@ -50,6 +50,32 @@ RENEWAL_STAGE_LABELS = {
     "RECOVERY": "挽回/复盘",
     "CLOSED": "已闭环",
 }
+TODAY_ACTION_STAGE_CODES = frozenset(
+    {"OBSERVE_3", "RENEW_2", "FOLLOW_1", "DUE_NOW", "RECOVERY"}
+)
+TODAY_ACTION_REASON_CODES = frozenset(
+    {
+        "FOLLOWUP_OVERDUE",
+        "FOLLOWUP_TODAY",
+        "SUPPORT_NEEDED",
+        "STAGE_UNTOUCHED",
+        "NEXT_STEP_MISSING",
+    }
+)
+TODAY_ACTION_REASON_RANK = {
+    "FOLLOWUP_OVERDUE": 0,
+    "FOLLOWUP_TODAY": 1,
+    "SUPPORT_NEEDED": 2,
+    "STAGE_UNTOUCHED": 3,
+    "NEXT_STEP_MISSING": 4,
+}
+TODAY_ACTION_STAGE_RANK = {
+    "RECOVERY": 0,
+    "DUE_NOW": 1,
+    "FOLLOW_1": 2,
+    "RENEW_2": 3,
+    "OBSERVE_3": 4,
+}
 PREVIEW_ROW_FIELDS = (
     "row_no",
     "name",
@@ -226,6 +252,21 @@ def _redact_action_text(value: Any) -> str | None:
         return None
     text = _PHONE_IN_TEXT_RE.sub("[手机号已脱敏]", text)
     return _PRECISE_AMOUNT_RE.sub("[明确金额已脱敏]", text)
+
+
+def _calendar_date(value: Any) -> date | None:
+    """Read the calendar date prefix used by follow-up date fields."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
 
 
 def _renewal_action_strategy(
@@ -958,6 +999,240 @@ def list_cycles(
             row["renewal_year"], row["due_month"], row["status"]
         )
     return rows
+
+
+def list_today_actions(
+    user_id: int,
+    year: int = 2026,
+    *,
+    org_unit_id: str | None = None,
+    stage: str | None = None,
+    reason: str | None = None,
+    as_of: date | datetime | None = None,
+) -> dict[str, Any]:
+    """Return the explainable renewal actions that need attention today.
+
+    This list deliberately contains only facts needed to choose a person and
+    an action.  The heavier action-card endpoint remains the single source for
+    message references and is opened only after an operator chooses a row.
+    """
+    if not 2020 <= int(year) <= 2100:
+        raise ValueError("续费年度无效")
+    current = as_of or datetime.now(UTC)
+    current_date = current.date() if isinstance(current, datetime) else current
+    requested_stage = str(stage or "").strip().upper() or None
+    if requested_stage and requested_stage not in RENEWAL_STAGE_LABELS:
+        raise ValueError("今日行动阶段筛选值无效")
+    requested_reason = str(reason or "").strip().upper() or None
+    if requested_reason and requested_reason not in TODAY_ACTION_REASON_CODES:
+        raise ValueError("今日行动原因筛选值无效")
+
+    allowed = accessible_org_ids(user_id)
+    if org_unit_id and allowed is not None and org_unit_id not in allowed:
+        raise PermissionError("组织不在当前用户授权范围内")
+
+    conditions = ["c.renewal_year=?"]
+    params: list[Any] = [year]
+    if org_unit_id:
+        conditions.append(f"{MEMBER_RENEWAL_ORG_SQL}=?")
+        params.append(org_unit_id)
+    rows = fetch_all(
+        "SELECT c.id, c.member_id, c.renewal_year, c.due_month, c.status, "
+        "c.assigned_user_id, u.display_name AS assigned_user_name, "
+        "m.name AS member_name, "
+        f"{MEMBER_RENEWAL_ORG_SQL} AS org_unit_id, o.name AS org_name, "
+        f"{MEMBER_CLASS_NAME_SQL} AS class_name, "
+        f"{MEMBER_GROUP_NAME_SQL} AS group_name "
+        "FROM renewal_cycles c JOIN members m ON m.id=c.member_id "
+        f"JOIN org_units o ON o.id={MEMBER_RENEWAL_ORG_SQL} "
+        "LEFT JOIN app_users u ON u.id=c.assigned_user_id WHERE "
+        + " AND ".join(conditions),
+        tuple(params),
+    )
+    if allowed is not None:
+        rows = [row for row in rows if row["org_unit_id"] in allowed]
+    if not rows:
+        return {
+            "year": year,
+            "as_of": current_date.isoformat(),
+            "summary": {
+                "total": 0,
+                "overdue_count": 0,
+                "today_count": 0,
+                "support_needed_count": 0,
+                "stage_untouched_count": 0,
+                "next_step_missing_count": 0,
+                "stage_counts": {},
+            },
+            "items": [],
+        }
+
+    cycle_ids = [int(row["id"]) for row in rows]
+    placeholders = ",".join("?" for _ in cycle_ids)
+    followup_rows = fetch_all(
+        "SELECT id, renewal_cycle_id, followed_at, channel, intention, "
+        "needs_support, next_action, next_followup_at "
+        f"FROM renewal_followups WHERE renewal_cycle_id IN ({placeholders}) "
+        "ORDER BY followed_at DESC, id DESC",
+        tuple(cycle_ids),
+    )
+    followups_by_cycle: dict[int, list[dict[str, Any]]] = {}
+    for followup in followup_rows:
+        followups_by_cycle.setdefault(int(followup["renewal_cycle_id"]), []).append(
+            followup
+        )
+
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        cycle_id = int(row["id"])
+        cycle_stage = determine_renewal_stage(
+            row["renewal_year"],
+            row["due_month"],
+            row["status"],
+            as_of=current_date,
+        )
+        stage_code = cycle_stage["code"]
+        if stage_code not in TODAY_ACTION_STAGE_CODES:
+            continue
+        if requested_stage and stage_code != requested_stage:
+            continue
+
+        cycle_followups = followups_by_cycle.get(cycle_id, [])
+        cycle_followups.sort(
+            key=lambda value: (
+                _calendar_date(value.get("followed_at")) or date.min,
+                str(value.get("followed_at") or ""),
+                int(value.get("id") or 0),
+            ),
+            reverse=True,
+        )
+        latest = cycle_followups[0] if cycle_followups else None
+        current_month_followups = [
+            value
+            for value in cycle_followups
+            if (
+                (followed_on := _calendar_date(value.get("followed_at")))
+                and followed_on.year == current_date.year
+                and followed_on.month == current_date.month
+            )
+        ]
+        latest_current_month = (
+            current_month_followups[0] if current_month_followups else None
+        )
+
+        reason_items: list[dict[str, Any]] = []
+
+        def add_reason(code: str, label: str, **details: Any) -> None:
+            reason_items.append({"code": code, "label": label, **details})
+
+        next_followup_date = _calendar_date(
+            latest.get("next_followup_at") if latest else None
+        )
+        if next_followup_date and next_followup_date < current_date:
+            days_overdue = (current_date - next_followup_date).days
+            add_reason(
+                "FOLLOWUP_OVERDUE",
+                f"约定跟进已逾期{days_overdue}天",
+                days_overdue=days_overdue,
+            )
+        elif next_followup_date and next_followup_date == current_date:
+            add_reason("FOLLOWUP_TODAY", "约定今天联系")
+
+        if latest and bool(latest.get("needs_support")):
+            add_reason("SUPPORT_NEEDED", "最近一次沟通标记需要协助")
+
+        if not current_month_followups:
+            add_reason(
+                "STAGE_UNTOUCHED",
+                f"进入{cycle_stage['label']}，本阶段尚未联系",
+            )
+
+        if (
+            stage_code in {"RENEW_2", "FOLLOW_1", "DUE_NOW", "RECOVERY"}
+            and latest_current_month
+            and not str(latest_current_month.get("next_action") or "").strip()
+            and not str(latest_current_month.get("next_followup_at") or "").strip()
+        ):
+            add_reason("NEXT_STEP_MISSING", "已沟通，但下一步尚未明确")
+
+        if requested_reason and not any(
+            item["code"] == requested_reason for item in reason_items
+        ):
+            continue
+        if not reason_items:
+            continue
+
+        reason_items.sort(key=lambda item: TODAY_ACTION_REASON_RANK[item["code"]])
+        safe_next_action = _redact_action_text(
+            latest.get("next_action") if latest else None
+        )
+        item = {
+            "cycle_id": cycle_id,
+            "member_id": row["member_id"],
+            "member_name": row["member_name"],
+            "org_unit_id": row["org_unit_id"],
+            "org_name": row["org_name"],
+            "class_name": row["class_name"],
+            "group_name": row["group_name"],
+            "renewal_year": row["renewal_year"],
+            "due_month": row["due_month"],
+            "status": row["status"],
+            "stage": stage_code,
+            "stage_label": cycle_stage["label"],
+            "assigned_user_id": row["assigned_user_id"],
+            "assigned_user_name": row["assigned_user_name"],
+            "latest_followup_at": latest.get("followed_at") if latest else None,
+            "latest_channel": latest.get("channel") if latest else None,
+            "intention": latest.get("intention") if latest else None,
+            "needs_support": bool(latest.get("needs_support")) if latest else False,
+            "next_action": safe_next_action,
+            "next_followup_at": latest.get("next_followup_at") if latest else None,
+            "primary_reason": reason_items[0]["code"],
+            "reasons": reason_items,
+            "reason_codes": [item["code"] for item in reason_items],
+        }
+        items.append(item)
+
+    def action_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
+        next_date = _calendar_date(item.get("next_followup_at"))
+        return (
+            TODAY_ACTION_REASON_RANK[item["primary_reason"]],
+            TODAY_ACTION_STAGE_RANK[item["stage"]],
+            next_date or date.max,
+            str(item.get("member_name") or ""),
+            int(item["cycle_id"]),
+        )
+
+    items.sort(key=action_sort_key)
+    summary = {
+        "total": len(items),
+        "overdue_count": sum(
+            1 for item in items if "FOLLOWUP_OVERDUE" in item["reason_codes"]
+        ),
+        "today_count": sum(
+            1 for item in items if "FOLLOWUP_TODAY" in item["reason_codes"]
+        ),
+        "support_needed_count": sum(
+            1 for item in items if "SUPPORT_NEEDED" in item["reason_codes"]
+        ),
+        "stage_untouched_count": sum(
+            1 for item in items if "STAGE_UNTOUCHED" in item["reason_codes"]
+        ),
+        "next_step_missing_count": sum(
+            1 for item in items if "NEXT_STEP_MISSING" in item["reason_codes"]
+        ),
+        "stage_counts": {},
+    }
+    for item in items:
+        summary["stage_counts"][item["stage"]] = (
+            summary["stage_counts"].get(item["stage"], 0) + 1
+        )
+    return {
+        "year": year,
+        "as_of": current_date.isoformat(),
+        "summary": summary,
+        "items": items,
+    }
 
 
 def list_cycle_coverage(

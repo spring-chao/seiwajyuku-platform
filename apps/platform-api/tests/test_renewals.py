@@ -31,6 +31,7 @@ from app.services.renewals import (
     list_cycles,
     list_followups,
     list_overview,
+    list_today_actions,
     preview_result_view,
     rollback_import,
     save_preview,
@@ -203,6 +204,149 @@ def test_action_card_falls_back_without_inventing_activity_facts() -> None:
     assert card["data_quality"]["memory_fallback_used"] is True
     assert "有一段时间没和您细聊了" in card["action"]["wechat_reference"]
     assert "报告会" not in card["action"]["wechat_reference"]
+
+
+def _today_actions_fixture() -> tuple[int, str, int, str]:
+    suffix = uuid4().hex[:8]
+    center_id = f"renewal-today-center-{suffix}"
+    other_center_id = f"renewal-today-other-{suffix}"
+    now = datetime.now(UTC).isoformat()
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin is not None
+    with transaction() as connection:
+        for org_id, code, name in (
+            (center_id, f"TODAY_CENTER_{suffix}", "今日行动测试分中心"),
+            (other_center_id, f"TODAY_OTHER_{suffix}", "今日行动其他分中心"),
+        ):
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+                (org_id, code, name, now, now),
+            )
+    member_specs = [
+        ("逾期协助学长", 11, "IN_COMMUNICATION"),
+        ("今日约定学长", 10, "IN_COMMUNICATION"),
+        ("观3未触达学长", 11, "PENDING_FIRST_CONTACT"),
+        ("续2下一步缺失学长", 10, "IN_COMMUNICATION"),
+        ("续2未触达学长", 10, "PENDING_FIRST_CONTACT"),
+        ("已闭环学长", 10, "RENEWED"),
+        ("准备期学长", 12, "PENDING_FIRST_CONTACT"),
+        ("挽回未触达学长", 7, "DEFERRED"),
+    ]
+    cycle_ids: list[int] = []
+    with transaction() as connection:
+        for index, (name, due_month, status) in enumerate(member_specs):
+            member_id = execute(
+                connection,
+                "INSERT INTO members(member_code, name, org_unit_id, status, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
+                (f"TODAY-MEMBER-{suffix}-{index}", name, center_id, now, now),
+            ).lastrowid
+            cycle_id = execute(
+                connection,
+                "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, status, assigned_user_id, created_at, updated_at) "
+                "VALUES (?, 2099, ?, ?, ?, ?, ?, ?)",
+                (member_id, center_id, due_month, status, admin["id"], now, now),
+            ).lastrowid
+            cycle_ids.append(int(cycle_id))
+        followups = [
+            (cycle_ids[0], "2099-08-10T09:00:00+00:00", "2099-08-18", 1, "需要负责人协助"),
+            (cycle_ids[1], "2099-08-12T09:00:00+00:00", "2099-08-20", 0, "已约定今天联系"),
+            (cycle_ids[3], "2099-08-15T09:00:00+00:00", None, 0, "已沟通但待明确"),
+        ]
+        for cycle_id, followed_at, next_followup_at, needs_support, summary in followups:
+            execute(
+                connection,
+                "INSERT INTO renewal_followups(renewal_cycle_id, followed_at, followed_by, channel, summary, intention, needs_support, next_action, next_followup_at, created_at) "
+                "VALUES (?, ?, ?, 'PHONE', ?, '待确认', ?, ?, ?, ?)",
+                (
+                    cycle_id,
+                    followed_at,
+                    admin["id"],
+                    summary,
+                    needs_support,
+                    "下一次联系" if cycle_id == cycle_ids[1] else None,
+                    next_followup_at,
+                    followed_at,
+                ),
+            )
+    scoped_user = create_user(
+        admin["id"],
+        username=f"renewal-today-user-{suffix}",
+        display_name="今日行动测试账号",
+        password="renewal-today-test-password",
+        roles=["ops_center_operations"],
+        scopes=[{"scope_type": "SUBTREE", "org_unit_id": center_id}],
+    )
+    denied_user = create_user(
+        admin["id"],
+        username=f"renewal-today-denied-{suffix}",
+        display_name="今日行动越权账号",
+        password="renewal-today-test-password",
+        roles=["ops_center_operations"],
+        scopes=[{"scope_type": "UNIT", "org_unit_id": other_center_id}],
+    )
+    return scoped_user, center_id, denied_user, other_center_id
+
+
+def test_today_actions_uses_explainable_rules_and_privacy_safe_fields() -> None:
+    user_id, center_id, _, _ = _today_actions_fixture()
+    result = list_today_actions(user_id, 2099, as_of=date(2099, 8, 20))
+    items = result["items"]
+    by_name = {item["member_name"]: item for item in items}
+
+    assert result["summary"]["total"] == 6
+    assert items[0]["primary_reason"] == "FOLLOWUP_OVERDUE"
+    assert items[0]["stage"] == "OBSERVE_3"
+    assert items[0]["reason_codes"] == ["FOLLOWUP_OVERDUE", "SUPPORT_NEEDED"]
+    assert by_name["今日约定学长"]["primary_reason"] == "FOLLOWUP_TODAY"
+    assert by_name["观3未触达学长"]["reason_codes"] == ["STAGE_UNTOUCHED"]
+    assert by_name["续2下一步缺失学长"]["reason_codes"] == ["NEXT_STEP_MISSING"]
+    assert by_name["续2未触达学长"]["reason_codes"] == ["STAGE_UNTOUCHED"]
+    assert by_name["挽回未触达学长"]["stage"] == "RECOVERY"
+    assert by_name["挽回未触达学长"]["reason_codes"] == ["STAGE_UNTOUCHED"]
+    assert "已闭环学长" not in by_name
+    assert "准备期学长" not in by_name
+    assert all(
+        not any("phone" in key.lower() for key in item)
+        for item in items
+    )
+    assert all(item["org_unit_id"] == center_id for item in items)
+
+
+def test_today_actions_supports_filters_and_rejects_out_of_scope_org() -> None:
+    user_id, center_id, denied_user, other_center_id = _today_actions_fixture()
+    by_reason = list_today_actions(
+        user_id,
+        2099,
+        reason="FOLLOWUP_TODAY",
+        as_of=date(2099, 8, 20),
+    )
+    assert len(by_reason["items"]) == 1
+    assert by_reason["items"][0]["primary_reason"] == "FOLLOWUP_TODAY"
+    by_stage = list_today_actions(
+        user_id,
+        2099,
+        stage="RENEW_2",
+        org_unit_id=center_id,
+        as_of=date(2099, 8, 20),
+    )
+    assert {item["stage"] for item in by_stage["items"]} == {"RENEW_2"}
+    with pytest.raises(PermissionError):
+        list_today_actions(
+            denied_user,
+            2099,
+            org_unit_id=center_id,
+            as_of=date(2099, 8, 20),
+        )
+    with pytest.raises(renewals_api.HTTPException) as exc:
+        renewals_api.today_actions(
+            2099,
+            org_unit_id=other_center_id,
+            user={"id": user_id},
+        )
+    assert exc.value.status_code == 403
 
 
 def test_action_card_out_of_scope_becomes_http_403() -> None:

@@ -20,6 +20,7 @@ from app.services.renewals import (
     list_cycles,
     list_followups,
     list_overview,
+    list_today_actions,
     preview_result_view,
     preview_workbook,
     rollback_import,
@@ -62,6 +63,29 @@ class RenewalCycleFromMemberPayload(BaseModel):
 @router.get("/overview")
 def overview(year: int = 2026, user: dict = Depends(require_permission("renewals:read"))) -> dict:
     return {"success": True, "data": list_overview(user["id"], year)}
+
+
+@router.get("/actions/today")
+def today_actions(
+    year: int = Query(default=2026, ge=2020, le=2100),
+    org_unit_id: str | None = None,
+    stage: str | None = None,
+    reason: str | None = None,
+    user: dict = Depends(require_permission("renewals:read")),
+) -> dict:
+    try:
+        data = list_today_actions(
+            user["id"],
+            year,
+            org_unit_id=org_unit_id,
+            stage=stage,
+            reason=reason,
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.get("/cycles")
