@@ -77,9 +77,9 @@ def read_only_request_allowed(method: str, path: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if not (
-        settings.deployment_read_only and not settings.run_bootstrap_on_startup
-    ):
+    # A read-only deployment must never run migrations or IAM seeding, even if
+    # a stale service-level environment variable enables bootstrap at runtime.
+    if settings.run_bootstrap_on_startup and not settings.deployment_read_only:
         run_migrations()
         seed_iam()
     yield
