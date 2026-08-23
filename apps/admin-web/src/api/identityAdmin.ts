@@ -83,6 +83,8 @@ export type IdentityAccount = {
   username: string;
   display_name: string;
   is_active: number;
+  is_platform_admin: boolean;
+  legacy_roles: string[];
   person_id?: string;
   employments: Employment[];
   volunteer_appointments: VolunteerAppointment[];
@@ -136,11 +138,10 @@ export const resetManagedAccountPassword = (
   userId: number,
   data: { password: string; reason: string }
 ) =>
-  http.request<{ success: boolean; data: { id: number; sessions_revoked: boolean } }>(
-    "post",
-    `/api/v1/iam/users/${userId}/password`,
-    { data }
-  );
+  http.request<{
+    success: boolean;
+    data: { id: number; sessions_revoked: boolean };
+  }>("post", `/api/v1/iam/users/${userId}/password`, { data });
 
 export const getIdentityOrgOptions = () =>
   http.request<{ success: boolean; data: IdentityOrgOption[] }>(
@@ -148,10 +149,35 @@ export const getIdentityOrgOptions = () =>
     "/api/v1/identity-admin/org-options"
   );
 
-export const initializeAccountIdentity = (
-  userId: number,
-  data: Confirmation
-) =>
+export const onboardIdentityEmployee = (data: {
+  user_id?: number;
+  new_account?: {
+    username: string;
+    display_name: string;
+    password: string;
+  };
+  position_keys: string[];
+  started_on: string;
+  ended_on: string;
+  service_responsibilities: Array<{
+    org_unit_id: string;
+    scope_type: "UNIT" | "SUBTREE";
+  }>;
+  source_reference: string;
+  confirmation_note: string;
+}) =>
+  http.request<{
+    success: boolean;
+    data: {
+      user_id: number;
+      person_id: string;
+      employment_id: number;
+      account_created: boolean;
+      person_link_created: boolean;
+    };
+  }>("post", "/api/v1/identity-admin/employees/onboard", { data });
+
+export const initializeAccountIdentity = (userId: number, data: Confirmation) =>
   http.request<{ success: boolean; data: { person_id: string } }>(
     "post",
     `/api/v1/identity-admin/accounts/${userId}/initialize`,

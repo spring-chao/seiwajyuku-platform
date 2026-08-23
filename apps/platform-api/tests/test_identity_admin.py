@@ -44,6 +44,20 @@ class IdentityAdminTests(unittest.TestCase):
                     "CLASS",
                     "identity-admin-center",
                 ),
+                (
+                    "identity-admin-center-two",
+                    "IDENTITY_ADMIN_CENTER_TWO",
+                    "任职管理第二测试中心",
+                    "REGIONAL_CENTER",
+                    "org-suzhou",
+                ),
+                (
+                    "identity-admin-class-two",
+                    "IDENTITY_ADMIN_CLASS_TWO",
+                    "任职管理第二测试班级",
+                    "CLASS",
+                    "identity-admin-center-two",
+                ),
             ):
                 if not execute(
                     connection, "SELECT id FROM org_units WHERE id=?", (values[0],)
@@ -156,6 +170,38 @@ class IdentityAdminTests(unittest.TestCase):
         self.assertIsNone(
             fetch_one(
                 "SELECT person_id FROM account_person_links WHERE user_id=?", (admin_id,)
+            )
+        )
+
+    def test_01c_onboarding_gate_rolls_back_without_creating_account(self) -> None:
+        now = datetime.now(UTC)
+        with patch.dict(os.environ, {"IDENTITY_ADMIN_WRITES_ENABLED": "false"}):
+            response = self.client.post(
+                "/api/v1/identity-admin/employees/onboard",
+                headers=self.admin_headers,
+                json={
+                    "new_account": {
+                        "username": "identity-onboarding-gate",
+                        "display_name": "一站式门禁测试账号",
+                        "password": "identity-onboarding-gate-password",
+                    },
+                    "position_keys": ["ops_center_operations"],
+                    "started_on": now.isoformat(),
+                    "ended_on": (now + timedelta(days=30)).isoformat(),
+                    "service_responsibilities": [
+                        {
+                            "org_unit_id": "identity-admin-center",
+                            "scope_type": "SUBTREE",
+                        }
+                    ],
+                    "source_reference": "onboarding-gate-check",
+                    "confirmation_note": "验证门禁关闭时整单不创建任何账号和任职记录",
+                },
+            )
+        self.assertEqual(response.status_code, 403, response.text)
+        self.assertIsNone(
+            fetch_one(
+                "SELECT id FROM app_users WHERE username='identity-onboarding-gate'"
             )
         )
 
@@ -350,6 +396,225 @@ class IdentityAdminTests(unittest.TestCase):
             json={"status": "SUSPENDED", "reason": "不应停用平台最高管理账号"},
         )
         self.assertEqual(protected.status_code, 400, protected.text)
+
+    def test_02d_atomic_employee_onboarding_supports_two_centers(self) -> None:
+        now = datetime.now(UTC)
+        username = "13800001234"
+        password = "unique-onboarding-password"
+        response = self.client.post(
+            "/api/v1/identity-admin/employees/onboard",
+            headers=self.admin_headers,
+            json={
+                "new_account": {
+                    "username": username,
+                    "display_name": "双中心一站式测试账号",
+                    "password": password,
+                },
+                "position_keys": [
+                    "ops_center_operations",
+                    "ops_center_management",
+                ],
+                "started_on": (now - timedelta(minutes=1)).isoformat(),
+                "ended_on": (now + timedelta(days=365)).isoformat(),
+                "service_responsibilities": [
+                    {
+                        "org_unit_id": "identity-admin-center",
+                        "scope_type": "SUBTREE",
+                    },
+                    {
+                        "org_unit_id": "identity-admin-center-two",
+                        "scope_type": "SUBTREE",
+                    },
+                ],
+                "source_reference": "approved-two-center-onboarding",
+                "confirmation_note": "已逐项确认两个中心、两个岗位、任职期限和回滚责任",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()["data"]
+        self.assertTrue(result["account_created"])
+        self.assertTrue(result["person_link_created"])
+
+        user_id = result["user_id"]
+        self.assertEqual(
+            fetch_one("SELECT username FROM app_users WHERE id=?", (user_id,))[
+                "username"
+            ],
+            username,
+        )
+        positions = fetch_all(
+            "SELECT position_key FROM operations_position_assignments "
+            "WHERE employment_id=? ORDER BY position_key",
+            (result["employment_id"],),
+        )
+        self.assertEqual(
+            [row["position_key"] for row in positions],
+            ["ops_center_management", "ops_center_operations"],
+        )
+        responsibilities = fetch_all(
+            "SELECT org_unit_id, scope_type FROM employee_service_responsibilities "
+            "WHERE employment_id=? ORDER BY org_unit_id",
+            (result["employment_id"],),
+        )
+        self.assertEqual(
+            responsibilities,
+            [
+                {
+                    "org_unit_id": "identity-admin-center",
+                    "scope_type": "SUBTREE",
+                },
+                {
+                    "org_unit_id": "identity-admin-center-two",
+                    "scope_type": "SUBTREE",
+                },
+            ],
+        )
+        self.assertEqual(
+            accessible_org_ids(user_id),
+            {
+                "identity-admin-center",
+                "identity-admin-class",
+                "identity-admin-center-two",
+                "identity-admin-class-two",
+            },
+        )
+        context = user_context(user_id)
+        self.assertEqual(
+            set(context["roles"]),
+            {"ops_center_operations", "ops_center_management"},
+        )
+
+        audit_rows = fetch_all(
+            "SELECT action, after_json FROM audit_logs WHERE "
+            "(resource_type='app_user' AND resource_id=?) OR "
+            "(resource_type='operations_employment' AND resource_id=?) "
+            "ORDER BY id",
+            (str(user_id), str(result["employment_id"])),
+        )
+        self.assertEqual(
+            {row["action"] for row in audit_rows},
+            {"iam.user.create", "identity.employment.create"},
+        )
+        serialized_audit = " ".join(row["after_json"] or "" for row in audit_rows)
+        self.assertNotIn(username, serialized_audit)
+        self.assertNotIn(password, serialized_audit)
+        self.assertIn("138****1234", serialized_audit)
+
+        accounts = self.client.get(
+            "/api/v1/identity-admin/accounts", headers=self.admin_headers
+        )
+        self.assertEqual(accounts.status_code, 200, accounts.text)
+        listed = next(item for item in accounts.json()["data"] if item["id"] == user_id)
+        self.assertEqual(listed["username"], "138****1234")
+        self.assertFalse(listed["is_platform_admin"])
+
+    def test_02e_onboarding_is_atomic_when_scope_is_invalid(self) -> None:
+        now = datetime.now(UTC)
+        response = self.client.post(
+            "/api/v1/identity-admin/employees/onboard",
+            headers=self.admin_headers,
+            json={
+                "new_account": {
+                    "username": "identity-onboarding-rollback",
+                    "display_name": "整单回滚测试账号",
+                    "password": "identity-onboarding-rollback-password",
+                },
+                "position_keys": ["ops_center_operations"],
+                "started_on": now.isoformat(),
+                "ended_on": (now + timedelta(days=30)).isoformat(),
+                "service_responsibilities": [
+                    {"org_unit_id": "missing-org", "scope_type": "SUBTREE"}
+                ],
+                "source_reference": "atomic-rollback-check",
+                "confirmation_note": "验证组织范围无效时账号、人员和任职全部回滚",
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("组织不存在", response.text)
+        self.assertIsNone(
+            fetch_one(
+                "SELECT id FROM app_users WHERE username='identity-onboarding-rollback'"
+            )
+        )
+
+    def test_02f_onboarding_can_use_an_existing_unlinked_account(self) -> None:
+        now = datetime.now(UTC)
+        response = self.client.post(
+            "/api/v1/identity-admin/employees/onboard",
+            headers=self.admin_headers,
+            json={
+                "user_id": self.gate_user_id,
+                "position_keys": ["ops_center_operations"],
+                "started_on": now.isoformat(),
+                "ended_on": (now + timedelta(days=30)).isoformat(),
+                "service_responsibilities": [
+                    {
+                        "org_unit_id": "identity-admin-center",
+                        "scope_type": "SUBTREE",
+                    }
+                ],
+                "source_reference": "existing-account-onboarding",
+                "confirmation_note": "已确认使用现有账号建立自然人、岗位和单中心服务范围",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()["data"]
+        self.assertFalse(result["account_created"])
+        self.assertTrue(result["person_link_created"])
+        self.assertEqual(
+            fetch_one(
+                "SELECT person_id FROM account_person_links WHERE user_id=?",
+                (self.gate_user_id,),
+            )["person_id"],
+            result["person_id"],
+        )
+
+    def test_02g_onboarding_rejects_legacy_role_stacking(self) -> None:
+        now = datetime.now(UTC)
+        with transaction() as connection:
+            cursor = execute(
+                connection,
+                "INSERT INTO app_users(username, display_name, password_hash, is_active, "
+                "created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
+                (
+                    "identity-legacy-role-account",
+                    "旧角色叠加测试账号",
+                    hash_password("identity-legacy-role-password"),
+                    now.isoformat(),
+                    now.isoformat(),
+                ),
+            )
+            user_id = cursor.lastrowid
+            execute(
+                connection,
+                "INSERT INTO user_roles(user_id, role_key, created_at) VALUES (?, 'read_only', ?)",
+                (user_id, now.isoformat()),
+            )
+        response = self.client.post(
+            "/api/v1/identity-admin/employees/onboard",
+            headers=self.admin_headers,
+            json={
+                "user_id": user_id,
+                "position_keys": ["ops_center_operations"],
+                "started_on": now.isoformat(),
+                "ended_on": (now + timedelta(days=30)).isoformat(),
+                "service_responsibilities": [
+                    {
+                        "org_unit_id": "identity-admin-center",
+                        "scope_type": "SUBTREE",
+                    }
+                ],
+                "source_reference": "legacy-role-stacking-check",
+                "confirmation_note": "验证现有旧角色不能与新任职权限直接叠加",
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("旧角色", response.text)
+        self.assertIsNone(
+            fetch_one(
+                "SELECT person_id FROM account_person_links WHERE user_id=?", (user_id,)
+            )
+        )
 
     def test_03_technical_admin_can_manage_identity_without_business_access(self) -> None:
         self._initialize(

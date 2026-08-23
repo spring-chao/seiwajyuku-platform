@@ -14,6 +14,7 @@ from app.services.identity_admin import (
     initialize_person_link,
     list_identity_accounts,
     list_org_options,
+    onboard_employee,
 )
 
 
@@ -39,6 +40,23 @@ class EmploymentPayload(ConfirmationPayload):
     ended_on: str | None = None
     service_responsibilities: list[ServiceResponsibilityPayload] = Field(
         default_factory=list, max_length=32
+    )
+
+
+class NewIdentityAccountPayload(BaseModel):
+    username: str = Field(min_length=3, max_length=128)
+    display_name: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=10, max_length=256)
+
+
+class EmployeeOnboardingPayload(ConfirmationPayload):
+    user_id: int | None = Field(default=None, gt=0)
+    new_account: NewIdentityAccountPayload | None = None
+    position_keys: list[str] = Field(min_length=1, max_length=16)
+    started_on: str
+    ended_on: str
+    service_responsibilities: list[ServiceResponsibilityPayload] = Field(
+        min_length=1, max_length=32
     )
 
 
@@ -94,6 +112,30 @@ def get_org_options(
     _: dict = Depends(require_permission("iam:manage")),
 ) -> dict:
     return {"success": True, "data": _call(list_org_options)}
+
+
+@router.post("/employees/onboard")
+def onboard_operations_employee(
+    payload: EmployeeOnboardingPayload,
+    actor: dict = Depends(require_permission("iam:manage")),
+) -> dict:
+    result = _call(
+        onboard_employee,
+        actor["id"],
+        user_id=payload.user_id,
+        new_account=(
+            payload.new_account.model_dump() if payload.new_account is not None else None
+        ),
+        position_keys=payload.position_keys,
+        started_on=payload.started_on,
+        ended_on=payload.ended_on,
+        service_responsibilities=[
+            item.model_dump() for item in payload.service_responsibilities
+        ],
+        source_reference=payload.source_reference,
+        confirmation_note=payload.confirmation_note,
+    )
+    return {"success": True, "data": result}
 
 
 @router.post("/accounts/{user_id}/initialize")

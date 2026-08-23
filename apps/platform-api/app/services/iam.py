@@ -4,6 +4,7 @@ import secrets
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
+from app.core.privacy import mask_login_identifier
 from app.core.security import (
     create_token,
     hash_password,
@@ -494,7 +495,11 @@ def create_user(
             action="iam.user.create",
             resource_type="app_user",
             resource_id=str(user_id),
-            after={"username": username, "roles": roles, "scopes": scopes},
+            after={
+                "username_masked": mask_login_identifier(username),
+                "roles": roles,
+                "scopes": scopes,
+            },
         )
         return user_id
 
@@ -509,6 +514,7 @@ def list_managed_users() -> list[dict]:
         "ORDER BY u.is_active DESC, u.display_name, u.id"
     )
     for row in rows:
+        row["username"] = mask_login_identifier(row["username"])
         row["roles"] = sorted(
             role for role in str(row.pop("role_keys") or "").split(",") if role
         )

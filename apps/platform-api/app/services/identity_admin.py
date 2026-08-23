@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from app.core.privacy import mask_login_identifier
+from app.core.security import hash_password
 from app.core.settings import get_settings
 from app.db import execute, fetch_all, transaction
 from app.services.audit import write_audit
@@ -143,8 +145,23 @@ def list_identity_accounts() -> list[dict[str, Any]]:
     )
     result: list[dict[str, Any]] = []
     for row in rows:
+        raw_username = row["username"]
         person_id = row.get("person_id")
-        item = {**row, "employments": [], "volunteer_appointments": [], "technical_assignments": []}
+        item = {
+            **row,
+            "username": mask_login_identifier(raw_username),
+            "is_platform_admin": raw_username == get_settings().bootstrap_admin_username,
+            "legacy_roles": [
+                role["role_key"]
+                for role in fetch_all(
+                    "SELECT role_key FROM user_roles WHERE user_id=? ORDER BY role_key",
+                    (row["id"],),
+                )
+            ],
+            "employments": [],
+            "volunteer_appointments": [],
+            "technical_assignments": [],
+        }
         if person_id:
             employments = fetch_all(
                 "SELECT oe.id, oe.institution_id, oi.name AS institution_name, "
@@ -183,6 +200,253 @@ def list_identity_accounts() -> list[dict[str, Any]]:
             )
         result.append(item)
     return result
+
+
+def onboard_employee(
+    actor_user_id: int,
+    *,
+    user_id: int | None,
+    new_account: dict[str, str] | None,
+    position_keys: list[str],
+    started_on: str,
+    ended_on: str,
+    service_responsibilities: list[dict[str, str]],
+    source_reference: str,
+    confirmation_note: str,
+) -> dict[str, Any]:
+    """Atomically create/select an account, link a person, and add scoped employment."""
+    _feature_gate(write=True)
+    source, note = _validate_confirmation(source_reference, confirmation_note)
+    if (user_id is None) == (new_account is None):
+        raise ValueError("必须且只能选择现有账号或新建账号")
+
+    normalized_positions: list[str] = []
+    for key in position_keys:
+        normalized = key.strip()
+        if normalized and normalized not in normalized_positions:
+            normalized_positions.append(normalized)
+    if not normalized_positions:
+        raise ValueError("至少指定一个运营中心岗位")
+    if any(key not in POSITION_KEYS for key in normalized_positions):
+        raise ValueError("未知运营中心岗位")
+
+    start = _as_datetime(started_on, "入职时间")
+    end = _as_datetime(ended_on, "任职结束时间")
+    if end <= start:
+        raise ValueError("任职结束时间必须晚于入职时间")
+    if end <= datetime.now(UTC):
+        raise ValueError("任职结束时间必须晚于当前时间")
+    status = "PLANNED" if start > datetime.now(UTC) else "ACTIVE"
+
+    normalized_responsibilities: list[tuple[str, str]] = []
+    seen_orgs: set[str] = set()
+    for responsibility in service_responsibilities:
+        scope_type = responsibility["scope_type"].upper().strip()
+        org_unit_id = responsibility["org_unit_id"].strip()
+        if scope_type not in {"UNIT", "SUBTREE"} or not org_unit_id:
+            raise ValueError("服务责任范围必须指定 UNIT 或 SUBTREE 组织")
+        if org_unit_id in seen_orgs:
+            raise ValueError("同一服务责任组织不能重复添加")
+        seen_orgs.add(org_unit_id)
+        normalized_responsibilities.append((scope_type, org_unit_id))
+    if not normalized_responsibilities:
+        raise ValueError("一站式录入至少指定一个服务责任范围")
+
+    account_values: dict[str, str] | None = None
+    password_hash: str | None = None
+    if new_account is not None:
+        account_password = new_account.get("password", "")
+        account_values = {
+            "username": new_account.get("username", "").strip(),
+            "display_name": new_account.get("display_name", "").strip(),
+        }
+        if len(account_values["username"]) < 3:
+            raise ValueError("账号至少填写 3 个字符")
+        if not account_values["display_name"]:
+            raise ValueError("人员名称不能为空")
+        if len(account_password) < 10:
+            raise ValueError("临时密码至少 10 个字符")
+        password_hash = hash_password(account_password)
+
+    now = datetime.now(UTC).isoformat()
+    account_created = False
+    person_link_created = False
+    with transaction() as connection:
+        if account_values is not None:
+            if execute(
+                connection,
+                "SELECT id FROM app_users WHERE username=?",
+                (account_values["username"],),
+            ).fetchone():
+                raise ValueError("账号已存在，请改为选择现有账号")
+            cursor = execute(
+                connection,
+                "INSERT INTO app_users(username, display_name, password_hash, is_active, "
+                "created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
+                (
+                    account_values["username"],
+                    account_values["display_name"],
+                    password_hash,
+                    now,
+                    now,
+                ),
+            )
+            user_id = cursor.lastrowid
+            account_created = True
+            write_audit(
+                connection,
+                actor_user_id=actor_user_id,
+                action="iam.user.create",
+                resource_type="app_user",
+                resource_id=str(user_id),
+                purpose=note,
+                after={
+                    "username_masked": mask_login_identifier(account_values["username"]),
+                    "roles": [],
+                    "scopes": [],
+                    "creation_path": "identity.employee_onboarding",
+                },
+            )
+
+        user = execute(
+            connection,
+            "SELECT id, username, display_name, is_active FROM app_users WHERE id=?",
+            (user_id,),
+        ).fetchone()
+        if not user or not user["is_active"]:
+            raise ValueError("账号不存在或已停用")
+        if user["username"] == get_settings().bootstrap_admin_username:
+            raise ValueError("平台最高管理账号不作为自然人、雇佣或任职试点账号")
+        if execute(
+            connection,
+            "SELECT role_key FROM user_roles WHERE user_id=? LIMIT 1",
+            (user_id,),
+        ).fetchone():
+            raise ValueError(
+                "现有账号仍有旧角色，不能叠加一站式任职；请先完成角色迁移或新建个人账号"
+            )
+
+        link = execute(
+            connection,
+            "SELECT person_id FROM account_person_links WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        if link:
+            person_id = link["person_id"]
+        else:
+            person_id = f"person-{uuid4()}"
+            execute(
+                connection,
+                "INSERT INTO person_profiles(id, display_name, status, created_at, updated_at) "
+                "VALUES (?, ?, 'ACTIVE', ?, ?)",
+                (person_id, user["display_name"], now, now),
+            )
+            execute(
+                connection,
+                "INSERT INTO account_person_links"
+                "(user_id, person_id, linked_at, linked_by, source_reference) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (user_id, person_id, now, actor_user_id, source),
+            )
+            person_link_created = True
+            write_audit(
+                connection,
+                actor_user_id=actor_user_id,
+                action="identity.person.link",
+                resource_type="person_profile",
+                resource_id=person_id,
+                purpose=note,
+                after={"user_id": user_id, "source_reference": source},
+            )
+
+        if execute(
+            connection,
+            "SELECT id FROM operations_employments WHERE person_id=? "
+            "AND employment_status IN ('PLANNED','ACTIVE','LEAVE') LIMIT 1",
+            (person_id,),
+        ).fetchone():
+            raise ValueError("该自然人已有未结束的运营中心雇佣记录")
+        for _, org_unit_id in normalized_responsibilities:
+            if not execute(
+                connection,
+                "SELECT id FROM org_units WHERE id=? AND is_active=1",
+                (org_unit_id,),
+            ).fetchone():
+                raise ValueError("服务责任组织不存在或已停用")
+
+        cursor = execute(
+            connection,
+            "INSERT INTO operations_employments"
+            "(person_id, institution_id, employment_status, started_on, ended_on, "
+            "source_reference, created_at, updated_at) "
+            "VALUES (?, 'institution-suzhou-operations', ?, ?, ?, ?, ?, ?)",
+            (person_id, status, started_on, ended_on, source, now, now),
+        )
+        employment_id = cursor.lastrowid
+        for position_key in normalized_positions:
+            execute(
+                connection,
+                "INSERT INTO operations_position_assignments"
+                "(employment_id, position_key, valid_from, valid_until, status, "
+                "source_reference, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    employment_id,
+                    position_key,
+                    started_on,
+                    ended_on,
+                    status,
+                    source,
+                    now,
+                    now,
+                ),
+            )
+        for scope_type, org_unit_id in normalized_responsibilities:
+            execute(
+                connection,
+                "INSERT INTO employee_service_responsibilities"
+                "(employment_id, org_unit_id, scope_type, valid_from, valid_until, "
+                "status, source_reference, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    employment_id,
+                    org_unit_id,
+                    scope_type,
+                    started_on,
+                    ended_on,
+                    status,
+                    source,
+                    now,
+                    now,
+                ),
+            )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="identity.employment.create",
+            resource_type="operations_employment",
+            resource_id=str(employment_id),
+            purpose=note,
+            after={
+                "user_id": user_id,
+                "position_keys": normalized_positions,
+                "started_on": started_on,
+                "ended_on": ended_on,
+                "service_responsibilities": [
+                    {"scope_type": scope, "org_unit_id": org}
+                    for scope, org in normalized_responsibilities
+                ],
+                "source_reference": source,
+                "entry_path": "identity.employee_onboarding",
+            },
+        )
+
+    return {
+        "user_id": user_id,
+        "person_id": person_id,
+        "employment_id": employment_id,
+        "account_created": account_created,
+        "person_link_created": person_link_created,
+    }
 
 
 def initialize_person_link(

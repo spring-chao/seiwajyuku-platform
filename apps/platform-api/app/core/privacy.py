@@ -31,6 +31,18 @@ def mask_phone(phone: str) -> str:
     return f"{digits[:3]}****{digits[-4:]}"
 
 
+def mask_login_identifier(identifier: str) -> str:
+    """Mask phone/email-shaped login identifiers while keeping named accounts usable."""
+    value = (identifier or "").strip()
+    try:
+        return mask_phone(value)
+    except ValueError:
+        if "@" in value:
+            local, domain = value.split("@", 1)
+            return f"{local[:1] or '*'}***@{domain}"
+        return value
+
+
 def phone_hash(phone: str) -> str:
     settings = get_settings()
     return hmac.new(
@@ -57,4 +69,3 @@ def protected_phone(phone: str) -> dict[str, str]:
         "phone_last4": digits[-4:],
         "phone_masked": mask_phone(digits),
     }
-
