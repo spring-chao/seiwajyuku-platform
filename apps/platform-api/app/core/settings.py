@@ -38,6 +38,12 @@ class Settings:
     agent_client_id: str = ""
     agent_client_secret: str = ""
     agent_allowed_channels: tuple[str, ...] = ("api", "wecom", "wechat")
+    mcp_allowed_hosts: tuple[str, ...] = (
+        "testserver",
+        "localhost:*",
+        "127.0.0.1:*",
+    )
+    mcp_allowed_origins: tuple[str, ...] = ()
     agent_allowed_tools: tuple[str, ...] = (
         "get_my_today_actions",
         "find_member",
@@ -135,6 +141,18 @@ def get_settings() -> Settings:
             for item in os.getenv(
                 "AGENT_ALLOWED_CHANNELS", "api,wecom,wechat"
             ).split(",")
+            if item.strip()
+        ),
+        mcp_allowed_hosts=tuple(
+            item.strip()
+            for item in os.getenv(
+                "MCP_ALLOWED_HOSTS", "testserver,localhost:*,127.0.0.1:*"
+            ).split(",")
+            if item.strip()
+        ),
+        mcp_allowed_origins=tuple(
+            item.strip()
+            for item in os.getenv("MCP_ALLOWED_ORIGINS", "").split(",")
             if item.strip()
         ),
         agent_allowed_tools=tuple(

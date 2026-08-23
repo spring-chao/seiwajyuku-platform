@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi import Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agent_mcp import MCP_MOUNT_PATH, MCP_PATH, mcp_http_app, mcp_server
 from app.api.auth import router as auth_router
-from app.api.agent import router as agent_router
+from app.api.agent import authenticate_agent_headers, router as agent_router
 from app.api.attendance import router as attendance_router
 from app.api.checkin_rosters import router as checkin_rosters_router
 from app.api.class_roster_preflight import router as class_roster_preflight_router
@@ -77,12 +77,22 @@ def read_only_request_allowed(method: str, path: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # A read-only deployment must never run migrations or IAM seeding, even if
-    # a stale service-level environment variable enables bootstrap at runtime.
-    if settings.run_bootstrap_on_startup and not settings.deployment_read_only:
-        run_migrations()
-        seed_iam()
-    yield
+    try:
+        async with mcp_server.session_manager.run():
+            # A read-only deployment must never run migrations or IAM seeding,
+            # even if a stale service-level environment variable enables
+            # bootstrap at runtime.
+            if settings.run_bootstrap_on_startup and not settings.deployment_read_only:
+                run_migrations()
+                seed_iam()
+            yield
+    finally:
+        # The SDK intentionally makes a session manager single-use in a
+        # production process. Tests create several short-lived TestClients in
+        # one process, so only the isolated test app may reset this private
+        # lifecycle marker after the task group has shut down.
+        if settings.app_env == "test":
+            mcp_server.session_manager._has_started = False  # noqa: SLF001
 
 
 app = FastAPI(
@@ -98,8 +108,12 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=[
+        "Accept",
         "Authorization",
         "Content-Type",
+        "Last-Event-ID",
+        "MCP-Protocol-Version",
+        "Mcp-Session-Id",
         "X-Request-ID",
         "X-API-Key",
         "X-Agent-Client-ID",
@@ -108,6 +122,7 @@ app.add_middleware(
         "X-Agent-Session-ID",
         "X-Requested-With",
     ],
+    expose_headers=["Mcp-Session-Id"],
 )
 
 
@@ -122,6 +137,34 @@ async def deployment_read_only_guard(request: Request, call_next):
                 "detail": "当前为无持久数据库的只读部署验证实例，写入操作已禁用"
             },
         )
+    return await call_next(request)
+
+
+def _mcp_header_allowed(value: str | None, allowed: tuple[str, ...]) -> bool:
+    if not value:
+        return False
+    if value in allowed:
+        return True
+    return any(
+        item.endswith(":*") and value.startswith(item[:-2] + ":")
+        for item in allowed
+    )
+
+
+@app.middleware("http")
+async def mcp_transport_security_guard(request: Request, call_next):
+    if request.url.path == MCP_PATH:
+        if not _mcp_header_allowed(
+            request.headers.get("host"), settings.mcp_allowed_hosts
+        ):
+            return JSONResponse(status_code=421, content={"detail": "Host 不在 MCP 允许范围"})
+        origin = request.headers.get("origin")
+        if origin and not _mcp_header_allowed(origin, settings.mcp_allowed_origins):
+            return JSONResponse(status_code=403, content={"detail": "Origin 不在 MCP 允许范围"})
+        try:
+            request.state.agent_principal = authenticate_agent_headers(request)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     return await call_next(request)
 
 
@@ -147,3 +190,4 @@ app.include_router(member_care_actions_router)
 app.include_router(member_care_management_router)
 app.include_router(checkin_rosters_router)
 app.include_router(attendance_router)
+app.mount(MCP_MOUNT_PATH, mcp_http_app)

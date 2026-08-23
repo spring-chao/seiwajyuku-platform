@@ -11,6 +11,8 @@ services:
       APP_ENV: dev
       DATABASE_URL: sqlite:////app/data/seiwajyuku_dev.db
       ALLOW_PRODUCTION_MUTATIONS: "false"
+      DEPLOYMENT_READ_ONLY: "false"
+      RUN_BOOTSTRAP_ON_STARTUP: "true"
     ports:
       - "8000:8000"
     volumes:
@@ -45,6 +47,8 @@ services:
     environment:
       APP_ENV: staging
       ALLOW_PRODUCTION_MUTATIONS: "false"
+      DEPLOYMENT_READ_ONLY: "false"
+      RUN_BOOTSTRAP_ON_STARTUP: "false"
     depends_on:
       mysql:
         condition: service_healthy

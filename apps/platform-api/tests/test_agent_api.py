@@ -5,6 +5,7 @@ import os
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 os.environ["AGENT_API_ENABLED"] = "true"
@@ -17,6 +18,23 @@ from app.main import app  # noqa: E402
 from app.services.followups import add_followup_record, create_task  # noqa: E402
 from app.services.iam import create_user, user_context  # noqa: E402
 from app.services.members import create_member  # noqa: E402
+
+
+class _ReusableTestClient:
+    def __init__(self, client: TestClient) -> None:
+        self._client = client
+
+    def __enter__(self) -> TestClient:
+        return self._client
+
+    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        return False
+
+
+@pytest.fixture(scope="module")
+def shared_client():
+    with TestClient(app) as client:
+        yield _ReusableTestClient(client)
 
 
 def _fixture() -> dict[str, int | str]:
@@ -89,13 +107,37 @@ def _headers(user_id: int, *, request_id: str = "agent-test-request") -> dict[st
         "X-Agent-Channel": "wecom",
         "X-Agent-Session-ID": "agent-test-session",
         "X-Request-ID": request_id,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
     }
 
 
-def test_agent_rest_reuses_scope_and_masks_phone() -> None:
+def _initialize_mcp_session(client: TestClient, headers: dict[str, str]) -> dict[str, str]:
+    response = client.post(
+        "/mcp/seiwajuku",
+        json={
+            "jsonrpc": "2.0",
+            "id": "initialize",
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "platform-api-tests", "version": "1.0"},
+            },
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["result"]["serverInfo"]["name"] == "seiwajyuku-agent-readonly"
+    session_id = response.headers.get("mcp-session-id")
+    assert session_id
+    return {**headers, "Mcp-Session-Id": session_id, "MCP-Protocol-Version": "2025-06-18"}
+
+
+def test_agent_rest_reuses_scope_and_masks_phone(shared_client) -> None:
     fixture = _fixture()
     headers = _headers(int(fixture["user_id"]))
-    with TestClient(app) as client:
+    with shared_client as client:
         found = client.post(
             "/api/agent/v1/members/match",
             json={"name": "Agent 测试", "phone": fixture["member_phone"]},
@@ -137,7 +179,7 @@ def test_agent_rest_reuses_scope_and_masks_phone() -> None:
         assert outside_summary.status_code == 403
 
 
-def test_agent_followup_context_redacts_free_text_and_audits_request() -> None:
+def test_agent_followup_context_redacts_free_text_and_audits_request(shared_client) -> None:
     fixture = _fixture()
     user_id = int(fixture["user_id"])
     task_id = create_task(
@@ -161,7 +203,7 @@ def test_agent_followup_context_redacts_free_text_and_audits_request() -> None:
         next_followup_at="2099-09-05",
     )
     headers = _headers(user_id, request_id="agent-followup-request")
-    with TestClient(app) as client:
+    with shared_client as client:
         response = client.get(
             f"/api/agent/v1/members/{fixture['member_id']}/followup-context",
             headers=headers,
@@ -186,17 +228,11 @@ def test_agent_followup_context_redacts_free_text_and_audits_request() -> None:
     assert metadata["read_only"] is True
 
 
-def test_agent_mcp_lists_only_read_tools_and_calls_with_delegated_user() -> None:
+def test_agent_mcp_lists_only_read_tools_and_calls_with_delegated_user(shared_client) -> None:
     fixture = _fixture()
     headers = _headers(int(fixture["user_id"]), request_id="agent-mcp-request")
-    with TestClient(app) as client:
-        initialized = client.post(
-            "/mcp/seiwajuku",
-            json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
-            headers=headers,
-        )
-        assert initialized.status_code == 200
-        assert initialized.json()["result"]["serverInfo"]["name"] == "seiwajyuku-agent-readonly"
+    with shared_client as client:
+        headers = _initialize_mcp_session(client, headers)
 
         listed = client.post(
             "/mcp/seiwajuku",
@@ -246,13 +282,14 @@ def test_agent_mcp_lists_only_read_tools_and_calls_with_delegated_user() -> None
             headers=headers,
         )
         assert denied.status_code == 200
-        assert denied.json()["error"]["code"] == -32601
+        assert denied.json()["result"]["isError"] is True
 
 
-def test_agent_mcp_validates_required_types_and_extra_properties() -> None:
+def test_agent_mcp_validates_required_types_and_extra_properties(shared_client) -> None:
     fixture = _fixture()
     headers = _headers(int(fixture["user_id"]), request_id="agent-invalid-request")
-    with TestClient(app) as client:
+    with shared_client as client:
+        headers = _initialize_mcp_session(client, headers)
         missing = client.post(
             "/mcp/seiwajuku",
             json={
@@ -264,7 +301,7 @@ def test_agent_mcp_validates_required_types_and_extra_properties() -> None:
             headers=headers,
         )
         assert missing.status_code == 200
-        assert missing.json()["error"]["code"] == -32602
+        assert missing.json()["result"]["isError"] is True
 
         extra = client.post(
             "/mcp/seiwajuku",
@@ -280,7 +317,7 @@ def test_agent_mcp_validates_required_types_and_extra_properties() -> None:
             headers=headers,
         )
         assert extra.status_code == 200
-        assert extra.json()["error"]["code"] == -32602
+        assert extra.json()["result"]["isError"] is True
 
         wrong_type = client.post(
             "/mcp/seiwajuku",
@@ -296,7 +333,7 @@ def test_agent_mcp_validates_required_types_and_extra_properties() -> None:
             headers=headers,
         )
         assert wrong_type.status_code == 200
-        assert wrong_type.json()["error"]["code"] == -32602
+        assert wrong_type.json()["result"]["isError"] is True
 
         invalid_params = client.post(
             "/mcp/seiwajuku",
@@ -308,8 +345,7 @@ def test_agent_mcp_validates_required_types_and_extra_properties() -> None:
             },
             headers=headers,
         )
-        assert invalid_params.status_code == 200
-        assert invalid_params.json()["error"]["code"] == -32602
+        assert invalid_params.status_code == 400
 
     audit = fetch_one(
         "SELECT result FROM audit_logs WHERE action='agent.tool.invoke' "
@@ -320,11 +356,11 @@ def test_agent_mcp_validates_required_types_and_extra_properties() -> None:
     assert audit["result"] == "INVALID_ARGUMENT"
 
 
-def test_agent_auth_failures_are_audited_without_secret_material() -> None:
+def test_agent_auth_failures_are_audited_without_secret_material(shared_client) -> None:
     fixture = _fixture()
     headers = _headers(int(fixture["user_id"]), request_id="agent-auth-failure")
     headers["X-Agent-Client-Secret"] = "wrong-secret"
-    with TestClient(app) as client:
+    with shared_client as client:
         invalid_secret = client.get(
             "/api/agent/v1/today-actions",
             headers=headers,
@@ -361,11 +397,11 @@ def test_agent_auth_failures_are_audited_without_secret_material() -> None:
     assert jwt_audit["result"] == "AUTH_FAILED"
 
 
-def test_agent_channel_and_inactive_user_fail_closed_and_are_audited() -> None:
+def test_agent_channel_and_inactive_user_fail_closed_and_are_audited(shared_client) -> None:
     fixture = _fixture()
     channel_headers = _headers(int(fixture["user_id"]), request_id="agent-channel-failure")
     channel_headers["X-Agent-Channel"] = "untrusted-channel"
-    with TestClient(app) as client:
+    with shared_client as client:
         invalid_channel = client.get(
             "/api/agent/v1/today-actions",
             headers=channel_headers,
@@ -379,7 +415,7 @@ def test_agent_channel_and_inactive_user_fail_closed_and_are_audited() -> None:
             "UPDATE app_users SET is_active=0 WHERE id=?",
             (int(fixture["user_id"]),),
         )
-    with TestClient(app) as client:
+    with shared_client as client:
         inactive = client.get(
             "/api/agent/v1/today-actions",
             headers=inactive_headers,
@@ -400,11 +436,11 @@ def test_agent_channel_and_inactive_user_fail_closed_and_are_audited() -> None:
     assert inactive_audit is not None and inactive_audit["result"] == "AUTH_FAILED"
 
 
-def test_agent_disabled_fails_closed_and_is_audited(monkeypatch) -> None:
+def test_agent_disabled_fails_closed_and_is_audited(monkeypatch, shared_client) -> None:
     fixture = _fixture()
     monkeypatch.setenv("AGENT_API_ENABLED", "false")
     headers = _headers(int(fixture["user_id"]), request_id="agent-disabled")
-    with TestClient(app) as client:
+    with shared_client as client:
         response = client.get(
             "/api/agent/v1/today-actions",
             headers=headers,
@@ -419,11 +455,12 @@ def test_agent_disabled_fails_closed_and_is_audited(monkeypatch) -> None:
     assert audit["result"] == "DISABLED"
 
 
-def test_agent_client_tool_allowlist_and_permission_denial_are_separate(monkeypatch) -> None:
+def test_agent_client_tool_allowlist_and_permission_denial_are_separate(monkeypatch, shared_client) -> None:
     fixture = _fixture()
     monkeypatch.setenv("AGENT_ALLOWED_TOOLS", "find_member")
     headers = _headers(int(fixture["user_id"]), request_id="agent-tool-denied")
-    with TestClient(app) as client:
+    with shared_client as client:
+        headers = _initialize_mcp_session(client, headers)
         listed = client.post(
             "/mcp/seiwajuku",
             json={"jsonrpc": "2.0", "id": 20, "method": "tools/list", "params": {}},
@@ -446,7 +483,7 @@ def test_agent_client_tool_allowlist_and_permission_denial_are_separate(monkeypa
             headers=headers,
         )
         assert denied.status_code == 200
-        assert denied.json()["error"]["code"] == -32003
+        assert denied.json()["result"]["isError"] is True
 
     audit = fetch_one(
         "SELECT result FROM audit_logs WHERE action='agent.tool.invoke' "
@@ -457,7 +494,7 @@ def test_agent_client_tool_allowlist_and_permission_denial_are_separate(monkeypa
     assert audit["result"] == "DENIED"
 
 
-def test_same_agent_client_keeps_two_operator_org_scopes_separate() -> None:
+def test_same_agent_client_keeps_two_operator_org_scopes_separate(shared_client) -> None:
     fixture = _fixture()
     admin_id = int(fixture["admin_id"])
     other_user_id = create_user(
@@ -485,7 +522,9 @@ def test_same_agent_client_keeps_two_operator_org_scopes_separate() -> None:
 
     headers_a = _headers(int(fixture["user_id"]), request_id="agent-dual-user-a")
     headers_b = _headers(other_user_id, request_id="agent-dual-user-b")
-    with TestClient(app) as client:
+    with shared_client as client:
+        headers_a = _initialize_mcp_session(client, headers_a)
+        headers_b = _initialize_mcp_session(client, headers_b)
         result_a = client.post(
             "/mcp/seiwajuku",
             json={

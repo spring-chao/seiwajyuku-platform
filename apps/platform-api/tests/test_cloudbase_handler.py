@@ -50,6 +50,8 @@ class CloudBaseHandlerTests(unittest.TestCase):
             )
             self.assertEqual(mutation["statusCode"], 403)
         finally:
+            if "handler" in locals() and getattr(handler, "client", None) is not None:
+                handler.client.__exit__(None, None, None)
             if "main_module" in locals():
                 main_module.settings = original_settings
             if original is None:

@@ -8,15 +8,12 @@ try:
     from fastapi.testclient import TestClient
 
     from app.main import app
-    from app.core.settings import get_settings
-    from app.migrations import run_migrations
-    from app.services.iam import seed_iam
 
-    runtime_settings = get_settings()
-    if not runtime_settings.deployment_read_only:
-        run_migrations()
-        seed_iam()
     client = TestClient(app)
+    # The serverless adapter keeps one ASGI client alive across warm invocations
+    # so the MCP Streamable HTTP session manager receives its application
+    # lifespan and can serve stateful MCP sessions.
+    client.__enter__()
     FULL_API_AVAILABLE = True
 except ModuleNotFoundError:
     client = None

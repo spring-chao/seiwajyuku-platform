@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
-from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,7 +11,6 @@ from app.services.iam import user_context
 from app.services.agent import (
     AgentContext,
     AgentDisabledError,
-    AGENT_TOOL_POLICIES,
     audit_agent_auth_event,
     audit_agent_tool_event,
     authorize_agent_client,
@@ -31,34 +28,34 @@ class AgentPrincipal(BaseModel):
     context: AgentContext
 
 
-def agent_principal(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(agent_bearer),
-    client_id: str | None = Header(default=None, alias="X-Agent-Client-ID"),
-    client_secret: str | None = Header(default=None, alias="X-Agent-Client-Secret"),
-    channel: str = Header(default="api", alias="X-Agent-Channel"),
-    session_id: str | None = Header(default=None, alias="X-Agent-Session-ID"),
-    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+def _authenticate_agent_request(
+    *,
+    access_token: str | None,
+    client_id: str | None,
+    client_secret: str | None,
+    channel: str | None,
+    session_id: str | None,
+    request_id: str | None,
 ) -> AgentPrincipal:
-    if not credentials:
+    if not access_token:
         audit_agent_auth_event(
             actor_user_id=None,
             client_id=client_id,
-            channel=channel,
+            channel=channel or "api",
             session_id=session_id,
             request_id=request_id,
             result="AUTH_FAILED",
         )
         raise HTTPException(401, "需要登录")
     try:
-        payload = decode_token(credentials.credentials, "access")
+        payload = decode_token(access_token, "access")
         actor_user_id = int(payload["sub"])
         user = user_context(actor_user_id)
     except (KeyError, TypeError, ValueError):
         audit_agent_auth_event(
             actor_user_id=None,
             client_id=client_id,
-            channel=channel,
+            channel=channel or "api",
             session_id=session_id,
             request_id=request_id,
             result="AUTH_FAILED",
@@ -68,7 +65,7 @@ def agent_principal(
         audit_agent_auth_event(
             actor_user_id=actor_user_id,
             client_id=client_id,
-            channel=channel,
+            channel=channel or "api",
             session_id=session_id,
             request_id=request_id,
             result="AUTH_FAILED",
@@ -87,7 +84,7 @@ def agent_principal(
         audit_agent_auth_event(
             actor_user_id=actor_user_id,
             client_id=client_id,
-            channel=channel,
+            channel=channel or "api",
             session_id=session_id,
             request_id=request_id,
             result="DISABLED",
@@ -99,7 +96,7 @@ def agent_principal(
         audit_agent_auth_event(
             actor_user_id=actor_user_id,
             client_id=client_id,
-            channel=channel,
+            channel=channel or "api",
             session_id=session_id,
             request_id=request_id,
             result="AUTH_FAILED",
@@ -109,13 +106,47 @@ def agent_principal(
         audit_agent_auth_event(
             actor_user_id=actor_user_id,
             client_id=client_id,
-            channel=channel,
+            channel=channel or "api",
             session_id=session_id,
             request_id=request_id,
             result="INVALID_ARGUMENT",
         )
         raise HTTPException(400, str(exc)) from exc
     return AgentPrincipal(user_id=context.actor_user_id, context=context)
+
+
+def authenticate_agent_headers(request: Request) -> AgentPrincipal:
+    """Authenticate an Agent request before it enters the MCP transport."""
+    authorization = request.headers.get("authorization", "")
+    scheme, separator, token = authorization.partition(" ")
+    access_token = token.strip() if separator and scheme.lower() == "bearer" else None
+    return _authenticate_agent_request(
+        access_token=access_token,
+        client_id=request.headers.get("x-agent-client-id"),
+        client_secret=request.headers.get("x-agent-client-secret"),
+        channel=request.headers.get("x-agent-channel", "api"),
+        session_id=request.headers.get("x-agent-session-id"),
+        request_id=request.headers.get("x-request-id"),
+    )
+
+
+def agent_principal(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(agent_bearer),
+    client_id: str | None = Header(default=None, alias="X-Agent-Client-ID"),
+    client_secret: str | None = Header(default=None, alias="X-Agent-Client-Secret"),
+    channel: str = Header(default="api", alias="X-Agent-Channel"),
+    session_id: str | None = Header(default=None, alias="X-Agent-Session-ID"),
+    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+) -> AgentPrincipal:
+    return _authenticate_agent_request(
+        access_token=credentials.credentials if credentials else None,
+        client_id=client_id,
+        client_secret=client_secret,
+        channel=channel,
+        session_id=session_id,
+        request_id=request_id,
+    )
 
 
 def _data_response(principal: AgentPrincipal, data: Any) -> dict[str, Any]:
@@ -277,90 +308,3 @@ def followup_context(
             {"member_id": member_id, "limit": limit},
         ),
     )
-
-
-class JsonRpcPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    jsonrpc: str = "2.0"
-    id: str | int | None = None
-    method: str
-    params: Any = Field(default=None)
-
-
-def _rpc_error(request_id: str | int | None, code: int, message: str) -> dict[str, Any]:
-    return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "error": {"code": code, "message": message},
-    }
-
-
-@router.post("/mcp/seiwajuku", response_model=None)
-def mcp_endpoint(
-    payload: JsonRpcPayload,
-    principal: AgentPrincipal = Depends(agent_principal),
-) -> Any:
-    if payload.jsonrpc != "2.0":
-        audit_agent_tool_event(principal.context, "mcp:invalid_request", result="INVALID_ARGUMENT")
-        raise HTTPException(400, "仅支持 JSON-RPC 2.0")
-    if payload.params is None:
-        params: dict[str, Any] = {}
-    elif isinstance(payload.params, dict):
-        params = payload.params
-    else:
-        audit_agent_tool_event(principal.context, "mcp:invalid_params", result="INVALID_ARGUMENT")
-        return _rpc_error(payload.id, -32602, "params 必须是对象")
-    if payload.method == "initialize":
-        return {
-            "jsonrpc": "2.0",
-            "id": payload.id,
-            "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "serverInfo": {
-                    "name": "seiwajyuku-agent-readonly",
-                    "version": "AI-1.3",
-                },
-            },
-        }
-    if payload.method == "notifications/initialized":
-        return Response(status_code=204)
-    if payload.method == "tools/list":
-        return {
-            "jsonrpc": "2.0",
-            "id": payload.id,
-            "result": {"tools": tool_manifest(principal.context.allowed_tools)},
-        }
-    if payload.method == "tools/call":
-        tool_name = str(params.get("name") or "")
-        arguments = params.get("arguments", {})
-        if arguments is None:
-            arguments = {}
-        if not isinstance(arguments, dict):
-            audit_agent_tool_event(principal.context, tool_name or "mcp:tools_call", result="INVALID_ARGUMENT")
-            return _rpc_error(payload.id, -32602, "arguments 必须是对象")
-        if tool_name not in AGENT_TOOL_POLICIES:
-            audit_agent_tool_event(principal.context, tool_name or "mcp:tools_call", result="UNKNOWN_TOOL")
-            return _rpc_error(payload.id, -32601, "未知 Agent 工具")
-        try:
-            data = invoke_agent_tool(principal.context, tool_name, arguments)
-        except PermissionError:
-            return _rpc_error(payload.id, -32003, "当前操作者没有调用该工具的权限")
-        except ValueError as exc:
-            return _rpc_error(payload.id, -32602, str(exc))
-        text = json.dumps(data, ensure_ascii=False, default=str)
-        return {
-            "jsonrpc": "2.0",
-            "id": payload.id,
-            "result": {
-                "content": [{"type": "text", "text": text}],
-                "structuredContent": {"success": True, "data": data},
-            },
-        }
-    audit_agent_tool_event(
-        principal.context,
-        f"mcp:{payload.method}",
-        result="UNKNOWN_METHOD",
-    )
-    return _rpc_error(payload.id, -32601, "未知 MCP 方法")

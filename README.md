@@ -43,6 +43,11 @@ Copy-Item .env.example .env
 docker compose --profile dev up --build
 ```
 
+本地开发示例默认 `RUN_BOOTSTRAP_ON_STARTUP=true`，首次启动会在本地 SQLite
+数据库执行迁移并初始化开发管理员。预发布环境使用
+`.env.staging.example` 时保持 `RUN_BOOTSTRAP_ON_STARTUP=false`；预发布迁移和
+IAM 初始化必须作为单独、可核验的迁移任务执行。生产容器同样禁止应用启动自动迁移。
+
 仓库只提交环境变量示例。实际数据库凭据、密钥和管理员密码必须通过本地环境文件或云端环境变量注入。
 
 ## 腾讯云部署
