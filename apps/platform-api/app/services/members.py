@@ -8,7 +8,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from app.core.privacy import decrypt_text, encrypt_text, protected_phone
+from app.core.privacy import decrypt_text, encrypt_text, normalize_phone, phone_hash, protected_phone
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
@@ -899,6 +899,80 @@ def list_members(
             if row["org_unit_id"] in allowed or row["id"] in related_ids
         ]
     return rows
+
+
+def get_member_access_context(member_id: int, actor_user_id: int) -> dict[str, Any]:
+    """Return the privacy-safe member scope resolved by the domain rules."""
+    member = fetch_one(
+        "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name "
+        "FROM members m JOIN org_units o ON o.id=m.org_unit_id WHERE m.id=?",
+        (member_id,),
+    )
+    if not member:
+        raise ValueError("学长不存在")
+    scoped_org_id = resolve_member_scope(
+        member_id, member["org_unit_id"], accessible_org_ids(actor_user_id)
+    )
+    scoped_org = fetch_one("SELECT name FROM org_units WHERE id=?", (scoped_org_id,))
+    return {
+        **member,
+        "org_unit_id": scoped_org_id,
+        "org_name": scoped_org["name"] if scoped_org else member["org_name"],
+    }
+
+
+def search_members(
+    user_id: int,
+    *,
+    name: str,
+    phone: str | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Search members with the same scope and relation rules as member views."""
+    name = name.strip()
+    if not name or len(name) > 100:
+        raise ValueError("姓名不能为空且不能超过100个字符")
+    if not 1 <= limit <= 50:
+        raise ValueError("匹配条数必须在1至50之间")
+    phone_digest = None
+    if phone is not None and phone.strip():
+        phone_digest = phone_hash(normalize_phone(phone))
+    conditions = ["m.name LIKE ?"]
+    params: list[Any] = [f"%{name}%"]
+    if phone_digest:
+        conditions.append("m.phone_hash=?")
+        params.append(phone_digest)
+    rows = fetch_all(
+        "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, m.status, "
+        "m.phone_masked, "
+        f"{CURRENT_STUDY_CLASS_NAME_SQL} AS class_name, "
+        f"{CURRENT_STUDY_GROUP_NAME_SQL} AS group_name "
+        "FROM members m JOIN org_units o ON o.id=m.org_unit_id WHERE "
+        + " AND ".join(conditions)
+        + " ORDER BY CASE WHEN m.name=? THEN 0 ELSE 1 END, m.name, m.id LIMIT ?",
+        (*params, name, limit),
+    )
+    allowed = accessible_org_ids(user_id)
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            scoped_org_id = resolve_member_scope(int(row["id"]), row["org_unit_id"], allowed)
+        except PermissionError:
+            continue
+        scoped_org = fetch_one("SELECT name FROM org_units WHERE id=?", (scoped_org_id,))
+        result.append(
+            {
+                "member_id": int(row["id"]),
+                "name": row["name"],
+                "org_unit_id": scoped_org_id,
+                "org_name": scoped_org["name"] if scoped_org else row["org_name"],
+                "class_name": row["class_name"],
+                "group_name": row["group_name"],
+                "status": row["status"],
+                "phone_masked": row["phone_masked"],
+            }
+        )
+    return result
 
 
 def reveal_contact(

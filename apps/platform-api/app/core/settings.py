@@ -38,6 +38,14 @@ class Settings:
     agent_client_id: str = ""
     agent_client_secret: str = ""
     agent_allowed_channels: tuple[str, ...] = ("api", "wecom", "wechat")
+    agent_allowed_tools: tuple[str, ...] = (
+        "get_my_today_actions",
+        "find_member",
+        "get_member_summary",
+        "get_member_timeline",
+        "get_renewal_context",
+        "get_followup_context",
+    )
 
     @property
     def is_production(self) -> bool:
@@ -126,6 +134,15 @@ def get_settings() -> Settings:
             item.strip().lower()
             for item in os.getenv(
                 "AGENT_ALLOWED_CHANNELS", "api,wecom,wechat"
+            ).split(",")
+            if item.strip()
+        ),
+        agent_allowed_tools=tuple(
+            item.strip()
+            for item in os.getenv(
+                "AGENT_ALLOWED_TOOLS",
+                "get_my_today_actions,find_member,get_member_summary,get_member_timeline,"
+                "get_renewal_context,get_followup_context",
             ).split(",")
             if item.strip()
         ),

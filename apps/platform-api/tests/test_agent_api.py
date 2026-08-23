@@ -69,6 +69,7 @@ def _fixture() -> dict[str, int | str]:
         "member_id": member_id,
         "other_member_id": other_member_id,
         "center_id": center_id,
+        "other_center_id": other_center_id,
         "member_phone": member_phone,
     }
 
@@ -95,9 +96,9 @@ def test_agent_rest_reuses_scope_and_masks_phone() -> None:
     fixture = _fixture()
     headers = _headers(int(fixture["user_id"]))
     with TestClient(app) as client:
-        found = client.get(
-            "/api/agent/v1/members/search",
-            params={"name": "Agent 测试", "phone": fixture["member_phone"]},
+        found = client.post(
+            "/api/agent/v1/members/match",
+            json={"name": "Agent 测试", "phone": fixture["member_phone"]},
             headers=headers,
         )
         assert found.status_code == 200, found.text
@@ -114,6 +115,13 @@ def test_agent_rest_reuses_scope_and_masks_phone() -> None:
         assert outside.status_code == 200
         assert outside.json()["data"] == []
 
+        query_phone = client.get(
+            "/api/agent/v1/members/search",
+            params={"name": "Agent 测试", "phone": fixture["member_phone"]},
+            headers=headers,
+        )
+        assert query_phone.status_code == 400
+
         summary = client.get(
             f"/api/agent/v1/members/{fixture['member_id']}/summary",
             headers=headers,
@@ -121,6 +129,12 @@ def test_agent_rest_reuses_scope_and_masks_phone() -> None:
         assert summary.status_code == 200, summary.text
         assert summary.json()["data"]["phone_masked"] == f"{fixture['member_phone'][:3]}****{fixture['member_phone'][-4:]}"
         assert "phone" not in summary.json()["data"] or summary.json()["data"].get("phone") is None
+
+        outside_summary = client.get(
+            f"/api/agent/v1/members/{fixture['other_member_id']}/summary",
+            headers=headers,
+        )
+        assert outside_summary.status_code == 403
 
 
 def test_agent_followup_context_redacts_free_text_and_audits_request() -> None:
@@ -233,3 +247,275 @@ def test_agent_mcp_lists_only_read_tools_and_calls_with_delegated_user() -> None
         )
         assert denied.status_code == 200
         assert denied.json()["error"]["code"] == -32601
+
+
+def test_agent_mcp_validates_required_types_and_extra_properties() -> None:
+    fixture = _fixture()
+    headers = _headers(int(fixture["user_id"]), request_id="agent-invalid-request")
+    with TestClient(app) as client:
+        missing = client.post(
+            "/mcp/seiwajuku",
+            json={
+                "jsonrpc": "2.0",
+                "id": 10,
+                "method": "tools/call",
+                "params": {"name": "get_member_summary", "arguments": {}},
+            },
+            headers=headers,
+        )
+        assert missing.status_code == 200
+        assert missing.json()["error"]["code"] == -32602
+
+        extra = client.post(
+            "/mcp/seiwajuku",
+            json={
+                "jsonrpc": "2.0",
+                "id": 11,
+                "method": "tools/call",
+                "params": {
+                    "name": "find_member",
+                    "arguments": {"name": "Agent 测试", "unexpected": True},
+                },
+            },
+            headers=headers,
+        )
+        assert extra.status_code == 200
+        assert extra.json()["error"]["code"] == -32602
+
+        wrong_type = client.post(
+            "/mcp/seiwajuku",
+            json={
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "tools/call",
+                "params": {
+                    "name": "get_member_summary",
+                    "arguments": {"member_id": "not-an-integer"},
+                },
+            },
+            headers=headers,
+        )
+        assert wrong_type.status_code == 200
+        assert wrong_type.json()["error"]["code"] == -32602
+
+        invalid_params = client.post(
+            "/mcp/seiwajuku",
+            json={
+                "jsonrpc": "2.0",
+                "id": 13,
+                "method": "tools/call",
+                "params": "not-an-object",
+            },
+            headers=headers,
+        )
+        assert invalid_params.status_code == 200
+        assert invalid_params.json()["error"]["code"] == -32602
+
+    audit = fetch_one(
+        "SELECT result FROM audit_logs WHERE action='agent.tool.invoke' "
+        "AND request_id=? ORDER BY id DESC LIMIT 1",
+        ("agent-invalid-request",),
+    )
+    assert audit is not None
+    assert audit["result"] == "INVALID_ARGUMENT"
+
+
+def test_agent_auth_failures_are_audited_without_secret_material() -> None:
+    fixture = _fixture()
+    headers = _headers(int(fixture["user_id"]), request_id="agent-auth-failure")
+    headers["X-Agent-Client-Secret"] = "wrong-secret"
+    with TestClient(app) as client:
+        invalid_secret = client.get(
+            "/api/agent/v1/today-actions",
+            headers=headers,
+        )
+        assert invalid_secret.status_code == 401
+
+        bad_token = {
+            **headers,
+            "Authorization": "Bearer invalid-token",
+            "X-Agent-Client-Secret": "t" * 40,
+            "X-Request-ID": "agent-invalid-jwt",
+        }
+        invalid_jwt = client.get(
+            "/api/agent/v1/today-actions",
+            headers=bad_token,
+        )
+        assert invalid_jwt.status_code == 401
+
+    auth_audit = fetch_one(
+        "SELECT result, after_json FROM audit_logs WHERE action='agent.auth' "
+        "AND request_id=? ORDER BY id DESC LIMIT 1",
+        ("agent-auth-failure",),
+    )
+    assert auth_audit is not None
+    assert auth_audit["result"] == "AUTH_FAILED"
+    assert "wrong-secret" not in (auth_audit["after_json"] or "")
+
+    jwt_audit = fetch_one(
+        "SELECT result FROM audit_logs WHERE action='agent.auth' "
+        "AND request_id=? ORDER BY id DESC LIMIT 1",
+        ("agent-invalid-jwt",),
+    )
+    assert jwt_audit is not None
+    assert jwt_audit["result"] == "AUTH_FAILED"
+
+
+def test_agent_channel_and_inactive_user_fail_closed_and_are_audited() -> None:
+    fixture = _fixture()
+    channel_headers = _headers(int(fixture["user_id"]), request_id="agent-channel-failure")
+    channel_headers["X-Agent-Channel"] = "untrusted-channel"
+    with TestClient(app) as client:
+        invalid_channel = client.get(
+            "/api/agent/v1/today-actions",
+            headers=channel_headers,
+        )
+        assert invalid_channel.status_code == 401
+
+    inactive_headers = _headers(int(fixture["user_id"]), request_id="agent-inactive-user")
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE app_users SET is_active=0 WHERE id=?",
+            (int(fixture["user_id"]),),
+        )
+    with TestClient(app) as client:
+        inactive = client.get(
+            "/api/agent/v1/today-actions",
+            headers=inactive_headers,
+        )
+        assert inactive.status_code == 401
+
+    channel_audit = fetch_one(
+        "SELECT result FROM audit_logs WHERE action='agent.auth' "
+        "AND request_id=? ORDER BY id DESC LIMIT 1",
+        ("agent-channel-failure",),
+    )
+    inactive_audit = fetch_one(
+        "SELECT result FROM audit_logs WHERE action='agent.auth' "
+        "AND request_id=? ORDER BY id DESC LIMIT 1",
+        ("agent-inactive-user",),
+    )
+    assert channel_audit is not None and channel_audit["result"] == "AUTH_FAILED"
+    assert inactive_audit is not None and inactive_audit["result"] == "AUTH_FAILED"
+
+
+def test_agent_disabled_fails_closed_and_is_audited(monkeypatch) -> None:
+    fixture = _fixture()
+    monkeypatch.setenv("AGENT_API_ENABLED", "false")
+    headers = _headers(int(fixture["user_id"]), request_id="agent-disabled")
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/agent/v1/today-actions",
+            headers=headers,
+        )
+    assert response.status_code == 404
+    audit = fetch_one(
+        "SELECT result FROM audit_logs WHERE action='agent.auth' "
+        "AND request_id=? ORDER BY id DESC LIMIT 1",
+        ("agent-disabled",),
+    )
+    assert audit is not None
+    assert audit["result"] == "DISABLED"
+
+
+def test_agent_client_tool_allowlist_and_permission_denial_are_separate(monkeypatch) -> None:
+    fixture = _fixture()
+    monkeypatch.setenv("AGENT_ALLOWED_TOOLS", "find_member")
+    headers = _headers(int(fixture["user_id"]), request_id="agent-tool-denied")
+    with TestClient(app) as client:
+        listed = client.post(
+            "/mcp/seiwajuku",
+            json={"jsonrpc": "2.0", "id": 20, "method": "tools/list", "params": {}},
+            headers=headers,
+        )
+        assert listed.status_code == 200
+        assert {item["name"] for item in listed.json()["result"]["tools"]} == {"find_member"}
+
+        denied = client.post(
+            "/mcp/seiwajuku",
+            json={
+                "jsonrpc": "2.0",
+                "id": 21,
+                "method": "tools/call",
+                "params": {
+                    "name": "get_member_summary",
+                    "arguments": {"member_id": int(fixture["member_id"])},
+                },
+            },
+            headers=headers,
+        )
+        assert denied.status_code == 200
+        assert denied.json()["error"]["code"] == -32003
+
+    audit = fetch_one(
+        "SELECT result FROM audit_logs WHERE action='agent.tool.invoke' "
+        "AND request_id=? ORDER BY id DESC LIMIT 1",
+        ("agent-tool-denied",),
+    )
+    assert audit is not None
+    assert audit["result"] == "DENIED"
+
+
+def test_same_agent_client_keeps_two_operator_org_scopes_separate() -> None:
+    fixture = _fixture()
+    admin_id = int(fixture["admin_id"])
+    other_user_id = create_user(
+        admin_id,
+        username=f"agent-other-user-{uuid4().hex[:8]}",
+        display_name="Agent 另一运营",
+        password="agent-test-password",
+        roles=["ops_center_operations"],
+        scopes=[{"scope_type": "SUBTREE", "org_unit_id": fixture["center_id"]}],
+    )
+    # Move the second operator to the other center without changing the shared
+    # Agent client credentials. The Bearer JWT remains the identity boundary.
+    with transaction() as connection:
+        execute(
+            connection,
+            "DELETE FROM data_scope_grants WHERE user_id=?",
+            (other_user_id,),
+        )
+        execute(
+            connection,
+            "INSERT INTO data_scope_grants(user_id, scope_type, org_unit_id, created_at) "
+            "VALUES (?, 'SUBTREE', ?, ?)",
+            (other_user_id, fixture["other_center_id"], datetime.now(UTC).isoformat()),
+        )
+
+    headers_a = _headers(int(fixture["user_id"]), request_id="agent-dual-user-a")
+    headers_b = _headers(other_user_id, request_id="agent-dual-user-b")
+    with TestClient(app) as client:
+        result_a = client.post(
+            "/mcp/seiwajuku",
+            json={
+                "jsonrpc": "2.0",
+                "id": 30,
+                "method": "tools/call",
+                "params": {"name": "find_member", "arguments": {"name": "Agent"}},
+            },
+            headers=headers_a,
+        )
+        result_b = client.post(
+            "/mcp/seiwajuku",
+            json={
+                "jsonrpc": "2.0",
+                "id": 31,
+                "method": "tools/call",
+                "params": {"name": "find_member", "arguments": {"name": "Agent"}},
+            },
+            headers=headers_b,
+        )
+
+    ids_a = {
+        row["member_id"]
+        for row in result_a.json()["result"]["structuredContent"]["data"]
+    }
+    ids_b = {
+        row["member_id"]
+        for row in result_b.json()["result"]["structuredContent"]["data"]
+    }
+    assert result_a.status_code == 200
+    assert result_b.status_code == 200
+    assert ids_a == {int(fixture["member_id"])}
+    assert ids_b == {int(fixture["other_member_id"])}

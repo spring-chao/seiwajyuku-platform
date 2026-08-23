@@ -60,6 +60,7 @@ READ_ONLY_ALLOWED_POST_PATHS = frozenset({
     # Agent/MCP read operations do not mutate business data. They are allowed
     # in a read-only deployment because every invocation is still audited.
     "/mcp/seiwajuku",
+    "/api/agent/v1/members/match",
 })
 
 

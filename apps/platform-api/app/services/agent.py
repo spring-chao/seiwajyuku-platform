@@ -4,24 +4,27 @@ import hmac
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Any, Callable
+from typing import Any, Callable, Type
 from uuid import uuid4
 
-from app.core.privacy import normalize_phone, phone_hash
-from app.db import fetch_all, fetch_one, transaction
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from app.db import transaction
 from app.services.audit import write_audit
-from app.services.followups import list_tasks
-from app.services.iam import accessible_org_ids, user_context
+from app.services.followups import list_member_context
+from app.services.iam import user_context
 from app.services.members import (
-    CURRENT_STUDY_CLASS_NAME_SQL,
-    CURRENT_STUDY_GROUP_NAME_SQL,
-    can_access_member,
+    get_member_access_context,
     get_member_detail,
     get_member_timeline,
-    resolve_member_scope,
+    search_members,
 )
 from app.services.member_care_actions import build_member_care_actions
-from app.services.renewals import determine_renewal_stage, list_cycles
+from app.services.renewals import (
+    determine_renewal_stage,
+    list_cycles,
+    list_latest_followups,
+)
 
 
 class AgentDisabledError(PermissionError):
@@ -35,9 +38,54 @@ class AgentContext:
     channel: str
     session_id: str | None
     request_id: str
+    allowed_tools: frozenset[str]
+
+
+class _AgentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class _TodayActionsInput(_AgentInput):
+    as_of: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class _FindMemberInput(_AgentInput):
+    name: str = Field(min_length=1, max_length=100)
+    phone: str | None = Field(default=None, max_length=32)
+    limit: int = Field(default=20, ge=1, le=50)
+
+
+class _MemberIdInput(_AgentInput):
+    member_id: int = Field(ge=1)
+
+
+class _MemberTimelineInput(_MemberIdInput):
+    limit: int = Field(default=100, ge=1, le=200)
+
+
+class _RenewalContextInput(_MemberIdInput):
+    year: int | None = Field(default=None, ge=2020, le=2100)
+
+
+class _FollowupContextInput(_MemberIdInput):
+    limit: int = Field(default=20, ge=1, le=50)
+
+
+_AGENT_INPUT_MODELS: dict[str, Type[_AgentInput]] = {
+    "get_my_today_actions": _TodayActionsInput,
+    "find_member": _FindMemberInput,
+    "get_member_summary": _MemberIdInput,
+    "get_member_timeline": _MemberTimelineInput,
+    "get_renewal_context": _RenewalContextInput,
+    "get_followup_context": _FollowupContextInput,
+}
 
 
 _PHONE_IN_TEXT_RE = re.compile(r"(?<!\d)1[3-9](?:[\s-]?\d){9}(?!\d)")
+_EMAIL_IN_TEXT_RE = re.compile(
+    r"(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}(?![A-Z0-9.-])",
+    re.IGNORECASE,
+)
 _PRECISE_AMOUNT_RE = re.compile(
     r"(?<!\d)(?:人民币\s*|RMB\s*|[￥¥]\s*)?"
     r"(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?|"
@@ -52,6 +100,7 @@ def _redact_agent_text(value: Any) -> str | None:
     if not text:
         return None
     text = _PHONE_IN_TEXT_RE.sub("[手机号已脱敏]", text)
+    text = _EMAIL_IN_TEXT_RE.sub("[邮箱已脱敏]", text)
     return _PRECISE_AMOUNT_RE.sub("[明确金额已脱敏]", text)
 
 
@@ -165,19 +214,53 @@ AGENT_TOOL_POLICIES: dict[str, dict[str, Any]] = {
 }
 
 
-def tool_manifest() -> list[dict[str, Any]]:
+def tool_manifest(allowed_tools: frozenset[str] | None = None) -> list[dict[str, Any]]:
     return [
         {
             "name": name,
             "description": policy["description"],
-            "inputSchema": policy["input_schema"],
+            "inputSchema": _AGENT_INPUT_MODELS[name].model_json_schema(),
             "annotations": {
                 "readOnlyHint": policy["read_only"],
                 "riskLevel": policy["risk_level"],
             },
         }
         for name, policy in AGENT_TOOL_POLICIES.items()
+        if allowed_tools is None or name in allowed_tools
     ]
+
+
+def _safe_agent_value(value: str | None, *, default: str | None = None) -> str | None:
+    text = (value or default or "").strip()
+    return text[:128] or None
+
+
+def audit_agent_auth_event(
+    *,
+    actor_user_id: int | None,
+    client_id: str | None,
+    channel: str | None,
+    session_id: str | None,
+    request_id: str | None,
+    result: str,
+) -> None:
+    """Audit authentication and protocol failures without storing secrets."""
+    with transaction() as connection:
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="agent.auth",
+            resource_type="agent",
+            purpose="Agent 只读接入认证",
+            result=result,
+            after={
+                "agent_client_id": _safe_agent_value(client_id),
+                "channel": _safe_agent_value(channel, default="api"),
+                "session_id": _safe_agent_value(session_id),
+                "read_only": True,
+            },
+            request_id=_safe_agent_value(request_id),
+        )
 
 
 def authorize_agent_client(
@@ -213,12 +296,16 @@ def authorize_agent_client(
         raise ValueError("请求标识过长")
     if not user or not user.get("id"):
         raise PermissionError("操作者身份无效")
+    allowed_tools = frozenset(
+        name for name in settings.agent_allowed_tools if name in AGENT_TOOL_POLICIES
+    )
     return AgentContext(
         actor_user_id=int(user["id"]),
         agent_client_id=client_id,
         channel=channel,
         session_id=session_id,
         request_id=(request_id or f"agent-{uuid4().hex}").strip()[:128],
+        allowed_tools=allowed_tools,
     )
 
 
@@ -226,6 +313,8 @@ def _require_tool_access(context: AgentContext, tool_name: str) -> None:
     policy = AGENT_TOOL_POLICIES.get(tool_name)
     if not policy:
         raise ValueError("未知 Agent 工具")
+    if tool_name not in context.allowed_tools:
+        raise PermissionError("Agent 客户端未获准调用该工具")
     if not policy["read_only"]:
         raise PermissionError("当前 Agent 接入层禁止写工具")
     user = user_context(context.actor_user_id)
@@ -268,20 +357,14 @@ def _audit_agent_tool(
         )
 
 
-def _member_scope(member_id: int, actor_user_id: int) -> tuple[dict[str, Any], str]:
-    member = fetch_one(
-        "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name "
-        "FROM members m JOIN org_units o ON o.id=m.org_unit_id WHERE m.id=?",
-        (member_id,),
-    )
-    if not member:
-        raise ValueError("学长不存在")
-    allowed = accessible_org_ids(actor_user_id)
-    try:
-        scoped_org_id = resolve_member_scope(member_id, member["org_unit_id"], allowed)
-    except PermissionError as exc:
-        raise PermissionError("学长不在组织授权范围内") from exc
-    return member, scoped_org_id
+def audit_agent_tool_event(
+    context: AgentContext,
+    tool_name: str,
+    *,
+    result: str,
+) -> None:
+    """Audit protocol-level tool events that do not reach a handler."""
+    _audit_agent_tool(context, tool_name, result=result)
 
 
 def find_members(
@@ -291,56 +374,18 @@ def find_members(
     phone: str | None = None,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    name = name.strip()
-    if not name or len(name) > 100:
-        raise ValueError("姓名不能为空且不能超过100个字符")
-    if not 1 <= limit <= 50:
-        raise ValueError("匹配条数必须在1至50之间")
-    phone_digest = None
-    if phone is not None and phone.strip():
-        phone_digest = phone_hash(normalize_phone(phone))
-    conditions = ["m.name LIKE ?"]
-    params: list[Any] = [f"%{name}%"]
-    if phone_digest:
-        conditions.append("m.phone_hash=?")
-        params.append(phone_digest)
-    rows = fetch_all(
-        "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, m.status, "
-        "m.phone_masked, "
-        f"{CURRENT_STUDY_CLASS_NAME_SQL} AS class_name, "
-        f"{CURRENT_STUDY_GROUP_NAME_SQL} AS group_name "
-        "FROM members m JOIN org_units o ON o.id=m.org_unit_id WHERE "
-        + " AND ".join(conditions)
-        + " ORDER BY CASE WHEN m.name=? THEN 0 ELSE 1 END, m.name, m.id LIMIT ?",
-        (*params, name, limit),
+    return search_members(
+        actor_user_id,
+        name=name,
+        phone=phone,
+        limit=limit,
     )
-    allowed = accessible_org_ids(actor_user_id)
-    result: list[dict[str, Any]] = []
-    for row in rows:
-        try:
-            scoped_org_id = resolve_member_scope(int(row["id"]), row["org_unit_id"], allowed)
-        except PermissionError:
-            continue
-        scoped_org = fetch_one("SELECT name FROM org_units WHERE id=?", (scoped_org_id,))
-        result.append(
-            {
-                "member_id": int(row["id"]),
-                "name": row["name"],
-                "org_unit_id": scoped_org_id,
-                "org_name": scoped_org["name"] if scoped_org else row["org_name"],
-                "class_name": row["class_name"],
-                "group_name": row["group_name"],
-                "status": row["status"],
-                "phone_masked": row["phone_masked"],
-            }
-        )
-    return result
 
 
 def get_agent_renewal_context(
     actor_user_id: int, *, member_id: int, year: int | None = None
 ) -> dict[str, Any]:
-    _member_scope(member_id, actor_user_id)
+    get_member_access_context(member_id, actor_user_id)
     current_year = year or datetime.now(UTC).year
     if not 2020 <= int(current_year) <= 2100:
         raise ValueError("续费年度无效")
@@ -357,29 +402,18 @@ def get_agent_renewal_context(
     if not cycles:
         return {"year": int(current_year), "member_id": member_id, "cycles": []}
     cycle_ids = [int(row["id"]) for row in cycles]
-    placeholders = ",".join("?" for _ in cycle_ids)
-    followups = fetch_all(
-        "SELECT renewal_cycle_id, followed_at, channel, summary, intention, "
-        "needs_support, next_action, next_followup_at "
-        f"FROM renewal_followups WHERE renewal_cycle_id IN ({placeholders}) "
-        "ORDER BY followed_at DESC, id DESC",
-        tuple(cycle_ids),
-    )
+    followups = list_latest_followups(cycle_ids, actor_user_id)
     latest_by_cycle: dict[int, dict[str, Any]] = {}
-    for followup in followups:
-        cycle_key = int(followup["renewal_cycle_id"])
-        latest_by_cycle.setdefault(
-            cycle_key,
-            {
-                "followed_at": followup["followed_at"],
-                "channel": followup["channel"],
-                "summary": _redact_agent_text(followup.get("summary")),
-                "intention": followup.get("intention"),
-                "needs_support": bool(followup.get("needs_support")),
-                "next_action": _redact_agent_text(followup.get("next_action")),
-                "next_followup_at": followup.get("next_followup_at"),
-            },
-        )
+    for cycle_key, followup in followups.items():
+        latest_by_cycle[cycle_key] = {
+            "followed_at": followup["followed_at"],
+            "channel": followup["channel"],
+            "summary": _redact_agent_text(followup.get("summary")),
+            "intention": followup.get("intention"),
+            "needs_support": bool(followup.get("needs_support")),
+            "next_action": _redact_agent_text(followup.get("next_action")),
+            "next_followup_at": followup.get("next_followup_at"),
+        }
     output: list[dict[str, Any]] = []
     for cycle in cycles:
         output.append(
@@ -414,14 +448,8 @@ def get_agent_renewal_context(
 def get_agent_followup_context(
     actor_user_id: int, *, member_id: int, limit: int = 20
 ) -> dict[str, Any]:
-    if not 1 <= limit <= 50:
-        raise ValueError("关怀记录条数必须在1至50之间")
-    member, scoped_org_id = _member_scope(member_id, actor_user_id)
-    visible_tasks = [
-        row for row in list_tasks(actor_user_id) if int(row["member_id"]) == int(member_id)
-    ]
-    visible_tasks = visible_tasks[:limit]
-    task_ids = [int(row["id"]) for row in visible_tasks]
+    context = list_member_context(actor_user_id, member_id=member_id, limit=limit)
+    member = context["member"]
     tasks = [
         {
             "id": row["id"],
@@ -435,65 +463,44 @@ def get_agent_followup_context(
             "assigned_user_id": row["assigned_user_id"],
             "assignee_name": row["assignee_name"],
         }
-        for row in visible_tasks
+        for row in context["tasks"]
     ]
-    records: list[dict[str, Any]] = []
-    visits: list[dict[str, Any]] = []
-    if task_ids:
-        placeholders = ",".join("?" for _ in task_ids)
-        record_rows = fetch_all(
-            "SELECT id, task_id, channel, contacted_at, outcome_code, subject_statement, "
-            "objective_facts, staff_judgment, next_action, next_followup_at "
-            f"FROM followup_records WHERE member_id=? AND task_id IN ({placeholders}) "
-            "ORDER BY contacted_at DESC, id DESC LIMIT ?",
-            (member_id, *task_ids, limit),
-        )
-        records = [
-            {
-                "id": row["id"],
-                "task_id": row["task_id"],
-                "channel": row["channel"],
-                "contacted_at": row["contacted_at"],
-                "outcome_code": row["outcome_code"],
-                "subject_statement": _redact_agent_text(row.get("subject_statement")),
-                "objective_facts": _redact_agent_text(row.get("objective_facts")),
-                "staff_judgment": _redact_agent_text(row.get("staff_judgment")),
-                "next_action": _redact_agent_text(row.get("next_action")),
-                "next_followup_at": row["next_followup_at"],
-            }
-            for row in record_rows
-        ]
-        visit_rows = fetch_all(
-            "SELECT id, task_id, visited_at, location_type, objective_facts, "
-            "expressed_needs, support_provided, staff_judgment, next_action, next_followup_at "
-            f"FROM enterprise_visit_records WHERE member_id=? AND task_id IN ({placeholders}) "
-            "ORDER BY visited_at DESC, id DESC LIMIT ?",
-            (member_id, *task_ids, limit),
-        )
-        visits = [
-            {
-                "id": row["id"],
-                "task_id": row["task_id"],
-                "visited_at": row["visited_at"],
-                "location_type": row["location_type"],
-                "objective_facts": _redact_agent_text(row.get("objective_facts")),
-                "expressed_needs": _redact_agent_text(row.get("expressed_needs")),
-                "support_provided": _redact_agent_text(row.get("support_provided")),
-                "staff_judgment": _redact_agent_text(row.get("staff_judgment")),
-                "next_action": _redact_agent_text(row.get("next_action")),
-                "next_followup_at": row["next_followup_at"],
-            }
-            for row in visit_rows
-        ]
+    records = [
+        {
+            "id": row["id"],
+            "task_id": row["task_id"],
+            "channel": row["channel"],
+            "contacted_at": row["contacted_at"],
+            "outcome_code": row["outcome_code"],
+            "subject_statement": _redact_agent_text(row.get("subject_statement")),
+            "objective_facts": _redact_agent_text(row.get("objective_facts")),
+            "staff_judgment": _redact_agent_text(row.get("staff_judgment")),
+            "next_action": _redact_agent_text(row.get("next_action")),
+            "next_followup_at": row["next_followup_at"],
+        }
+        for row in context["records"]
+    ]
+    visits = [
+        {
+            "id": row["id"],
+            "task_id": row["task_id"],
+            "visited_at": row["visited_at"],
+            "location_type": row["location_type"],
+            "objective_facts": _redact_agent_text(row.get("objective_facts")),
+            "expressed_needs": _redact_agent_text(row.get("expressed_needs")),
+            "support_provided": _redact_agent_text(row.get("support_provided")),
+            "staff_judgment": _redact_agent_text(row.get("staff_judgment")),
+            "next_action": _redact_agent_text(row.get("next_action")),
+            "next_followup_at": row["next_followup_at"],
+        }
+        for row in context["visits"]
+    ]
     return {
         "member": {
             "id": member["id"],
             "name": member["name"],
-            "org_unit_id": scoped_org_id,
-            "org_name": (
-                fetch_one("SELECT name FROM org_units WHERE id=?", (scoped_org_id,))
-                or {"name": member["org_name"]}
-            )["name"],
+            "org_unit_id": member["org_unit_id"],
+            "org_name": member["org_name"],
         },
         "tasks": tasks,
         "records": records,
@@ -554,21 +561,42 @@ _TOOL_HANDLERS: dict[str, Callable[[AgentContext, dict[str, Any]], Any]] = {
 }
 
 
+def validate_agent_arguments(tool_name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
+    """Validate MCP/adapter arguments once before a tool handler runs."""
+    model = _AGENT_INPUT_MODELS.get(tool_name)
+    if not model:
+        raise ValueError("未知 Agent 工具")
+    if arguments is None:
+        arguments = {}
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments 必须是对象")
+    try:
+        return model.model_validate(arguments).model_dump(exclude_none=True)
+    except ValidationError as exc:
+        first_error = exc.errors()[0]
+        location = ".".join(str(part) for part in first_error.get("loc", ()))
+        message = first_error.get("msg", "参数无效")
+        raise ValueError(f"参数无效{f'（{location}）' if location else ''}：{message}") from exc
+
+
 def invoke_agent_tool(
     context: AgentContext, tool_name: str, arguments: dict[str, Any] | None = None
 ) -> Any:
-    arguments = arguments or {}
-    _require_tool_access(context, tool_name)
     handler = _TOOL_HANDLERS.get(tool_name)
-    if not handler:
-        raise ValueError("当前 Agent 工具尚未实现")
     try:
+        _require_tool_access(context, tool_name)
+        arguments = validate_agent_arguments(tool_name, arguments)
+        if not handler:
+            raise ValueError("当前 Agent 工具尚未实现")
         result = handler(context, arguments)
     except PermissionError:
         _audit_agent_tool(context, tool_name, result="DENIED")
         raise
     except ValueError:
         _audit_agent_tool(context, tool_name, result="INVALID_ARGUMENT")
+        raise
+    except Exception:
+        _audit_agent_tool(context, tool_name, result="ERROR")
         raise
     _audit_agent_tool(
         context,

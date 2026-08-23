@@ -183,6 +183,47 @@ def list_tasks(user_id: int, status: str | None = None) -> list[dict[str, Any]]:
     return result
 
 
+def list_member_context(
+    user_id: int, *, member_id: int, limit: int = 20
+) -> dict[str, Any]:
+    """Return scoped task and service-record data for a member read model."""
+    if not 1 <= limit <= 50:
+        raise ValueError("关怀记录条数必须在1至50之间")
+    from app.services.members import get_member_access_context
+
+    member = get_member_access_context(member_id, user_id)
+    visible_tasks = [
+        row for row in list_tasks(user_id) if int(row["member_id"]) == int(member_id)
+    ][:limit]
+    task_ids = [int(row["id"]) for row in visible_tasks]
+    records: list[dict[str, Any]] = []
+    visits: list[dict[str, Any]] = []
+    if task_ids:
+        placeholders = ",".join("?" for _ in task_ids)
+        record_rows = fetch_all(
+            "SELECT id, task_id, channel, contacted_at, outcome_code, subject_statement, "
+            "objective_facts, staff_judgment, next_action, next_followup_at "
+            f"FROM followup_records WHERE member_id=? AND task_id IN ({placeholders}) "
+            "ORDER BY contacted_at DESC, id DESC LIMIT ?",
+            (member_id, *task_ids, limit),
+        )
+        records = [dict(row) for row in record_rows]
+        visit_rows = fetch_all(
+            "SELECT id, task_id, visited_at, location_type, objective_facts, "
+            "expressed_needs, support_provided, staff_judgment, next_action, next_followup_at "
+            f"FROM enterprise_visit_records WHERE member_id=? AND task_id IN ({placeholders}) "
+            "ORDER BY visited_at DESC, id DESC LIMIT ?",
+            (member_id, *task_ids, limit),
+        )
+        visits = [dict(row) for row in visit_rows]
+    return {
+        "member": member,
+        "tasks": visible_tasks,
+        "records": records,
+        "visits": visits,
+    }
+
+
 def add_followup_record(
     task_id: int,
     actor_user_id: int,

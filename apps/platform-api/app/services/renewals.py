@@ -1578,6 +1578,18 @@ def list_followups(cycle_id: int, actor_user_id: int) -> list[dict[str, Any]]:
     )
 
 
+def list_latest_followups(
+    cycle_ids: list[int], actor_user_id: int
+) -> dict[int, dict[str, Any]]:
+    """Return the latest scoped follow-up for each requested renewal cycle."""
+    latest: dict[int, dict[str, Any]] = {}
+    for cycle_id in sorted({int(value) for value in cycle_ids}):
+        rows = list_followups(cycle_id, actor_user_id)
+        if rows:
+            latest[cycle_id] = rows[0]
+    return latest
+
+
 def get_action_card(
     cycle_id: int,
     actor_user_id: int,
