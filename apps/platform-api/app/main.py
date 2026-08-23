@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.agent import router as agent_router
 from app.api.attendance import router as attendance_router
 from app.api.checkin_rosters import router as checkin_rosters_router
 from app.api.class_roster_preflight import router as class_roster_preflight_router
@@ -56,6 +57,9 @@ READ_ONLY_ALLOWED_POST_PATHS = frozenset({
     # path available preserves the existing weekday sync while all other POST
     # writes remain blocked in read-only mode.
     "/api/v1/attendance/sync/scheduled",
+    # Agent/MCP read operations do not mutate business data. They are allowed
+    # in a read-only deployment because every invocation is still audited.
+    "/mcp/seiwajuku",
 })
 
 
@@ -97,6 +101,10 @@ app.add_middleware(
         "Content-Type",
         "X-Request-ID",
         "X-API-Key",
+        "X-Agent-Client-ID",
+        "X-Agent-Client-Secret",
+        "X-Agent-Channel",
+        "X-Agent-Session-ID",
         "X-Requested-With",
     ],
 )
@@ -118,6 +126,7 @@ async def deployment_read_only_guard(request: Request, call_next):
 
 app.include_router(system_router)
 app.include_router(auth_router)
+app.include_router(agent_router)
 app.include_router(iam_router)
 app.include_router(identity_admin_router)
 app.include_router(imports_router)

@@ -19,12 +19,13 @@ def write_audit(
     result: str = "SUCCESS",
     before: Any = None,
     after: Any = None,
+    request_id: str | None = None,
 ) -> None:
     execute(
         connection,
         "INSERT INTO audit_logs "
         "(actor_user_id, action, resource_type, resource_id, org_unit_id, purpose, result, "
-        "before_json, after_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "before_json, after_json, request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             actor_user_id,
             action,
@@ -35,7 +36,7 @@ def write_audit(
             result,
             json.dumps(before, ensure_ascii=False) if before is not None else None,
             json.dumps(after, ensure_ascii=False) if after is not None else None,
+            request_id,
             datetime.now(UTC).isoformat(),
         ),
     )
-

@@ -34,6 +34,10 @@ class Settings:
     volunteer_service_invitations_enabled: bool = False
     class_roster_org_import_enabled: bool = False
     member_service_signal_feedback_enabled: bool = False
+    agent_api_enabled: bool = False
+    agent_client_id: str = ""
+    agent_client_secret: str = ""
+    agent_allowed_channels: tuple[str, ...] = ("api", "wecom", "wechat")
 
     @property
     def is_production(self) -> bool:
@@ -75,6 +79,12 @@ class Settings:
             and not self.allow_production_mutations
         ):
             raise RuntimeError("生产学员服务提示反馈写入未获批准")
+        if self.agent_api_enabled and (
+            not self.agent_client_id or len(self.agent_client_secret) < 32
+        ):
+            raise RuntimeError(
+                "Agent API 已启用：必须配置非空 AGENT_CLIENT_ID 和至少32位 AGENT_CLIENT_SECRET"
+            )
 
 
 def get_settings() -> Settings:
@@ -108,6 +118,16 @@ def get_settings() -> Settings:
         ),
         member_service_signal_feedback_enabled=_bool(
             "MEMBER_SERVICE_SIGNAL_FEEDBACK_ENABLED"
+        ),
+        agent_api_enabled=_bool("AGENT_API_ENABLED"),
+        agent_client_id=os.getenv("AGENT_CLIENT_ID", "").strip(),
+        agent_client_secret=os.getenv("AGENT_CLIENT_SECRET", "").strip(),
+        agent_allowed_channels=tuple(
+            item.strip().lower()
+            for item in os.getenv(
+                "AGENT_ALLOWED_CHANNELS", "api,wecom,wechat"
+            ).split(",")
+            if item.strip()
         ),
         signin_api_base_url=os.getenv("SIGNIN_API_BASE_URL", "").strip(),
         signin_service_api_key=os.getenv("SIGNIN_SERVICE_API_KEY", "").strip(),
