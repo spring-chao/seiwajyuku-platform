@@ -7,7 +7,7 @@
   "source_json_sha256": "404e1a9b3ea5037c9d5dd01d112186a629243115ee5c64da8ae0602cd572e8a2",
   "status": "PENDING",
   "required_checkpoint_count": 36,
-  "created_at": "2026-08-24T23:52:41.214618+00:00",
+  "created_at": "2026-08-24T23:59:19.116826+00:00",
   "confirmed_at": null,
   "confirmed_by": null,
   "checkpoints": [
@@ -2930,5 +2930,19 @@
       "reviewed_at": null,
       "notes": null
     }
-  ]
+  ],
+  "source_workbooks": {
+    "1": {
+      "file": "第一年学习计划（2026版教材用20251016）.xlsx",
+      "sha256": "34017b6575fa9138fde52c13ab2b695b84e18287e4d70dc96745b9a8123ae524"
+    },
+    "2": {
+      "file": "第二年学习计划（2026版教材用）.xlsx",
+      "sha256": "5413cca727158e6c0b57170b3e24def24aaf1fe66ad30a61c447aa4b8d782dae"
+    },
+    "3": {
+      "file": "第三年学习计划（2026版20250804）.xlsx",
+      "sha256": "38f8ade958671efc7a472abb46d836c7e02617062adb56ca27a571707a47ad69"
+    }
+  }
 }

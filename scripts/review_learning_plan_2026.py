@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 from collections import Counter
 from datetime import UTC, datetime
@@ -28,6 +29,90 @@ def git_commit(repo_root: Path, revision: str) -> str:
         ["git", "-C", str(repo_root), "rev-parse", f"{revision}^{{commit}}"],
         text=True,
     ).strip()
+
+
+def _compact(value: Any) -> str:
+    return re.sub(r"[\s\ufeff\"“”'‘’（）()【】《》、，,；;：:。．/／+＋*]", "", str(value or ""))
+
+
+def _source_text_matches(fragment: Any, source_cell: Any) -> bool:
+    expected = _compact(fragment)
+    actual = _compact(source_cell)
+    if not expected or expected in actual:
+        return True
+    # Numbered course fragments such as “哲学手册编制2” are split from a
+    # source cell written as “哲学手册编制1、2”.
+    suffix = re.search(r"(\d+)$", expected)
+    if suffix:
+        base = expected[: suffix.start()]
+        return bool(base and base in actual and suffix.group(1) in actual.split(base, 1)[1])
+    return False
+
+
+def verify_source_workbooks(
+    plan: dict[str, Any],
+    *,
+    source_workbooks: dict[int, Path],
+    checkpoint_only: bool = True,
+) -> dict[str, Any]:
+    """Compare JSON source references with the original workbook cell text."""
+
+    from openpyxl import load_workbook
+
+    workbooks = {
+        year: load_workbook(path, read_only=True, data_only=True)
+        for year, path in source_workbooks.items()
+    }
+    mismatches: list[dict[str, Any]] = []
+    checked = 0
+    try:
+        for track in plan["cohort_tracks"]:
+            for cycle in track["cycles"]:
+                if checkpoint_only and cycle["cycle_index"] not in CHECKPOINT_CYCLES:
+                    continue
+                for task in cycle.get("tasks", []):
+                    metadata = task.get("metadata") or {}
+                    year = int(metadata.get("source_year"))
+                    sheet_name = metadata.get("source_sheet")
+                    cell = metadata.get("source_cell")
+                    checked += 1
+                    workbook = workbooks.get(year)
+                    if workbook is None or sheet_name not in workbook.sheetnames:
+                        mismatches.append(
+                            {
+                                "cohort_month": track["cohort_month"],
+                                "cycle_index": cycle["cycle_index"],
+                                "task_title": task.get("title"),
+                                "reason": "source_sheet_missing",
+                                "source_year": year,
+                                "source_sheet": sheet_name,
+                                "source_cell": cell,
+                            }
+                        )
+                        continue
+                    source_value = workbook[sheet_name][cell].value
+                    if not _source_text_matches(metadata.get("source_text"), source_value):
+                        mismatches.append(
+                            {
+                                "cohort_month": track["cohort_month"],
+                                "cycle_index": cycle["cycle_index"],
+                                "task_title": task.get("title"),
+                                "reason": "source_text_mismatch",
+                                "source_sheet": sheet_name,
+                                "source_cell": cell,
+                                "json_source_text": metadata.get("source_text"),
+                                "workbook_cell_text": source_value,
+                            }
+                        )
+    finally:
+        for workbook in workbooks.values():
+            workbook.close()
+    return {
+        "checked_task_count": checked,
+        "mismatch_count": len(mismatches),
+        "mismatches": mismatches,
+        "status": "PASS" if not mismatches else "FAIL",
+    }
 
 
 def _checkpoint(plan: dict[str, Any], cohort_month: int, cycle_index: int) -> dict[str, Any]:
@@ -77,14 +162,20 @@ def _checkpoint(plan: dict[str, Any], cohort_month: int, cycle_index: int) -> di
     }
 
 
-def build_review_manifest(plan: dict[str, Any], *, source_commit: str, source_json: Path) -> dict[str, Any]:
+def build_review_manifest(
+    plan: dict[str, Any],
+    *,
+    source_commit: str,
+    source_json: Path,
+    source_workbooks: dict[int, Path] | None = None,
+) -> dict[str, Any]:
     assert_valid_plan(plan)
     checkpoints = [
         _checkpoint(plan, cohort_month, cycle_index)
         for cohort_month in COHORT_MONTHS
         for cycle_index in CHECKPOINT_CYCLES
     ]
-    return {
+    manifest = {
         "review_schema_version": 1,
         "plan_key": plan["plan_key"],
         "version_label": plan["version_label"],
@@ -98,6 +189,12 @@ def build_review_manifest(plan: dict[str, Any], *, source_commit: str, source_js
         "confirmed_by": None,
         "checkpoints": checkpoints,
     }
+    if source_workbooks:
+        manifest["source_workbooks"] = {
+            str(year): {"file": path.name, "sha256": sha256_file(path)}
+            for year, path in sorted(source_workbooks.items())
+        }
+    return manifest
 
 
 def verify_review_manifest(
@@ -147,9 +244,21 @@ def main() -> int:
         default=repo_root / "data" / "learning-plans" / "standard-3y-2026.review.json",
     )
     parser.add_argument("--verify", action="store_true", help="只核验已有审核清单，不重新生成")
+    parser.add_argument("--year1", type=Path, help="第一年原始工作簿（用于源单元格回读）")
+    parser.add_argument("--year2", type=Path, help="第二年原始工作簿（用于源单元格回读）")
+    parser.add_argument("--year3", type=Path, help="第三年原始工作簿（用于源单元格回读）")
     args = parser.parse_args()
     plan = json.loads(args.input.read_text(encoding="utf-8"))
     resolved_commit = git_commit(repo_root, args.source_commit)
+    source_workbooks = None
+    if any(path is not None for path in (args.year1, args.year2, args.year3)):
+        if not all(path is not None for path in (args.year1, args.year2, args.year3)):
+            raise ValueError("--year1、--year2、--year3 必须同时提供")
+        source_workbooks = {1: args.year1, 2: args.year2, 3: args.year3}
+        source_report = verify_source_workbooks(plan, source_workbooks=source_workbooks)
+        print(json.dumps({"source_verification": source_report}, ensure_ascii=False, indent=2))
+        if source_report["mismatch_count"]:
+            return 2
     if args.verify:
         manifest = json.loads(args.output.read_text(encoding="utf-8"))
         verify_review_manifest(
@@ -160,7 +269,12 @@ def main() -> int:
         )
         print(json.dumps({"status": manifest.get("status"), "source_commit": resolved_commit, "source_json_sha256": sha256_file(args.input)}, ensure_ascii=False, indent=2))
         return 0
-    manifest = build_review_manifest(plan, source_commit=resolved_commit, source_json=args.input)
+    manifest = build_review_manifest(
+        plan,
+        source_commit=resolved_commit,
+        source_json=args.input,
+        source_workbooks=source_workbooks,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"status": manifest["status"], "source_commit": resolved_commit, "source_json_sha256": manifest["source_json_sha256"], "checkpoint_count": manifest["required_checkpoint_count"], "output": str(args.output)}, ensure_ascii=False, indent=2))
