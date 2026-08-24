@@ -1,0 +1,2934 @@
+{
+  "review_schema_version": 1,
+  "plan_key": "standard-3y",
+  "version_label": "2026",
+  "source_commit": "370dc9410acf431451a4fb5c54d7436ba43f0338",
+  "source_json": "standard-3y-2026.json",
+  "source_json_sha256": "404e1a9b3ea5037c9d5dd01d112186a629243115ee5c64da8ae0602cd572e8a2",
+  "status": "PENDING",
+  "required_checkpoint_count": 36,
+  "created_at": "2026-08-24T23:52:41.214618+00:00",
+  "confirmed_at": null,
+  "confirmed_by": null,
+  "checkpoints": [
+    {
+      "checkpoint_id": "1-1",
+      "cohort_month": 1,
+      "cycle_index": 1,
+      "year_index": 1,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 1,
+      "source_refs": [
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B10"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B11"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B12"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B14"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B15"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B16"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B17"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B18"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B19"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B4"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B6"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B7"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B8"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "B9"
+        }
+      ],
+      "task_count": 18,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 3,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OFFLINE_COURSE": 1,
+        "ONLINE_COURSE": 3,
+        "READING": 1,
+        "REPORT_MEETING": 1,
+        "STUDY_TOUR": 1
+      },
+      "confirmed_credits": [
+        {
+          "title": "幸福测评表讲解 （请在小组学习会前，集体线上学习并完成三张幸福测评表的填写）",
+          "credit_points": 20,
+          "source_sheet": "26版1月开班",
+          "source_cell": "B10"
+        },
+        {
+          "title": "班级学习会发表稿编写",
+          "credit_points": 20,
+          "source_sheet": "26版1月开班",
+          "source_cell": "B10"
+        }
+      ],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "1-6",
+      "cohort_month": 1,
+      "cycle_index": 6,
+      "year_index": 1,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 6,
+      "source_refs": [
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "G10"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "G12"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "G13"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "G14"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "G16"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "G17"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "G6"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "G7"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "G8"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "G9"
+        }
+      ],
+      "task_count": 13,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 3,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "ONLINE_COURSE": 2
+      },
+      "confirmed_credits": [
+        {
+          "title": "班级学习会：“核算表分析&任务单制作”检视发表",
+          "credit_points": 40,
+          "source_sheet": "26版1月开班",
+          "source_cell": "G7"
+        },
+        {
+          "title": "班级学习会：【会计七原则实践】视频及《经营与会计》书籍学习总结发表",
+          "credit_points": 20,
+          "source_sheet": "26版1月开班",
+          "source_cell": "G8"
+        },
+        {
+          "title": "会计七原则实践  （请在小组会之前安排时间，分段小组集体学习）",
+          "credit_points": 20,
+          "source_sheet": "26版1月开班",
+          "source_cell": "G10"
+        }
+      ],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "1-12",
+      "cohort_month": 1,
+      "cycle_index": 12,
+      "year_index": 1,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 12,
+      "source_refs": [
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "M10"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "M12"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "M13"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "M14"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "M15"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "M16"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "M17"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "M6"
+        },
+        {
+          "source_sheet": "26版1月开班",
+          "source_cell": "M9"
+        }
+      ],
+      "task_count": 11,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 5,
+        "KONPA": 2,
+        "ONLINE_COURSE": 1
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "1-13",
+      "cohort_month": 1,
+      "cycle_index": 13,
+      "year_index": 2,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 1,
+      "source_refs": [
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B10"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B11"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B12"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B13"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B14"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B15"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B17"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B18"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B19"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B20"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B21"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B22"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B5"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B6"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B7"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "B8"
+        }
+      ],
+      "task_count": 18,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 4,
+        "ENTERPRISE_PRACTICE": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OTHER": 1,
+        "READING": 1,
+        "REPORT_MEETING": 1,
+        "STUDY_TOUR": 1,
+        "SUPPLEMENTARY_READING": 1
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "1-18",
+      "cohort_month": 1,
+      "cycle_index": 18,
+      "year_index": 2,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 6,
+      "source_refs": [
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "G10"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "G11"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "G12"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "G15"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "G16"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "G17"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "G18"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "G19"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "G7"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "G8"
+        }
+      ],
+      "task_count": 12,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 4,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "1-24",
+      "cohort_month": 1,
+      "cycle_index": 24,
+      "year_index": 2,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 12,
+      "source_refs": [
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "M12"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "M13"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "M15"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "M16"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "M17"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "M18"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "M19"
+        },
+        {
+          "source_sheet": "2026版1月开班第二年",
+          "source_cell": "M8"
+        }
+      ],
+      "task_count": 10,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OTHER": 1
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "1-25",
+      "cohort_month": 1,
+      "cycle_index": 25,
+      "year_index": 3,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 1,
+      "source_refs": [
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B10"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B11"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B12"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B13"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B14"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B15"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B16"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B17"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B18"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B19"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B20"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B21"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B22"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B23"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B24"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B6"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B7"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B8"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "B9"
+        }
+      ],
+      "task_count": 23,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 2,
+        "ENTERPRISE_PRACTICE": 2,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OFFLINE_COURSE": 1,
+        "ONLINE_COURSE": 2,
+        "OTHER": 1,
+        "READING": 1,
+        "REPORT_MEETING": 1,
+        "STUDY_TOUR": 1,
+        "SUPPLEMENTARY_READING": 4
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "1-30",
+      "cohort_month": 1,
+      "cycle_index": 30,
+      "year_index": 3,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 6,
+      "source_refs": [
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "G11"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "G12"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "G13"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "G14"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "G15"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "G16"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "G17"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "G18"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "G19"
+        }
+      ],
+      "task_count": 11,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 2,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "ONLINE_COURSE": 1
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "1-36",
+      "cohort_month": 1,
+      "cycle_index": 36,
+      "year_index": 3,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 12,
+      "source_refs": [
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "M11"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "M13"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "M15"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "M17"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "M18"
+        },
+        {
+          "source_sheet": "1月开班",
+          "source_cell": "M19"
+        }
+      ],
+      "task_count": 8,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 3,
+        "KONPA": 2
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "4-1",
+      "cohort_month": 4,
+      "cycle_index": 1,
+      "year_index": 1,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 4,
+      "source_refs": [
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B10"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B11"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B12"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B14"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B15"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B16"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B17"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B18"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B19"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B4"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B6"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B7"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B8"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "B9"
+        }
+      ],
+      "task_count": 18,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 3,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OFFLINE_COURSE": 1,
+        "ONLINE_COURSE": 3,
+        "READING": 1,
+        "REPORT_MEETING": 1,
+        "STUDY_TOUR": 1
+      },
+      "confirmed_credits": [
+        {
+          "title": "幸福测评表讲解 （请在小组学习会前，集体线上学习并完成三张幸福测评表的填写）",
+          "credit_points": 20,
+          "source_sheet": "26版4月开班",
+          "source_cell": "B10"
+        },
+        {
+          "title": "班级学习会发表稿编写",
+          "credit_points": 20,
+          "source_sheet": "26版4月开班",
+          "source_cell": "B10"
+        }
+      ],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "4-6",
+      "cohort_month": 4,
+      "cycle_index": 6,
+      "year_index": 1,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 9,
+      "source_refs": [
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "G10"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "G11"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "G12"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "G13"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "G14"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "G16"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "G17"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "G6"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "G7"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "G8"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "G9"
+        }
+      ],
+      "task_count": 15,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 3,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OFFLINE_COURSE": 2,
+        "ONLINE_COURSE": 2
+      },
+      "confirmed_credits": [
+        {
+          "title": "班级学习会：“核算表分析&任务单制作”检视发表",
+          "credit_points": 40,
+          "source_sheet": "26版4月开班",
+          "source_cell": "G7"
+        },
+        {
+          "title": "班级学习会：【会计七原则实践】视频及《经营与会计》书籍学习总结发表",
+          "credit_points": 20,
+          "source_sheet": "26版4月开班",
+          "source_cell": "G8"
+        },
+        {
+          "title": "会计七原则实践  （请在小组会之前安排时间，分段小组集体学习）",
+          "credit_points": 20,
+          "source_sheet": "26版4月开班",
+          "source_cell": "G10"
+        }
+      ],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "4-12",
+      "cohort_month": 4,
+      "cycle_index": 12,
+      "year_index": 1,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 3,
+      "source_refs": [
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "M12"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "M13"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "M14"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "M16"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "M17"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "M6"
+        },
+        {
+          "source_sheet": "26版4月开班",
+          "source_cell": "M9"
+        }
+      ],
+      "task_count": 9,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "4-13",
+      "cohort_month": 4,
+      "cycle_index": 13,
+      "year_index": 2,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 4,
+      "source_refs": [
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B10"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B11"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B12"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B13"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B14"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B15"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B17"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B18"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B19"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B20"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B21"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B22"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B5"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B6"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B7"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "B8"
+        }
+      ],
+      "task_count": 18,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 4,
+        "ENTERPRISE_PRACTICE": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OTHER": 1,
+        "READING": 1,
+        "REPORT_MEETING": 1,
+        "STUDY_TOUR": 1,
+        "SUPPLEMENTARY_READING": 1
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "4-18",
+      "cohort_month": 4,
+      "cycle_index": 18,
+      "year_index": 2,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 9,
+      "source_refs": [
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "G10"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "G11"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "G12"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "G13"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "G14"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "G15"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "G16"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "G17"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "G18"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "G19"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "G7"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "G8"
+        }
+      ],
+      "task_count": 14,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 4,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 5,
+        "KONPA": 2,
+        "OTHER": 1
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "4-24",
+      "cohort_month": 4,
+      "cycle_index": 24,
+      "year_index": 2,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 3,
+      "source_refs": [
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "M12"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "M15"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "M16"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "M17"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "M18"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "M19"
+        },
+        {
+          "source_sheet": "2026版4月开班第二年",
+          "source_cell": "M8"
+        }
+      ],
+      "task_count": 9,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "4-25",
+      "cohort_month": 4,
+      "cycle_index": 25,
+      "year_index": 3,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 4,
+      "source_refs": [
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B10"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B11"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B12"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B13"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B14"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B15"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B16"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B17"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B18"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B19"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B20"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B21"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B22"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B23"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B24"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B6"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B7"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B8"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "B9"
+        }
+      ],
+      "task_count": 23,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 2,
+        "ENTERPRISE_PRACTICE": 2,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OFFLINE_COURSE": 1,
+        "ONLINE_COURSE": 2,
+        "OTHER": 1,
+        "READING": 1,
+        "REPORT_MEETING": 1,
+        "STUDY_TOUR": 1,
+        "SUPPLEMENTARY_READING": 4
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "4-30",
+      "cohort_month": 4,
+      "cycle_index": 30,
+      "year_index": 3,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 9,
+      "source_refs": [
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "G11"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "G12"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "G13"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "G14"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "G15"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "G16"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "G17"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "G18"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "G19"
+        }
+      ],
+      "task_count": 11,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 2,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "ONLINE_COURSE": 1
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "4-36",
+      "cohort_month": 4,
+      "cycle_index": 36,
+      "year_index": 3,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 3,
+      "source_refs": [
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "M11"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "M13"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "M15"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "M17"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "M18"
+        },
+        {
+          "source_sheet": "4月开班",
+          "source_cell": "M19"
+        }
+      ],
+      "task_count": 8,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 3,
+        "KONPA": 2
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "7-1",
+      "cohort_month": 7,
+      "cycle_index": 1,
+      "year_index": 1,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 7,
+      "source_refs": [
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B10"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B11"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B12"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B14"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B15"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B16"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B17"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B18"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B19"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B4"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B6"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B7"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B8"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "B9"
+        }
+      ],
+      "task_count": 18,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 3,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OFFLINE_COURSE": 1,
+        "ONLINE_COURSE": 3,
+        "READING": 1,
+        "REPORT_MEETING": 1,
+        "STUDY_TOUR": 1
+      },
+      "confirmed_credits": [
+        {
+          "title": "幸福测评表讲解 （请在小组学习会前，集体线上学习并完成三张幸福测评表的填写）",
+          "credit_points": 20,
+          "source_sheet": "26版7月开班",
+          "source_cell": "B10"
+        },
+        {
+          "title": "班级学习会发表稿编写",
+          "credit_points": 20,
+          "source_sheet": "26版7月开班",
+          "source_cell": "B10"
+        }
+      ],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "7-6",
+      "cohort_month": 7,
+      "cycle_index": 6,
+      "year_index": 1,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 12,
+      "source_refs": [
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "G10"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "G12"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "G13"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "G14"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "G16"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "G17"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "G6"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "G7"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "G8"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "G9"
+        }
+      ],
+      "task_count": 13,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 3,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "ONLINE_COURSE": 2
+      },
+      "confirmed_credits": [
+        {
+          "title": "班级学习会：“核算表分析&任务单制作”检视发表",
+          "credit_points": 40,
+          "source_sheet": "26版7月开班",
+          "source_cell": "G7"
+        },
+        {
+          "title": "班级学习会：【会计七原则实践】视频及《经营与会计》书籍学习总结发表",
+          "credit_points": 20,
+          "source_sheet": "26版7月开班",
+          "source_cell": "G8"
+        },
+        {
+          "title": "会计七原则实践  （请在小组会之前安排时间，分段小组集体学习）",
+          "credit_points": 20,
+          "source_sheet": "26版7月开班",
+          "source_cell": "G10"
+        }
+      ],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "7-12",
+      "cohort_month": 7,
+      "cycle_index": 12,
+      "year_index": 1,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 6,
+      "source_refs": [
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "M10"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "M12"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "M13"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "M14"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "M15"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "M16"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "M17"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "M6"
+        },
+        {
+          "source_sheet": "26版7月开班",
+          "source_cell": "M9"
+        }
+      ],
+      "task_count": 11,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 5,
+        "KONPA": 2,
+        "ONLINE_COURSE": 1
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "7-13",
+      "cohort_month": 7,
+      "cycle_index": 13,
+      "year_index": 2,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 7,
+      "source_refs": [
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B10"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B11"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B12"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B13"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B14"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B15"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B17"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B18"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B19"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B20"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B21"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B22"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B5"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B6"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B7"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "B8"
+        }
+      ],
+      "task_count": 18,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 4,
+        "ENTERPRISE_PRACTICE": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OTHER": 1,
+        "READING": 1,
+        "REPORT_MEETING": 1,
+        "STUDY_TOUR": 1,
+        "SUPPLEMENTARY_READING": 1
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "7-18",
+      "cohort_month": 7,
+      "cycle_index": 18,
+      "year_index": 2,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 12,
+      "source_refs": [
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "G10"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "G11"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "G12"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "G13"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "G14"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "G15"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "G16"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "G17"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "G18"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "G19"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "G7"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "G8"
+        }
+      ],
+      "task_count": 14,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 4,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OTHER": 2
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "7-24",
+      "cohort_month": 7,
+      "cycle_index": 24,
+      "year_index": 2,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 6,
+      "source_refs": [
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "M12"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "M15"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "M16"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "M17"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "M18"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "M19"
+        },
+        {
+          "source_sheet": "2026版7月开班第二年",
+          "source_cell": "M8"
+        }
+      ],
+      "task_count": 9,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "7-25",
+      "cohort_month": 7,
+      "cycle_index": 25,
+      "year_index": 3,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 7,
+      "source_refs": [
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B10"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B11"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B12"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B13"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B14"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B15"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B16"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B17"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B18"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B19"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B20"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B21"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B22"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B23"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B24"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B6"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B7"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B8"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "B9"
+        }
+      ],
+      "task_count": 23,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 2,
+        "ENTERPRISE_PRACTICE": 2,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OFFLINE_COURSE": 1,
+        "ONLINE_COURSE": 2,
+        "OTHER": 1,
+        "READING": 1,
+        "REPORT_MEETING": 1,
+        "STUDY_TOUR": 1,
+        "SUPPLEMENTARY_READING": 4
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "7-30",
+      "cohort_month": 7,
+      "cycle_index": 30,
+      "year_index": 3,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 12,
+      "source_refs": [
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "G11"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "G12"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "G13"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "G15"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "G16"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "G17"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "G18"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "G19"
+        }
+      ],
+      "task_count": 10,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 2,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "7-36",
+      "cohort_month": 7,
+      "cycle_index": 36,
+      "year_index": 3,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 6,
+      "source_refs": [
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "M11"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "M13"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "M15"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "M17"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "M18"
+        },
+        {
+          "source_sheet": "7月开班",
+          "source_cell": "M19"
+        }
+      ],
+      "task_count": 8,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 3,
+        "KONPA": 2
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "10-1",
+      "cohort_month": 10,
+      "cycle_index": 1,
+      "year_index": 1,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 10,
+      "source_refs": [
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B10"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B11"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B12"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B14"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B15"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B16"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B17"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B18"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B19"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B4"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B6"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B7"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B8"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "B9"
+        }
+      ],
+      "task_count": 18,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 3,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OFFLINE_COURSE": 1,
+        "ONLINE_COURSE": 3,
+        "READING": 1,
+        "REPORT_MEETING": 1,
+        "STUDY_TOUR": 1
+      },
+      "confirmed_credits": [
+        {
+          "title": "幸福测评表讲解 （请在小组学习会前，集体线上学习并完成三张幸福测评表的填写）",
+          "credit_points": 20,
+          "source_sheet": "26版10月开班",
+          "source_cell": "B10"
+        },
+        {
+          "title": "班级学习会发表稿编写",
+          "credit_points": 20,
+          "source_sheet": "26版10月开班",
+          "source_cell": "B10"
+        }
+      ],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "10-6",
+      "cohort_month": 10,
+      "cycle_index": 6,
+      "year_index": 1,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 3,
+      "source_refs": [
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "G10"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "G11"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "G12"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "G13"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "G14"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "G16"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "G17"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "G6"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "G7"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "G8"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "G9"
+        }
+      ],
+      "task_count": 15,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 3,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OFFLINE_COURSE": 2,
+        "ONLINE_COURSE": 2
+      },
+      "confirmed_credits": [
+        {
+          "title": "班级学习会：“核算表分析&任务单制作”检视发表",
+          "credit_points": 40,
+          "source_sheet": "26版10月开班",
+          "source_cell": "G7"
+        },
+        {
+          "title": "班级学习会：【会计七原则实践】视频及《经营与会计》书籍学习总结发表",
+          "credit_points": 20,
+          "source_sheet": "26版10月开班",
+          "source_cell": "G8"
+        },
+        {
+          "title": "会计七原则实践  （请在小组会之前安排时间，分段小组集体学习）",
+          "credit_points": 20,
+          "source_sheet": "26版10月开班",
+          "source_cell": "G10"
+        }
+      ],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "10-12",
+      "cohort_month": 10,
+      "cycle_index": 12,
+      "year_index": 1,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 9,
+      "source_refs": [
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "M12"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "M13"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "M14"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "M16"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "M17"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "M6"
+        },
+        {
+          "source_sheet": "26版10月开班",
+          "source_cell": "M9"
+        }
+      ],
+      "task_count": 9,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "10-13",
+      "cohort_month": 10,
+      "cycle_index": 13,
+      "year_index": 2,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 10,
+      "source_refs": [
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B10"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B11"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B12"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B13"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B14"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B15"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B17"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B18"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B19"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B20"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B21"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B22"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B5"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B6"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "B8"
+        }
+      ],
+      "task_count": 17,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 3,
+        "ENTERPRISE_PRACTICE": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OTHER": 1,
+        "READING": 1,
+        "REPORT_MEETING": 1,
+        "STUDY_TOUR": 1,
+        "SUPPLEMENTARY_READING": 1
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "10-18",
+      "cohort_month": 10,
+      "cycle_index": 18,
+      "year_index": 2,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 3,
+      "source_refs": [
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "G10"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "G11"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "G12"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "G13"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "G14"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "G15"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "G16"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "G17"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "G18"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "G19"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "G7"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "G8"
+        }
+      ],
+      "task_count": 14,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 4,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OTHER": 2
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "10-24",
+      "cohort_month": 10,
+      "cycle_index": 24,
+      "year_index": 2,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 9,
+      "source_refs": [
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "M12"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "M15"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "M16"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "M17"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "M18"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "M19"
+        },
+        {
+          "source_sheet": "2026版10月开班第二年",
+          "source_cell": "M8"
+        }
+      ],
+      "task_count": 9,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "10-25",
+      "cohort_month": 10,
+      "cycle_index": 25,
+      "year_index": 3,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 10,
+      "source_refs": [
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B10"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B11"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B12"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B13"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B14"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B15"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B16"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B17"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B18"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B19"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B20"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B21"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B22"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B23"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B24"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B6"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B7"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B8"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "B9"
+        }
+      ],
+      "task_count": 23,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 2,
+        "ENTERPRISE_PRACTICE": 2,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OFFLINE_COURSE": 1,
+        "ONLINE_COURSE": 2,
+        "OTHER": 1,
+        "READING": 1,
+        "REPORT_MEETING": 1,
+        "STUDY_TOUR": 1,
+        "SUPPLEMENTARY_READING": 4
+      },
+      "confirmed_credits": [
+        {
+          "title": "京瓷如何制定年度计划、",
+          "credit_points": 40,
+          "source_sheet": "10月开班",
+          "source_cell": "B14"
+        }
+      ],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "10-30",
+      "cohort_month": 10,
+      "cycle_index": 30,
+      "year_index": 3,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 3,
+      "source_refs": [
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "G11"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "G12"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "G13"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "G14"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "G15"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "G16"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "G17"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "G18"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "G19"
+        }
+      ],
+      "task_count": 14,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 2,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 4,
+        "KONPA": 2,
+        "OFFLINE_COURSE": 1,
+        "ONLINE_COURSE": 3
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    },
+    {
+      "checkpoint_id": "10-36",
+      "cohort_month": 10,
+      "cycle_index": 36,
+      "year_index": 3,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 9,
+      "source_refs": [
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "M11"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "M13"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "M15"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "M17"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "M18"
+        },
+        {
+          "source_sheet": "10月开班",
+          "source_cell": "M19"
+        }
+      ],
+      "task_count": 8,
+      "task_type_counts": {
+        "CARE": 1,
+        "CLASS_MEETING": 1,
+        "ENTERPRISE_VISIT": 1,
+        "GROUP_MEETING": 3,
+        "KONPA": 2
+      },
+      "confirmed_credits": [],
+      "review_fields": [
+        "class_meeting_content",
+        "group_meeting_content",
+        "online_course_split",
+        "credit_points",
+        "nominal_calendar_month"
+      ],
+      "status": "PENDING",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "notes": null
+    }
+  ]
+}

@@ -18,6 +18,10 @@ from learning_plan_2026 import (  # noqa: E402
     import_plan,
     validate_plan,
 )
+from review_learning_plan_2026 import (  # noqa: E402
+    build_review_manifest,
+    verify_review_manifest,
+)
 
 
 def _synthetic_plan() -> dict:
@@ -171,3 +175,31 @@ def test_course_fragment_number_suffixes_are_split() -> None:
         "哲学手册编制1",
         "哲学手册编制2",
     ]
+
+
+def test_review_manifest_binds_json_hash_and_all_36_checkpoints(tmp_path: Path) -> None:
+    plan = _synthetic_plan()
+    source_json = tmp_path / "standard-3y-2026.json"
+    source_json.write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+    manifest = build_review_manifest(plan, source_commit="370dc94", source_json=source_json)
+    assert manifest["status"] == "PENDING"
+    assert manifest["required_checkpoint_count"] == 36
+    verify_review_manifest(manifest, plan=plan, source_json=source_json, expected_source_commit="370dc94")
+
+    confirmed = json.loads(json.dumps(manifest))
+    confirmed["status"] = "CONFIRMED"
+    confirmed["confirmed_by"] = "reviewer"
+    confirmed["confirmed_at"] = "2026-08-25T00:00:00+08:00"
+    for checkpoint in confirmed["checkpoints"]:
+        checkpoint["status"] = "CONFIRMED"
+    verify_review_manifest(
+        confirmed,
+        plan=plan,
+        source_json=source_json,
+        expected_source_commit="370dc94",
+        require_confirmed=True,
+    )
+
+    source_json.write_text(source_json.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="SHA-256"):
+        verify_review_manifest(confirmed, plan=plan, source_json=source_json, expected_source_commit="370dc94")

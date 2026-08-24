@@ -13,6 +13,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from learning_plan_2026 import import_plan, validate_plan  # noqa: E402
+from review_learning_plan_2026 import git_commit, verify_review_manifest  # noqa: E402
 
 
 def main() -> int:
@@ -30,6 +31,16 @@ def main() -> int:
         "--no-replace-draft",
         action="store_true",
         help="已有 DRAFT 时拒绝重建；默认允许 DRAFT 幂等重建",
+    )
+    parser.add_argument(
+        "--review-manifest",
+        type=Path,
+        default=REPO_ROOT / "data" / "learning-plans" / "standard-3y-2026.review.json",
+        help="36项人工抽查的审核指纹清单；--apply 时必须为 CONFIRMED",
+    )
+    parser.add_argument(
+        "--source-commit",
+        help="固定审核提交；--apply 时必须与审核清单中的 source_commit 一致",
     )
     parser.add_argument("--actor-user-id", type=int, default=None)
     args = parser.parse_args()
@@ -52,6 +63,20 @@ def main() -> int:
     settings = get_settings()
     if settings.is_production:
         raise RuntimeError("学习计划导入脚本禁止写入 production 数据库")
+
+    if not args.source_commit:
+        raise RuntimeError("--apply 必须显式提供固定审核提交 --source-commit")
+    if not args.review_manifest.exists():
+        raise RuntimeError("缺少36项人工抽查审核清单，禁止 B2 导入")
+    review_manifest = json.loads(args.review_manifest.read_text(encoding="utf-8"))
+    expected_commit = git_commit(REPO_ROOT, args.source_commit)
+    verify_review_manifest(
+        review_manifest,
+        plan=plan,
+        source_json=args.input,
+        expected_source_commit=expected_commit,
+        require_confirmed=True,
+    )
 
     from app.db import transaction
     from app.migrations import run_migrations
