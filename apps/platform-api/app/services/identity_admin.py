@@ -60,6 +60,11 @@ def _feature_gate(*, write: bool = False) -> None:
         raise PermissionError("生产身份与任职写入未获批准")
 
 
+def assert_identity_write_enabled() -> None:
+    """Apply the same explicit gate to direct account-management writes."""
+    _feature_gate(write=True)
+
+
 def _as_datetime(value: str, field_name: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value)

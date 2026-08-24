@@ -24,6 +24,7 @@ from app.services.organization_management import (
     preview_learning_org_move,
     transfer_group_member_relation,
 )
+from app.services.identity_admin import assert_identity_write_enabled
 
 
 router = APIRouter(prefix="/api/v1", tags=["iam"])
@@ -87,6 +88,7 @@ def add_user(
     actor: dict = Depends(require_permission("iam:manage")),
 ) -> dict:
     try:
+        assert_identity_write_enabled()
         user_id = create_user(
             actor["id"],
             username=payload.username,
@@ -95,6 +97,8 @@ def add_user(
             roles=payload.roles,
             scopes=[scope.model_dump() for scope in payload.scopes],
         )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": {"id": user_id}}

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import unittest
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -168,6 +170,26 @@ class IamIsolationTests(unittest.TestCase):
         self.assertEqual(context["roles"], [])
         self.assertEqual(context["permissions"], [])
         self.assertEqual(context["scopes"], [])
+
+    def test_direct_account_creation_obeys_identity_write_gate(self) -> None:
+        username = "identity-write-gate-account"
+        with patch.dict(os.environ, {"IDENTITY_ADMIN_WRITES_ENABLED": "false"}):
+            response = self.client.post(
+                "/api/v1/iam/users",
+                headers=self.admin_headers,
+                json={
+                    "username": username,
+                    "display_name": "账号写入门禁测试",
+                    "password": "identity-write-gate-password",
+                    "roles": [],
+                    "scopes": [],
+                },
+            )
+        self.assertEqual(response.status_code, 403, response.text)
+        self.assertIn("写入尚未获准", response.text)
+        self.assertIsNone(
+            fetch_one("SELECT id FROM app_users WHERE username=?", (username,))
+        )
 
     def test_account_management_password_reset_revokes_existing_sessions(self) -> None:
         created = self.client.post(
