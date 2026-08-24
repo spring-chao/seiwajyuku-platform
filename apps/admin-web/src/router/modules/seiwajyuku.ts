@@ -12,32 +12,32 @@ export default [
       rank: 1
     },
     children: [
-    {
-      path: "/operations/dashboard",
-      name: "MpDashboard",
-      component: () => import("@/views/seiwajyuku/dashboard.vue"),
-      meta: {
-        title: "运营总览",
-        icon: "ep/trend-charts"
+      {
+        path: "/operations/dashboard",
+        name: "MpDashboard",
+        component: () => import("@/views/seiwajyuku/dashboard.vue"),
+        meta: {
+          title: "运营总览",
+          icon: "ep/trend-charts"
+        }
+      },
+      {
+        path: "/operations/mp-entry",
+        name: "MpEntry",
+        component: () => import("@/views/seiwajyuku/mp-entry.vue"),
+        meta: {
+          title: "月度填报",
+          icon: "ep/edit-pen",
+          roles: [
+            "system_admin",
+            "operations_admin",
+            "ops_center_director",
+            "ops_center_operations",
+            "ops_center_management",
+            "volunteer_regional_lead"
+          ]
+        }
       }
-    },
-    {
-      path: "/operations/mp-entry",
-      name: "MpEntry",
-      component: () => import("@/views/seiwajyuku/mp-entry.vue"),
-      meta: {
-        title: "月度填报",
-        icon: "ep/edit-pen",
-        roles: [
-          "system_admin",
-          "operations_admin",
-          "ops_center_director",
-          "ops_center_operations",
-          "ops_center_management",
-          "volunteer_regional_lead"
-        ]
-      }
-    },
     ]
   },
   {
@@ -80,6 +80,25 @@ export default [
             "volunteer_group_committee",
             "volunteer_activity",
             "read_only"
+          ]
+        }
+      },
+      {
+        path: "/operations/enrollment-applications",
+        name: "EnrollmentApplications",
+        component: () =>
+          import("@/views/seiwajyuku/enrollment-applications.vue"),
+        meta: {
+          title: "新学长入塾申请",
+          icon: "ep/document-checked",
+          roles: [
+            "system_admin",
+            "operations_admin",
+            "ops_center_director",
+            "ops_center_operations",
+            "ops_center_development",
+            "ops_center_finance",
+            "regional_manager"
           ]
         }
       },
@@ -218,7 +237,8 @@ export default [
       {
         path: "/operations/organization-management",
         name: "OrganizationManagement",
-        component: () => import("@/views/seiwajyuku/organization-management.vue"),
+        component: () =>
+          import("@/views/seiwajyuku/organization-management.vue"),
         meta: {
           title: "班级与小组管理",
           icon: "ep/office-building",

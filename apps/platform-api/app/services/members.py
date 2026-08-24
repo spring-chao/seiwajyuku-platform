@@ -5,6 +5,7 @@ import io
 import json
 import re
 import secrets
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -157,11 +158,30 @@ def create_member(
     company_size: str | None = None,
     profit_margin: str | None = None,
     notes: str | None = None,
+    connection: Any | None = None,
+    source_type: str = "MEMBER_CREATE",
+    audit_action: str = "members.create",
+    protected_phone_fields: dict[str, str] | None = None,
+    enterprise_financial_ciphertext: str | None = None,
 ) -> int:
+    if source_type not in {"MEMBER_CREATE", "ENROLLMENT_APPLICATION"}:
+        raise ValueError("不支持的学员创建来源")
+
+    def select_one(statement: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
+        if connection is None:
+            return fetch_one(statement, params)
+        row = execute(connection, statement, params).fetchone()
+        return dict(row) if row else None
+
+    def select_all(statement: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        if connection is None:
+            return fetch_all(statement, params)
+        return [dict(row) for row in execute(connection, statement, params).fetchall()]
+
     allowed = accessible_org_ids(actor_user_id)
     if allowed is not None and org_unit_id not in allowed:
         raise PermissionError("不能在授权组织之外创建学长")
-    primary_org = fetch_one(
+    primary_org = select_one(
         "SELECT unit_type, is_active FROM org_units WHERE id=?", (org_unit_id,)
     )
     if not primary_org or not primary_org["is_active"]:
@@ -169,7 +189,7 @@ def create_member(
     if primary_org["unit_type"] != "REGIONAL_CENTER":
         raise ValueError("学员主归属必须是正式区域分中心")
     if development_org_unit_id:
-        development_org = fetch_one(
+        development_org = select_one(
             "SELECT unit_type, is_active FROM org_units WHERE id=?",
             (development_org_unit_id,),
         )
@@ -179,18 +199,30 @@ def create_member(
             raise ValueError("发展组织必须是根节点或分中心")
         if allowed is not None and development_org_unit_id not in allowed:
             raise PermissionError("不能将学长关联到授权范围外的发展组织")
-    fields: dict[str, str | None] = (
-        protected_phone(phone)
-        if phone and phone.strip()
-        else {
-            "phone_ciphertext": None,
-            "phone_hash": None,
-            "phone_last4": None,
-            "phone_masked": None,
+    if protected_phone_fields is not None:
+        if phone and phone.strip():
+            raise ValueError("受保护手机号字段与明文手机号不能同时提供")
+        required_phone_keys = {
+            "phone_ciphertext", "phone_hash", "phone_last4", "phone_masked"
         }
-    )
+        if set(protected_phone_fields) != required_phone_keys or not all(
+            protected_phone_fields.get(key) for key in required_phone_keys
+        ):
+            raise ValueError("受保护手机号字段不完整")
+        fields: dict[str, str | None] = dict(protected_phone_fields)
+    else:
+        fields = (
+            protected_phone(phone)
+            if phone and phone.strip()
+            else {
+                "phone_ciphertext": None,
+                "phone_hash": None,
+                "phone_last4": None,
+                "phone_masked": None,
+            }
+        )
     if fields["phone_hash"]:
-        duplicate = fetch_one(
+        duplicate = select_one(
             "SELECT member_code FROM members WHERE phone_hash=? LIMIT 1",
             (fields["phone_hash"],),
         )
@@ -214,7 +246,9 @@ def create_member(
         actor = user_context(actor_user_id)
         if not actor or "members:enterprise_view" not in actor["permissions"]:
             raise PermissionError("当前角色不能维护敏感财务资料")
-    financial_ciphertext = (
+    if enterprise_financial_ciphertext and financial_data:
+        raise ValueError("受保护财务字段与明文财务字段不能同时提供")
+    financial_ciphertext = enterprise_financial_ciphertext or (
         encrypt_text(json.dumps(financial_data, ensure_ascii=False))
         if financial_data
         else None
@@ -225,7 +259,7 @@ def create_member(
         renewal_month = inferred_renewal_month(join_date)
     class_org_id: str | None = None
     if class_org_unit_id:
-        class_org = fetch_one(
+        class_org = select_one(
             "SELECT id, name, unit_type, parent_id, is_active FROM org_units WHERE id=?",
             (class_org_unit_id,),
         )
@@ -244,7 +278,7 @@ def create_member(
         class_org_id = class_org["id"]
         class_name = class_org["name"]
     elif class_name and class_name.strip():
-        class_matches = fetch_all(
+        class_matches = select_all(
             "SELECT id, name, unit_type, parent_id FROM org_units "
             "WHERE is_active=1 AND name=? AND unit_type IN ('CLASS', 'SPECIAL_COHORT')",
             (class_name.strip(),),
@@ -261,7 +295,7 @@ def create_member(
         class_name = class_matches[0]["name"]
     group_org_id: str | None = None
     if group_org_unit_id:
-        group_org = fetch_one(
+        group_org = select_one(
             "SELECT id, name, unit_type, parent_id, is_active FROM org_units WHERE id=?",
             (group_org_unit_id,),
         )
@@ -287,12 +321,13 @@ def create_member(
             raise ValueError("小组必须同时选择所属班级")
         group_sql += " AND parent_id=?"
         group_params += (class_org_id,)
-        group_matches = fetch_all(group_sql, group_params)
+        group_matches = select_all(group_sql, group_params)
         if len(group_matches) != 1:
             raise ValueError("小组文本无法唯一匹配正式组织，请改用小组组织ID")
         group_org_id = group_matches[0]["id"]
         group_name = group_matches[0]["name"]
-    with transaction() as connection:
+    connection_scope = nullcontext(connection) if connection is not None else transaction()
+    with connection_scope as connection:
         cursor = execute(
             connection,
             "INSERT INTO members(member_code, name, org_unit_id, development_org_unit_id, status, "
@@ -342,12 +377,13 @@ def create_member(
                 "INSERT INTO member_org_relations"
                 "(member_id, org_unit_id, relation_type, is_primary, "
                 "source_type, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, 'MEMBER_CREATE', ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     member_id,
                     relation_org_id,
                     relation_type,
                     1 if is_primary else 0,
+                    source_type,
                     now,
                     now,
                 ),
@@ -355,7 +391,7 @@ def create_member(
         write_audit(
             connection,
             actor_user_id=actor_user_id,
-            action="members.create",
+            action=audit_action,
             resource_type="member",
             resource_id=str(member_id),
             org_unit_id=org_unit_id,

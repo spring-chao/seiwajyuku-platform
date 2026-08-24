@@ -38,6 +38,11 @@ PERMISSIONS = {
     "integrations:manage": ("管理数据集成", "SENSITIVE"),
     "attendance:sync": ("同步签到出勤数据", "SENSITIVE"),
     "attendance:adjudicate": ("出勤裁定", "SENSITIVE"),
+    "enrollment:read": ("查看新学长入塾申请", "INTERNAL"),
+    "enrollment:review": ("审核新学长入塾申请", "SENSITIVE"),
+    "enrollment:payment_confirm": ("确认入塾申请收款", "SENSITIVE"),
+    "enrollment:enroll": ("将已完成申请正式入塾", "SENSITIVE"),
+    "enrollment:manage_link": ("管理公开入塾申请二维码", "SENSITIVE"),
 }
 ROLE_PERMISSIONS = {
     "system_admin": set(PERMISSIONS) - {"exports:sensitive"},
@@ -51,11 +56,15 @@ ROLE_PERMISSIONS = {
         "followups:manage", "exports:normal", "audit:read",
         "integrations:manage", "renewals:read", "renewals:manage",
         "attendance:sync", "attendance:adjudicate",
+        "enrollment:read", "enrollment:review", "enrollment:payment_confirm",
+        "enrollment:enroll", "enrollment:manage_link",
     },
     "regional_manager": {
         "org:read", "plans:read", "plans:period_write", "members:read",
         "members:manage", "members:detail_view", "followups:manage", "contact:reveal",
         "exports:normal", "renewals:read", "renewals:manage",
+        "enrollment:read", "enrollment:review", "enrollment:payment_confirm",
+        "enrollment:enroll",
     },
     "class_counselor": {
         "org:read", "plans:read", "members:read", "members:detail_view",
@@ -72,11 +81,15 @@ ROLE_PERMISSIONS = {
         "members:detail_view", "members:enterprise_view", "followups:manage",
         "renewals:read", "renewals:manage", "exports:normal", "audit:read",
         "integrations:manage", "attendance:sync", "attendance:adjudicate",
+        "enrollment:read", "enrollment:review", "enrollment:payment_confirm",
+        "enrollment:enroll", "enrollment:manage_link",
     },
     "ops_center_operations": {
         "org:read", "plans:read", "plans:period_write", "members:read",
         "members:manage", "members:detail_view", "followups:manage",
         "renewals:read", "renewals:manage", "exports:normal",
+        "enrollment:read", "enrollment:review", "enrollment:payment_confirm",
+        "enrollment:enroll",
     },
     "ops_center_learning": {
         "org:read", "plans:read", "members:read", "members:detail_view",
@@ -85,6 +98,7 @@ ROLE_PERMISSIONS = {
     "ops_center_development": {
         "org:read", "members:read", "members:manage", "members:detail_view",
         "followups:manage", "renewals:read", "renewals:manage", "exports:normal",
+        "enrollment:read", "enrollment:review", "enrollment:enroll",
     },
     "ops_center_management": {
         "org:read", "plans:read", "plans:period_write", "plans:publish",
@@ -97,6 +111,7 @@ ROLE_PERMISSIONS = {
     },
     "ops_center_finance": {
         "org:read", "plans:read", "renewals:read", "renewals:manage",
+        "enrollment:read", "enrollment:payment_confirm",
     },
     "ops_center_administration": {
         "org:read", "members:read", "members:detail_view", "followups:manage",

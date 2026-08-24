@@ -10,6 +10,16 @@ export default [
       showLink: false
     }
   },
+  {
+    path: "/enroll/:token",
+    name: "PublicEnrollment",
+    component: () => import("@/views/public/enrollment.vue"),
+    meta: {
+      title: "新学长入塾申请",
+      showLink: false,
+      public: true
+    }
+  },
   // 全屏403（无权访问）页面
   {
     path: "/access-denied",

@@ -27,6 +27,8 @@ class Settings:
     integration_api_key: str
     deployment_read_only: bool
     run_bootstrap_on_startup: bool
+    public_enrollment_rate_limit: int = 12
+    public_enrollment_rate_window_seconds: int = 300
     signin_api_base_url: str = ""
     signin_service_api_key: str = ""
     identity_authorization_enabled: bool = False
@@ -99,6 +101,10 @@ class Settings:
             raise RuntimeError(
                 "Agent API 已启用：必须配置非空 AGENT_CLIENT_ID 和至少32位 AGENT_CLIENT_SECRET"
             )
+        if self.public_enrollment_rate_limit < 1:
+            raise RuntimeError("公开入塾申请限流次数必须大于0")
+        if self.public_enrollment_rate_window_seconds < 1:
+            raise RuntimeError("公开入塾申请限流窗口必须大于0秒")
 
 
 def get_settings() -> Settings:
@@ -122,6 +128,12 @@ def get_settings() -> Settings:
         integration_api_key=os.getenv("INTEGRATION_API_KEY", "dev-integration-key").strip(),
         deployment_read_only=_bool("DEPLOYMENT_READ_ONLY"),
         run_bootstrap_on_startup=_bool("RUN_BOOTSTRAP_ON_STARTUP"),
+        public_enrollment_rate_limit=int(
+            os.getenv("PUBLIC_ENROLLMENT_RATE_LIMIT", "12")
+        ),
+        public_enrollment_rate_window_seconds=int(
+            os.getenv("PUBLIC_ENROLLMENT_RATE_WINDOW_SECONDS", "300")
+        ),
         identity_authorization_enabled=_bool("IDENTITY_AUTHORIZATION_ENABLED"),
         identity_admin_writes_enabled=_bool("IDENTITY_ADMIN_WRITES_ENABLED"),
         volunteer_service_invitations_enabled=_bool(
