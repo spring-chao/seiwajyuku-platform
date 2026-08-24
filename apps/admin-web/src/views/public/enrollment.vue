@@ -22,18 +22,33 @@ const form = reactive({
   phone: "",
   gender: "" as "" | "MALE" | "FEMALE" | "OTHER",
   birthday: "",
-  district: "",
+  political_status: "",
   company_name: "",
+  company_address: "",
+  email: "",
   position: "",
   referrer: "",
-  industry_category: "",
+  invoice_info: "",
+  invoice_type: "",
   industry: "",
   company_products: "",
+  employee_count: "",
+  books_read: "",
+  enrollment_reason_philosophy: "",
+  enrollment_reason_change: "",
+  enrollment_reason_other: "",
+  learning_years_goal: "",
+  learning_participation_goal: "",
+  business_goal: "",
+  other_goal: "",
   annual_sales: "",
-  profit_margin: "",
-  notes: "",
   privacy_consent: false
 });
+
+const requiredText = (label: string, max: number) => [
+  { required: true, message: `请填写${label}`, trigger: "blur" },
+  { max, message: `${label}过长`, trigger: "blur" }
+];
 
 const rules: FormRules = {
   name: [
@@ -47,6 +62,32 @@ const rules: FormRules = {
       message: "请填写11位中国大陆手机号",
       trigger: "blur"
     }
+  ],
+  birthday: [{ required: true, message: "请选择出生日期", trigger: "change" }],
+  referrer: requiredText("推荐人", 255),
+  company_name: requiredText("公司名称", 500),
+  company_address: requiredText("公司地址", 1000),
+  position: requiredText("职务", 255),
+  invoice_info: requiredText("开票资料", 4000),
+  invoice_type: requiredText("发票类型", 64),
+  industry: requiredText("所属行业", 255),
+  company_products: requiredText("主要产品", 4000),
+  employee_count: [
+    { required: true, message: "请填写员工人数", trigger: "blur" },
+    {
+      pattern: /^\d+$/,
+      message: "员工人数请输入整数",
+      trigger: "blur"
+    }
+  ],
+  books_read: requiredText("所读稻盛和夫著作", 4000),
+  enrollment_reason_philosophy: requiredText("认同的哲学理念", 4000),
+  enrollment_reason_change: requiredText("期望改变或努力方向", 4000),
+  enrollment_reason_other: requiredText("入塾初心的其他内容", 4000),
+  annual_sales: requiredText("年销售额", 255),
+  email: [
+    { type: "email", message: "邮箱格式不正确", trigger: "blur" },
+    { max: 255, message: "邮箱过长", trigger: "blur" }
   ],
   privacy_consent: [
     {
@@ -86,17 +127,27 @@ async function submit() {
     phone: form.phone.trim(),
     privacy_consent: true,
     gender: form.gender || undefined,
-    birthday: optional(form.birthday),
-    district: optional(form.district),
-    company_name: optional(form.company_name),
-    position: optional(form.position),
-    referrer: optional(form.referrer),
-    industry_category: optional(form.industry_category),
-    industry: optional(form.industry),
-    company_products: optional(form.company_products),
-    annual_sales: optional(form.annual_sales),
-    profit_margin: optional(form.profit_margin),
-    notes: optional(form.notes)
+    birthday: form.birthday,
+    political_status: optional(form.political_status),
+    company_name: form.company_name.trim(),
+    company_address: form.company_address.trim(),
+    email: optional(form.email),
+    position: form.position.trim(),
+    referrer: form.referrer.trim(),
+    invoice_info: form.invoice_info.trim(),
+    invoice_type: form.invoice_type.trim(),
+    industry: form.industry.trim(),
+    company_products: form.company_products.trim(),
+    employee_count: Number(form.employee_count),
+    books_read: form.books_read.trim(),
+    enrollment_reason_philosophy: form.enrollment_reason_philosophy.trim(),
+    enrollment_reason_change: form.enrollment_reason_change.trim(),
+    enrollment_reason_other: form.enrollment_reason_other.trim(),
+    learning_years_goal: optional(form.learning_years_goal),
+    learning_participation_goal: optional(form.learning_participation_goal),
+    business_goal: optional(form.business_goal),
+    other_goal: optional(form.other_goal),
+    annual_sales: form.annual_sales.trim()
   };
   try {
     await submitPublicEnrollment(token.value, payload);
@@ -168,7 +219,7 @@ onMounted(loadForm);
             </div>
           </div>
 
-          <el-form-item label="姓名" prop="name">
+          <el-form-item label="姓名" prop="name" required>
             <el-input
               v-model="form.name"
               maxlength="255"
@@ -177,7 +228,7 @@ onMounted(loadForm);
             />
           </el-form-item>
 
-          <el-form-item label="手机号" prop="phone">
+          <el-form-item label="手机号" prop="phone" required>
             <el-input
               v-model="form.phone"
               maxlength="11"
@@ -196,7 +247,7 @@ onMounted(loadForm);
           </el-form-item>
 
           <div class="two-column">
-            <el-form-item label="生日">
+            <el-form-item label="出生日期" prop="birthday" required>
               <el-date-picker
                 v-model="form.birthday"
                 type="date"
@@ -205,95 +256,224 @@ onMounted(loadForm);
                 :teleported="false"
               />
             </el-form-item>
-            <el-form-item label="所在地区">
-              <el-input v-model="form.district" placeholder="如：昆山市" />
+            <el-form-item label="政治面貌">
+              <el-input
+                v-model="form.political_status"
+                maxlength="255"
+                placeholder="如：群众、中共党员"
+              />
+            </el-form-item>
+          </div>
+
+          <div class="two-column">
+            <el-form-item label="推荐人" prop="referrer" required>
+              <el-input
+                v-model="form.referrer"
+                maxlength="255"
+                placeholder="请填写推荐学长姓名"
+              />
+            </el-form-item>
+            <el-form-item label="邮箱">
+              <el-input
+                v-model="form.email"
+                maxlength="255"
+                type="email"
+                autocomplete="email"
+                placeholder="用于接收电子发票（可选）"
+              />
             </el-form-item>
           </div>
 
           <div class="section-heading spaced">
             <span>02</span>
             <div>
-              <h2>企业与经营信息</h2>
-              <p>用于了解经营情况与后续学习服务</p>
+              <h2>企业与开票资料</h2>
+              <p>请按申请书填写企业基本经营信息</p>
             </div>
           </div>
 
-          <el-form-item label="企业名称">
+          <el-form-item label="公司名称" prop="company_name" required>
             <el-input
               v-model="form.company_name"
               maxlength="500"
               placeholder="请填写企业全称"
             />
           </el-form-item>
-          <el-form-item label="职务">
+
+          <el-form-item label="公司地址" prop="company_address" required>
             <el-input
-              v-model="form.position"
-              maxlength="255"
-              placeholder="如：董事长、总经理"
-            />
-          </el-form-item>
-          <el-form-item label="推荐人">
-            <el-input
-              v-model="form.referrer"
-              maxlength="255"
-              placeholder="如有推荐人可填写"
+              v-model="form.company_address"
+              maxlength="1000"
+              placeholder="请填写公司完整地址"
             />
           </el-form-item>
 
           <div class="two-column">
-            <el-form-item label="行业大类">
+            <el-form-item label="职务" prop="position" required>
               <el-input
-                v-model="form.industry_category"
-                placeholder="如：制造业"
+                v-model="form.position"
+                maxlength="255"
+                placeholder="如：董事长、总经理"
               />
             </el-form-item>
-            <el-form-item label="细分行业">
-              <el-input v-model="form.industry" placeholder="如：汽车零部件" />
+            <el-form-item label="发票类型" prop="invoice_type" required>
+              <el-input
+                v-model="form.invoice_type"
+                maxlength="64"
+                placeholder="如：增值税普通发票"
+              />
             </el-form-item>
           </div>
 
-          <el-form-item label="主要产品或服务">
+          <el-form-item label="开票资料" prop="invoice_info" required>
+            <el-input
+              v-model="form.invoice_info"
+              type="textarea"
+              :rows="2"
+              maxlength="4000"
+              show-word-limit
+              placeholder="请填写发票抬头、税号等开票资料"
+            />
+          </el-form-item>
+
+          <div class="two-column">
+            <el-form-item label="所属行业" prop="industry" required>
+              <el-input
+                v-model="form.industry"
+                maxlength="255"
+                placeholder="如：制造业"
+              />
+            </el-form-item>
+            <el-form-item label="员工人数" prop="employee_count" required>
+              <el-input
+                v-model="form.employee_count"
+                maxlength="8"
+                inputmode="numeric"
+                placeholder="请输入人数"
+              />
+            </el-form-item>
+          </div>
+
+          <el-form-item label="主要产品" prop="company_products" required>
             <el-input
               v-model="form.company_products"
               type="textarea"
               :rows="3"
               maxlength="4000"
               show-word-limit
-              placeholder="简要介绍主要产品、服务或客户"
+              placeholder="请填写主要产品或服务"
             />
           </el-form-item>
 
           <div class="financial-panel">
             <div class="privacy-badge">企业敏感资料 · 加密保存</div>
-            <div class="two-column">
-              <el-form-item label="年销售额">
-                <el-input
-                  v-model="form.annual_sales"
-                  maxlength="255"
-                  placeholder="可填写金额或销售额区间"
-                />
-              </el-form-item>
-              <el-form-item label="利润率">
-                <el-input
-                  v-model="form.profit_margin"
-                  maxlength="64"
-                  placeholder="如：15%"
-                />
-              </el-form-item>
-            </div>
-            <p>
-              年销售额、利润率仅供获授权人员在入塾审核和后续经营学习服务中使用。
-            </p>
+            <el-form-item label="年销售额" prop="annual_sales" required>
+              <el-input
+                v-model="form.annual_sales"
+                maxlength="255"
+                placeholder="如：5000万元，或填写销售额区间"
+              />
+            </el-form-item>
+            <p>年销售额仅供获授权人员在入塾审核和后续经营学习服务中使用。</p>
           </div>
 
-          <el-form-item label="其他补充">
+          <div class="section-heading spaced">
+            <span>03</span>
+            <div>
+              <h2>学习经历与入塾初心</h2>
+              <p>帮助工作人员了解你的学习基础与加入动机</p>
+            </div>
+          </div>
+
+          <el-form-item label="所读稻盛和夫著作" prop="books_read" required>
             <el-input
-              v-model="form.notes"
+              v-model="form.books_read"
               type="textarea"
               :rows="3"
-              maxlength="1000"
+              maxlength="4000"
               show-word-limit
-              placeholder="请勿填写身份证、银行卡等无关敏感信息"
+              placeholder="请列举几本，如无请填写“无”"
+            />
+          </el-form-item>
+
+          <el-form-item
+            label="对稻盛塾长的哪些哲学理念比较认同"
+            prop="enrollment_reason_philosophy"
+            required
+          >
+            <el-input
+              v-model="form.enrollment_reason_philosophy"
+              type="textarea"
+              :rows="3"
+              maxlength="4000"
+              show-word-limit
+            />
+          </el-form-item>
+
+          <el-form-item
+            label="期望在哪方面改变或朝哪方面努力"
+            prop="enrollment_reason_change"
+            required
+          >
+            <el-input
+              v-model="form.enrollment_reason_change"
+              type="textarea"
+              :rows="3"
+              maxlength="4000"
+              show-word-limit
+            />
+          </el-form-item>
+
+          <el-form-item
+            label="其他（修身、齐家、治企、益社会等）"
+            prop="enrollment_reason_other"
+            required
+          >
+            <el-input
+              v-model="form.enrollment_reason_other"
+              type="textarea"
+              :rows="3"
+              maxlength="4000"
+              show-word-limit
+            />
+          </el-form-item>
+
+          <div class="section-heading spaced">
+            <span>04</span>
+            <div>
+              <h2>入塾后目标</h2>
+              <p>可按目前计划填写，后续可在审核时补充</p>
+            </div>
+          </div>
+
+          <el-form-item label="计划入塾学习年限目标">
+            <el-input v-model="form.learning_years_goal" maxlength="255" />
+          </el-form-item>
+          <el-form-item label="计划入塾学习目标（打卡、活动参与、分享发表等）">
+            <el-input
+              v-model="form.learning_participation_goal"
+              type="textarea"
+              :rows="3"
+              maxlength="4000"
+              show-word-limit
+            />
+          </el-form-item>
+          <el-form-item label="入塾提升公司业绩目标（销售额、利润率等）">
+            <el-input
+              v-model="form.business_goal"
+              type="textarea"
+              :rows="3"
+              maxlength="4000"
+              show-word-limit
+            />
+          </el-form-item>
+          <el-form-item label="其他目标（个人、家庭、公司、社会贡献等）">
+            <el-input
+              v-model="form.other_goal"
+              type="textarea"
+              :rows="3"
+              maxlength="4000"
+              show-word-limit
             />
           </el-form-item>
 

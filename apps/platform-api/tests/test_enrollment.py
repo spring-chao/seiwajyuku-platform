@@ -81,7 +81,24 @@ class EnrollmentApplicationTests(unittest.TestCase):
             "name": "申请测试学长",
             "phone": phone,
             "privacy_consent": True,
+            "birthday": "1980-01-02",
             "company_name": "申请测试企业",
+            "company_address": "苏州工业园区测试路1号",
+            "position": "总经理",
+            "referrer": "推荐测试学长",
+            "invoice_info": "申请测试企业|91320000TEST2026|苏州工业园区测试路1号",
+            "invoice_type": "增值税普通发票",
+            "industry": "制造业",
+            "company_products": "测试产品",
+            "employee_count": 20,
+            "books_read": "活法",
+            "enrollment_reason_philosophy": "认同敬天爱人的理念",
+            "enrollment_reason_change": "提升经营能力",
+            "enrollment_reason_other": "修身齐家治企",
+            "learning_years_goal": "长期坚持学习",
+            "learning_participation_goal": "保持学习打卡并参加活动",
+            "business_goal": "提升销售额和利润率",
+            "other_goal": "为社会做出贡献",
             "annual_sales": "测试销售额区间",
             "profit_margin": "测试利润率区间",
             "notes": "希望了解学习安排",
@@ -97,7 +114,11 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertEqual(form.status_code, 200, form.text)
         data = form.json()["data"]
         self.assertFalse(data["collects_organization"])
-        self.assertIn("annual_sales", data["optional_fields"])
+        self.assertIn("company_address", data["required_fields"])
+        self.assertIn("employee_count", data["required_fields"])
+        self.assertIn("books_read", data["required_fields"])
+        self.assertIn("enrollment_reason_philosophy", data["required_fields"])
+        self.assertIn("annual_sales", data["required_fields"])
         self.assertIn("profit_margin", data["optional_fields"])
         rejected = self._submit(
             token, _phone(), org_unit_id="enrollment-test-center"
@@ -121,6 +142,11 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertEqual(row["application_status"], "SUBMITTED")
         self.assertEqual(row["payment_status"], "UNCONFIRMED")
         self.assertIsNone(row["org_unit_id"])
+        self.assertEqual(row["company_address"], "苏州工业园区测试路1号")
+        self.assertEqual(row["invoice_type"], "增值税普通发票")
+        self.assertEqual(row["employee_count"], 20)
+        self.assertEqual(row["books_read"], "活法")
+        self.assertEqual(row["enrollment_reason_philosophy"], "认同敬天爱人的理念")
         self.assertNotEqual(row["phone_ciphertext"], phone)
         self.assertNotIn("测试销售额", row["enterprise_financial_ciphertext"])
         self.assertEqual(len(fetch_all("SELECT id FROM members")), before_members)
@@ -315,6 +341,7 @@ class EnrollmentApplicationTests(unittest.TestCase):
         )
         self.assertEqual(central_list.status_code, 200, central_list.text)
         self.assertEqual(central_list.json()["data"][0]["id"], application_id)
+        self.assertEqual(central_list.json()["data"][0]["phone"], phone)
 
         assigned = self.client.patch(
             f"/api/v1/enrollment-applications/{application_id}/review",
@@ -331,6 +358,9 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertTrue(data["has_enterprise_financial_data"])
         self.assertFalse(data["financial_fields_visible"])
         self.assertIsNone(data["annual_sales"])
+        self.assertEqual(data["phone"], phone)
+        self.assertEqual(data["company_address"], "苏州工业园区测试路1号")
+        self.assertEqual(data["employee_count"], 20)
         self.assertNotIn("phone_ciphertext", data)
         self.assertNotIn("phone_hash", data)
 

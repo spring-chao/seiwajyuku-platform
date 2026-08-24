@@ -26,12 +26,26 @@ REVIEW_FIELDS = {
     "gender",
     "birthday",
     "district",
+    "political_status",
     "company_name",
+    "company_address",
+    "email",
     "position",
     "referrer",
+    "invoice_info",
+    "invoice_type",
     "industry_category",
     "industry",
     "company_products",
+    "employee_count",
+    "books_read",
+    "enrollment_reason_philosophy",
+    "enrollment_reason_change",
+    "enrollment_reason_other",
+    "learning_years_goal",
+    "learning_participation_goal",
+    "business_goal",
+    "other_goal",
     "notes",
     "org_unit_id",
     "join_date",
@@ -248,19 +262,37 @@ def get_public_enrollment_form(token: str) -> dict[str, Any]:
         "link_name": link["name"],
         "notice": "提交申请不代表已正式入塾，工作人员审核、确认收款及归属分中心后才会建立正式学长档案。",
         "privacy_notice": "所填资料仅用于入塾审核与后续服务。手机号和企业财务资料将加密保存并按权限使用。",
-        "required_fields": ["name", "phone", "privacy_consent"],
-        "optional_fields": [
-            "gender",
+        "required_fields": [
+            "name",
+            "phone",
             "birthday",
-            "district",
-            "company_name",
-            "position",
             "referrer",
-            "industry_category",
+            "company_name",
+            "company_address",
+            "position",
+            "invoice_info",
+            "invoice_type",
             "industry",
             "company_products",
+            "employee_count",
             "annual_sales",
+            "books_read",
+            "enrollment_reason_philosophy",
+            "enrollment_reason_change",
+            "enrollment_reason_other",
+            "privacy_consent",
+        ],
+        "optional_fields": [
+            "gender",
+            "district",
+            "political_status",
+            "email",
+            "industry_category",
             "profit_margin",
+            "learning_years_goal",
+            "learning_participation_goal",
+            "business_goal",
+            "other_goal",
             "notes",
         ],
         "collects_organization": False,
@@ -361,15 +393,65 @@ def submit_public_enrollment(
             "gender",
             "birthday",
             "district",
+            "political_status",
             "company_name",
+            "company_address",
+            "email",
             "position",
             "referrer",
+            "invoice_info",
+            "invoice_type",
             "industry_category",
             "industry",
             "company_products",
+            "books_read",
+            "enrollment_reason_philosophy",
+            "enrollment_reason_change",
+            "enrollment_reason_other",
+            "learning_years_goal",
+            "learning_participation_goal",
+            "business_goal",
+            "other_goal",
             "notes",
         )
     }
+    values["employee_count"] = payload.get("employee_count")
+    insert_values = (
+        application_no,
+        link["id"],
+        phone_fields["phone_ciphertext"],
+        phone_fields["phone_hash"],
+        phone_fields["phone_last4"],
+        phone_fields["phone_masked"],
+        phone_fields["phone_hash"],
+        name,
+        values["gender"],
+        values["birthday"],
+        values["district"],
+        values["political_status"],
+        values["company_name"],
+        values["company_address"],
+        values["email"],
+        values["position"],
+        values["referrer"],
+        values["invoice_info"],
+        values["invoice_type"],
+        values["industry_category"],
+        values["industry"],
+        values["company_products"],
+        values["employee_count"],
+        values["books_read"],
+        values["enrollment_reason_philosophy"],
+        values["enrollment_reason_change"],
+        values["enrollment_reason_other"],
+        values["learning_years_goal"],
+        values["learning_participation_goal"],
+        values["business_goal"],
+        values["other_goal"],
+        financial_ciphertext,
+        values["notes"],
+        now,
+    )
     try:
         with transaction() as connection:
             cursor = execute(
@@ -377,37 +459,18 @@ def submit_public_enrollment(
                 "INSERT INTO member_enrollment_applications("
                 "application_no, link_id, phone_ciphertext, phone_hash, phone_last4, "
                 "phone_masked, active_phone_guard, name, gender, birthday, district, "
-                "company_name, position, referrer, industry_category, industry, "
-                "company_products, enterprise_financial_ciphertext, notes, "
-                "privacy_consent_at, application_status, payment_status, "
-                "duplicate_member_risk, org_unit_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                "political_status, company_name, company_address, email, position, "
+                "referrer, invoice_info, invoice_type, industry_category, industry, "
+                "company_products, employee_count, books_read, "
+                "enrollment_reason_philosophy, enrollment_reason_change, "
+                "enrollment_reason_other, learning_years_goal, "
+                "learning_participation_goal, business_goal, other_goal, "
+                "enterprise_financial_ciphertext, notes, privacy_consent_at, "
+                "application_status, payment_status, duplicate_member_risk, "
+                "org_unit_id, created_at, updated_at) "
+                f"VALUES ({', '.join('?' for _ in insert_values)}, "
                 "'SUBMITTED', 'UNCONFIRMED', ?, NULL, ?, ?)",
-                (
-                    application_no,
-                    link["id"],
-                    phone_fields["phone_ciphertext"],
-                    phone_fields["phone_hash"],
-                    phone_fields["phone_last4"],
-                    phone_fields["phone_masked"],
-                    phone_fields["phone_hash"],
-                    name,
-                    values["gender"],
-                    values["birthday"],
-                    values["district"],
-                    values["company_name"],
-                    values["position"],
-                    values["referrer"],
-                    values["industry_category"],
-                    values["industry"],
-                    values["company_products"],
-                    financial_ciphertext,
-                    values["notes"],
-                    now,
-                    1 if duplicate_member else 0,
-                    now,
-                    now,
-                ),
+                insert_values + (1 if duplicate_member else 0, now, now),
             )
             application_id = int(cursor.lastrowid)
             write_audit(
@@ -481,6 +544,8 @@ def list_enrollment_applications(
     query: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
+    actor = user_context(actor_user_id) or {"permissions": []}
+    can_view_contact = "enrollment:read" in actor["permissions"]
     conditions = ["1=1"]
     params: list[Any] = []
     if application_status:
@@ -499,7 +564,8 @@ def list_enrollment_applications(
     params.extend(scope_params)
     params.append(limit)
     rows = fetch_all(
-        "SELECT a.id, a.application_no, a.name, a.phone_masked, a.company_name, "
+        "SELECT a.id, a.application_no, a.name, a.phone_masked, a.phone_ciphertext, "
+        "a.company_name, "
         "a.application_status, a.payment_status, a.duplicate_member_risk, "
         "a.org_unit_id, o.name AS org_unit_name, a.join_date, a.converted_member_id, "
         "a.created_at, a.updated_at FROM member_enrollment_applications a "
@@ -513,6 +579,9 @@ def list_enrollment_applications(
     result: list[dict[str, Any]] = []
     for row in rows:
         safe = _json_safe_row(row)
+        safe.pop("phone_ciphertext", None)
+        if can_view_contact:
+            safe["phone"] = decrypt_text(row["phone_ciphertext"])
         safe["duplicate_member_risk"] = bool(safe["duplicate_member_risk"])
         safe["computed_status"] = _computed_status(row)
         result.append(safe)
@@ -587,6 +656,7 @@ def get_enrollment_application(actor_user_id: int, application_id: int) -> dict[
         raise ValueError("入塾申请不存在")
     _assert_application_scope(actor_user_id, row)
     user = user_context(actor_user_id) or {"permissions": []}
+    can_view_contact = "enrollment:read" in user["permissions"]
     can_view_financial = "members:enterprise_view" in user["permissions"]
     can_view_payment_detail = (
         "enrollment:payment_confirm" in user["permissions"]
@@ -616,6 +686,8 @@ def get_enrollment_application(actor_user_id: int, application_id: int) -> dict[
         safe.pop("payment_amount", None)
         safe.pop("payment_note", None)
     safe["duplicate_member_risk"] = bool(row["duplicate_member_risk"])
+    if can_view_contact:
+        safe["phone"] = decrypt_text(row["phone_ciphertext"])
     safe["computed_status"] = _computed_status(row)
     safe["has_enterprise_financial_data"] = bool(row.get("enterprise_financial_ciphertext"))
     safe["financial_fields_visible"] = can_view_financial
@@ -832,6 +904,7 @@ def enroll_application(actor_user_id: int, application_id: int) -> dict[str, Any
             company_name=row.get("company_name"),
             gender=row.get("gender"),
             district=row.get("district"),
+            company_address=row.get("company_address"),
             birthday=_json_safe(row.get("birthday")),
             join_date=_json_safe(row.get("join_date")),
             status="ACTIVE",
@@ -840,6 +913,7 @@ def enroll_application(actor_user_id: int, application_id: int) -> dict[str, Any
             industry_category=row.get("industry_category"),
             industry=row.get("industry"),
             company_products=row.get("company_products"),
+            employee_count=row.get("employee_count"),
             notes=row.get("notes"),
             connection=connection,
             source_type="ENROLLMENT_APPLICATION",

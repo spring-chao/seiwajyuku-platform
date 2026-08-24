@@ -1,0 +1,15 @@
+ALTER TABLE member_enrollment_applications
+    DROP COLUMN other_goal,
+    DROP COLUMN business_goal,
+    DROP COLUMN learning_participation_goal,
+    DROP COLUMN learning_years_goal,
+    DROP COLUMN enrollment_reason_other,
+    DROP COLUMN enrollment_reason_change,
+    DROP COLUMN enrollment_reason_philosophy,
+    DROP COLUMN books_read,
+    DROP COLUMN employee_count,
+    DROP COLUMN invoice_type,
+    DROP COLUMN invoice_info,
+    DROP COLUMN email,
+    DROP COLUMN company_address,
+    DROP COLUMN political_status;

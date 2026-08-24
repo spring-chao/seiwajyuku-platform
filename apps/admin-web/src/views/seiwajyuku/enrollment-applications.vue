@@ -58,12 +58,26 @@ const editForm = reactive({
   gender: "" as "" | "MALE" | "FEMALE" | "OTHER",
   birthday: "",
   district: "",
+  political_status: "",
   company_name: "",
+  company_address: "",
+  email: "",
   position: "",
   referrer: "",
+  invoice_info: "",
+  invoice_type: "",
   industry_category: "",
   industry: "",
   company_products: "",
+  employee_count: null as number | null,
+  books_read: "",
+  enrollment_reason_philosophy: "",
+  enrollment_reason_change: "",
+  enrollment_reason_other: "",
+  learning_years_goal: "",
+  learning_participation_goal: "",
+  business_goal: "",
+  other_goal: "",
   annual_sales: "",
   profit_margin: "",
   notes: "",
@@ -109,6 +123,10 @@ function formatTime(value?: string | null) {
   return value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "—";
 }
 
+function phoneHref(value?: string | null) {
+  return value ? `tel:${value}` : undefined;
+}
+
 function errorText(error: any, fallback = "操作失败") {
   return error?.response?.data?.detail || fallback;
 }
@@ -145,12 +163,26 @@ function syncEditForm(value: EnrollmentApplicationDetail) {
     gender: value.gender || "",
     birthday: value.birthday || "",
     district: value.district || "",
+    political_status: value.political_status || "",
     company_name: value.company_name || "",
+    company_address: value.company_address || "",
+    email: value.email || "",
     position: value.position || "",
     referrer: value.referrer || "",
+    invoice_info: value.invoice_info || "",
+    invoice_type: value.invoice_type || "",
     industry_category: value.industry_category || "",
     industry: value.industry || "",
     company_products: value.company_products || "",
+    employee_count: value.employee_count ?? null,
+    books_read: value.books_read || "",
+    enrollment_reason_philosophy: value.enrollment_reason_philosophy || "",
+    enrollment_reason_change: value.enrollment_reason_change || "",
+    enrollment_reason_other: value.enrollment_reason_other || "",
+    learning_years_goal: value.learning_years_goal || "",
+    learning_participation_goal: value.learning_participation_goal || "",
+    business_goal: value.business_goal || "",
+    other_goal: value.other_goal || "",
     annual_sales: value.annual_sales || "",
     profit_margin: value.profit_margin || "",
     notes: value.notes || "",
@@ -186,12 +218,28 @@ function buildReviewPayload(
     gender: editForm.gender || null,
     birthday: editForm.birthday || null,
     district: editForm.district.trim() || null,
+    political_status: editForm.political_status.trim() || null,
     company_name: editForm.company_name.trim() || null,
+    company_address: editForm.company_address.trim() || null,
+    email: editForm.email.trim() || null,
     position: editForm.position.trim() || null,
     referrer: editForm.referrer.trim() || null,
+    invoice_info: editForm.invoice_info.trim() || null,
+    invoice_type: editForm.invoice_type.trim() || null,
     industry_category: editForm.industry_category.trim() || null,
     industry: editForm.industry.trim() || null,
     company_products: editForm.company_products.trim() || null,
+    employee_count: editForm.employee_count,
+    books_read: editForm.books_read.trim() || null,
+    enrollment_reason_philosophy:
+      editForm.enrollment_reason_philosophy.trim() || null,
+    enrollment_reason_change: editForm.enrollment_reason_change.trim() || null,
+    enrollment_reason_other: editForm.enrollment_reason_other.trim() || null,
+    learning_years_goal: editForm.learning_years_goal.trim() || null,
+    learning_participation_goal:
+      editForm.learning_participation_goal.trim() || null,
+    business_goal: editForm.business_goal.trim() || null,
+    other_goal: editForm.other_goal.trim() || null,
     notes: editForm.notes.trim() || null,
     org_unit_id: editForm.org_unit_id || null,
     join_date: editForm.join_date || null
@@ -589,7 +637,19 @@ onMounted(async () => {
           min-width="170"
         />
         <el-table-column prop="name" label="姓名" min-width="110" />
-        <el-table-column prop="phone_masked" label="手机号" min-width="130" />
+        <el-table-column label="手机号" min-width="150">
+          <template #default="scope">
+            <el-link
+              v-if="scope.row.phone"
+              :href="phoneHref(scope.row.phone)"
+              type="primary"
+              @click.stop
+            >
+              {{ scope.row.phone }}
+            </el-link>
+            <span v-else>{{ scope.row.phone_masked }}</span>
+          </template>
+        </el-table-column>
         <el-table-column
           prop="company_name"
           label="企业"
@@ -646,7 +706,16 @@ onMounted(async () => {
           <div class="detail-title">
             <div>
               <h3>{{ detail.name }}</h3>
-              <p>{{ detail.application_no }} · {{ detail.phone_masked }}</p>
+              <p>
+                {{ detail.application_no }} ·
+                <el-link
+                  :href="phoneHref(detail.phone)"
+                  type="primary"
+                  :underline="false"
+                >
+                  {{ detail.phone || detail.phone_masked }}
+                </el-link>
+              </p>
             </div>
             <el-tag :type="statusType(detail.computed_status)" size="large">
               {{ statusLabels[detail.computed_status] }}
@@ -665,6 +734,15 @@ onMounted(async () => {
             <div class="form-grid">
               <el-form-item label="姓名">
                 <el-input v-model="editForm.name" :disabled="!canReview" />
+              </el-form-item>
+              <el-form-item label="手机号">
+                <el-link
+                  :href="phoneHref(detail.phone)"
+                  type="primary"
+                  :underline="false"
+                >
+                  {{ detail.phone || detail.phone_masked }}
+                </el-link>
               </el-form-item>
               <el-form-item label="性别">
                 <el-select
@@ -688,6 +766,12 @@ onMounted(async () => {
               <el-form-item label="所在地区">
                 <el-input v-model="editForm.district" :disabled="!canReview" />
               </el-form-item>
+              <el-form-item label="政治面貌">
+                <el-input
+                  v-model="editForm.political_status"
+                  :disabled="!canReview"
+                />
+              </el-form-item>
               <el-form-item label="企业名称">
                 <el-input
                   v-model="editForm.company_name"
@@ -697,8 +781,23 @@ onMounted(async () => {
               <el-form-item label="职务">
                 <el-input v-model="editForm.position" :disabled="!canReview" />
               </el-form-item>
+              <el-form-item label="邮箱">
+                <el-input v-model="editForm.email" :disabled="!canReview" />
+              </el-form-item>
               <el-form-item label="推荐人">
                 <el-input v-model="editForm.referrer" :disabled="!canReview" />
+              </el-form-item>
+              <el-form-item label="公司地址">
+                <el-input
+                  v-model="editForm.company_address"
+                  :disabled="!canReview"
+                />
+              </el-form-item>
+              <el-form-item label="发票类型">
+                <el-input
+                  v-model="editForm.invoice_type"
+                  :disabled="!canReview"
+                />
               </el-form-item>
               <el-form-item label="行业大类">
                 <el-input
@@ -725,6 +824,15 @@ onMounted(async () => {
                   />
                 </el-select>
               </el-form-item>
+              <el-form-item label="员工人数">
+                <el-input-number
+                  v-model="editForm.employee_count"
+                  :min="0"
+                  :max="10000000"
+                  :disabled="!canReview"
+                  controls-position="right"
+                />
+              </el-form-item>
               <el-form-item label="入塾日期">
                 <el-date-picker
                   v-model="editForm.join_date"
@@ -744,6 +852,85 @@ onMounted(async () => {
                 :disabled="!canReview"
               />
             </el-form-item>
+
+            <el-form-item label="开票资料">
+              <el-input
+                v-model="editForm.invoice_info"
+                type="textarea"
+                :rows="2"
+                :disabled="!canReview"
+              />
+            </el-form-item>
+
+            <el-form-item label="所读稻盛和夫著作">
+              <el-input
+                v-model="editForm.books_read"
+                type="textarea"
+                :rows="2"
+                :disabled="!canReview"
+              />
+            </el-form-item>
+
+            <div class="form-grid">
+              <el-form-item label="认同的哲学理念">
+                <el-input
+                  v-model="editForm.enrollment_reason_philosophy"
+                  type="textarea"
+                  :rows="3"
+                  :disabled="!canReview"
+                />
+              </el-form-item>
+              <el-form-item label="期望改变或努力方向">
+                <el-input
+                  v-model="editForm.enrollment_reason_change"
+                  type="textarea"
+                  :rows="3"
+                  :disabled="!canReview"
+                />
+              </el-form-item>
+            </div>
+            <el-form-item label="入塾初心的其他内容">
+              <el-input
+                v-model="editForm.enrollment_reason_other"
+                type="textarea"
+                :rows="3"
+                :disabled="!canReview"
+              />
+            </el-form-item>
+
+            <div class="goal-panel">
+              <div class="section-label">入塾后目标</div>
+              <el-form-item label="学习年限目标">
+                <el-input
+                  v-model="editForm.learning_years_goal"
+                  :disabled="!canReview"
+                />
+              </el-form-item>
+              <el-form-item label="学习与活动参与目标">
+                <el-input
+                  v-model="editForm.learning_participation_goal"
+                  type="textarea"
+                  :rows="2"
+                  :disabled="!canReview"
+                />
+              </el-form-item>
+              <el-form-item label="公司业绩目标">
+                <el-input
+                  v-model="editForm.business_goal"
+                  type="textarea"
+                  :rows="2"
+                  :disabled="!canReview"
+                />
+              </el-form-item>
+              <el-form-item label="其他目标">
+                <el-input
+                  v-model="editForm.other_goal"
+                  type="textarea"
+                  :rows="2"
+                  :disabled="!canReview"
+                />
+              </el-form-item>
+            </div>
 
             <div class="financial-detail">
               <div class="section-label">企业敏感财务资料</div>
@@ -1016,6 +1203,7 @@ onMounted(async () => {
 }
 
 .financial-detail,
+.goal-panel,
 .gate-panel {
   padding: 16px;
   margin-bottom: 20px;
