@@ -50,7 +50,7 @@ def _visible_class(class_org_unit_id: str, user_id: int) -> dict[str, Any]:
 def _plan_cycle_payload(connection, plan_cycle_id: int) -> dict[str, Any] | None:
     cycle = execute(
         connection,
-        "SELECT id, plan_version_id, cycle_index, year_index, cycle_label "
+        "SELECT id, plan_version_id, cohort_month, cycle_index, year_index, cycle_label "
         "FROM learning_plan_cycles WHERE id=?",
         (plan_cycle_id,),
     ).fetchone()
@@ -94,12 +94,21 @@ def list_learning_plans() -> list[dict[str, Any]]:
             item = dict(row)
             cycles = execute(
                 connection,
-                "SELECT id, cycle_index, year_index, cycle_label "
-                "FROM learning_plan_cycles WHERE plan_version_id=? ORDER BY cycle_index",
+                "SELECT id, cohort_month FROM learning_plan_cycles "
+                "WHERE plan_version_id=? ORDER BY cohort_month, cycle_index",
                 (row["id"],),
             ).fetchall()
-            item["cycles"] = [
-                _plan_cycle_payload(connection, int(cycle["id"])) for cycle in cycles
+            tracks: dict[int | None, list[dict[str, Any]]] = {}
+            for cycle in cycles:
+                track = cycle["cohort_month"]
+                tracks.setdefault(track, []).append(
+                    _plan_cycle_payload(connection, int(cycle["id"]))
+                )
+            item["cohort_tracks"] = [
+                {"cohort_month": cohort_month, "cycles": tracks[cohort_month]}
+                for cohort_month in sorted(
+                    tracks, key=lambda value: (value is None, value or 0)
+                )
             ]
             result.append(item)
         return result
@@ -136,6 +145,28 @@ def _cycle_at(
             (binding_id,),
         ).fetchone()
     return dict(row) if row else None
+
+
+def _plan_cycle_for_track(
+    connection, *, plan_version_id: int, cohort_month: int | None, cycle_index: int
+) -> dict[str, Any] | None:
+    """Prefer the class's cohort track and fall back only to a NULL generic track."""
+    if cohort_month is not None:
+        exact = execute(
+            connection,
+            "SELECT id FROM learning_plan_cycles WHERE plan_version_id=? "
+            "AND cohort_month=? AND cycle_index=?",
+            (plan_version_id, cohort_month, cycle_index),
+        ).fetchone()
+        if exact:
+            return dict(exact)
+    generic = execute(
+        connection,
+        "SELECT id FROM learning_plan_cycles WHERE plan_version_id=? "
+        "AND cohort_month IS NULL AND cycle_index=?",
+        (plan_version_id, cycle_index),
+    ).fetchone()
+    return dict(generic) if generic else None
 
 
 def _groups(connection, class_org_unit_id: str) -> list[dict[str, Any]]:
@@ -274,13 +305,15 @@ def bind_class_learning_plan(
             if int(existing["plan_version_id"]) == int(plan_version_id):
                 return _progress_from_connection(connection, class_org_unit_id, at=now)
             raise ValueError("该班级已有生效中的学习计划绑定")
-        first_cycle = execute(
+        first_cycle = _plan_cycle_for_track(
             connection,
-            "SELECT id FROM learning_plan_cycles WHERE plan_version_id=? AND cycle_index=1",
-            (plan_version_id,),
-        ).fetchone()
+            plan_version_id=plan_version_id,
+            cohort_month=cohort_month,
+            cycle_index=1,
+        )
         if not first_cycle:
-            raise ValueError("学习计划缺少第1学习周期")
+            cohort_label = f"{cohort_month}月开班" if cohort_month else "通用"
+            raise ValueError(f"学习计划缺少{cohort_label}第1学习周期")
         cursor = execute(
             connection,
             "INSERT INTO class_learning_bindings(class_org_unit_id, plan_version_id, cohort_month, "
@@ -501,13 +534,15 @@ def confirm_class_meeting(
         next_index = int(cycle["learning_cycle_index"]) + 1
         duration = int(binding["duration_cycles"])
         if next_index <= duration:
-            next_plan_cycle = execute(
+            next_plan_cycle = _plan_cycle_for_track(
                 connection,
-                "SELECT id FROM learning_plan_cycles WHERE plan_version_id=? AND cycle_index=?",
-                (binding["plan_version_id"], next_index),
-            ).fetchone()
+                plan_version_id=int(binding["plan_version_id"]),
+                cohort_month=binding.get("cohort_month"),
+                cycle_index=next_index,
+            )
             if not next_plan_cycle:
-                raise ValueError(f"学习计划缺少第{next_index}学习周期")
+                cohort_label = f"{binding['cohort_month']}月开班" if binding.get("cohort_month") else "通用"
+                raise ValueError(f"学习计划缺少{cohort_label}第{next_index}学习周期")
             execute(
                 connection,
                 "INSERT INTO class_learning_cycles(binding_id, class_org_unit_id, learning_cycle_index, "
