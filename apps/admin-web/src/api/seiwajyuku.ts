@@ -2309,6 +2309,47 @@ export type LearningPlanGroupFlow = {
   quality: Record<string, unknown>;
 };
 
+export type LearningPlanC6ReviewItem = {
+  review_id: string;
+  kind: "MAPPING_CONFLICT" | "MAPPING_MISSING" | "QR_REVIEW_REQUIRED" | "COURSE_NODE" | "FLOW_SAMPLE";
+  review_status: "PENDING" | "CONFIRMED";
+  resolution_status: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  notes: string | null;
+  mapping_key?: string;
+  flow_key?: string | null;
+  candidate_flow_keys?: string[];
+  source_course_key?: string | null;
+  source_credit_points?: number | null;
+  resolved_flow_key?: string | null;
+  resolved_course_key?: string | null;
+  resolved_credit_points?: number | null;
+  year_index?: number | null;
+  cycle_index?: number | null;
+  source?: { relative_path?: string; filename?: string; sha256?: string };
+  context_text?: string | null;
+  review_prompt?: string;
+  [key: string]: unknown;
+};
+
+export type LearningPlanC6Review = {
+  review_schema_version: number;
+  review_type: string;
+  plan_key: string;
+  base_version_label: string;
+  candidate_version_label: string;
+  candidate_status: "DRAFT" | "CONFIRMED_CANDIDATE";
+  status: "PENDING" | "CONFIRMED_CANDIDATE";
+  source_fingerprint: Record<string, unknown>;
+  summary: Record<string, number | string>;
+  mapping_conflicts: LearningPlanC6ReviewItem[];
+  mapping_missing: LearningPlanC6ReviewItem[];
+  qr_review_required: LearningPlanC6ReviewItem[];
+  course_nodes: LearningPlanC6ReviewItem[];
+  flow_samples: LearningPlanC6ReviewItem[];
+};
+
 export type LearningPlanGroupFlowCatalog = {
   plan_key: string;
   version_label: string;
@@ -2332,6 +2373,9 @@ export type LearningPlanGroupFlowCatalog = {
   source_fragment_count: number;
   quality_report: Record<string, any>;
   mapping_quality_report: Record<string, any>;
+  c6_review_status: "PENDING" | "CONFIRMED_CANDIDATE";
+  c6_summary: Record<string, number | string>;
+  c6_review: LearningPlanC6Review;
   credit_policy: LearningPlanGroupMeetingCatalog["credit_policy"];
   course_credit_rules: Record<string, unknown>;
   flows: LearningPlanGroupFlow[];
@@ -2355,6 +2399,18 @@ export const getLearningPlanGroupMeetingFlows = () =>
     "get",
     "/api/v1/learning-plan-group-meeting-flows"
   );
+
+export const getLearningPlanGroupMeetingC6Review = () =>
+  http.request<{
+    success: boolean;
+    data: {
+      plan_key: string;
+      version_label: string;
+      status: LearningPlanC6Review["status"];
+      summary: LearningPlanC6Review["summary"];
+      review: LearningPlanC6Review;
+    };
+  }>("get", "/api/v1/learning-plan-group-meeting-c6-review");
 
 export const getLearningPlanCourseCreditRules = () =>
   http.request<{

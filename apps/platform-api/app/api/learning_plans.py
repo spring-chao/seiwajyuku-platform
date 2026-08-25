@@ -52,6 +52,7 @@ def _learning_plan_data_paths() -> dict[str, Path]:
             "mapping": data_root / "cycle-flow-mapping-2026.1.json",
             "rules": data_root / "course-credit-rules-2026.json",
             "inventory": data_root / "group-meeting-source-inventory-2026.json",
+            "c6_review": data_root / "standard-3y-2026.1.review.json",
         }
         if all(path.is_file() for path in required.values()):
             return required
@@ -171,6 +172,7 @@ def _learning_plan_group_meeting_flow_payload() -> dict:
     mapping = json.loads(paths["mapping"].read_text(encoding="utf-8"))
     rules = json.loads(paths["rules"].read_text(encoding="utf-8"))
     inventory = json.loads(paths["inventory"].read_text(encoding="utf-8"))
+    c6_review = json.loads(paths["c6_review"].read_text(encoding="utf-8"))
     source_files = [
         {
             "filename": item.get("filename"),
@@ -203,6 +205,9 @@ def _learning_plan_group_meeting_flow_payload() -> dict:
         ),
         "quality_report": flows.get("quality_report", {}),
         "mapping_quality_report": mapping.get("quality_report", {}),
+        "c6_review_status": c6_review.get("status", "PENDING"),
+        "c6_summary": c6_review.get("summary", {}),
+        "c6_review": c6_review,
         "credit_policy": GROUP_MEETING_CREDIT_POLICY,
         "course_credit_rules": rules,
         "flows": flows.get("flows", []),
@@ -265,6 +270,26 @@ def learning_plan_group_meeting_flows(
         return {"success": True, "data": _learning_plan_group_meeting_flow_payload()}
     except (FileNotFoundError, json.JSONDecodeError) as exc:
         raise HTTPException(503, "小组学习会完整流程暂不可用") from exc
+
+
+@router.get("/learning-plan-group-meeting-c6-review")
+def learning_plan_group_meeting_c6_review(
+    user: dict = Depends(require_permission("plans:read")),
+) -> dict:
+    try:
+        payload = _learning_plan_group_meeting_flow_payload()
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise HTTPException(503, "小组学习会 C6 复核清单暂不可用") from exc
+    return {
+        "success": True,
+        "data": {
+            "plan_key": payload["plan_key"],
+            "version_label": payload["version_label"],
+            "status": payload["c6_review_status"],
+            "summary": payload["c6_summary"],
+            "review": payload["c6_review"],
+        },
+    }
 
 
 @router.get("/learning-plan-group-meeting-flows/{flow_key}")
