@@ -1,0 +1,3307 @@
+{
+  "schema_version": 1,
+  "plan_key": "standard-3y",
+  "version_label": "2026.1",
+  "status": "DRAFT",
+  "generated_at": "2026-08-25T07:23:35.799975+00:00",
+  "source_plan": {
+    "filename": "standard-3y-2026.json",
+    "sha256": "404e1a9b3ea5037c9d5dd01d112186a629243115ee5c64da8ae0602cd572e8a2"
+  },
+  "source_flows": {
+    "filename": "group-meeting-flows-2026.1.json",
+    "sha256": "b9cdca0a705feff1a22a8e63308eeb5bc35a618021373faf08cfce984f743c17",
+    "source_inventory_sha256": "3199fbcc8e1678a306473a2de801d65e0a705b21d2385a3c5116a4ab12dff579"
+  },
+  "quality_report": {
+    "entry_count": 144,
+    "mapped_count": 129,
+    "missing_count": 10,
+    "conflict_count": 5,
+    "calendar_month_used_as_primary_key": false
+  },
+  "mappings": [
+    {
+      "mapping_key": "1-1",
+      "cohort_month": 1,
+      "cycle_index": 1,
+      "year_index": 1,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 1,
+      "status": "MAPPED",
+      "flow_key": "Y1-C01-COHORT-1-4-7-10-ebaa40d595",
+      "candidate_flow_keys": [
+        "Y1-C01-COHORT-1-4-7-10-ebaa40d595"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第1个月】（2026版1、4、7、10月开班）班级学习会《心想事成》+《活法》总结发表+整体核算表实操演练+小组学习会-《如何制作核算表》+幸福测评改善0811.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 1,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-2",
+      "cohort_month": 1,
+      "cycle_index": 2,
+      "year_index": 1,
+      "year_cycle_index": 2,
+      "nominal_calendar_month": 2,
+      "status": "MAPPED",
+      "flow_key": "Y1-C02-COHORT-1-4-7-10-7ebca1ab98",
+      "candidate_flow_keys": [
+        "Y1-C02-COHORT-1-4-7-10-7ebca1ab98"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第2个月】（2026版1、4、7、10月开班）班级学习会《心灵管理》+《活法》总结发表+小组学习会-《发表稿编写讲解》视频学习+《活法》总结发表+整体核算表实操+研讨0811.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 2,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-3",
+      "cohort_month": 1,
+      "cycle_index": 3,
+      "year_index": 1,
+      "year_cycle_index": 3,
+      "nominal_calendar_month": 3,
+      "status": "MAPPED",
+      "flow_key": "Y1-C03-COHORT-1-4-7-10-701acadcad",
+      "candidate_flow_keys": [
+        "Y1-C03-COHORT-1-4-7-10-701acadcad"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第3个月】（2026版1、4、7、10月开班）班级学习会《六项精进》+《六项精进实践》视频学习总结发表+小组学习会-《六项精进实践》视频学习+发表辅导+整体核算表实操+研讨0811.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 3,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-4",
+      "cohort_month": 1,
+      "cycle_index": 4,
+      "year_index": 1,
+      "year_cycle_index": 4,
+      "nominal_calendar_month": 4,
+      "status": "MAPPED",
+      "flow_key": "Y1-C04-COHORT-1-4-7-10-307195848f",
+      "candidate_flow_keys": [
+        "Y1-C04-COHORT-1-4-7-10-307195848f"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第4个月】（2026版1、4、7、10月开班）班级学习会《经营十二条》+《经营十二条实践》视频学习总结发表+小组学习会-《经营十二条实践》视频学习+发表辅导+整体核算表实操+研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 4,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-5",
+      "cohort_month": 1,
+      "cycle_index": 5,
+      "year_index": 1,
+      "year_cycle_index": 5,
+      "nominal_calendar_month": 5,
+      "status": "MAPPED",
+      "flow_key": "Y1-C05-COHORT-1-4-7-10-c29bc0e80f",
+      "candidate_flow_keys": [
+        "Y1-C05-COHORT-1-4-7-10-c29bc0e80f"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第5个月】（2026版1、4、7、10月开班）班级学习会《用数字经营企业》视频学习+整体核算表检视发表+核算表任务单实操演练研讨+小组学习会-《核算表分析任务单制作》视频学习+整体核算表实操演练研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 5,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-6",
+      "cohort_month": 1,
+      "cycle_index": 6,
+      "year_index": 1,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 6,
+      "status": "MAPPED",
+      "flow_key": "Y1-C06-COHORT-1-4-7-10-04634b485c",
+      "candidate_flow_keys": [
+        "Y1-C06-COHORT-1-4-7-10-04634b485c"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第6个月】（2026版1、4、7、10月开班）班级学习会《京瓷会计学》视频学习+核算表任务单检视发表+《会计七原则实践》总结发表+小组学习会-《会计七原则实践》视频学习总结发表稿辅导+《企业导入讲解》视频学习+导入测评+核算表分析任务单实操演练研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 6,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-7",
+      "cohort_month": 1,
+      "cycle_index": 7,
+      "year_index": 1,
+      "year_cycle_index": 7,
+      "nominal_calendar_month": 7,
+      "status": "MAPPED",
+      "flow_key": "Y1-C07-COHORT-1-7-464bdcd214",
+      "candidate_flow_keys": [
+        "Y1-C07-COHORT-1-7-464bdcd214"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第7个月】（2026版1、7月开班）班级学习会-《领导人的资质》+核算表分析与任务单检视发表+小组学习会-核算表分析与任务单检视+研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 7,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-8",
+      "cohort_month": 1,
+      "cycle_index": 8,
+      "year_index": 1,
+      "year_cycle_index": 8,
+      "nominal_calendar_month": 8,
+      "status": "MAPPED",
+      "flow_key": "Y1-C08-COHORT-1-7-2926ab4bad",
+      "candidate_flow_keys": [
+        "Y1-C08-COHORT-1-7-2926ab4bad"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第8个月】（2026版1、7月开班）班级学习会-《经营为什么需要哲学》+核算表分析&任务单检视发表+成功方程式49天研讨+小组学习会-成功方程式49天讲解视频+研讨+核算表分析与任务单检视+研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 8,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-9",
+      "cohort_month": 1,
+      "cycle_index": 9,
+      "year_index": 1,
+      "year_cycle_index": 9,
+      "nominal_calendar_month": 9,
+      "status": "MAPPED",
+      "flow_key": "Y1-C09-COHORT-1-7-bce57b2f2e",
+      "candidate_flow_keys": [
+        "Y1-C09-COHORT-1-7-bce57b2f2e"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第9个月】（2026版1、7月开班）班级学习会-《经营为什么一定要实现高收益》+成功方程式49天研讨+核算表分析&任务单制作检视发表+小组学习会-成功方程式49天研讨+核算表分析&任务单检视+研讨0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 9,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-10",
+      "cohort_month": 1,
+      "cycle_index": 10,
+      "year_index": 1,
+      "year_cycle_index": 10,
+      "nominal_calendar_month": 10,
+      "status": "MAPPED",
+      "flow_key": "Y1-C10-COHORT-1-7-d46687f182",
+      "candidate_flow_keys": [
+        "Y1-C10-COHORT-1-7-d46687f182"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第10个月】(2026版1、7月开班）班级学习会-《经营者需要的三种力量》+核算表分析&任务单制作检视发表+年度计划制定的检视研讨+小组学习会-《京瓷如何制定年度计划》视频学习+核算表分析&任务单制作检视研讨0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 10,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-11",
+      "cohort_month": 1,
+      "cycle_index": 11,
+      "year_index": 1,
+      "year_cycle_index": 11,
+      "nominal_calendar_month": 11,
+      "status": "MAPPED",
+      "flow_key": "Y1-C11-COHORT-1-7-8438b20640",
+      "candidate_flow_keys": [
+        "Y1-C11-COHORT-1-7-8438b20640"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第11个月】（2026版1、7月开班）班级学习会-《企业统治要诀》+核算表分析&任务单检视发表+年度计划制定的总结发表+小组学习会-年度计划制定辅导+《人生&经营哲学发表稿编写讲解》视频学习+辅导+核算表分析&任务单制作检视研讨0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 11,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-12",
+      "cohort_month": 1,
+      "cycle_index": 12,
+      "year_index": 1,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 12,
+      "status": "MAPPED",
+      "flow_key": "Y1-C12-COHORT-1-7-d930f91e38",
+      "candidate_flow_keys": [
+        "Y1-C12-COHORT-1-7-d930f91e38"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第12个月】（2026版1、7月开班）班级学习会-班级报告会+小组学习会-《年度计划与月度核算管理》视频学习研讨+人生&经营哲学践行发表稿编写辅导+三张幸福测评表测评完成检视0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 12,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-13",
+      "cohort_month": 1,
+      "cycle_index": 13,
+      "year_index": 2,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 1,
+      "status": "MAPPED",
+      "flow_key": "Y2-C13-COHORT-1-4-7-5d315ac69b",
+      "candidate_flow_keys": [
+        "Y2-C13-COHORT-1-4-7-5d315ac69b"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第13个月】（2026版1、4、7月开班）班级学习会-《干法》+《京瓷哲学》读书总结+幸福测评表改善发表+人生&经营哲学发表+小组学习会-幸福测评改善研讨+《学习践行委讲解》视频学习0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 13,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-14",
+      "cohort_month": 1,
+      "cycle_index": 14,
+      "year_index": 2,
+      "year_cycle_index": 2,
+      "nominal_calendar_month": 2,
+      "status": "MAPPED",
+      "flow_key": "Y2-C14-COHORT-1-4-7-10-885bae980e",
+      "candidate_flow_keys": [
+        "Y2-C14-COHORT-1-4-7-10-885bae980e"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第14个月】（2026版1、4、7、10月开班）班级学习会-《如何召开经营分析会-基础班+进阶版》+经营分析会实操+人生&经营哲学践行发表+小组学习会-幸福关爱委视频（企业年度计划修正）0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 14,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-15",
+      "cohort_month": 1,
+      "cycle_index": 15,
+      "year_index": 2,
+      "year_cycle_index": 3,
+      "nominal_calendar_month": 3,
+      "status": "MAPPED",
+      "flow_key": "Y2-C15-COHORT-1-4-7-21a2178ede",
+      "candidate_flow_keys": [
+        "Y2-C15-COHORT-1-4-7-21a2178ede"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第15个月】（2026版1、4、7月开班）班级学习会-《如何改善创新》+经营分析会检视+人生&经营哲学发表+经营分析会研讨+小组学习会-经营分析会实操观摩+《改善创新委》视频学习0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 15,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-16",
+      "cohort_month": 1,
+      "cycle_index": 16,
+      "year_index": 2,
+      "year_cycle_index": 4,
+      "nominal_calendar_month": 4,
+      "status": "MAPPED",
+      "flow_key": "Y2-C16-COHORT-1-4-da8410ed23",
+      "candidate_flow_keys": [
+        "Y2-C16-COHORT-1-4-da8410ed23"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第16个月】（2026版1、4月开班）班级学习会-《阿米巴经营带来企业持续发展》+学习践行委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之概论》视频学习+研讨+学习践行发表辅导0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 16,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-17",
+      "cohort_month": 1,
+      "cycle_index": 17,
+      "year_index": 2,
+      "year_cycle_index": 5,
+      "nominal_calendar_month": 5,
+      "status": "MAPPED",
+      "flow_key": "Y2-C17-COHORT-1-4-60bf53334e",
+      "candidate_flow_keys": [
+        "Y2-C17-COHORT-1-4-60bf53334e"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第17个月】（2026版1、4月开班）班级学习会-《日航重建成功的真正原因》+幸福关爱委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之分部门独立核算》视频学习+研讨+幸福关爱委落地总结发表辅导0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 17,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-18",
+      "cohort_month": 1,
+      "cycle_index": 18,
+      "year_index": 2,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 6,
+      "status": "MAPPED",
+      "flow_key": "Y2-C18-COHORT-1-4-928c0bc977",
+      "candidate_flow_keys": [
+        "Y2-C18-COHORT-1-4-928c0bc977"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第18个月】（2026版1、4月开班）班级学习会-《四种创造》+改善创新委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+改善创新委落地总结发表辅导0818.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 18,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-19",
+      "cohort_month": 1,
+      "cycle_index": 19,
+      "year_index": 2,
+      "year_cycle_index": 7,
+      "nominal_calendar_month": 7,
+      "status": "MAPPED",
+      "flow_key": "Y2-C19-COHORT-1-1debe465c3",
+      "candidate_flow_keys": [
+        "Y2-C19-COHORT-1-1debe465c3"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第19个月】（2026版1月开班）班级学习会-三大委建立集运行经验总结分析+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+三大委总结分享稿编写辅导0818.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 19,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-20",
+      "cohort_month": 1,
+      "cycle_index": 20,
+      "year_index": 2,
+      "year_cycle_index": 8,
+      "nominal_calendar_month": 8,
+      "status": "MAPPED",
+      "flow_key": "Y2-C20-COHORT-1-d1e34ececf",
+      "candidate_flow_keys": [
+        "Y2-C20-COHORT-1-d1e34ececf"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第20个月】（2026版1月开班）班级学习会-《企业的自我革新-从京瓷的新产品开发谈起》+改善创新案例总结发表+经营分析会检视+研讨+小组学习会-经营分析会实操+《优秀改善创新案例分享》视频学习+研讨+改善创新案例总结发表辅导0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 20,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-21",
+      "cohort_month": 1,
+      "cycle_index": 21,
+      "year_index": 2,
+      "year_cycle_index": 9,
+      "nominal_calendar_month": 9,
+      "status": "MAPPED",
+      "flow_key": "Y2-C21-COHORT-1-902ddc8ebb",
+      "candidate_flow_keys": [
+        "Y2-C21-COHORT-1-902ddc8ebb"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第21个月】（2026版1月开班）班级学习会-《经营成功的四条心得》+《赌在技术开发上》读书总结发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+年度计划操演研讨0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 21,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-22",
+      "cohort_month": 1,
+      "cycle_index": 22,
+      "year_index": 2,
+      "year_cycle_index": 10,
+      "nominal_calendar_month": 10,
+      "status": "MAPPED",
+      "flow_key": "Y2-C22-COHORT-1-7d1fec15de",
+      "candidate_flow_keys": [
+        "Y2-C22-COHORT-1-7d1fec15de"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第22个月】（2026版1月开班）班级学习会-年度计划制定的总结发表+经营分析会检视+经营分析会研讨+小组学习会-经营分析会实操观摩+年度计划草案修正0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 22,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-23",
+      "cohort_month": 1,
+      "cycle_index": 23,
+      "year_index": 2,
+      "year_cycle_index": 11,
+      "nominal_calendar_month": 11,
+      "status": "MAPPED",
+      "flow_key": "Y2-C23-COHORT-1-7ac9d146ea",
+      "candidate_flow_keys": [
+        "Y2-C23-COHORT-1-7ac9d146ea"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第23个月】（2026版1月开班）班级学习会-《企业成长战略》读书总结发表+ 企业年度计划制定的总结发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+年度计划草案修正0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 23,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-24",
+      "cohort_month": 1,
+      "cycle_index": 24,
+      "year_index": 2,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 12,
+      "status": "MAPPED",
+      "flow_key": "Y2-C24-COHORT-1-4-7-10-0e55cb2d85",
+      "candidate_flow_keys": [
+        "Y2-C24-COHORT-1-4-7-10-0e55cb2d85"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第24个月】（2026版1、4、7、10月开班）班级学习会-班级报告会+小组学习会流程-人生&经营哲学发表稿编写辅导+幸福测评完成检视0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 24,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-25",
+      "cohort_month": 1,
+      "cycle_index": 25,
+      "year_index": 3,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 1,
+      "status": "MAPPED",
+      "flow_key": "Y3-C25-COHORT-1-4-7-6595138884",
+      "candidate_flow_keys": [
+        "Y3-C25-COHORT-1-4-7-6595138884"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第25个月】（2026版1、4、7月开班）《哲学手册编制1》视频学习+研讨+幸福测评表改善发表+人生&经营哲学发表+小组学习会-经营分析会观摩+幸福测评改善研讨828.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 25,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-26",
+      "cohort_month": 1,
+      "cycle_index": 26,
+      "year_index": 3,
+      "year_cycle_index": 2,
+      "nominal_calendar_month": 2,
+      "status": "MAPPING_CONFLICT",
+      "flow_key": null,
+      "candidate_flow_keys": [
+        "Y3-C26-COHORT-1-4-7-c5846a2908",
+        "Y3-C26-COHORT-1-4-7-3131994926"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 26,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-27",
+      "cohort_month": 1,
+      "cycle_index": 27,
+      "year_index": 3,
+      "year_cycle_index": 3,
+      "nominal_calendar_month": 3,
+      "status": "MAPPED",
+      "flow_key": "Y3-C27-COHORT-1-4-462123eb89",
+      "candidate_flow_keys": [
+        "Y3-C27-COHORT-1-4-462123eb89"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第27个月】（2026版1、4月开班）《人财培养体系1》视频学习+研讨+经营分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编写检视+研讨0828.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 27,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-28",
+      "cohort_month": 1,
+      "cycle_index": 28,
+      "year_index": 3,
+      "year_cycle_index": 4,
+      "nominal_calendar_month": 4,
+      "status": "MAPPING_MISSING",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "candidate_source_files": [],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 28,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-29",
+      "cohort_month": 1,
+      "cycle_index": 29,
+      "year_index": 3,
+      "year_cycle_index": 5,
+      "nominal_calendar_month": 5,
+      "status": "MAPPING_MISSING",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "candidate_source_files": [],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 29,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-30",
+      "cohort_month": 1,
+      "cycle_index": 30,
+      "year_index": 3,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 6,
+      "status": "MAPPED",
+      "flow_key": "Y3-C30-COHORT-1-4-b2f6700018",
+      "candidate_flow_keys": [
+        "Y3-C30-COHORT-1-4-b2f6700018"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第30个月】（2026版1、4月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0922.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 30,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-31",
+      "cohort_month": 1,
+      "cycle_index": 31,
+      "year_index": 3,
+      "year_cycle_index": 7,
+      "nominal_calendar_month": 7,
+      "status": "MAPPED",
+      "flow_key": "Y3-C31-COHORT-1-c71d5f74e0",
+      "candidate_flow_keys": [
+        "Y3-C31-COHORT-1-c71d5f74e0"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第31个月】（2026版1月开班）幸福测评改善总结分享+百日奋战案例分享+经营分析会检视发表+三大委落地总结分享+小组学习会-幸福测评改善总结分享编写辅导+百日奋战研讨及案例分享辅导+三大委落地总结发表稿编写0926.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 31,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-32",
+      "cohort_month": 1,
+      "cycle_index": 32,
+      "year_index": 3,
+      "year_cycle_index": 8,
+      "nominal_calendar_month": 8,
+      "status": "MAPPED",
+      "flow_key": "Y3-C32-COHORT-1-dbceb40715",
+      "candidate_flow_keys": [
+        "Y3-C32-COHORT-1-dbceb40715"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第32个月】（2026版1月开班）人财培养体系建设及落地总结分享+百日奋战案例分享+经营分析会检视发表+三大委落地总结分享+小组学习会-人财培养体系建设及落地总结分享编写辅导+百日奋战研讨及案例分享辅导+三大委落地总结发表稿编写0926.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 32,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-33",
+      "cohort_month": 1,
+      "cycle_index": 33,
+      "year_index": 3,
+      "year_cycle_index": 9,
+      "nominal_calendar_month": 9,
+      "status": "MAPPED",
+      "flow_key": "Y3-C33-COHORT-1-5790dc4043",
+      "candidate_flow_keys": [
+        "Y3-C33-COHORT-1-5790dc4043"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第33个月】（2026版1月开班）经营分析会总结发表+百日奋战案例分享+小组学习会-经营分析会观摩+经营分析会总结发表+百日奋战案例分享编写辅导0928.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 33,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-34",
+      "cohort_month": 1,
+      "cycle_index": 34,
+      "year_index": 3,
+      "year_cycle_index": 10,
+      "nominal_calendar_month": 10,
+      "status": "MAPPED",
+      "flow_key": "Y3-C34-COHORT-1-fb32b5a05f",
+      "candidate_flow_keys": [
+        "Y3-C34-COHORT-1-fb32b5a05f"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第34个月】（2026版1月开班）百日奋战总结表彰大会+年度计划制定的研讨+小组学习会-百日奋战总结发表稿编写辅导+年度计划制定的研讨0928.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 34,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-35",
+      "cohort_month": 1,
+      "cycle_index": 35,
+      "year_index": 3,
+      "year_cycle_index": 11,
+      "nominal_calendar_month": 11,
+      "status": "MAPPED",
+      "flow_key": "Y3-C35-COHORT-1-ed17060eda",
+      "candidate_flow_keys": [
+        "Y3-C35-COHORT-1-ed17060eda"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第35个月】（2026版1月开班）年度计划制定的研讨+三大委落地总结分享+小组学习会-年度计划制定的研讨1+三大委落地总结发表稿编写辅导+三年学习总结发表稿编写研讨0929.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 35,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "1-36",
+      "cohort_month": 1,
+      "cycle_index": 36,
+      "year_index": 3,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 12,
+      "status": "MAPPED",
+      "flow_key": "Y3-C36-COHORT-1-af08ca9255",
+      "candidate_flow_keys": [
+        "Y3-C36-COHORT-1-af08ca9255"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第36个月】（2026版1月开班）毕业报告会+小组学习会流程-年度计划制定的研讨2+幸福测评完成检视+三年学习总结发表稿编写辅导+志愿者学长培训视频学习0922.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 1,
+        "cycle_index": 36,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-1",
+      "cohort_month": 4,
+      "cycle_index": 1,
+      "year_index": 1,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 4,
+      "status": "MAPPED",
+      "flow_key": "Y1-C01-COHORT-1-4-7-10-ebaa40d595",
+      "candidate_flow_keys": [
+        "Y1-C01-COHORT-1-4-7-10-ebaa40d595"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第1个月】（2026版1、4、7、10月开班）班级学习会《心想事成》+《活法》总结发表+整体核算表实操演练+小组学习会-《如何制作核算表》+幸福测评改善0811.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 1,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-2",
+      "cohort_month": 4,
+      "cycle_index": 2,
+      "year_index": 1,
+      "year_cycle_index": 2,
+      "nominal_calendar_month": 5,
+      "status": "MAPPED",
+      "flow_key": "Y1-C02-COHORT-1-4-7-10-7ebca1ab98",
+      "candidate_flow_keys": [
+        "Y1-C02-COHORT-1-4-7-10-7ebca1ab98"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第2个月】（2026版1、4、7、10月开班）班级学习会《心灵管理》+《活法》总结发表+小组学习会-《发表稿编写讲解》视频学习+《活法》总结发表+整体核算表实操+研讨0811.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 2,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-3",
+      "cohort_month": 4,
+      "cycle_index": 3,
+      "year_index": 1,
+      "year_cycle_index": 3,
+      "nominal_calendar_month": 6,
+      "status": "MAPPED",
+      "flow_key": "Y1-C03-COHORT-1-4-7-10-701acadcad",
+      "candidate_flow_keys": [
+        "Y1-C03-COHORT-1-4-7-10-701acadcad"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第3个月】（2026版1、4、7、10月开班）班级学习会《六项精进》+《六项精进实践》视频学习总结发表+小组学习会-《六项精进实践》视频学习+发表辅导+整体核算表实操+研讨0811.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 3,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-4",
+      "cohort_month": 4,
+      "cycle_index": 4,
+      "year_index": 1,
+      "year_cycle_index": 4,
+      "nominal_calendar_month": 7,
+      "status": "MAPPED",
+      "flow_key": "Y1-C04-COHORT-1-4-7-10-307195848f",
+      "candidate_flow_keys": [
+        "Y1-C04-COHORT-1-4-7-10-307195848f"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第4个月】（2026版1、4、7、10月开班）班级学习会《经营十二条》+《经营十二条实践》视频学习总结发表+小组学习会-《经营十二条实践》视频学习+发表辅导+整体核算表实操+研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 4,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-5",
+      "cohort_month": 4,
+      "cycle_index": 5,
+      "year_index": 1,
+      "year_cycle_index": 5,
+      "nominal_calendar_month": 8,
+      "status": "MAPPED",
+      "flow_key": "Y1-C05-COHORT-1-4-7-10-c29bc0e80f",
+      "candidate_flow_keys": [
+        "Y1-C05-COHORT-1-4-7-10-c29bc0e80f"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第5个月】（2026版1、4、7、10月开班）班级学习会《用数字经营企业》视频学习+整体核算表检视发表+核算表任务单实操演练研讨+小组学习会-《核算表分析任务单制作》视频学习+整体核算表实操演练研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 5,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-6",
+      "cohort_month": 4,
+      "cycle_index": 6,
+      "year_index": 1,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 9,
+      "status": "MAPPED",
+      "flow_key": "Y1-C06-COHORT-1-4-7-10-04634b485c",
+      "candidate_flow_keys": [
+        "Y1-C06-COHORT-1-4-7-10-04634b485c"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第6个月】（2026版1、4、7、10月开班）班级学习会《京瓷会计学》视频学习+核算表任务单检视发表+《会计七原则实践》总结发表+小组学习会-《会计七原则实践》视频学习总结发表稿辅导+《企业导入讲解》视频学习+导入测评+核算表分析任务单实操演练研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 6,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-7",
+      "cohort_month": 4,
+      "cycle_index": 7,
+      "year_index": 1,
+      "year_cycle_index": 7,
+      "nominal_calendar_month": 10,
+      "status": "MAPPED",
+      "flow_key": "Y1-C07-COHORT-4-10-2cb7082809",
+      "candidate_flow_keys": [
+        "Y1-C07-COHORT-4-10-2cb7082809"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第7个月】（2026版4、10月开班）班级学习会-《领导人的资质》+核算表分析与任务单检视发表+年度计划检视研讨+小组学习会-《京瓷如何制定年度计划》视频学习+研讨+核算表分析与任务单检视+研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 7,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-8",
+      "cohort_month": 4,
+      "cycle_index": 8,
+      "year_index": 1,
+      "year_cycle_index": 8,
+      "nominal_calendar_month": 11,
+      "status": "MAPPED",
+      "flow_key": "Y1-C08-COHORT-4-10-bda28270a5",
+      "candidate_flow_keys": [
+        "Y1-C08-COHORT-4-10-bda28270a5"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第8个月】（2026版4、10月开班）班级学习会-《经营为什么需要哲学》+核算表分析&任务单制作检视发表+（半）年度计划制定的检视+研讨+小组学习会-（半）年度计划制定的检视+研讨+核算表分析&任务单检视+研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 8,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-9",
+      "cohort_month": 4,
+      "cycle_index": 9,
+      "year_index": 1,
+      "year_cycle_index": 9,
+      "nominal_calendar_month": 12,
+      "status": "MAPPED",
+      "flow_key": "Y1-C09-COHORT-4-10-63b9002627",
+      "candidate_flow_keys": [
+        "Y1-C09-COHORT-4-10-63b9002627"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第9个月】（2026版4、10月开班）班级学习会-《经营为什么一定要实现高收益》+核算表分析&任务单制作检视发表+年度计划制定总结发表+小组学习会-年度计划制定研讨+核算表分析&任务单制作检视+研讨0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 9,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-10",
+      "cohort_month": 4,
+      "cycle_index": 10,
+      "year_index": 1,
+      "year_cycle_index": 10,
+      "nominal_calendar_month": 1,
+      "status": "MAPPED",
+      "flow_key": "Y1-C10-COHORT-4-10-7a66085b69",
+      "candidate_flow_keys": [
+        "Y1-C10-COHORT-4-10-7a66085b69"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第10个月】(2026版4、10月开班）班级学习会-《经营者需要的三种力量》+成功方程式49天研讨+小组学习会-成功方程式49天讲解视频+研讨+核算表分析&任务单制作检视研讨0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 10,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-11",
+      "cohort_month": 4,
+      "cycle_index": 11,
+      "year_index": 1,
+      "year_cycle_index": 11,
+      "nominal_calendar_month": 2,
+      "status": "MAPPED",
+      "flow_key": "Y1-C11-COHORT-4-10-434144a26d",
+      "candidate_flow_keys": [
+        "Y1-C11-COHORT-4-10-434144a26d"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第11个月】（2026班4、10月开班）班级学习会-《企业统治要诀》+核算表分析&任务单检视发表+成功方程式49天研讨+小组学习会-《人生&经营哲学发表稿编写讲解》视频学习+辅导+成功方程式49天研讨+核算表分析&任务单制作检视研讨0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 11,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-12",
+      "cohort_month": 4,
+      "cycle_index": 12,
+      "year_index": 1,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 3,
+      "status": "MAPPED",
+      "flow_key": "Y1-C12-COHORT-4-10-03448690cf",
+      "candidate_flow_keys": [
+        "Y1-C12-COHORT-4-10-03448690cf"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第12个月】（2026版4、10月开班）班级学习会-班级报告会+小组学习会-人生&经营哲学践行发表稿编写辅导+三张幸福测评表测评完成检视0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 12,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-13",
+      "cohort_month": 4,
+      "cycle_index": 13,
+      "year_index": 2,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 4,
+      "status": "MAPPED",
+      "flow_key": "Y2-C13-COHORT-1-4-7-5d315ac69b",
+      "candidate_flow_keys": [
+        "Y2-C13-COHORT-1-4-7-5d315ac69b"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第13个月】（2026版1、4、7月开班）班级学习会-《干法》+《京瓷哲学》读书总结+幸福测评表改善发表+人生&经营哲学发表+小组学习会-幸福测评改善研讨+《学习践行委讲解》视频学习0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 13,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-14",
+      "cohort_month": 4,
+      "cycle_index": 14,
+      "year_index": 2,
+      "year_cycle_index": 2,
+      "nominal_calendar_month": 5,
+      "status": "MAPPED",
+      "flow_key": "Y2-C14-COHORT-1-4-7-10-885bae980e",
+      "candidate_flow_keys": [
+        "Y2-C14-COHORT-1-4-7-10-885bae980e"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第14个月】（2026版1、4、7、10月开班）班级学习会-《如何召开经营分析会-基础班+进阶版》+经营分析会实操+人生&经营哲学践行发表+小组学习会-幸福关爱委视频（企业年度计划修正）0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 14,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-15",
+      "cohort_month": 4,
+      "cycle_index": 15,
+      "year_index": 2,
+      "year_cycle_index": 3,
+      "nominal_calendar_month": 6,
+      "status": "MAPPED",
+      "flow_key": "Y2-C15-COHORT-1-4-7-21a2178ede",
+      "candidate_flow_keys": [
+        "Y2-C15-COHORT-1-4-7-21a2178ede"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第15个月】（2026版1、4、7月开班）班级学习会-《如何改善创新》+经营分析会检视+人生&经营哲学发表+经营分析会研讨+小组学习会-经营分析会实操观摩+《改善创新委》视频学习0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 15,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-16",
+      "cohort_month": 4,
+      "cycle_index": 16,
+      "year_index": 2,
+      "year_cycle_index": 4,
+      "nominal_calendar_month": 7,
+      "status": "MAPPED",
+      "flow_key": "Y2-C16-COHORT-1-4-da8410ed23",
+      "candidate_flow_keys": [
+        "Y2-C16-COHORT-1-4-da8410ed23"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第16个月】（2026版1、4月开班）班级学习会-《阿米巴经营带来企业持续发展》+学习践行委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之概论》视频学习+研讨+学习践行发表辅导0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 16,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-17",
+      "cohort_month": 4,
+      "cycle_index": 17,
+      "year_index": 2,
+      "year_cycle_index": 5,
+      "nominal_calendar_month": 8,
+      "status": "MAPPED",
+      "flow_key": "Y2-C17-COHORT-1-4-60bf53334e",
+      "candidate_flow_keys": [
+        "Y2-C17-COHORT-1-4-60bf53334e"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第17个月】（2026版1、4月开班）班级学习会-《日航重建成功的真正原因》+幸福关爱委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之分部门独立核算》视频学习+研讨+幸福关爱委落地总结发表辅导0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 17,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-18",
+      "cohort_month": 4,
+      "cycle_index": 18,
+      "year_index": 2,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 9,
+      "status": "MAPPED",
+      "flow_key": "Y2-C18-COHORT-1-4-928c0bc977",
+      "candidate_flow_keys": [
+        "Y2-C18-COHORT-1-4-928c0bc977"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第18个月】（2026版1、4月开班）班级学习会-《四种创造》+改善创新委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+改善创新委落地总结发表辅导0818.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 18,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-19",
+      "cohort_month": 4,
+      "cycle_index": 19,
+      "year_index": 2,
+      "year_cycle_index": 7,
+      "nominal_calendar_month": 10,
+      "status": "MAPPED",
+      "flow_key": "Y2-C19-COHORT-4-be7a8bacb7",
+      "candidate_flow_keys": [
+        "Y2-C19-COHORT-4-be7a8bacb7"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第19个月】（2026版4月开班）班级学习会- 企业年度计划制定的总结发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+年度计划草案修正0818.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 19,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-20",
+      "cohort_month": 4,
+      "cycle_index": 20,
+      "year_index": 2,
+      "year_cycle_index": 8,
+      "nominal_calendar_month": 11,
+      "status": "MAPPED",
+      "flow_key": "Y2-C20-COHORT-4-1449747bcd",
+      "candidate_flow_keys": [
+        "Y2-C20-COHORT-4-1449747bcd"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第20个月】（2026版4月开班）班级学习会-年度计划制定的总结发表+经营分析会检视+经营分析会研讨+小组学习会-经营分析会实操观摩+年度计划草案修正0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 20,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-21",
+      "cohort_month": 4,
+      "cycle_index": 21,
+      "year_index": 2,
+      "year_cycle_index": 9,
+      "nominal_calendar_month": 12,
+      "status": "MAPPED",
+      "flow_key": "Y2-C21-COHORT-4-7-10-9dc872e110",
+      "candidate_flow_keys": [
+        "Y2-C21-COHORT-4-7-10-9dc872e110"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第21个月】（2026版4、7、10月开班）班级学习会-《企业的自我革新-从京瓷的新产品开发谈起》+改善创新案例总结发表+经营分析会检视+研讨+小组学习会-经营分析会实操+《优秀改善创新案例分享》视频学习+研讨+改善创新案例总结发表辅导0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 21,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-22",
+      "cohort_month": 4,
+      "cycle_index": 22,
+      "year_index": 2,
+      "year_cycle_index": 10,
+      "nominal_calendar_month": 1,
+      "status": "MAPPED",
+      "flow_key": "Y2-C22-COHORT-4-7-10-d1c782e69e",
+      "candidate_flow_keys": [
+        "Y2-C22-COHORT-4-7-10-d1c782e69e"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第22个月】（2026版4、7、10月开班）班级学习会-《赌在技术开发上》读书总结发表+三大委建立及运行经验总结分享+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+三大委建立及运行经验总结分享稿辅导0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 22,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-23",
+      "cohort_month": 4,
+      "cycle_index": 23,
+      "year_index": 2,
+      "year_cycle_index": 11,
+      "nominal_calendar_month": 2,
+      "status": "MAPPED",
+      "flow_key": "Y2-C23-COHORT-4-7-10-28716418cc",
+      "candidate_flow_keys": [
+        "Y2-C23-COHORT-4-7-10-28716418cc"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第23个月】（2026版4、7、10月开班）班级学习会-《经营成功的四条心得》+《企业成长战略》读书总结发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《人生&经营哲学践行发表稿编写讲解》视频学习+班级报告会发表稿编写0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 23,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-24",
+      "cohort_month": 4,
+      "cycle_index": 24,
+      "year_index": 2,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 3,
+      "status": "MAPPED",
+      "flow_key": "Y2-C24-COHORT-1-4-7-10-0e55cb2d85",
+      "candidate_flow_keys": [
+        "Y2-C24-COHORT-1-4-7-10-0e55cb2d85"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第24个月】（2026版1、4、7、10月开班）班级学习会-班级报告会+小组学习会流程-人生&经营哲学发表稿编写辅导+幸福测评完成检视0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 24,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-25",
+      "cohort_month": 4,
+      "cycle_index": 25,
+      "year_index": 3,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 4,
+      "status": "MAPPED",
+      "flow_key": "Y3-C25-COHORT-1-4-7-6595138884",
+      "candidate_flow_keys": [
+        "Y3-C25-COHORT-1-4-7-6595138884"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第25个月】（2026版1、4、7月开班）《哲学手册编制1》视频学习+研讨+幸福测评表改善发表+人生&经营哲学发表+小组学习会-经营分析会观摩+幸福测评改善研讨828.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 25,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-26",
+      "cohort_month": 4,
+      "cycle_index": 26,
+      "year_index": 3,
+      "year_cycle_index": 2,
+      "nominal_calendar_month": 5,
+      "status": "MAPPING_CONFLICT",
+      "flow_key": null,
+      "candidate_flow_keys": [
+        "Y3-C26-COHORT-1-4-7-c5846a2908",
+        "Y3-C26-COHORT-1-4-7-3131994926"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 26,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-27",
+      "cohort_month": 4,
+      "cycle_index": 27,
+      "year_index": 3,
+      "year_cycle_index": 3,
+      "nominal_calendar_month": 6,
+      "status": "MAPPED",
+      "flow_key": "Y3-C27-COHORT-1-4-462123eb89",
+      "candidate_flow_keys": [
+        "Y3-C27-COHORT-1-4-462123eb89"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第27个月】（2026版1、4月开班）《人财培养体系1》视频学习+研讨+经营分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编写检视+研讨0828.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 27,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-28",
+      "cohort_month": 4,
+      "cycle_index": 28,
+      "year_index": 3,
+      "year_cycle_index": 4,
+      "nominal_calendar_month": 7,
+      "status": "MAPPING_MISSING",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "candidate_source_files": [],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 28,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-29",
+      "cohort_month": 4,
+      "cycle_index": 29,
+      "year_index": 3,
+      "year_cycle_index": 5,
+      "nominal_calendar_month": 8,
+      "status": "MAPPING_MISSING",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "candidate_source_files": [],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 29,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-30",
+      "cohort_month": 4,
+      "cycle_index": 30,
+      "year_index": 3,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 9,
+      "status": "MAPPED",
+      "flow_key": "Y3-C30-COHORT-1-4-b2f6700018",
+      "candidate_flow_keys": [
+        "Y3-C30-COHORT-1-4-b2f6700018"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第30个月】（2026版1、4月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0922.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 30,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-31",
+      "cohort_month": 4,
+      "cycle_index": 31,
+      "year_index": 3,
+      "year_cycle_index": 7,
+      "nominal_calendar_month": 10,
+      "status": "MAPPED",
+      "flow_key": "Y3-C31-COHORT-4-6965f61626",
+      "candidate_flow_keys": [
+        "Y3-C31-COHORT-4-6965f61626"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第31个月】（2026版4月开班）年度计划制定的研讨1+百日奋战案例分享+经营分析会检视发表+三大委落地总结分享+小组学习会-年度计划制定的研讨+百日奋战研讨及案例分享辅导+三大委落地总结发表稿编写0930.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 31,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-32",
+      "cohort_month": 4,
+      "cycle_index": 32,
+      "year_index": 3,
+      "year_cycle_index": 8,
+      "nominal_calendar_month": 11,
+      "status": "MAPPED",
+      "flow_key": "Y3-C32-COHORT-4-26557ed150",
+      "candidate_flow_keys": [
+        "Y3-C32-COHORT-4-26557ed150"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第32个月】（2026版4月开班）年度计划制定的研讨2+百日奋战案例分享+经营分析会检视发表+三大委落地总结分享+小组学习会-年度计划制定的研讨+百日奋战研讨及案例分享辅导+三大委落地总结发表稿编写0926.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 32,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-33",
+      "cohort_month": 4,
+      "cycle_index": 33,
+      "year_index": 3,
+      "year_cycle_index": 9,
+      "nominal_calendar_month": 12,
+      "status": "MAPPED",
+      "flow_key": "Y3-C33-COHORT-4-24bc4d3291",
+      "candidate_flow_keys": [
+        "Y3-C33-COHORT-4-24bc4d3291"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第33个月】（2026版4月开班）年度计划制定总结分享+经营分析会总结发表+百日奋战案例分享+小组学习会-经营分析会观摩+年度计划制定研讨+总结分享稿编写辅导+经营分析会总结发表稿编写辅导0928.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 33,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-34",
+      "cohort_month": 4,
+      "cycle_index": 34,
+      "year_index": 3,
+      "year_cycle_index": 10,
+      "nominal_calendar_month": 1,
+      "status": "MAPPED",
+      "flow_key": "Y3-C34-COHORT-4-90b264d410",
+      "candidate_flow_keys": [
+        "Y3-C34-COHORT-4-90b264d410"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第34个月】（2026版4月开班）百日奋战总结表彰大会+幸福测评改善总结分享+小组学习会-百日奋战总结发表稿编写辅导+幸福测评改善总结分享编写辅导0928.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 34,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-35",
+      "cohort_month": 4,
+      "cycle_index": 35,
+      "year_index": 3,
+      "year_cycle_index": 11,
+      "nominal_calendar_month": 2,
+      "status": "MAPPED",
+      "flow_key": "Y3-C35-COHORT-4-0dce0b7a9b",
+      "candidate_flow_keys": [
+        "Y3-C35-COHORT-4-0dce0b7a9b"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第35个月】（2026版4月开班）人财培养体系建设及落地总结分享+三大委落地总结分享+小组学习会-人财培养体系建设及落地总结分享编写辅导+三大委落地总结发表稿编写+三年学习总结发表稿编写研讨0929.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 35,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "4-36",
+      "cohort_month": 4,
+      "cycle_index": 36,
+      "year_index": 3,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 3,
+      "status": "MAPPED",
+      "flow_key": "Y3-C36-COHORT-4-7-2b1ed7c819",
+      "candidate_flow_keys": [
+        "Y3-C36-COHORT-4-7-2b1ed7c819"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第36个月】（2026版4、7月开班）毕业报告会+小组学习会流程-幸福测评完成检视+三年学习总结发表稿编写辅导+志愿者学长培训视频学习0922.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 4,
+        "cycle_index": 36,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-1",
+      "cohort_month": 7,
+      "cycle_index": 1,
+      "year_index": 1,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 7,
+      "status": "MAPPED",
+      "flow_key": "Y1-C01-COHORT-1-4-7-10-ebaa40d595",
+      "candidate_flow_keys": [
+        "Y1-C01-COHORT-1-4-7-10-ebaa40d595"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第1个月】（2026版1、4、7、10月开班）班级学习会《心想事成》+《活法》总结发表+整体核算表实操演练+小组学习会-《如何制作核算表》+幸福测评改善0811.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 1,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-2",
+      "cohort_month": 7,
+      "cycle_index": 2,
+      "year_index": 1,
+      "year_cycle_index": 2,
+      "nominal_calendar_month": 8,
+      "status": "MAPPED",
+      "flow_key": "Y1-C02-COHORT-1-4-7-10-7ebca1ab98",
+      "candidate_flow_keys": [
+        "Y1-C02-COHORT-1-4-7-10-7ebca1ab98"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第2个月】（2026版1、4、7、10月开班）班级学习会《心灵管理》+《活法》总结发表+小组学习会-《发表稿编写讲解》视频学习+《活法》总结发表+整体核算表实操+研讨0811.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 2,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-3",
+      "cohort_month": 7,
+      "cycle_index": 3,
+      "year_index": 1,
+      "year_cycle_index": 3,
+      "nominal_calendar_month": 9,
+      "status": "MAPPED",
+      "flow_key": "Y1-C03-COHORT-1-4-7-10-701acadcad",
+      "candidate_flow_keys": [
+        "Y1-C03-COHORT-1-4-7-10-701acadcad"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第3个月】（2026版1、4、7、10月开班）班级学习会《六项精进》+《六项精进实践》视频学习总结发表+小组学习会-《六项精进实践》视频学习+发表辅导+整体核算表实操+研讨0811.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 3,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-4",
+      "cohort_month": 7,
+      "cycle_index": 4,
+      "year_index": 1,
+      "year_cycle_index": 4,
+      "nominal_calendar_month": 10,
+      "status": "MAPPED",
+      "flow_key": "Y1-C04-COHORT-1-4-7-10-307195848f",
+      "candidate_flow_keys": [
+        "Y1-C04-COHORT-1-4-7-10-307195848f"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第4个月】（2026版1、4、7、10月开班）班级学习会《经营十二条》+《经营十二条实践》视频学习总结发表+小组学习会-《经营十二条实践》视频学习+发表辅导+整体核算表实操+研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 4,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-5",
+      "cohort_month": 7,
+      "cycle_index": 5,
+      "year_index": 1,
+      "year_cycle_index": 5,
+      "nominal_calendar_month": 11,
+      "status": "MAPPED",
+      "flow_key": "Y1-C05-COHORT-1-4-7-10-c29bc0e80f",
+      "candidate_flow_keys": [
+        "Y1-C05-COHORT-1-4-7-10-c29bc0e80f"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第5个月】（2026版1、4、7、10月开班）班级学习会《用数字经营企业》视频学习+整体核算表检视发表+核算表任务单实操演练研讨+小组学习会-《核算表分析任务单制作》视频学习+整体核算表实操演练研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 5,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-6",
+      "cohort_month": 7,
+      "cycle_index": 6,
+      "year_index": 1,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 12,
+      "status": "MAPPED",
+      "flow_key": "Y1-C06-COHORT-1-4-7-10-04634b485c",
+      "candidate_flow_keys": [
+        "Y1-C06-COHORT-1-4-7-10-04634b485c"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第6个月】（2026版1、4、7、10月开班）班级学习会《京瓷会计学》视频学习+核算表任务单检视发表+《会计七原则实践》总结发表+小组学习会-《会计七原则实践》视频学习总结发表稿辅导+《企业导入讲解》视频学习+导入测评+核算表分析任务单实操演练研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 6,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-7",
+      "cohort_month": 7,
+      "cycle_index": 7,
+      "year_index": 1,
+      "year_cycle_index": 7,
+      "nominal_calendar_month": 1,
+      "status": "MAPPED",
+      "flow_key": "Y1-C07-COHORT-1-7-464bdcd214",
+      "candidate_flow_keys": [
+        "Y1-C07-COHORT-1-7-464bdcd214"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第7个月】（2026版1、7月开班）班级学习会-《领导人的资质》+核算表分析与任务单检视发表+小组学习会-核算表分析与任务单检视+研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 7,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-8",
+      "cohort_month": 7,
+      "cycle_index": 8,
+      "year_index": 1,
+      "year_cycle_index": 8,
+      "nominal_calendar_month": 2,
+      "status": "MAPPED",
+      "flow_key": "Y1-C08-COHORT-1-7-2926ab4bad",
+      "candidate_flow_keys": [
+        "Y1-C08-COHORT-1-7-2926ab4bad"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第8个月】（2026版1、7月开班）班级学习会-《经营为什么需要哲学》+核算表分析&任务单检视发表+成功方程式49天研讨+小组学习会-成功方程式49天讲解视频+研讨+核算表分析与任务单检视+研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 8,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-9",
+      "cohort_month": 7,
+      "cycle_index": 9,
+      "year_index": 1,
+      "year_cycle_index": 9,
+      "nominal_calendar_month": 3,
+      "status": "MAPPED",
+      "flow_key": "Y1-C09-COHORT-1-7-bce57b2f2e",
+      "candidate_flow_keys": [
+        "Y1-C09-COHORT-1-7-bce57b2f2e"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第9个月】（2026版1、7月开班）班级学习会-《经营为什么一定要实现高收益》+成功方程式49天研讨+核算表分析&任务单制作检视发表+小组学习会-成功方程式49天研讨+核算表分析&任务单检视+研讨0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 9,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-10",
+      "cohort_month": 7,
+      "cycle_index": 10,
+      "year_index": 1,
+      "year_cycle_index": 10,
+      "nominal_calendar_month": 4,
+      "status": "MAPPED",
+      "flow_key": "Y1-C10-COHORT-1-7-d46687f182",
+      "candidate_flow_keys": [
+        "Y1-C10-COHORT-1-7-d46687f182"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第10个月】(2026版1、7月开班）班级学习会-《经营者需要的三种力量》+核算表分析&任务单制作检视发表+年度计划制定的检视研讨+小组学习会-《京瓷如何制定年度计划》视频学习+核算表分析&任务单制作检视研讨0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 10,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-11",
+      "cohort_month": 7,
+      "cycle_index": 11,
+      "year_index": 1,
+      "year_cycle_index": 11,
+      "nominal_calendar_month": 5,
+      "status": "MAPPED",
+      "flow_key": "Y1-C11-COHORT-1-7-8438b20640",
+      "candidate_flow_keys": [
+        "Y1-C11-COHORT-1-7-8438b20640"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第11个月】（2026版1、7月开班）班级学习会-《企业统治要诀》+核算表分析&任务单检视发表+年度计划制定的总结发表+小组学习会-年度计划制定辅导+《人生&经营哲学发表稿编写讲解》视频学习+辅导+核算表分析&任务单制作检视研讨0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 11,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-12",
+      "cohort_month": 7,
+      "cycle_index": 12,
+      "year_index": 1,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 6,
+      "status": "MAPPED",
+      "flow_key": "Y1-C12-COHORT-1-7-d930f91e38",
+      "candidate_flow_keys": [
+        "Y1-C12-COHORT-1-7-d930f91e38"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第12个月】（2026版1、7月开班）班级学习会-班级报告会+小组学习会-《年度计划与月度核算管理》视频学习研讨+人生&经营哲学践行发表稿编写辅导+三张幸福测评表测评完成检视0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 12,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-13",
+      "cohort_month": 7,
+      "cycle_index": 13,
+      "year_index": 2,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 7,
+      "status": "MAPPED",
+      "flow_key": "Y2-C13-COHORT-1-4-7-5d315ac69b",
+      "candidate_flow_keys": [
+        "Y2-C13-COHORT-1-4-7-5d315ac69b"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第13个月】（2026版1、4、7月开班）班级学习会-《干法》+《京瓷哲学》读书总结+幸福测评表改善发表+人生&经营哲学发表+小组学习会-幸福测评改善研讨+《学习践行委讲解》视频学习0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 13,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-14",
+      "cohort_month": 7,
+      "cycle_index": 14,
+      "year_index": 2,
+      "year_cycle_index": 2,
+      "nominal_calendar_month": 8,
+      "status": "MAPPED",
+      "flow_key": "Y2-C14-COHORT-1-4-7-10-885bae980e",
+      "candidate_flow_keys": [
+        "Y2-C14-COHORT-1-4-7-10-885bae980e"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第14个月】（2026版1、4、7、10月开班）班级学习会-《如何召开经营分析会-基础班+进阶版》+经营分析会实操+人生&经营哲学践行发表+小组学习会-幸福关爱委视频（企业年度计划修正）0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 14,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-15",
+      "cohort_month": 7,
+      "cycle_index": 15,
+      "year_index": 2,
+      "year_cycle_index": 3,
+      "nominal_calendar_month": 9,
+      "status": "MAPPED",
+      "flow_key": "Y2-C15-COHORT-1-4-7-21a2178ede",
+      "candidate_flow_keys": [
+        "Y2-C15-COHORT-1-4-7-21a2178ede"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第15个月】（2026版1、4、7月开班）班级学习会-《如何改善创新》+经营分析会检视+人生&经营哲学发表+经营分析会研讨+小组学习会-经营分析会实操观摩+《改善创新委》视频学习0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 15,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-16",
+      "cohort_month": 7,
+      "cycle_index": 16,
+      "year_index": 2,
+      "year_cycle_index": 4,
+      "nominal_calendar_month": 10,
+      "status": "MAPPED",
+      "flow_key": "Y2-C16-COHORT-7-9c563bec35",
+      "candidate_flow_keys": [
+        "Y2-C16-COHORT-7-9c563bec35"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第16个月】（2026版7月开班）班级学习会-企业年度计划制定的总结发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+年度计划草案研讨0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 16,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-17",
+      "cohort_month": 7,
+      "cycle_index": 17,
+      "year_index": 2,
+      "year_cycle_index": 5,
+      "nominal_calendar_month": 11,
+      "status": "MAPPED",
+      "flow_key": "Y2-C17-COHORT-7-9501d99625",
+      "candidate_flow_keys": [
+        "Y2-C17-COHORT-7-9501d99625"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第17个月】（2026版7月开班）班级学习会-年度计划制定的总结发表+经营分析会检视+经营分析会研讨+小组学习会-经营分析会实操观摩+年度计划草案修正0818.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 17,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-18",
+      "cohort_month": 7,
+      "cycle_index": 18,
+      "year_index": 2,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 12,
+      "status": "MAPPED",
+      "flow_key": "Y2-C18-COHORT-7-10-bcbc9e3d33",
+      "candidate_flow_keys": [
+        "Y2-C18-COHORT-7-10-bcbc9e3d33"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第18个月】（2026版7、10月开班）班级学习会-《阿米巴经营带来企业持续发展》+学习践行委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之概论》视频学习+研讨+学习践行发表辅导0818.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 18,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-19",
+      "cohort_month": 7,
+      "cycle_index": 19,
+      "year_index": 2,
+      "year_cycle_index": 7,
+      "nominal_calendar_month": 1,
+      "status": "MAPPED",
+      "flow_key": "Y2-C19-COHORT-7-10-e3409c3e9c",
+      "candidate_flow_keys": [
+        "Y2-C19-COHORT-7-10-e3409c3e9c"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第19个月】（2026版7、10月开班）班级学习会-《日航重建成功的真正原因》+幸福关爱委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之分部门独立核算》视频学习+研讨+幸福关爱委落地总结发表辅导0818.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 19,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-20",
+      "cohort_month": 7,
+      "cycle_index": 20,
+      "year_index": 2,
+      "year_cycle_index": 8,
+      "nominal_calendar_month": 2,
+      "status": "MAPPED",
+      "flow_key": "Y2-C20-COHORT-7-10-ecee7dd040",
+      "candidate_flow_keys": [
+        "Y2-C20-COHORT-7-10-ecee7dd040"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第20个月】（2026版7、10月开班）班级学习会-《四种创造》+改善创新委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+改善创新委落地总结发表辅导0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 20,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-21",
+      "cohort_month": 7,
+      "cycle_index": 21,
+      "year_index": 2,
+      "year_cycle_index": 9,
+      "nominal_calendar_month": 3,
+      "status": "MAPPED",
+      "flow_key": "Y2-C21-COHORT-4-7-10-9dc872e110",
+      "candidate_flow_keys": [
+        "Y2-C21-COHORT-4-7-10-9dc872e110"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第21个月】（2026版4、7、10月开班）班级学习会-《企业的自我革新-从京瓷的新产品开发谈起》+改善创新案例总结发表+经营分析会检视+研讨+小组学习会-经营分析会实操+《优秀改善创新案例分享》视频学习+研讨+改善创新案例总结发表辅导0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 21,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-22",
+      "cohort_month": 7,
+      "cycle_index": 22,
+      "year_index": 2,
+      "year_cycle_index": 10,
+      "nominal_calendar_month": 4,
+      "status": "MAPPED",
+      "flow_key": "Y2-C22-COHORT-4-7-10-d1c782e69e",
+      "candidate_flow_keys": [
+        "Y2-C22-COHORT-4-7-10-d1c782e69e"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第22个月】（2026版4、7、10月开班）班级学习会-《赌在技术开发上》读书总结发表+三大委建立及运行经验总结分享+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+三大委建立及运行经验总结分享稿辅导0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 22,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-23",
+      "cohort_month": 7,
+      "cycle_index": 23,
+      "year_index": 2,
+      "year_cycle_index": 11,
+      "nominal_calendar_month": 5,
+      "status": "MAPPED",
+      "flow_key": "Y2-C23-COHORT-4-7-10-28716418cc",
+      "candidate_flow_keys": [
+        "Y2-C23-COHORT-4-7-10-28716418cc"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第23个月】（2026版4、7、10月开班）班级学习会-《经营成功的四条心得》+《企业成长战略》读书总结发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《人生&经营哲学践行发表稿编写讲解》视频学习+班级报告会发表稿编写0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 23,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-24",
+      "cohort_month": 7,
+      "cycle_index": 24,
+      "year_index": 2,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 6,
+      "status": "MAPPED",
+      "flow_key": "Y2-C24-COHORT-1-4-7-10-0e55cb2d85",
+      "candidate_flow_keys": [
+        "Y2-C24-COHORT-1-4-7-10-0e55cb2d85"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第24个月】（2026版1、4、7、10月开班）班级学习会-班级报告会+小组学习会流程-人生&经营哲学发表稿编写辅导+幸福测评完成检视0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 24,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-25",
+      "cohort_month": 7,
+      "cycle_index": 25,
+      "year_index": 3,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 7,
+      "status": "MAPPED",
+      "flow_key": "Y3-C25-COHORT-1-4-7-6595138884",
+      "candidate_flow_keys": [
+        "Y3-C25-COHORT-1-4-7-6595138884"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第25个月】（2026版1、4、7月开班）《哲学手册编制1》视频学习+研讨+幸福测评表改善发表+人生&经营哲学发表+小组学习会-经营分析会观摩+幸福测评改善研讨828.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 25,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-26",
+      "cohort_month": 7,
+      "cycle_index": 26,
+      "year_index": 3,
+      "year_cycle_index": 2,
+      "nominal_calendar_month": 8,
+      "status": "MAPPING_CONFLICT",
+      "flow_key": null,
+      "candidate_flow_keys": [
+        "Y3-C26-COHORT-1-4-7-c5846a2908",
+        "Y3-C26-COHORT-1-4-7-3131994926"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 26,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-27",
+      "cohort_month": 7,
+      "cycle_index": 27,
+      "year_index": 3,
+      "year_cycle_index": 3,
+      "nominal_calendar_month": 9,
+      "status": "MAPPED",
+      "flow_key": "Y3-C27-COHORT-7-ba27a4dd0d",
+      "candidate_flow_keys": [
+        "Y3-C27-COHORT-7-ba27a4dd0d"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第27个月】（2026版7月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+人生&经营哲学发表+小组学习会-经营分析会观摩+《百日奋战》视频学习+哲学手册编制研讨0912.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 27,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-28",
+      "cohort_month": 7,
+      "cycle_index": 28,
+      "year_index": 3,
+      "year_cycle_index": 4,
+      "nominal_calendar_month": 10,
+      "status": "MAPPED",
+      "flow_key": "Y3-C28-COHORT-7-5a5a30ea66",
+      "candidate_flow_keys": [
+        "Y3-C28-COHORT-7-5a5a30ea66"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第28个月】（2026版7月开班）年度计划制定研讨1+百日奋战案例分享+经营分析会检视+三大委落地经验分享+小组学习会-经营分析会观摩+年度计划制定研讨+百日奋战研讨+案例分享辅导0912.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 28,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-29",
+      "cohort_month": 7,
+      "cycle_index": 29,
+      "year_index": 3,
+      "year_cycle_index": 5,
+      "nominal_calendar_month": 11,
+      "status": "MAPPED",
+      "flow_key": "Y3-C29-COHORT-7-2f9f330452",
+      "candidate_flow_keys": [
+        "Y3-C29-COHORT-7-2f9f330452"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第29个月】（2026版7月开班）年度计划制定研讨2+百日奋战案例分享+经营分析会检视+三大委落地经验分享+小组学习会-经营分析会观摩+年度计划制定研讨+百日奋战研讨+案例分享辅导0922.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 29,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-30",
+      "cohort_month": 7,
+      "cycle_index": 30,
+      "year_index": 3,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 12,
+      "status": "MAPPED",
+      "flow_key": "Y3-C30-COHORT-7-49cb1cf293",
+      "candidate_flow_keys": [
+        "Y3-C30-COHORT-7-49cb1cf293"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第30个月】（2026版7月开班）年度计划制定总结分享+百日奋战案例分享+经营分析会检视+三大委落地经验分享+小组学习会-经营分析会观摩+年度计划制定研讨+总结分享稿编写辅导+百日奋战研讨+案例分享辅导0922.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 30,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-31",
+      "cohort_month": 7,
+      "cycle_index": 31,
+      "year_index": 3,
+      "year_cycle_index": 7,
+      "nominal_calendar_month": 1,
+      "status": "MAPPED",
+      "flow_key": "Y3-C31-COHORT-7-aa8f9ded54",
+      "candidate_flow_keys": [
+        "Y3-C31-COHORT-7-aa8f9ded54"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第31个月】（2026版7月开班）百日奋战总结表彰大会+经营分析会检视发表+三大委落地经验分享+小组学习会-百日奋战总结发表稿辅导+三大委落地经验和案例分享辅导0926.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 31,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-32",
+      "cohort_month": 7,
+      "cycle_index": 32,
+      "year_index": 3,
+      "year_cycle_index": 8,
+      "nominal_calendar_month": 2,
+      "status": "MAPPING_MISSING",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "candidate_source_files": [],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 32,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-33",
+      "cohort_month": 7,
+      "cycle_index": 33,
+      "year_index": 3,
+      "year_cycle_index": 9,
+      "nominal_calendar_month": 3,
+      "status": "MAPPING_MISSING",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "candidate_source_files": [],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 33,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-34",
+      "cohort_month": 7,
+      "cycle_index": 34,
+      "year_index": 3,
+      "year_cycle_index": 10,
+      "nominal_calendar_month": 4,
+      "status": "MAPPING_MISSING",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "candidate_source_files": [],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 34,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-35",
+      "cohort_month": 7,
+      "cycle_index": 35,
+      "year_index": 3,
+      "year_cycle_index": 11,
+      "nominal_calendar_month": 5,
+      "status": "MAPPED",
+      "flow_key": "Y3-C35-COHORT-7-a95b3c1eb8",
+      "candidate_flow_keys": [
+        "Y3-C35-COHORT-7-a95b3c1eb8"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第35个月】（2026版7月开班）经营分析会总结发表+三大委落地经验分享+幸福测评改善总结分享+小组学习会-经营分析会总结发表+三大委落地总结发表分享编写辅导+幸福测评改善总结分享辅导+三年学习总结发表稿编写研讨0929.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 35,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "7-36",
+      "cohort_month": 7,
+      "cycle_index": 36,
+      "year_index": 3,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 6,
+      "status": "MAPPED",
+      "flow_key": "Y3-C36-COHORT-4-7-2b1ed7c819",
+      "candidate_flow_keys": [
+        "Y3-C36-COHORT-4-7-2b1ed7c819"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第36个月】（2026版4、7月开班）毕业报告会+小组学习会流程-幸福测评完成检视+三年学习总结发表稿编写辅导+志愿者学长培训视频学习0922.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 7,
+        "cycle_index": 36,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-1",
+      "cohort_month": 10,
+      "cycle_index": 1,
+      "year_index": 1,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 10,
+      "status": "MAPPED",
+      "flow_key": "Y1-C01-COHORT-1-4-7-10-ebaa40d595",
+      "candidate_flow_keys": [
+        "Y1-C01-COHORT-1-4-7-10-ebaa40d595"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第1个月】（2026版1、4、7、10月开班）班级学习会《心想事成》+《活法》总结发表+整体核算表实操演练+小组学习会-《如何制作核算表》+幸福测评改善0811.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 1,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-2",
+      "cohort_month": 10,
+      "cycle_index": 2,
+      "year_index": 1,
+      "year_cycle_index": 2,
+      "nominal_calendar_month": 11,
+      "status": "MAPPED",
+      "flow_key": "Y1-C02-COHORT-1-4-7-10-7ebca1ab98",
+      "candidate_flow_keys": [
+        "Y1-C02-COHORT-1-4-7-10-7ebca1ab98"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第2个月】（2026版1、4、7、10月开班）班级学习会《心灵管理》+《活法》总结发表+小组学习会-《发表稿编写讲解》视频学习+《活法》总结发表+整体核算表实操+研讨0811.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 2,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-3",
+      "cohort_month": 10,
+      "cycle_index": 3,
+      "year_index": 1,
+      "year_cycle_index": 3,
+      "nominal_calendar_month": 12,
+      "status": "MAPPED",
+      "flow_key": "Y1-C03-COHORT-1-4-7-10-701acadcad",
+      "candidate_flow_keys": [
+        "Y1-C03-COHORT-1-4-7-10-701acadcad"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第3个月】（2026版1、4、7、10月开班）班级学习会《六项精进》+《六项精进实践》视频学习总结发表+小组学习会-《六项精进实践》视频学习+发表辅导+整体核算表实操+研讨0811.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 3,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-4",
+      "cohort_month": 10,
+      "cycle_index": 4,
+      "year_index": 1,
+      "year_cycle_index": 4,
+      "nominal_calendar_month": 1,
+      "status": "MAPPED",
+      "flow_key": "Y1-C04-COHORT-1-4-7-10-307195848f",
+      "candidate_flow_keys": [
+        "Y1-C04-COHORT-1-4-7-10-307195848f"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第4个月】（2026版1、4、7、10月开班）班级学习会《经营十二条》+《经营十二条实践》视频学习总结发表+小组学习会-《经营十二条实践》视频学习+发表辅导+整体核算表实操+研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 4,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-5",
+      "cohort_month": 10,
+      "cycle_index": 5,
+      "year_index": 1,
+      "year_cycle_index": 5,
+      "nominal_calendar_month": 2,
+      "status": "MAPPED",
+      "flow_key": "Y1-C05-COHORT-1-4-7-10-c29bc0e80f",
+      "candidate_flow_keys": [
+        "Y1-C05-COHORT-1-4-7-10-c29bc0e80f"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第5个月】（2026版1、4、7、10月开班）班级学习会《用数字经营企业》视频学习+整体核算表检视发表+核算表任务单实操演练研讨+小组学习会-《核算表分析任务单制作》视频学习+整体核算表实操演练研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 5,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-6",
+      "cohort_month": 10,
+      "cycle_index": 6,
+      "year_index": 1,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 3,
+      "status": "MAPPED",
+      "flow_key": "Y1-C06-COHORT-1-4-7-10-04634b485c",
+      "candidate_flow_keys": [
+        "Y1-C06-COHORT-1-4-7-10-04634b485c"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第6个月】（2026版1、4、7、10月开班）班级学习会《京瓷会计学》视频学习+核算表任务单检视发表+《会计七原则实践》总结发表+小组学习会-《会计七原则实践》视频学习总结发表稿辅导+《企业导入讲解》视频学习+导入测评+核算表分析任务单实操演练研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 6,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-7",
+      "cohort_month": 10,
+      "cycle_index": 7,
+      "year_index": 1,
+      "year_cycle_index": 7,
+      "nominal_calendar_month": 4,
+      "status": "MAPPED",
+      "flow_key": "Y1-C07-COHORT-4-10-2cb7082809",
+      "candidate_flow_keys": [
+        "Y1-C07-COHORT-4-10-2cb7082809"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第7个月】（2026版4、10月开班）班级学习会-《领导人的资质》+核算表分析与任务单检视发表+年度计划检视研讨+小组学习会-《京瓷如何制定年度计划》视频学习+研讨+核算表分析与任务单检视+研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 7,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-8",
+      "cohort_month": 10,
+      "cycle_index": 8,
+      "year_index": 1,
+      "year_cycle_index": 8,
+      "nominal_calendar_month": 5,
+      "status": "MAPPED",
+      "flow_key": "Y1-C08-COHORT-4-10-bda28270a5",
+      "candidate_flow_keys": [
+        "Y1-C08-COHORT-4-10-bda28270a5"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第8个月】（2026版4、10月开班）班级学习会-《经营为什么需要哲学》+核算表分析&任务单制作检视发表+（半）年度计划制定的检视+研讨+小组学习会-（半）年度计划制定的检视+研讨+核算表分析&任务单检视+研讨0812.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 8,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-9",
+      "cohort_month": 10,
+      "cycle_index": 9,
+      "year_index": 1,
+      "year_cycle_index": 9,
+      "nominal_calendar_month": 6,
+      "status": "MAPPED",
+      "flow_key": "Y1-C09-COHORT-4-10-63b9002627",
+      "candidate_flow_keys": [
+        "Y1-C09-COHORT-4-10-63b9002627"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第9个月】（2026版4、10月开班）班级学习会-《经营为什么一定要实现高收益》+核算表分析&任务单制作检视发表+年度计划制定总结发表+小组学习会-年度计划制定研讨+核算表分析&任务单制作检视+研讨0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 9,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-10",
+      "cohort_month": 10,
+      "cycle_index": 10,
+      "year_index": 1,
+      "year_cycle_index": 10,
+      "nominal_calendar_month": 7,
+      "status": "MAPPED",
+      "flow_key": "Y1-C10-COHORT-4-10-7a66085b69",
+      "candidate_flow_keys": [
+        "Y1-C10-COHORT-4-10-7a66085b69"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第10个月】(2026版4、10月开班）班级学习会-《经营者需要的三种力量》+成功方程式49天研讨+小组学习会-成功方程式49天讲解视频+研讨+核算表分析&任务单制作检视研讨0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 10,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-11",
+      "cohort_month": 10,
+      "cycle_index": 11,
+      "year_index": 1,
+      "year_cycle_index": 11,
+      "nominal_calendar_month": 8,
+      "status": "MAPPED",
+      "flow_key": "Y1-C11-COHORT-4-10-434144a26d",
+      "candidate_flow_keys": [
+        "Y1-C11-COHORT-4-10-434144a26d"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第11个月】（2026班4、10月开班）班级学习会-《企业统治要诀》+核算表分析&任务单检视发表+成功方程式49天研讨+小组学习会-《人生&经营哲学发表稿编写讲解》视频学习+辅导+成功方程式49天研讨+核算表分析&任务单制作检视研讨0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 11,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-12",
+      "cohort_month": 10,
+      "cycle_index": 12,
+      "year_index": 1,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 9,
+      "status": "MAPPED",
+      "flow_key": "Y1-C12-COHORT-4-10-03448690cf",
+      "candidate_flow_keys": [
+        "Y1-C12-COHORT-4-10-03448690cf"
+      ],
+      "candidate_source_files": [
+        "【2026版】第1学年班会+小组会流程/【2026版】第1学年班会+小组会流程/【第12个月】（2026版4、10月开班）班级学习会-班级报告会+小组学习会-人生&经营哲学践行发表稿编写辅导+三张幸福测评表测评完成检视0813.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 12,
+        "year_index": 1
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-13",
+      "cohort_month": 10,
+      "cycle_index": 13,
+      "year_index": 2,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 10,
+      "status": "MAPPED",
+      "flow_key": "Y2-C13-COHORT-10-d8bdbe2535",
+      "candidate_flow_keys": [
+        "Y2-C13-COHORT-10-d8bdbe2535"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第13个月】（2026版10月开班）班级学习会-企业年度计划制定的总结发表+幸福测评改善发表+人生&经营哲学发表+小组学习会-幸福测评改善研讨+年度计划制定研讨0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 13,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-14",
+      "cohort_month": 10,
+      "cycle_index": 14,
+      "year_index": 2,
+      "year_cycle_index": 2,
+      "nominal_calendar_month": 11,
+      "status": "MAPPED",
+      "flow_key": "Y2-C14-COHORT-1-4-7-10-885bae980e",
+      "candidate_flow_keys": [
+        "Y2-C14-COHORT-1-4-7-10-885bae980e"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第14个月】（2026版1、4、7、10月开班）班级学习会-《如何召开经营分析会-基础班+进阶版》+经营分析会实操+人生&经营哲学践行发表+小组学习会-幸福关爱委视频（企业年度计划修正）0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 14,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-15",
+      "cohort_month": 10,
+      "cycle_index": 15,
+      "year_index": 2,
+      "year_cycle_index": 3,
+      "nominal_calendar_month": 12,
+      "status": "MAPPED",
+      "flow_key": "Y2-C15-COHORT-10-7fbb19ca26",
+      "candidate_flow_keys": [
+        "Y2-C15-COHORT-10-7fbb19ca26"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第15个月】（2026版10月开班）班级学习会-年度计划制定的总结发表+人生&经营哲学发表+经营分析会检视+经营分析会研讨+小组学习会-经营分析会实操观摩+《学习践行委》视频学习+年度计划草案修正0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 15,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-16",
+      "cohort_month": 10,
+      "cycle_index": 16,
+      "year_index": 2,
+      "year_cycle_index": 4,
+      "nominal_calendar_month": 1,
+      "status": "MAPPED",
+      "flow_key": "Y2-C16-COHORT-10-e89ea06de1",
+      "candidate_flow_keys": [
+        "Y2-C16-COHORT-10-e89ea06de1"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第16个月】（2026版10月开班）班级学习会-《干法》+《京瓷哲学》读书总结+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《幸福关爱委讲解》视频学习0814.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 16,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-17",
+      "cohort_month": 10,
+      "cycle_index": 17,
+      "year_index": 2,
+      "year_cycle_index": 5,
+      "nominal_calendar_month": 2,
+      "status": "MAPPED",
+      "flow_key": "Y2-C17-COHORT-10-cc58137817",
+      "candidate_flow_keys": [
+        "Y2-C17-COHORT-10-cc58137817"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第17个月】（2026版10月开班）班级学习会-《如何改善创新》+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《改善创新委》视频学习0818.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 17,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-18",
+      "cohort_month": 10,
+      "cycle_index": 18,
+      "year_index": 2,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 3,
+      "status": "MAPPED",
+      "flow_key": "Y2-C18-COHORT-7-10-bcbc9e3d33",
+      "candidate_flow_keys": [
+        "Y2-C18-COHORT-7-10-bcbc9e3d33"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第18个月】（2026版7、10月开班）班级学习会-《阿米巴经营带来企业持续发展》+学习践行委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之概论》视频学习+研讨+学习践行发表辅导0818.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 18,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-19",
+      "cohort_month": 10,
+      "cycle_index": 19,
+      "year_index": 2,
+      "year_cycle_index": 7,
+      "nominal_calendar_month": 4,
+      "status": "MAPPED",
+      "flow_key": "Y2-C19-COHORT-7-10-e3409c3e9c",
+      "candidate_flow_keys": [
+        "Y2-C19-COHORT-7-10-e3409c3e9c"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第19个月】（2026版7、10月开班）班级学习会-《日航重建成功的真正原因》+幸福关爱委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之分部门独立核算》视频学习+研讨+幸福关爱委落地总结发表辅导0818.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 19,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-20",
+      "cohort_month": 10,
+      "cycle_index": 20,
+      "year_index": 2,
+      "year_cycle_index": 8,
+      "nominal_calendar_month": 5,
+      "status": "MAPPED",
+      "flow_key": "Y2-C20-COHORT-7-10-ecee7dd040",
+      "candidate_flow_keys": [
+        "Y2-C20-COHORT-7-10-ecee7dd040"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第20个月】（2026版7、10月开班）班级学习会-《四种创造》+改善创新委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+改善创新委落地总结发表辅导0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 20,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-21",
+      "cohort_month": 10,
+      "cycle_index": 21,
+      "year_index": 2,
+      "year_cycle_index": 9,
+      "nominal_calendar_month": 6,
+      "status": "MAPPED",
+      "flow_key": "Y2-C21-COHORT-4-7-10-9dc872e110",
+      "candidate_flow_keys": [
+        "Y2-C21-COHORT-4-7-10-9dc872e110"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第21个月】（2026版4、7、10月开班）班级学习会-《企业的自我革新-从京瓷的新产品开发谈起》+改善创新案例总结发表+经营分析会检视+研讨+小组学习会-经营分析会实操+《优秀改善创新案例分享》视频学习+研讨+改善创新案例总结发表辅导0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 21,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-22",
+      "cohort_month": 10,
+      "cycle_index": 22,
+      "year_index": 2,
+      "year_cycle_index": 10,
+      "nominal_calendar_month": 7,
+      "status": "MAPPED",
+      "flow_key": "Y2-C22-COHORT-4-7-10-d1c782e69e",
+      "candidate_flow_keys": [
+        "Y2-C22-COHORT-4-7-10-d1c782e69e"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第22个月】（2026版4、7、10月开班）班级学习会-《赌在技术开发上》读书总结发表+三大委建立及运行经验总结分享+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+三大委建立及运行经验总结分享稿辅导0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 22,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-23",
+      "cohort_month": 10,
+      "cycle_index": 23,
+      "year_index": 2,
+      "year_cycle_index": 11,
+      "nominal_calendar_month": 8,
+      "status": "MAPPED",
+      "flow_key": "Y2-C23-COHORT-4-7-10-28716418cc",
+      "candidate_flow_keys": [
+        "Y2-C23-COHORT-4-7-10-28716418cc"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第23个月】（2026版4、7、10月开班）班级学习会-《经营成功的四条心得》+《企业成长战略》读书总结发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《人生&经营哲学践行发表稿编写讲解》视频学习+班级报告会发表稿编写0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 23,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-24",
+      "cohort_month": 10,
+      "cycle_index": 24,
+      "year_index": 2,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 9,
+      "status": "MAPPED",
+      "flow_key": "Y2-C24-COHORT-1-4-7-10-0e55cb2d85",
+      "candidate_flow_keys": [
+        "Y2-C24-COHORT-1-4-7-10-0e55cb2d85"
+      ],
+      "candidate_source_files": [
+        "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第24个月】（2026版1、4、7、10月开班）班级学习会-班级报告会+小组学习会流程-人生&经营哲学发表稿编写辅导+幸福测评完成检视0819.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 24,
+        "year_index": 2
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-25",
+      "cohort_month": 10,
+      "cycle_index": 25,
+      "year_index": 3,
+      "year_cycle_index": 1,
+      "nominal_calendar_month": 10,
+      "status": "MAPPING_CONFLICT",
+      "flow_key": null,
+      "candidate_flow_keys": [
+        "Y3-C25-COHORT-10-c164f36e2c",
+        "Y3-C25-COHORT-10-eeff4f4753"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第25个月】（2026版10月开班）年度计划制定的研讨+经营分析会检视发表+三大委落地经验分享+人生&经营哲学践行发表+小组学习会-经营分析会观摩+第三年学习计划讲解+年度计划制定研讨+三大委案例分享辅导0911.docx",
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第25个月】（2026版10月开班）年度计划制定的研讨1+经营分析会检视发表+三大委落地经验分享+人生&经营哲学践行发表+小组学习会-经营分析会观摩+第三年学习计划讲解+年度计划制定研讨+三大委案例分享辅导0911.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 25,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-26",
+      "cohort_month": 10,
+      "cycle_index": 26,
+      "year_index": 3,
+      "year_cycle_index": 2,
+      "nominal_calendar_month": 11,
+      "status": "MAPPING_CONFLICT",
+      "flow_key": null,
+      "candidate_flow_keys": [
+        "Y3-C26-COHORT-10-c008c1df96",
+        "Y3-C26-COHORT-10-6e3ff29065"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版10月开班）年度计划制定的研讨+经营分析会检视发表+三大委落地经验分享+人生&经营哲学践行发表+小组学习会-经营分析会观摩+第三年学习计划讲解+年度计划制定研讨+三大委案例分享辅导0911.docx",
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版10月开班）年度计划制定的研讨2+经营分析会检视发表+三大委落地经验分享+人生&经营哲学践行发表+小组学习会-经营分析会观摩+第三年学习计划讲解+年度计划制定研讨+三大委案例分享辅导0911.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 26,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-27",
+      "cohort_month": 10,
+      "cycle_index": 27,
+      "year_index": 3,
+      "year_cycle_index": 3,
+      "nominal_calendar_month": 12,
+      "status": "MAPPED",
+      "flow_key": "Y3-C27-COHORT-10-c266c4ef16",
+      "candidate_flow_keys": [
+        "Y3-C27-COHORT-10-c266c4ef16"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第27个月】（2026版10月开班）年度计划制定的总结分享+经营分析会检视发表+三大委落地经验分享+人生&经营哲学践行发表+小组学习会-经营分析会观摩+第三年学习计划讲解+年度计划制定研讨+三大委案例分享辅导0911.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 27,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-28",
+      "cohort_month": 10,
+      "cycle_index": 28,
+      "year_index": 3,
+      "year_cycle_index": 4,
+      "nominal_calendar_month": 1,
+      "status": "MAPPED",
+      "flow_key": "Y3-C28-COHORT-10-2e07e210b9",
+      "candidate_flow_keys": [
+        "Y3-C28-COHORT-10-2e07e210b9"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第28个月】（2026版10月开班）《哲学手册编制1》视频学习+研讨+经营分析会检视发表+三张幸福测评表分值提升经验分享+小组学习会-经营分析会观摩+幸福测评检视+研讨0911.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 28,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-29",
+      "cohort_month": 10,
+      "cycle_index": 29,
+      "year_index": 3,
+      "year_cycle_index": 5,
+      "nominal_calendar_month": 2,
+      "status": "MAPPED",
+      "flow_key": "Y3-C29-COHORT-10-d6dc1f3c64",
+      "candidate_flow_keys": [
+        "Y3-C29-COHORT-10-d6dc1f3c64"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第29个月】（2026版10月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+小组学习会-经营分析会观摩+哲学手册编制研讨0912.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 29,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-30",
+      "cohort_month": 10,
+      "cycle_index": 30,
+      "year_index": 3,
+      "year_cycle_index": 6,
+      "nominal_calendar_month": 3,
+      "status": "MAPPING_MISSING",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "candidate_source_files": [],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 30,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-31",
+      "cohort_month": 10,
+      "cycle_index": 31,
+      "year_index": 3,
+      "year_cycle_index": 7,
+      "nominal_calendar_month": 4,
+      "status": "MAPPING_MISSING",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "candidate_source_files": [],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 31,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-32",
+      "cohort_month": 10,
+      "cycle_index": 32,
+      "year_index": 3,
+      "year_cycle_index": 8,
+      "nominal_calendar_month": 5,
+      "status": "MAPPING_MISSING",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "candidate_source_files": [],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 32,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-33",
+      "cohort_month": 10,
+      "cycle_index": 33,
+      "year_index": 3,
+      "year_cycle_index": 9,
+      "nominal_calendar_month": 6,
+      "status": "MAPPED",
+      "flow_key": "Y3-C33-COHORT-10-4c4d3a8016",
+      "candidate_flow_keys": [
+        "Y3-C33-COHORT-10-4c4d3a8016"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第33个月】（2026版10月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0915.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 33,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-34",
+      "cohort_month": 10,
+      "cycle_index": 34,
+      "year_index": 3,
+      "year_cycle_index": 10,
+      "nominal_calendar_month": 7,
+      "status": "MAPPED",
+      "flow_key": "Y3-C34-COHORT-10-a71a4e55e2",
+      "candidate_flow_keys": [
+        "Y3-C34-COHORT-10-a71a4e55e2"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第34个月】（2026版10月开班）经营分析会总结发表+百日奋战案例分享+三大委落地经验分享+小组学习会-经营分析会观摩+经营分析会总结发表+百日奋战案例分享编写辅导0915.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 34,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-35",
+      "cohort_month": 10,
+      "cycle_index": 35,
+      "year_index": 3,
+      "year_cycle_index": 11,
+      "nominal_calendar_month": 8,
+      "status": "MAPPED",
+      "flow_key": "Y3-C35-COHORT-10-383e6b2e04",
+      "candidate_flow_keys": [
+        "Y3-C35-COHORT-10-383e6b2e04"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第35个月】（2026版10月开班）三大委落地总结分享+百日奋战案例分享+幸福测评改善总结分享+人财培养体系建设及落地总结分享+小组学习会-年度计划制定的研讨+三大委落地总结发表稿编写+幸福测评改善总结分享编写辅导+人财培养体系建设及落地总结分享辅导+三年学习总结发表稿编写研讨0916.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 35,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    },
+    {
+      "mapping_key": "10-36",
+      "cohort_month": 10,
+      "cycle_index": 36,
+      "year_index": 3,
+      "year_cycle_index": 12,
+      "nominal_calendar_month": 9,
+      "status": "MAPPED",
+      "flow_key": "Y3-C36-COHORT-10-4c499c8544",
+      "candidate_flow_keys": [
+        "Y3-C36-COHORT-10-4c499c8544"
+      ],
+      "candidate_source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第36个月】（2026版10月开班）毕业报告会+百日奋战总结表彰大会（可选）+小组学习会流程-幸福测评完成检视+三年学习总结发表稿编写辅导+百日奋战总结发表稿编写研讨+志愿者学长培训视频学习0910.docx"
+      ],
+      "lookup_key": {
+        "plan_version": "2026",
+        "cohort_month": 10,
+        "cycle_index": 36,
+        "year_index": 3
+      },
+      "calendar_month_used_as_primary_key": false
+    }
+  ]
+}

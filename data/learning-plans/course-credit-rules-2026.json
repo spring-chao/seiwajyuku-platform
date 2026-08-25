@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "plan_key": "STANDARD_3Y_2026",
+  "version_label": "2026.1",
+  "status": "DRAFT",
+  "scope": "ONLINE_COURSE",
+  "group_meeting_base_credit": {
+    "mode": "CYCLE_ATTENDANCE_ONCE",
+    "credit_points_per_person": 4,
+    "task_level_credit_points": null,
+    "description": "小组会基础出席分按人、按学习周期计一次，不按流程步骤重复计分。"
+  },
+  "source_document": {
+    "filename": "盛和塾运营平台_L1.2-C_小组学习会完整流程标准化与课程积分_开发文档_V1.0.docx",
+    "sha256": "ba0298611f9d6636038d0faf1057a72bfa9bdf7a18ea65df27a8676673dba054"
+  },
+  "rules": [
+    {
+      "course_key": "Y1-HAPPINESS-ASSESSMENT",
+      "course_name": "幸福测评表讲解",
+      "year_index": 1,
+      "credit_points": 20,
+      "aliases": ["幸福测评", "幸福测评表"],
+      "status": "CONFIRMED"
+    },
+    {
+      "course_key": "Y1-CLASS-SPEECH-DRAFT",
+      "course_name": "班级学习会发表稿编写讲解",
+      "year_index": 1,
+      "credit_points": 20,
+      "aliases": ["班级学习会发表稿", "发表稿编写"],
+      "status": "CONFIRMED"
+    },
+    {
+      "course_key": "Y1-SIX-DILIGENCES",
+      "course_name": "六项精进实践",
+      "year_index": 1,
+      "credit_points": 20,
+      "aliases": ["六项精进"],
+      "status": "CONFIRMED"
+    },
+    {
+      "course_key": "Y1-TWELVE-MANAGEMENT",
+      "course_name": "经营十二条实践",
+      "year_index": 1,
+      "credit_points": 20,
+      "aliases": ["经营十二条"],
+      "status": "CONFIRMED"
+    },
+    {
+      "course_key": "Y1-INTEGRATED-ACCOUNTING",
+      "course_name": "整体核算表编制",
+      "year_index": 1,
+      "credit_points": 40,
+      "aliases": ["整体核算表"],
+      "status": "CONFIRMED"
+    },
+    {
+      "course_key": "Y1-ACCOUNTING-ANALYSIS-TASK",
+      "course_name": "核算表分析与任务单制作",
+      "year_index": 1,
+      "credit_points": 40,
+      "aliases": ["核算表分析", "任务单制作"],
+      "status": "CONFIRMED"
+    },
+    {
+      "course_key": "Y1-SEVEN-ACCOUNTING-PRINCIPLES",
+      "course_name": "会计七原则实践",
+      "year_index": 1,
+      "credit_points": 20,
+      "aliases": ["会计七原则"],
+      "status": "CONFIRMED"
+    },
+    {
+      "course_key": "Y1-KYOCERA-ANNUAL-PLAN",
+      "course_name": "京瓷如何制定年度计划",
+      "year_index": 1,
+      "credit_points": 30,
+      "aliases": ["京瓷如何制定年度计划"],
+      "status": "CONFIRMED"
+    },
+    {
+      "course_key": "Y1-ANNUAL-MONTHLY-MGMT",
+      "course_name": "年度计划与月度核算管理",
+      "year_index": 1,
+      "credit_points": 15,
+      "aliases": ["年度计划与月度核算管理"],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknown_course_policy": {
+    "credit_points": null,
+    "status": "QR_REVIEW_REQUIRED",
+    "description": "未能由正式流程文字确认的课程不猜测、不自动赋分。"
+  }
+}

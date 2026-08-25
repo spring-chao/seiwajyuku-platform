@@ -2265,3 +2265,99 @@ export const getLearningPlanGroupMeetings = () =>
     "get",
     "/api/v1/learning-plan-group-meetings"
   );
+
+export type LearningPlanGroupFlowCourseNode = {
+  node_type: "COURSE_QR";
+  media_target?: string | null;
+  relationship_id?: string | null;
+  source_paragraph_index?: number | null;
+  context_step_no?: number | null;
+  context_text?: string | null;
+  course_key?: string | null;
+  credit_points?: number | null;
+  credit_status: "MAPPED" | "QR_REVIEW_REQUIRED";
+  qr_url?: string | null;
+};
+
+export type LearningPlanGroupFlowStep = {
+  step_no: number;
+  title: string;
+  content: string;
+  is_required: boolean;
+  is_terminal: boolean;
+  source_paragraph_index?: number | null;
+  qr_refs: LearningPlanGroupFlowCourseNode[];
+};
+
+export type LearningPlanGroupFlow = {
+  flow_key: string;
+  status: "PARSED" | "REVIEW_REQUIRED";
+  year_index?: number | null;
+  cycle_index?: number | null;
+  year_cycle_index?: number | null;
+  eligible_cohort_months: number[];
+  title: string;
+  source: { relative_path: string; filename: string; sha256: string };
+  boundary: {
+    starts_at: string;
+    ends_at: string;
+    terminal_step_count: number;
+    qr_after_terminal_excluded: boolean;
+  };
+  steps: LearningPlanGroupFlowStep[];
+  course_nodes: LearningPlanGroupFlowCourseNode[];
+  quality: Record<string, unknown>;
+};
+
+export type LearningPlanGroupFlowCatalog = {
+  plan_key: string;
+  version_label: string;
+  base_version_label: string;
+  status: "DRAFT" | "CONFIRMED";
+  base_review_status: "PENDING" | "CONFIRMED";
+  confirmed_at?: string | null;
+  confirmed_by?: string | null;
+  source_commit: string;
+  source_json: string;
+  source_json_sha256: string;
+  source_workbooks: Record<string, { file: string; sha256: string }>;
+  base_group_flow_source_files: {
+    filename: string;
+    relative_path: string;
+    sha256: string;
+  }[];
+  base_course_credit_rules_sha256: string;
+  source_inventory_sha256: string;
+  flow_count: number;
+  source_fragment_count: number;
+  quality_report: Record<string, any>;
+  mapping_quality_report: Record<string, any>;
+  credit_policy: LearningPlanGroupMeetingCatalog["credit_policy"];
+  course_credit_rules: Record<string, unknown>;
+  flows: LearningPlanGroupFlow[];
+  mappings: {
+    mapping_key: string;
+    cohort_month: number;
+    cycle_index: number;
+    year_index: number;
+    year_cycle_index?: number | null;
+    nominal_calendar_month?: number | null;
+    status: "MAPPED" | "MAPPING_CONFLICT" | "MAPPING_MISSING";
+    flow_key?: string | null;
+    candidate_flow_keys: string[];
+    candidate_source_files: string[];
+    calendar_month_used_as_primary_key: false;
+  }[];
+};
+
+export const getLearningPlanGroupMeetingFlows = () =>
+  http.request<{ success: boolean; data: LearningPlanGroupFlowCatalog }>(
+    "get",
+    "/api/v1/learning-plan-group-meeting-flows"
+  );
+
+export const getLearningPlanCourseCreditRules = () =>
+  http.request<{
+    success: boolean;
+    data: { plan_key: string; version_label: string; sha256: string; rules: Record<string, unknown> };
+  }>("get", "/api/v1/learning-plan-course-credit-rules");

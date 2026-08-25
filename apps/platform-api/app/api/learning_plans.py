@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Literal
 
@@ -39,6 +40,30 @@ def _review_artifact_paths() -> tuple[Path, Path]:
         if manifest.is_file() and plan.is_file():
             return manifest, plan
     raise FileNotFoundError("找不到2026学习计划审核清单")
+
+
+def _learning_plan_data_paths() -> dict[str, Path]:
+    for parent in Path(__file__).resolve().parents:
+        data_root = parent / "data" / "learning-plans"
+        required = {
+            "manifest": data_root / "standard-3y-2026.review.json",
+            "plan": data_root / "standard-3y-2026.json",
+            "flows": data_root / "group-meeting-flows-2026.1.json",
+            "mapping": data_root / "cycle-flow-mapping-2026.1.json",
+            "rules": data_root / "course-credit-rules-2026.json",
+            "inventory": data_root / "group-meeting-source-inventory-2026.json",
+        }
+        if all(path.is_file() for path in required.values()):
+            return required
+    raise FileNotFoundError("找不到 L1.2-C 学习会流程配置工件")
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _learning_plan_review_payload() -> dict:
@@ -138,6 +163,53 @@ def _learning_plan_group_meeting_payload() -> dict:
     }
 
 
+def _learning_plan_group_meeting_flow_payload() -> dict:
+    paths = _learning_plan_data_paths()
+    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+    plan = json.loads(paths["plan"].read_text(encoding="utf-8"))
+    flows = json.loads(paths["flows"].read_text(encoding="utf-8"))
+    mapping = json.loads(paths["mapping"].read_text(encoding="utf-8"))
+    rules = json.loads(paths["rules"].read_text(encoding="utf-8"))
+    inventory = json.loads(paths["inventory"].read_text(encoding="utf-8"))
+    source_files = [
+        {
+            "filename": item.get("filename"),
+            "relative_path": item.get("relative_path"),
+            "sha256": item.get("sha256"),
+        }
+        for item in inventory.get("included_files", [])
+    ]
+    return {
+        "plan_key": manifest.get("plan_key"),
+        "version_label": "2026.1",
+        "base_version_label": manifest.get("version_label"),
+        "status": flows.get("status", "DRAFT"),
+        "base_review_status": manifest.get("status"),
+        "confirmed_at": manifest.get("confirmed_at"),
+        "confirmed_by": manifest.get("confirmed_by"),
+        "source_commit": manifest.get("source_commit"),
+        "source_json": manifest.get("source_json"),
+        "source_json_sha256": manifest.get("source_json_sha256"),
+        "source_workbooks": manifest.get("source_workbooks", {}),
+        "base_group_flow_source_files": source_files,
+        "base_course_credit_rules_sha256": _sha256_file(paths["rules"]),
+        "source_inventory_sha256": flows.get("source_inventory_sha256"),
+        "flow_count": len(flows.get("flows", [])),
+        "source_fragment_count": sum(
+            task.get("task_type") == "GROUP_MEETING"
+            for track in plan.get("cohort_tracks", [])
+            for cycle in track.get("cycles", [])
+            for task in cycle.get("tasks", [])
+        ),
+        "quality_report": flows.get("quality_report", {}),
+        "mapping_quality_report": mapping.get("quality_report", {}),
+        "credit_policy": GROUP_MEETING_CREDIT_POLICY,
+        "course_credit_rules": rules,
+        "flows": flows.get("flows", []),
+        "mappings": mapping.get("mappings", []),
+    }
+
+
 class LearningPlanBindingPayload(BaseModel):
     plan_version_id: int = Field(gt=0)
     cohort_month: int | None = Field(default=None, ge=1, le=12)
@@ -183,6 +255,61 @@ def learning_plan_group_meetings(user: dict = Depends(require_permission("plans:
         return {"success": True, "data": _learning_plan_group_meeting_payload()}
     except (FileNotFoundError, json.JSONDecodeError) as exc:
         raise HTTPException(503, "小组学习会调整清单暂不可用") from exc
+
+
+@router.get("/learning-plan-group-meeting-flows")
+def learning_plan_group_meeting_flows(
+    user: dict = Depends(require_permission("plans:read")),
+) -> dict:
+    try:
+        return {"success": True, "data": _learning_plan_group_meeting_flow_payload()}
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise HTTPException(503, "小组学习会完整流程暂不可用") from exc
+
+
+@router.get("/learning-plan-group-meeting-flows/{flow_key}")
+def learning_plan_group_meeting_flow(
+    flow_key: str,
+    user: dict = Depends(require_permission("plans:read")),
+) -> dict:
+    try:
+        payload = _learning_plan_group_meeting_flow_payload()
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise HTTPException(503, "小组学习会完整流程暂不可用") from exc
+    flow = next((item for item in payload["flows"] if item.get("flow_key") == flow_key), None)
+    if flow is None:
+        raise HTTPException(404, "未找到小组学习会流程")
+    return {
+        "success": True,
+        "data": {
+            "plan_key": payload["plan_key"],
+            "version_label": payload["version_label"],
+            "source_commit": payload["source_commit"],
+            "source_json_sha256": payload["source_json_sha256"],
+            "base_group_flow_source_files": payload["base_group_flow_source_files"],
+            "base_course_credit_rules_sha256": payload["base_course_credit_rules_sha256"],
+            "flow": flow,
+        },
+    }
+
+
+@router.get("/learning-plan-course-credit-rules")
+def learning_plan_course_credit_rules(
+    user: dict = Depends(require_permission("plans:read")),
+) -> dict:
+    try:
+        payload = _learning_plan_group_meeting_flow_payload()
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise HTTPException(503, "课程积分规则暂不可用") from exc
+    return {
+        "success": True,
+        "data": {
+            "plan_key": payload["plan_key"],
+            "version_label": payload["version_label"],
+            "sha256": payload["base_course_credit_rules_sha256"],
+            "rules": payload["course_credit_rules"],
+        },
+    }
 
 
 @router.post("/classes/{class_org_unit_id}/learning-plan-binding")

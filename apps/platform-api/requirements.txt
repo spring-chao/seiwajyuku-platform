@@ -8,6 +8,7 @@ argon2-cffi==25.1.0
 PyJWT==2.10.1
 cryptography==45.0.6
 openpyxl==3.1.5
+python-docx==1.2.0
 python-multipart==0.0.20
 httpx==0.28.1
 mcp==1.29.0
