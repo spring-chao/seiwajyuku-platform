@@ -31,3 +31,10 @@ def test_group_meeting_catalog_contains_all_tasks_and_fingerprints() -> None:
     assert payload["source_json_sha256"] == (
         "404e1a9b3ea5037c9d5dd01d112186a629243115ee5c64da8ae0602cd572e8a2"
     )
+    assert payload["credit_policy"] == {
+        "mode": "CYCLE_ATTENDANCE_ONCE",
+        "credit_points_per_person": 4,
+        "task_level_credit_points": None,
+        "task_level_credit_editable": False,
+        "label": "小组会基础出席分：4分/人/学习周期（周期内只计一次）",
+    }

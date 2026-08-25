@@ -18,6 +18,7 @@ from typing import Any, Iterable
 
 PLAN_KEY = "standard-3y"
 VERSION_LABEL = "2026"
+SUPPORTED_VERSION_LABEL_RE = re.compile(r"^2026(?:\.\d+)?$")
 COHORT_MONTHS = (1, 4, 7, 10)
 TASK_TYPES = {
     "CLASS_MEETING",
@@ -288,7 +289,11 @@ def _make_task(
     nominal_calendar_month: int,
     section: str,
 ) -> dict[str, Any]:
-    credit_points, canonical_key = _credit_rule(title)
+    # GROUP_MEETING 的 4 分是周期级出席规则，不能落到流程任务上。
+    # 20/40 分仅由 ONLINE_COURSE/OFFLINE_COURSE 任务承载。
+    credit_points, canonical_key = (
+        (None, None) if task_type == "GROUP_MEETING" else _credit_rule(title)
+    )
     return {
         "task_type": task_type,
         "title": title,
@@ -617,8 +622,8 @@ def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
         errors.append("schema_version 必须为 1")
     if plan.get("plan_key") != PLAN_KEY:
         errors.append(f"plan_key 必须为 {PLAN_KEY}")
-    if plan.get("version_label") != VERSION_LABEL:
-        errors.append(f"version_label 必须为 {VERSION_LABEL}")
+    if not SUPPORTED_VERSION_LABEL_RE.fullmatch(str(plan.get("version_label") or "")):
+        errors.append("version_label 必须为 2026 或 2026.N 候选版本")
     if plan.get("duration_cycles") != 36:
         errors.append("duration_cycles 必须为 36")
     if plan.get("status") != "DRAFT":
@@ -657,7 +662,9 @@ def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 task_type = task.get("task_type")
                 if task_type not in TASK_TYPES:
                     errors.append(f"{cohort}月轨道第{index}周期存在未知任务类型 {task_type}")
-                if task.get("credit_points") is not None and task.get("credit_points") not in {20, 40}:
+                if task_type == "GROUP_MEETING" and task.get("credit_points") is not None:
+                    errors.append(f"{cohort}月轨道第{index}周期 GROUP_MEETING 不得配置任务级学分")
+                elif task.get("credit_points") is not None and task.get("credit_points") not in {20, 40}:
                     errors.append(f"{cohort}月轨道第{index}周期存在非规则学分")
                 if not task.get("metadata", {}).get("source_sheet") or not task.get("metadata", {}).get("source_cell"):
                     errors.append(f"{cohort}月轨道第{index}周期任务缺少源单元格元数据")

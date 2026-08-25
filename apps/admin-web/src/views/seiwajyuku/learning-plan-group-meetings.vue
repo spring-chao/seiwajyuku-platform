@@ -13,13 +13,12 @@ defineOptions({ name: "LearningPlanGroupMeetings" });
 type GroupMeetingDraft = {
   title: string;
   description: string;
-  credit_points: number | null;
   is_required: boolean;
   notes: string | null;
 };
 
 const router = useRouter();
-const STORAGE_KEY = "seiwajyuku-learning-plan-group-meeting-drafts-v1";
+const STORAGE_KEY = "seiwajyuku-learning-plan-group-meeting-drafts-v2";
 const loading = ref(false);
 const error = ref("");
 const catalog = ref<LearningPlanGroupMeetingCatalog>();
@@ -32,7 +31,6 @@ const drafts = ref<Record<string, GroupMeetingDraft>>({});
 const form = reactive<GroupMeetingDraft>({
   title: "",
   description: "",
-  credit_points: null,
   is_required: true,
   notes: ""
 });
@@ -55,10 +53,14 @@ const changedCount = computed(() => Object.keys(drafts.value).length);
 const filteredTasks = computed(() => {
   const query = search.value.trim().toLowerCase();
   return (catalog.value?.tasks ?? []).filter(task => {
-    if (cohortFilter.value !== "all" && String(task.cohort_month) !== cohortFilter.value) {
+    if (
+      cohortFilter.value !== "all" &&
+      String(task.cohort_month) !== cohortFilter.value
+    ) {
       return false;
     }
-    if (cycleFilter.value && task.cycle_index !== cycleFilter.value) return false;
+    if (cycleFilter.value && task.cycle_index !== cycleFilter.value)
+      return false;
     if (!query) return true;
     const metadata = task.metadata ?? {};
     return [
@@ -75,7 +77,8 @@ const filteredTasks = computed(() => {
   });
 });
 
-const asGroupMeetingTask = (value: unknown) => value as LearningPlanGroupMeetingTask;
+const asGroupMeetingTask = (value: unknown) =>
+  value as LearningPlanGroupMeetingTask;
 
 const effectiveTask = (value: unknown) => {
   const task = asGroupMeetingTask(value);
@@ -139,7 +142,6 @@ const openTask = (value: unknown) => {
   selectedTaskKey.value = task.task_key;
   form.title = current.title ?? "";
   form.description = current.description ?? "";
-  form.credit_points = current.credit_points ?? null;
   form.is_required = current.is_required;
   form.notes = drafts.value[task.task_key]?.notes ?? "";
   drawerVisible.value = true;
@@ -151,20 +153,11 @@ const saveDraft = () => {
     ElMessage.warning("请填写小组学习会流程内容");
     return;
   }
-  const creditPoints =
-    form.credit_points === null || form.credit_points === undefined
-      ? null
-      : Number(form.credit_points);
-  if (creditPoints !== null && (!Number.isFinite(creditPoints) || creditPoints < 0)) {
-    ElMessage.warning("学分必须是大于或等于0的数字");
-    return;
-  }
   drafts.value = {
     ...drafts.value,
     [selectedTask.value.task_key]: {
       title: form.title.trim(),
       description: form.description.trim(),
-      credit_points: creditPoints,
       is_required: form.is_required,
       notes: form.notes.trim() || null
     }
@@ -200,10 +193,26 @@ const exportDrafts = () => {
     base_source_commit: catalog.value.source_commit,
     base_source_json: catalog.value.source_json,
     base_source_json_sha256: catalog.value.source_json_sha256,
+    base_source_workbooks: {
+      year1: catalog.value.source_workbooks["1"],
+      year2: catalog.value.source_workbooks["2"],
+      year3: catalog.value.source_workbooks["3"]
+    },
+    credit_policy_snapshot: catalog.value.credit_policy,
+    candidate_plan: {
+      version_label: "2026.1",
+      status: "DRAFT",
+      overwrite_confirmed: false,
+      requires_new_review_manifest: true,
+      requires_source_fingerprint_refresh: true
+    },
     created_at: new Date().toISOString(),
     changes: Object.entries(drafts.value).map(([task_key, change]) => ({
       task_key,
-      ...change
+      title: change.title,
+      description: change.description,
+      is_required: change.is_required,
+      notes: change.notes
     }))
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -229,14 +238,18 @@ onMounted(loadCatalog);
           <div>
             <div class="config-title">学习计划配置 · 小组学习会</div>
             <div class="config-subtitle">
-              已确认版本的后续调整入口：流程内容与学分调整只生成下一版草稿
+              已确认版本的后续调整入口：流程内容调整只生成下一版草稿
             </div>
           </div>
           <div class="config-actions">
             <el-button @click="router.push('/operations/learning-plan-review')">
               返回学习计划审核
             </el-button>
-            <el-button type="primary" :disabled="!catalog || !changedCount" @click="exportDrafts">
+            <el-button
+              type="primary"
+              :disabled="!catalog || !changedCount"
+              @click="exportDrafts"
+            >
               导出调整草稿（{{ changedCount }}）
             </el-button>
           </div>
@@ -254,7 +267,7 @@ onMounted(loadCatalog);
       <template v-if="catalog">
         <el-alert
           class="config-notice"
-          title="当前2026版本已经确认。这里不会覆盖已确认计划、不会写入数据库；保存和导出的是下一版小组学习会调整草稿，须重新审核并通过受控 B2 流程后才能生效。"
+          title="当前2026版本已经确认。这里不会覆盖已确认计划、不会写入数据库；保存和导出的是下一版小组学习会调整草稿（默认候选版本 2026.1），须重新生成计划、刷新五项指纹、重新审核并通过受控 B2 流程后才能生效。"
           type="warning"
           :closable="false"
           show-icon
@@ -272,6 +285,14 @@ onMounted(loadCatalog);
           <div class="summary-item">
             <span>本地调整草稿</span>
             <strong>{{ changedCount }}</strong>
+          </div>
+          <div class="summary-item credit-policy-summary">
+            <span>小组会学分规则</span>
+            <strong
+              >{{
+                catalog.credit_policy.credit_points_per_person
+              }}分/人/周期一次</strong
+            >
           </div>
         </div>
 
@@ -306,7 +327,9 @@ onMounted(loadCatalog);
             placeholder="搜索流程内容、源工作表或源单元格"
             style="max-width: 360px"
           />
-          <span class="filter-count">显示 {{ filteredTasks.length }} / {{ catalog.task_count }} 项</span>
+          <span class="filter-count"
+            >显示 {{ filteredTasks.length }} / {{ catalog.task_count }} 项</span
+          >
         </div>
 
         <el-table
@@ -325,14 +348,18 @@ onMounted(loadCatalog);
             <template #default="{ row }">第{{ row.cycle_index }}周期</template>
           </el-table-column>
           <el-table-column label="名义月份" width="90">
-            <template #default="{ row }">{{ row.nominal_calendar_month ?? "—" }}月</template>
+            <template #default="{ row }"
+              >{{ row.nominal_calendar_month ?? "—" }}月</template
+            >
           </el-table-column>
           <el-table-column label="流程内容" min-width="320">
-            <template #default="{ row }">{{ effectiveTask(row).description || "—" }}</template>
+            <template #default="{ row }">{{
+              effectiveTask(row).description || "—"
+            }}</template>
           </el-table-column>
-          <el-table-column label="学分" width="78">
+          <el-table-column label="学分规则" width="190">
             <template #default="{ row }">
-              {{ effectiveTask(row).credit_points ?? "—" }}
+              {{ catalog.credit_policy.label }}
             </template>
           </el-table-column>
           <el-table-column label="源单元格" min-width="190">
@@ -340,13 +367,17 @@ onMounted(loadCatalog);
           </el-table-column>
           <el-table-column label="状态" width="100">
             <template #default="{ row }">
-              <el-tag v-if="drafts[row.task_key]" type="warning">有调整草稿</el-tag>
+              <el-tag v-if="drafts[row.task_key]" type="warning"
+                >有调整草稿</el-tag
+              >
               <el-tag v-else type="info">沿用确认版</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="120" fixed="right">
             <template #default="{ row }">
-              <el-button link type="primary" @click="openTask(row)">调整草稿</el-button>
+              <el-button link type="primary" @click="openTask(row)"
+                >调整草稿</el-button
+              >
             </template>
           </el-table-column>
         </el-table>
@@ -355,24 +386,32 @@ onMounted(loadCatalog);
 
     <el-drawer
       v-model="drawerVisible"
-      :title="selectedTask ? `调整小组学习会 · ${selectedTask.cohort_month}月开班第${selectedTask.cycle_index}周期` : '调整小组学习会'"
+      :title="
+        selectedTask
+          ? `调整小组学习会 · ${selectedTask.cohort_month}月开班第${selectedTask.cycle_index}周期`
+          : '调整小组学习会'
+      "
       size="620px"
     >
       <template v-if="selectedTask">
         <el-alert
-          title="调整的是下一版计划草稿；原始审核版本和当前生产数据不会被覆盖。"
+          title="调整的是下一版计划草稿；原始审核版本和当前生产数据不会被覆盖。导出后需生成新的候选 JSON（例如 2026.1），重新计算 JSON/Excel/SHA-256 指纹并重新审核。"
           type="info"
           :closable="false"
           show-icon
         />
         <el-descriptions :column="2" border class="drawer-meta">
-          <el-descriptions-item label="任务类型">GROUP_MEETING</el-descriptions-item>
-          <el-descriptions-item label="源单元格">{{ sourceRef(selectedTask) }}</el-descriptions-item>
+          <el-descriptions-item label="任务类型"
+            >GROUP_MEETING</el-descriptions-item
+          >
+          <el-descriptions-item label="源单元格">{{
+            sourceRef(selectedTask)
+          }}</el-descriptions-item>
           <el-descriptions-item label="原流程内容" :span="2">
             {{ selectedTask.description || "—" }}
           </el-descriptions-item>
-          <el-descriptions-item label="原学分">
-            {{ selectedTask.credit_points ?? "—" }}
+          <el-descriptions-item label="学分规则" :span="2">
+            {{ catalog.credit_policy.label }}；GROUP_MEETING 流程项不单独计分。
           </el-descriptions-item>
           <el-descriptions-item label="源内容" :span="2">
             {{ sourceText(selectedTask) }}
@@ -384,14 +423,27 @@ onMounted(loadCatalog);
             <el-input v-model="form.title" maxlength="255" show-word-limit />
           </el-form-item>
           <el-form-item label="小组学习会流程内容" required>
-            <el-input v-model="form.description" type="textarea" :rows="7" maxlength="4000" show-word-limit />
+            <el-input
+              v-model="form.description"
+              type="textarea"
+              :rows="7"
+              maxlength="4000"
+              show-word-limit
+            />
           </el-form-item>
-          <el-form-item label="确认学分">
-            <el-input-number v-model="form.credit_points" :min="0" :max="1000" :step="20" clearable />
-            <span class="form-hint">留空表示该流程暂不确认学分</span>
-          </el-form-item>
+          <el-alert
+            class="credit-policy-alert"
+            :title="`${catalog.credit_policy.credit_points_per_person}分/人/学习周期，周期内只计一次；GROUP_MEETING 流程项不单独计分。20/40分应配置在 ONLINE_COURSE 任务。`"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
           <el-form-item label="是否为必做流程">
-            <el-switch v-model="form.is_required" active-text="必做" inactive-text="可选" />
+            <el-switch
+              v-model="form.is_required"
+              active-text="必做"
+              inactive-text="可选"
+            />
           </el-form-item>
           <el-form-item label="调整说明">
             <el-input
@@ -408,7 +460,9 @@ onMounted(loadCatalog);
             <el-button v-if="drafts[selectedTask.task_key]" @click="resetDraft">
               恢复确认版
             </el-button>
-            <el-button type="primary" @click="saveDraft">保存调整草稿</el-button>
+            <el-button type="primary" @click="saveDraft"
+              >保存调整草稿</el-button
+            >
           </div>
         </el-form>
       </template>

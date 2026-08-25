@@ -2249,6 +2249,13 @@ export type LearningPlanGroupMeetingCatalog = {
   source_json: string;
   source_json_sha256: string;
   source_workbooks: Record<string, { file: string; sha256: string }>;
+  credit_policy: {
+    mode: "CYCLE_ATTENDANCE_ONCE";
+    credit_points_per_person: number;
+    task_level_credit_points: null;
+    task_level_credit_editable: false;
+    label: string;
+  };
   task_count: number;
   tasks: LearningPlanGroupMeetingTask[];
 };

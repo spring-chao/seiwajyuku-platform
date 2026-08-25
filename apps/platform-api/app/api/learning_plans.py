@@ -20,6 +20,17 @@ from app.services.learning_cycles import (
 router = APIRouter(prefix="/api/v1", tags=["learning-plans"])
 
 
+# 小组会基础出席分是周期级规则，不是每一条 GROUP_MEETING 流程任务的任务级学分。
+# 该规则属于运行与配置边界，故不改写已经确认的标准计划 JSON。
+GROUP_MEETING_CREDIT_POLICY = {
+    "mode": "CYCLE_ATTENDANCE_ONCE",
+    "credit_points_per_person": 4,
+    "task_level_credit_points": None,
+    "task_level_credit_editable": False,
+    "label": "小组会基础出席分：4分/人/学习周期（周期内只计一次）",
+}
+
+
 def _review_artifact_paths() -> tuple[Path, Path]:
     for parent in Path(__file__).resolve().parents:
         data_root = parent / "data" / "learning-plans"
@@ -121,6 +132,7 @@ def _learning_plan_group_meeting_payload() -> dict:
         "source_json": manifest.get("source_json"),
         "source_json_sha256": manifest.get("source_json_sha256"),
         "source_workbooks": manifest.get("source_workbooks", {}),
+        "credit_policy": GROUP_MEETING_CREDIT_POLICY,
         "task_count": len(tasks),
         "tasks": tasks,
     }
