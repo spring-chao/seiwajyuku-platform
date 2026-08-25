@@ -37,6 +37,26 @@ export default [
             "volunteer_regional_lead"
           ]
         }
+      },
+      {
+        path: "/operations/learning-plan-review",
+        name: "LearningPlanReview",
+        component: () => import("@/views/seiwajyuku/learning-plan-review.vue"),
+        meta: {
+          title: "学习计划审核",
+          icon: "ep/list-check",
+          roles: [
+            "system_admin",
+            "operations_admin",
+            "ops_center_director",
+            "ops_center_operations",
+            "ops_center_learning",
+            "ops_center_management",
+            "ops_center_data",
+            "regional_manager",
+            "read_only"
+          ]
+        }
       }
     ]
   },

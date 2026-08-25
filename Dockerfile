@@ -20,6 +20,7 @@ RUN pip install -r requirements.txt \
     && adduser --system --ingroup app app
 COPY --chown=app:app apps/platform-api/app ./app
 COPY --chown=app:app migrations ./migrations
+COPY --chown=app:app data/learning-plans ./data/learning-plans
 RUN mkdir -p /app/data && chown app:app /app/data
 
 EXPOSE 8000

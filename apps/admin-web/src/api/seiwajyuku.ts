@@ -2166,3 +2166,59 @@ export const createRenewalFollowup = (
     `/api/v1/renewals/cycles/${cycleId}/followups`,
     { data }
   );
+
+export type LearningPlanReviewTask = {
+  task_type: string;
+  title: string;
+  description?: string | null;
+  credit_points?: number | null;
+  is_required?: boolean;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type LearningPlanReviewCheckpoint = {
+  checkpoint_id: string;
+  cohort_month: number;
+  cycle_index: number;
+  year_index?: number | null;
+  year_cycle_index?: number | null;
+  nominal_calendar_month?: number | null;
+  task_count: number;
+  task_type_counts: Record<string, number>;
+  confirmed_credits: {
+    title: string;
+    credit_points: number;
+    source_sheet?: string | null;
+    source_cell?: string | null;
+  }[];
+  review_fields: string[];
+  status: "PENDING" | "CONFIRMED";
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  notes?: string | null;
+  source_refs: { source_sheet: string; source_cell: string }[];
+  tasks: LearningPlanReviewTask[];
+};
+
+export type LearningPlanReview = {
+  review_schema_version?: number;
+  plan_key: string;
+  version_label: string;
+  status: "PENDING" | "CONFIRMED";
+  required_checkpoint_count: number;
+  confirmed_checkpoint_count: number;
+  created_at?: string | null;
+  confirmed_at?: string | null;
+  confirmed_by?: string | null;
+  source_commit: string;
+  source_json: string;
+  source_json_sha256: string;
+  source_workbooks: Record<string, { file: string; sha256: string }>;
+  checkpoints: LearningPlanReviewCheckpoint[];
+};
+
+export const getLearningPlanReview = () =>
+  http.request<{ success: boolean; data: LearningPlanReview }>(
+    "get",
+    "/api/v1/learning-plan-review"
+  );

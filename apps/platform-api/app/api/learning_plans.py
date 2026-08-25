@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,6 +18,60 @@ from app.services.learning_cycles import (
 
 
 router = APIRouter(prefix="/api/v1", tags=["learning-plans"])
+
+
+def _review_artifact_paths() -> tuple[Path, Path]:
+    for parent in Path(__file__).resolve().parents:
+        data_root = parent / "data" / "learning-plans"
+        manifest = data_root / "standard-3y-2026.review.json"
+        plan = data_root / "standard-3y-2026.json"
+        if manifest.is_file() and plan.is_file():
+            return manifest, plan
+    raise FileNotFoundError("找不到2026学习计划审核清单")
+
+
+def _learning_plan_review_payload() -> dict:
+    manifest_path, plan_path = _review_artifact_paths()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    cycles_by_key = {
+        (int(track["cohort_month"]), int(cycle["cycle_index"])): cycle
+        for track in plan.get("cohort_tracks", [])
+        for cycle in track.get("cycles", [])
+    }
+    checkpoints = []
+    for checkpoint in manifest.get("checkpoints", []):
+        key = (int(checkpoint["cohort_month"]), int(checkpoint["cycle_index"]))
+        cycle = cycles_by_key.get(key)
+        tasks = [] if cycle is None else [
+            {
+                "task_type": task.get("task_type"),
+                "title": task.get("title"),
+                "description": task.get("description"),
+                "credit_points": task.get("credit_points"),
+                "is_required": task.get("is_required"),
+                "metadata": task.get("metadata"),
+            }
+            for task in cycle.get("tasks", [])
+        ]
+        checkpoints.append({**checkpoint, "tasks": tasks})
+    confirmed_count = sum(item.get("status") == "CONFIRMED" for item in checkpoints)
+    return {
+        "review_schema_version": manifest.get("review_schema_version"),
+        "plan_key": manifest.get("plan_key"),
+        "version_label": manifest.get("version_label"),
+        "status": manifest.get("status"),
+        "required_checkpoint_count": manifest.get("required_checkpoint_count"),
+        "confirmed_checkpoint_count": confirmed_count,
+        "created_at": manifest.get("created_at"),
+        "confirmed_at": manifest.get("confirmed_at"),
+        "confirmed_by": manifest.get("confirmed_by"),
+        "source_commit": manifest.get("source_commit"),
+        "source_json": manifest.get("source_json"),
+        "source_json_sha256": manifest.get("source_json_sha256"),
+        "source_workbooks": manifest.get("source_workbooks", {}),
+        "checkpoints": checkpoints,
+    }
 
 
 class LearningPlanBindingPayload(BaseModel):
@@ -47,6 +103,14 @@ class ConfirmClassMeetingPayload(BaseModel):
 @router.get("/learning-plans")
 def learning_plans(user: dict = Depends(require_permission("plans:read"))) -> dict:
     return {"success": True, "data": list_learning_plans()}
+
+
+@router.get("/learning-plan-review")
+def learning_plan_review(user: dict = Depends(require_permission("plans:read"))) -> dict:
+    try:
+        return {"success": True, "data": _learning_plan_review_payload()}
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise HTTPException(503, "学习计划审核清单暂不可用") from exc
 
 
 @router.post("/classes/{class_org_unit_id}/learning-plan-binding")
