@@ -17,3 +17,10 @@ tests
 *.log
 *.db
 *.sqlite*
+
+# The read-only learning-plan review page needs only these fixed, non-personal
+# artifacts. Original Excel workbooks and all other data remain excluded.
+!data/
+!data/learning-plans/
+!data/learning-plans/standard-3y-2026.json
+!data/learning-plans/standard-3y-2026.review.json
