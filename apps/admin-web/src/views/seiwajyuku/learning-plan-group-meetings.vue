@@ -83,7 +83,8 @@ const loadCatalog = async () => {
   finally { loading.value = false; }
 };
 
-const openFlow = (flow: LearningPlanGroupFlow) => {
+const openFlow = (value: unknown) => {
+  const flow = value as LearningPlanGroupFlow;
   selectedFlowKey.value = flow.flow_key;
   stepForms.value = effectiveSteps(flow).map(step => ({ ...step }));
   flowNotes.value = drafts.value[flow.flow_key]?.notes ?? "";
