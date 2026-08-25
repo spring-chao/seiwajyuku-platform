@@ -5,8 +5,10 @@ import os
 import secrets
 import unittest
 from datetime import UTC, datetime
+from unittest.mock import patch
 from uuid import uuid4
 
+import httpx
 from fastapi.testclient import TestClient
 
 from app.core.privacy import decrypt_text, phone_hash
@@ -381,6 +383,7 @@ class EnrollmentApplicationTests(unittest.TestCase):
         )
         self.assertEqual(rotated.status_code, 200, rotated.text)
         new_token = rotated.json()["data"]["raw_token"]
+        self.assertLessEqual(len(new_token), 32)
         self.assertEqual(
             self.client.get(f"/api/v1/public/enrollment/{old_token}").status_code,
             404,
@@ -397,6 +400,49 @@ class EnrollmentApplicationTests(unittest.TestCase):
             self.client.get(f"/api/v1/public/enrollment/{new_token}").status_code,
             404,
         )
+
+    def test_mini_program_code_uses_short_scene_and_does_not_persist_image(self) -> None:
+        link_id, token = self._create_link()
+        with patch.dict(
+            os.environ,
+            {
+                "WECHAT_MINIPROGRAM_APP_ID": "test-app-id",
+                "WECHAT_MINIPROGRAM_APP_SECRET": "test-app-secret",
+                "WECHAT_MINIPROGRAM_PAGE": "pages/enrollment/index",
+            },
+            clear=False,
+        ), patch("app.services.enrollment.httpx.Client") as client_class:
+            client = client_class.return_value.__enter__.return_value
+            client.get.return_value = httpx.Response(
+                200, json={"access_token": "test-access-token"}
+            )
+            client.post.return_value = httpx.Response(
+                200,
+                content=b"synthetic-png",
+                headers={"content-type": "image/png"},
+            )
+            response = self.client.post(
+                f"/api/v1/enrollment-links/{link_id}/mini-program-code",
+                headers=self.headers,
+                json={"raw_token": token},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()["data"]
+        self.assertTrue(data["image_data_url"].startswith("data:image/png;base64,"))
+        self.assertNotIn("raw_token", data)
+        self.assertNotIn("access_token", data)
+        call = client.post.call_args
+        self.assertEqual(call.kwargs["params"], {"access_token": "test-access-token"})
+        self.assertEqual(call.kwargs["json"]["scene"], token)
+        self.assertEqual(call.kwargs["json"]["page"], "pages/enrollment/index")
+        audit = fetch_one(
+            "SELECT after_json FROM audit_logs "
+            "WHERE action='enrollment.miniprogram_code.generate' "
+            "ORDER BY id DESC LIMIT 1"
+        )
+        self.assertIn("pages/enrollment/index", audit["after_json"])
+        self.assertNotIn(token, audit["after_json"])
 
     def test_public_submit_is_rate_limited_by_link_and_client_without_storing_ip(self) -> None:
         _, token = self._create_link()

@@ -29,6 +29,9 @@ class Settings:
     run_bootstrap_on_startup: bool
     public_enrollment_rate_limit: int = 12
     public_enrollment_rate_window_seconds: int = 300
+    wechat_miniprogram_app_id: str = ""
+    wechat_miniprogram_app_secret: str = ""
+    wechat_miniprogram_page: str = "pages/enrollment/index"
     signin_api_base_url: str = ""
     signin_service_api_key: str = ""
     identity_authorization_enabled: bool = False
@@ -134,6 +137,13 @@ def get_settings() -> Settings:
         public_enrollment_rate_window_seconds=int(
             os.getenv("PUBLIC_ENROLLMENT_RATE_WINDOW_SECONDS", "300")
         ),
+        wechat_miniprogram_app_id=os.getenv("WECHAT_MINIPROGRAM_APP_ID", "").strip(),
+        wechat_miniprogram_app_secret=os.getenv(
+            "WECHAT_MINIPROGRAM_APP_SECRET", ""
+        ).strip(),
+        wechat_miniprogram_page=os.getenv(
+            "WECHAT_MINIPROGRAM_PAGE", "pages/enrollment/index"
+        ).strip(),
         identity_authorization_enabled=_bool("IDENTITY_AUTHORIZATION_ENABLED"),
         identity_admin_writes_enabled=_bool("IDENTITY_ADMIN_WRITES_ENABLED"),
         volunteer_service_invitations_enabled=_bool(

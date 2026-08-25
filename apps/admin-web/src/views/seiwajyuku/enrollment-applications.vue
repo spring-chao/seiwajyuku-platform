@@ -10,6 +10,7 @@ import {
   createEnrollmentLink,
   disableEnrollmentLink,
   enrollApplication,
+  generateEnrollmentMiniProgramCode,
   getActiveEnrollmentLink,
   getEnrollmentApplication,
   getEnrollmentApplications,
@@ -37,7 +38,10 @@ const centers = ref<OrgUnit[]>([]);
 const activeLink = ref<EnrollmentLink | null>(null);
 const linkLoading = ref(false);
 const rawPublicUrl = ref("");
+const rawToken = ref("");
 const qrDataUrl = ref("");
+const miniProgramQrDataUrl = ref("");
+const miniProgramQrLoading = ref(false);
 
 const permissions = computed(() => useUserStoreHook().permissions);
 const canReview = computed(() =>
@@ -381,30 +385,66 @@ function publicUrlForToken(rawToken: string) {
 
 async function rememberRawToken(link: EnrollmentLink) {
   if (!link.raw_token) return;
+  rawToken.value = link.raw_token;
   rawPublicUrl.value = publicUrlForToken(link.raw_token);
   sessionStorage.setItem(
     `enrollment-public-url-${link.id}`,
     rawPublicUrl.value
   );
+  sessionStorage.setItem(`enrollment-raw-token-${link.id}`, link.raw_token);
   qrDataUrl.value = await QRCode.toDataURL(rawPublicUrl.value, {
     width: 320,
     margin: 2,
     color: { dark: "#173f2f", light: "#ffffff" }
   });
+  await generateMiniProgramCode(link.raw_token, false);
 }
 
 async function restoreRawUrl(link: EnrollmentLink | null) {
   rawPublicUrl.value = "";
+  rawToken.value = "";
   qrDataUrl.value = "";
+  miniProgramQrDataUrl.value = "";
   if (!link) return;
   const saved = sessionStorage.getItem(`enrollment-public-url-${link.id}`);
-  if (!saved) return;
-  rawPublicUrl.value = saved;
-  qrDataUrl.value = await QRCode.toDataURL(saved, {
-    width: 320,
-    margin: 2,
-    color: { dark: "#173f2f", light: "#ffffff" }
-  });
+  const savedToken = sessionStorage.getItem(`enrollment-raw-token-${link.id}`);
+  if (!saved && !savedToken) return;
+  rawToken.value =
+    savedToken ||
+    (saved ? decodeURIComponent(saved.split("/enroll/").pop() || "") : "");
+  rawPublicUrl.value =
+    saved || (rawToken.value ? publicUrlForToken(rawToken.value) : "");
+  if (saved) {
+    qrDataUrl.value = await QRCode.toDataURL(saved, {
+      width: 320,
+      margin: 2,
+      color: { dark: "#173f2f", light: "#ffffff" }
+    });
+  }
+  if (rawToken.value) await generateMiniProgramCode(rawToken.value, false);
+}
+
+async function generateMiniProgramCode(token = rawToken.value, notify = true) {
+  if (!activeLink.value || !token) return false;
+  miniProgramQrLoading.value = true;
+  try {
+    const response = await generateEnrollmentMiniProgramCode(
+      activeLink.value.id,
+      token
+    );
+    miniProgramQrDataUrl.value = response.data.image_data_url;
+    return true;
+  } catch (error: any) {
+    miniProgramQrDataUrl.value = "";
+    if (notify) {
+      ElMessage.warning(
+        errorText(error, "小程序码生成失败，请检查微信小程序配置")
+      );
+    }
+    return false;
+  } finally {
+    miniProgramQrLoading.value = false;
+  }
 }
 
 async function loadActiveLink() {
@@ -424,18 +464,18 @@ async function loadActiveLink() {
 async function createLink() {
   try {
     const { value } = await ElMessageBox.prompt(
-      "系统全局只保留一个有效入塾二维码。创建新码会停用旧码。",
-      "创建入塾二维码",
+      "系统全局只保留一个有效小程序码入口。创建新码会停用旧入口。",
+      "创建小程序码入口",
       {
-        inputValue: "盛和塾新学长入塾申请",
-        inputValidator: value => !!value.trim() || "请填写二维码名称"
+        inputValue: "学长服务助手-新学长信息登记",
+        inputValidator: value => !!value.trim() || "请填写入口名称"
       }
     );
     linkLoading.value = true;
     const response = await createEnrollmentLink(value.trim());
     activeLink.value = response.data;
     await rememberRawToken(response.data);
-    ElMessage.success("全局入塾二维码已创建，请立即保存链接或二维码");
+    ElMessage.success("小程序码入口已创建，请立即下载并保存小程序码");
   } catch (error: any) {
     if (error !== "cancel" && error !== "close") {
       ElMessage.error(errorText(error, "二维码创建失败"));
@@ -449,8 +489,8 @@ async function rotateLink() {
   if (!activeLink.value) return;
   try {
     await ElMessageBox.confirm(
-      "轮换后旧二维码会立即失效。新原始链接只在本次生成后可见，请及时保存。",
-      "轮换入塾二维码",
+      "轮换后旧小程序码和 H5 入口都会立即失效。新入口只在本次生成后可见，请及时保存。",
+      "轮换小程序码入口",
       { type: "warning", confirmButtonText: "确认轮换" }
     );
     linkLoading.value = true;
@@ -458,7 +498,7 @@ async function rotateLink() {
     const response = await rotateEnrollmentLink(activeLink.value.id);
     activeLink.value = response.data;
     await rememberRawToken(response.data);
-    ElMessage.success("二维码已轮换，旧码已失效");
+    ElMessage.success("小程序码入口已轮换，旧入口已失效");
   } catch (error: any) {
     if (error !== "cancel" && error !== "close") {
       ElMessage.error(errorText(error, "二维码轮换失败"));
@@ -481,7 +521,9 @@ async function disableLink() {
     sessionStorage.removeItem(`enrollment-public-url-${activeLink.value.id}`);
     activeLink.value = null;
     rawPublicUrl.value = "";
+    rawToken.value = "";
     qrDataUrl.value = "";
+    miniProgramQrDataUrl.value = "";
     ElMessage.success("入塾二维码已停用");
   } catch (error: any) {
     if (error !== "cancel" && error !== "close") {
@@ -501,11 +543,19 @@ async function copyPublicUrl() {
   }
 }
 
-function downloadQr() {
+function downloadMiniProgramCode() {
+  if (!miniProgramQrDataUrl.value) return;
+  const anchor = document.createElement("a");
+  anchor.href = miniProgramQrDataUrl.value;
+  anchor.download = "学长服务助手-新学长信息登记-小程序码.png";
+  anchor.click();
+}
+
+function downloadFallbackQr() {
   if (!qrDataUrl.value) return;
   const anchor = document.createElement("a");
   anchor.href = qrDataUrl.value;
-  anchor.download = "盛和塾新学长入塾申请二维码.png";
+  anchor.download = "新学长信息登记-H5备用二维码.png";
   anchor.click();
 }
 
@@ -535,8 +585,8 @@ onMounted(async () => {
       <template #header>
         <div class="card-header">
           <div>
-            <strong>全局入塾二维码</strong>
-            <span>二维码不绑定分中心、班级或小组</span>
+            <strong>微信小程序主入口</strong>
+            <span>日常使用小程序码；H5 仅保留为备用入口</span>
           </div>
           <el-tag :type="activeLink ? 'success' : 'info'">
             {{ activeLink ? "启用中" : "未创建" }}
@@ -558,35 +608,58 @@ onMounted(async () => {
           </el-descriptions>
           <template v-if="rawPublicUrl">
             <p class="secret-note">
-              原始链接只保存在当前浏览器会话中，服务端仅保存摘要。请及时复制或下载二维码。
+              原始入口只保存在当前浏览器会话中，服务端仅保存摘要。请及时下载小程序码；H5
+              链接仅作备用。
             </p>
             <el-input v-model="rawPublicUrl" readonly>
               <template #append>
-                <el-button @click="copyPublicUrl">复制</el-button>
+                <el-button @click="copyPublicUrl">复制 H5 备用链接</el-button>
               </template>
             </el-input>
           </template>
           <el-alert
             v-else
-            title="服务端不保存原始链接；如之前未保存，请轮换二维码生成新链接。"
+            title="服务端不保存原始入口；如之前未保存，请轮换小程序码入口生成新码。"
             type="warning"
             :closable="false"
             show-icon
           />
           <div class="link-actions">
-            <el-button v-if="qrDataUrl" type="primary" @click="downloadQr">
-              下载二维码
+            <el-button
+              v-if="miniProgramQrDataUrl"
+              type="primary"
+              @click="downloadMiniProgramCode"
+            >
+              下载小程序码
             </el-button>
-            <el-button @click="rotateLink">轮换二维码</el-button>
+            <el-button
+              v-if="rawToken"
+              :loading="miniProgramQrLoading"
+              @click="generateMiniProgramCode()"
+            >
+              生成小程序码
+            </el-button>
+            <el-button v-if="qrDataUrl" @click="downloadFallbackQr">
+              下载 H5 备用码
+            </el-button>
+            <el-button @click="rotateLink">轮换入口</el-button>
             <el-button type="danger" plain @click="disableLink">停用</el-button>
           </div>
         </div>
-        <div v-if="qrDataUrl" class="qr-preview">
-          <img :src="qrDataUrl" alt="新学长入塾申请二维码" />
+        <div v-if="miniProgramQrDataUrl" class="qr-preview">
+          <img
+            :src="miniProgramQrDataUrl"
+            alt="学长服务助手新学长信息登记小程序码"
+          />
+        </div>
+        <div v-else class="qr-preview empty-qr-preview">
+          <span>配置小程序 AppID 后生成主入口小程序码</span>
         </div>
       </div>
       <el-empty v-else description="当前没有有效的入塾二维码">
-        <el-button type="primary" @click="createLink">创建全局二维码</el-button>
+        <el-button type="primary" @click="createLink"
+          >创建小程序码入口</el-button
+        >
       </el-empty>
     </el-card>
 
@@ -1157,6 +1230,17 @@ onMounted(async () => {
   background: #fff;
   border: 1px solid var(--el-border-color-light);
   border-radius: 12px;
+}
+
+.empty-qr-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  padding: 24px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .qr-preview img {

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+
+import httpx
 
 from app.core.privacy import decrypt_text, encrypt_text, protected_phone
 from app.core.settings import get_settings
@@ -140,7 +144,9 @@ def get_active_enrollment_link() -> dict[str, Any] | None:
 
 
 def create_enrollment_link(actor_user_id: int, name: str) -> dict[str, Any]:
-    raw_token = secrets.token_urlsafe(32)
+    # 微信小程序码的 scene 最多承载 32 个可见字符；128 bit 随机值已经
+    # 足够作为公开入口令牌，同时保留 H5 旧令牌的兼容解析能力。
+    raw_token = secrets.token_urlsafe(16)
     now = _now()
     cleaned_name = name.strip()
     if not cleaned_name:
@@ -179,7 +185,7 @@ def create_enrollment_link(actor_user_id: int, name: str) -> dict[str, Any]:
 
 
 def rotate_enrollment_link(actor_user_id: int, link_id: int) -> dict[str, Any]:
-    raw_token = secrets.token_urlsafe(32)
+    raw_token = secrets.token_urlsafe(16)
     now = _now()
     with transaction() as connection:
         row = _row_from_connection(
@@ -241,6 +247,88 @@ def disable_enrollment_link(actor_user_id: int, link_id: int) -> dict[str, Any]:
                 after={"status": "DISABLED"},
             )
     return {"id": link_id, "status": "DISABLED", "disabled_at": now}
+
+
+_MINIPROGRAM_SCENE_RE = re.compile(r"^[A-Za-z0-9!#$&'()*+,/:;=?@._~-]{1,32}$")
+
+
+def generate_wechat_miniprogram_code(
+    actor_user_id: int, link_id: int, raw_token: str
+) -> dict[str, Any]:
+    settings = get_settings()
+    if not settings.wechat_miniprogram_app_id or not settings.wechat_miniprogram_app_secret:
+        raise ValueError("微信小程序 AppID 或 AppSecret 尚未配置")
+    if not _MINIPROGRAM_SCENE_RE.fullmatch(raw_token or ""):
+        raise ValueError("小程序码入口令牌格式无效，请先轮换入口")
+
+    link = fetch_one(
+        "SELECT id, name, token_hash, status FROM member_enrollment_links "
+        "WHERE id=? LIMIT 1",
+        (link_id,),
+    )
+    if not link or link["status"] != "ACTIVE":
+        raise ValueError("入塾申请入口不存在或已停用")
+    if _token_hash(raw_token) != link["token_hash"]:
+        raise ValueError("当前浏览器中的入口令牌已失效，请轮换后重新生成")
+
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            access_response = client.get(
+                "https://api.weixin.qq.com/cgi-bin/token",
+                params={
+                    "grant_type": "client_credential",
+                    "appid": settings.wechat_miniprogram_app_id,
+                    "secret": settings.wechat_miniprogram_app_secret,
+                },
+            )
+            try:
+                access_data = access_response.json()
+            except ValueError:
+                access_data = {}
+            access_token = access_data.get("access_token")
+            if access_response.status_code != 200 or not access_token:
+                message = access_data.get("errmsg", "获取微信接口凭证失败")
+                raise ValueError(f"微信接口凭证获取失败：{message}")
+
+            code_response = client.post(
+                "https://api.weixin.qq.com/wxa/getwxacodeunlimit",
+                params={"access_token": access_token},
+                json={
+                    "scene": raw_token,
+                    "page": settings.wechat_miniprogram_page,
+                    "width": 430,
+                },
+            )
+    except httpx.HTTPError as exc:
+        raise ValueError("微信小程序码服务暂时不可用，请稍后重试") from exc
+
+    content_type = code_response.headers.get("content-type", "")
+    if code_response.status_code != 200 or "image/" not in content_type:
+        try:
+            error_data = code_response.json()
+        except ValueError:
+            error_data = {}
+        message = error_data.get("errmsg", "生成微信小程序码失败")
+        raise ValueError(f"微信小程序码生成失败：{message}")
+
+    with transaction() as connection:
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="enrollment.miniprogram_code.generate",
+            resource_type="member_enrollment_link",
+            resource_id=str(link_id),
+            after={"page": settings.wechat_miniprogram_page, "status": "generated"},
+        )
+
+    return {
+        "link_id": link_id,
+        "name": link["name"],
+        "page": settings.wechat_miniprogram_page,
+        "image_data_url": "data:image/png;base64,"
+        + base64.b64encode(code_response.content).decode("ascii"),
+        "generated_at": _now(),
+    }
 
 
 def _resolve_public_link(token: str) -> dict[str, Any] | None:

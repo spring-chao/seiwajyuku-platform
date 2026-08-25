@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "pages/enrollment/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "新学长信息登记",
+    "navigationBarBackgroundColor": "#f7f3ec",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f7f3ec",
+    "backgroundTextStyle": "light"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

@@ -166,6 +166,14 @@ export type EnrollmentLink = {
   raw_token?: string;
 };
 
+export type EnrollmentMiniProgramCode = {
+  link_id: number;
+  name: string;
+  page: string;
+  image_data_url: string;
+  generated_at: string;
+};
+
 export const getPublicEnrollmentForm = (token: string) =>
   http.request<{ success: boolean; data: PublicEnrollmentForm }>(
     "get",
@@ -260,4 +268,14 @@ export const disableEnrollmentLink = (linkId: number) =>
   http.request<{ success: boolean; data: EnrollmentLink }>(
     "post",
     `/api/v1/enrollment-links/${linkId}/disable`
+  );
+
+export const generateEnrollmentMiniProgramCode = (
+  linkId: number,
+  rawToken: string
+) =>
+  http.request<{ success: boolean; data: EnrollmentMiniProgramCode }>(
+    "post",
+    `/api/v1/enrollment-links/${linkId}/mini-program-code`,
+    { data: { raw_token: rawToken } }
   );

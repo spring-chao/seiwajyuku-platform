@@ -14,6 +14,7 @@ from app.services.enrollment import (
     create_enrollment_link,
     disable_enrollment_link,
     enroll_application,
+    generate_wechat_miniprogram_code,
     get_active_enrollment_link,
     get_enrollment_application,
     get_public_enrollment_form,
@@ -115,7 +116,17 @@ class EnrollmentRejectPayload(BaseModel):
 class EnrollmentLinkPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(default="盛和塾新学长入塾申请", min_length=1, max_length=255)
+    name: str = Field(default="学长服务助手-新学长信息登记", min_length=1, max_length=255)
+
+
+class MiniProgramCodePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    raw_token: str = Field(
+        min_length=1,
+        max_length=32,
+        pattern=r"^[A-Za-z0-9!#$&'()*+,/:;=?@._~-]+$",
+    )
 
 
 def _service_error(exc: Exception) -> HTTPException:
@@ -308,6 +319,21 @@ def disable_link(
 ) -> dict:
     try:
         data = disable_enrollment_link(user["id"], link_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/enrollment-links/{link_id}/mini-program-code")
+def mini_program_code(
+    link_id: int,
+    payload: MiniProgramCodePayload,
+    user: dict = Depends(require_permission("enrollment:manage_link")),
+) -> dict:
+    try:
+        data = generate_wechat_miniprogram_code(
+            user["id"], link_id, payload.raw_token
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": data}

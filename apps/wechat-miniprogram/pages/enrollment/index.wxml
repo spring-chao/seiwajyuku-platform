@@ -1,0 +1,170 @@
+<view class="page-shell">
+  <scroll-view wx:if="{{state === 'ready' && !submitted}}" class="page-scroll" scroll-y>
+    <view class="hero-card">
+      <view class="eyebrow">{{config.serviceSubjectName}}</view>
+      <view class="hero-title">新学长信息登记</view>
+      <view class="hero-copy">欢迎您。为便于后续学习服务与档案建立，请填写以下基础信息。</view>
+    </view>
+
+    <view class="notice-card">
+      <view class="notice-title">提交前请了解</view>
+      <view class="notice-copy">{{formMeta.notice}}</view>
+      <view class="notice-copy">运营服务主体：{{config.serviceSubjectName}}</view>
+      <view class="notice-copy">本页面仅用于资料登记，不进行任何转账或收费。</view>
+      <view class="notice-copy">如对二维码来源有疑问，请联系邀请您的学长或工作人员确认。</view>
+    </view>
+
+    <view class="section-card">
+      <view class="section-title">基础信息</view>
+      <view class="field-row">
+        <view class="field-label required">姓名</view>
+        <input class="field-input" data-field="name" value="{{form.name}}" bindinput="handleInput" placeholder="请填写真实姓名" />
+      </view>
+      <view class="field-row">
+        <view class="field-label required">手机号</view>
+        <input class="field-input" type="number" maxlength="11" data-field="phone" value="{{form.phone}}" bindinput="handleInput" placeholder="用于审核联系，将加密保存" />
+      </view>
+      <view class="field-row picker-row">
+        <view class="field-label required">出生日期</view>
+        <picker mode="date" value="{{form.birthday}}" start="1900-01-01" end="2026-12-31" bindchange="handleBirthdayChange">
+          <view class="picker-value {{form.birthday ? '' : 'placeholder'}}">{{form.birthday || '请选择出生日期'}}</view>
+        </picker>
+      </view>
+      <view class="field-row picker-row">
+        <view class="field-label">性别</view>
+        <picker mode="selector" range="{{genderOptions}}" bindchange="handleGenderChange">
+          <view class="picker-value {{form.gender ? '' : 'placeholder'}}">{{form.gender === 'MALE' ? '男' : form.gender === 'FEMALE' ? '女' : form.gender === 'OTHER' ? '其他' : '请选择'}}</view>
+        </picker>
+      </view>
+      <view class="field-row">
+        <view class="field-label required">推荐人</view>
+        <input class="field-input" data-field="referrer" value="{{form.referrer}}" bindinput="handleInput" placeholder="请填写推荐学长姓名" />
+      </view>
+      <view class="field-row">
+        <view class="field-label">政治面貌</view>
+        <input class="field-input" data-field="political_status" value="{{form.political_status}}" bindinput="handleInput" placeholder="如：群众、中共党员" />
+      </view>
+      <view class="field-row">
+        <view class="field-label">邮箱</view>
+        <input class="field-input" data-field="email" value="{{form.email}}" bindinput="handleInput" placeholder="用于接收电子发票（可选）" />
+      </view>
+    </view>
+
+    <view class="section-card">
+      <view class="section-title">企业信息</view>
+      <view class="field-row">
+        <view class="field-label required">公司名称</view>
+        <input class="field-input" data-field="company_name" value="{{form.company_name}}" bindinput="handleInput" placeholder="请填写企业全称" />
+      </view>
+      <view class="field-row multiline-row">
+        <view class="field-label required">公司地址</view>
+        <textarea class="field-textarea" data-field="company_address" value="{{form.company_address}}" bindinput="handleInput" maxlength="1000" placeholder="请填写公司完整地址" />
+      </view>
+      <view class="field-row two-columns">
+        <view class="column-field">
+          <view class="field-label required">职务</view>
+          <input class="field-input" data-field="position" value="{{form.position}}" bindinput="handleInput" placeholder="如：董事长" />
+        </view>
+        <view class="column-field">
+          <view class="field-label required">发票类型</view>
+          <input class="field-input" data-field="invoice_type" value="{{form.invoice_type}}" bindinput="handleInput" placeholder="如：普票" />
+        </view>
+      </view>
+      <view class="field-row multiline-row">
+        <view class="field-label required">开票资料</view>
+        <textarea class="field-textarea" data-field="invoice_info" value="{{form.invoice_info}}" bindinput="handleInput" maxlength="4000" placeholder="请填写发票抬头、税号等开票资料" />
+      </view>
+      <view class="field-row two-columns">
+        <view class="column-field">
+          <view class="field-label required">所属行业</view>
+          <input class="field-input" data-field="industry" value="{{form.industry}}" bindinput="handleInput" placeholder="如：制造业" />
+        </view>
+        <view class="column-field">
+          <view class="field-label required">员工人数</view>
+          <input class="field-input" type="number" data-field="employee_count" value="{{form.employee_count}}" bindinput="handleInput" placeholder="请输入人数" />
+        </view>
+      </view>
+      <view class="field-row multiline-row">
+        <view class="field-label required">主要产品或服务</view>
+        <textarea class="field-textarea" data-field="company_products" value="{{form.company_products}}" bindinput="handleInput" maxlength="4000" placeholder="请填写主要产品或服务" />
+      </view>
+      <view class="field-row two-columns">
+        <view class="column-field">
+          <view class="field-label required">年销售额</view>
+          <input class="field-input" data-field="annual_sales" value="{{form.annual_sales}}" bindinput="handleInput" placeholder="如：5000万元" />
+        </view>
+        <view class="column-field">
+          <view class="field-label">利润率</view>
+          <input class="field-input" data-field="profit_margin" value="{{form.profit_margin}}" bindinput="handleInput" placeholder="可选" />
+        </view>
+      </view>
+    </view>
+
+    <view class="section-card">
+      <view class="section-title">学习与入塾意愿</view>
+      <view class="field-row multiline-row">
+        <view class="field-label required">所读稻盛和夫著作</view>
+        <textarea class="field-textarea" data-field="books_read" value="{{form.books_read}}" bindinput="handleInput" maxlength="4000" placeholder="请列举几本，如无请填写“无”" />
+      </view>
+      <view class="field-row multiline-row">
+        <view class="field-label required">认同的哲学理念</view>
+        <textarea class="field-textarea" data-field="enrollment_reason_philosophy" value="{{form.enrollment_reason_philosophy}}" bindinput="handleInput" maxlength="4000" placeholder="请填写您的理解" />
+      </view>
+      <view class="field-row multiline-row">
+        <view class="field-label required">希望改变或努力的方向</view>
+        <textarea class="field-textarea" data-field="enrollment_reason_change" value="{{form.enrollment_reason_change}}" bindinput="handleInput" maxlength="4000" placeholder="请填写您的期望" />
+      </view>
+      <view class="field-row multiline-row">
+        <view class="field-label required">其他入塾原因</view>
+        <textarea class="field-textarea" data-field="enrollment_reason_other" value="{{form.enrollment_reason_other}}" bindinput="handleInput" maxlength="4000" placeholder="请填写其他原因" />
+      </view>
+      <view class="field-row">
+        <view class="field-label">计划学习年限</view>
+        <input class="field-input" data-field="learning_years_goal" value="{{form.learning_years_goal}}" bindinput="handleInput" placeholder="可选" />
+      </view>
+      <view class="field-row multiline-row">
+        <view class="field-label">学习参与目标</view>
+        <textarea class="field-textarea" data-field="learning_participation_goal" value="{{form.learning_participation_goal}}" bindinput="handleInput" maxlength="4000" placeholder="如：打卡、活动参与、分享发表等" />
+      </view>
+      <view class="field-row multiline-row">
+        <view class="field-label">业绩提升目标</view>
+        <textarea class="field-textarea" data-field="business_goal" value="{{form.business_goal}}" bindinput="handleInput" maxlength="4000" placeholder="可选" />
+      </view>
+      <view class="field-row multiline-row">
+        <view class="field-label">其他目标</view>
+        <textarea class="field-textarea" data-field="other_goal" value="{{form.other_goal}}" bindinput="handleInput" maxlength="4000" placeholder="个人、家庭、公司或社会贡献等" />
+      </view>
+    </view>
+
+    <view class="privacy-card">
+      <view class="privacy-check" bindtap="togglePrivacy">
+        <view class="checkbox {{privacyConsent ? 'checked' : ''}}">{{privacyConsent ? '✓' : ''}}</view>
+        <view class="privacy-text">我已阅读并同意<text class="privacy-link" catchtap="openPrivacyContract">《用户隐私保护指引》</text></view>
+      </view>
+      <view class="privacy-copy">{{formMeta.privacy_notice}}</view>
+    </view>
+
+    <button class="submit-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="submit">提交资料</button>
+    <view class="footer-copy">资料提交后，工作人员会审核并与您联系。请勿重复提交。</view>
+  </scroll-view>
+
+  <view wx:if="{{state === 'loading'}}" class="state-card">
+    <view class="state-icon loading-icon">···</view>
+    <view class="state-title">正在加载登记入口</view>
+    <view class="state-copy">请稍候</view>
+  </view>
+
+  <view wx:if="{{state === 'error'}}" class="state-card">
+    <view class="state-icon error-icon">!</view>
+    <view class="state-title">登记入口暂不可用</view>
+    <view class="state-copy">{{errorMessage}}</view>
+    <button class="retry-button" bindtap="retry">重新加载</button>
+  </view>
+
+  <view wx:if="{{submitted}}" class="state-card success-card">
+    <view class="state-icon success-icon">✓</view>
+    <view class="state-title">资料已提交</view>
+    <view class="state-copy">感谢您的填写。工作人员审核资料、确认相关信息后，会与您联系。</view>
+    <view class="state-copy strong-copy">当前尚未正式入册，无需重复提交。</view>
+  </view>
+</view>

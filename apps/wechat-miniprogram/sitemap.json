@@ -1,0 +1,9 @@
+{
+  "desc": "学习服务助手小程序页面索引",
+  "rules": [
+    {
+      "action": "allow",
+      "page": "pages/enrollment/index"
+    }
+  ]
+}
