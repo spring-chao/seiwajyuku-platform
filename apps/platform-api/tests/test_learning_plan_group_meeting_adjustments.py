@@ -89,6 +89,21 @@ def test_build_candidate_plan_keeps_confirmed_base_immutable() -> None:
     assert candidate["quality_report"]["cycle_count"] == 144
 
 
+def test_candidate_accepts_git_lf_checkout_of_windows_confirmed_json(tmp_path: Path) -> None:
+    base, review, adjustment_text = _fixtures()
+    lf_base = tmp_path / BASE_JSON.name
+    lf_base.write_bytes(BASE_JSON.read_bytes().replace(b"\r\n", b"\n"))
+
+    candidate = build_candidate_plan(
+        base,
+        json.loads(adjustment_text),
+        base_json=lf_base,
+        review_manifest=review,
+    )
+
+    assert candidate["version_label"] == "2026.1"
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [

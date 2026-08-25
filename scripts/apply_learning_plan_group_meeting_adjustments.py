@@ -22,7 +22,7 @@ from learning_plan_2026 import (
     assert_valid_plan,
     summarize_plan,
 )
-from review_learning_plan_2026 import sha256_file
+from review_learning_plan_2026 import sha256_file, sha256_file_matches
 
 
 GROUP_MEETING_CREDIT_POLICY = {
@@ -99,11 +99,11 @@ def validate_adjustments(
         raise ValueError("调整草稿 source_commit 与已确认审核指纹不一致")
     if adjustments.get("base_source_json") != base_json.name:
         raise ValueError("调整草稿 base_source_json 文件名不一致")
-    expected_json_sha = sha256_file(base_json)
+    expected_json_sha = str(review_manifest.get("source_json_sha256") or "")
     if adjustments.get("base_source_json_sha256") != expected_json_sha:
         raise ValueError("调整草稿 JSON SHA-256 与当前确认基线不一致")
-    if review_manifest.get("source_json_sha256") != expected_json_sha:
-        raise ValueError("审核清单 JSON SHA-256 与当前确认基线不一致")
+    if not sha256_file_matches(base_json, expected_json_sha):
+        raise ValueError("当前确认基线 JSON 内容与审核 SHA-256 不一致")
 
     expected_workbooks = review_manifest.get("source_workbooks") or {}
     actual_workbooks = adjustments.get("base_source_workbooks")
@@ -186,7 +186,7 @@ def build_candidate_plan(
                 task[field] = change[field]
     lineage = {
         "parent_version_label": base_plan["version_label"],
-        "parent_source_json_sha256": sha256_file(base_json),
+        "parent_source_json_sha256": str(review_manifest["source_json_sha256"]),
         "adjustment_sha256": adjustment_sha,
         "change_count": len(changes),
         "overwrite_confirmed": False,

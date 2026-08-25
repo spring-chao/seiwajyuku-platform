@@ -25,6 +25,27 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def sha256_file_variants(path: Path) -> set[str]:
+    """Return raw and newline-normalized hashes for text artifacts.
+
+    The confirmed 2026 manifest was created on Windows and stores the CRLF
+    hash.  GitHub runners may checkout the same JSON with LF.  Both byte forms
+    are accepted for verification; workbook hashes remain raw binary hashes.
+    """
+
+    data = path.read_bytes()
+    variants = {data}
+    if b"\r\n" in data or b"\n" in data:
+        lf = data.replace(b"\r\n", b"\n")
+        variants.add(lf)
+        variants.add(lf.replace(b"\n", b"\r\n"))
+    return {hashlib.sha256(item).hexdigest() for item in variants}
+
+
+def sha256_file_matches(path: Path, expected: str) -> bool:
+    return expected in sha256_file_variants(path)
+
+
 def git_commit(repo_root: Path, revision: str) -> str:
     return subprocess.check_output(
         ["git", "-C", str(repo_root), "rev-parse", f"{revision}^{{commit}}"],
@@ -264,7 +285,7 @@ def verify_review_manifest(
         raise ValueError("审核清单与学习计划版本不一致")
     if manifest.get("source_json") != source_json.name:
         raise ValueError("审核清单的 source_json 文件名不一致")
-    if manifest.get("source_json_sha256") != sha256_file(source_json):
+    if not sha256_file_matches(source_json, str(manifest.get("source_json_sha256") or "")):
         raise ValueError("审核清单的 JSON SHA-256 与当前导入源不一致")
     if expected_source_commit and manifest.get("source_commit") != expected_source_commit:
         raise ValueError("审核清单的 source_commit 与固定审核提交不一致")
