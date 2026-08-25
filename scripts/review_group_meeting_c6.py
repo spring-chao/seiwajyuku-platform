@@ -37,6 +37,22 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def sha256_file_variants(path: Path) -> set[str]:
+    """Accept the raw and Git newline-normalized hashes for JSON artifacts."""
+
+    data = path.read_bytes()
+    variants = {data}
+    if b"\r\n" in data or b"\n" in data:
+        lf = data.replace(b"\r\n", b"\n")
+        variants.add(lf)
+        variants.add(lf.replace(b"\n", b"\r\n"))
+    return {hashlib.sha256(item).hexdigest() for item in variants}
+
+
+def sha256_file_matches(path: Path, expected: str) -> bool:
+    return expected in sha256_file_variants(path)
+
+
 def _read(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -263,10 +279,27 @@ def _assert_fingerprint(review: dict[str, Any], paths: dict[str, Path]) -> None:
             "included_file_count": len(_read(paths["inventory"]).get("included_files", [])),
         },
     }
-    if sha256_file(paths["base_plan"]) != base_review.get("source_json_sha256"):
+    if not sha256_file_matches(paths["base_plan"], str(base_review.get("source_json_sha256") or "")):
         raise ValueError("2026 CONFIRMED 标准 JSON 文件指纹不一致，请重新生成审核清单")
-    if any(fingerprint.get(key) != value for key, value in checks.items()):
-        raise ValueError("C6 审核指纹不一致，请重新生成审核清单")
+    checks["base_flow_catalog"]["sha256"] = None
+    checks["base_mapping"]["sha256"] = None
+    checks["base_course_credit_rules"]["sha256"] = None
+    checks["base_source_inventory"]["sha256"] = None
+    for key, expected in checks.items():
+        if key in {"base_flow_catalog", "base_mapping", "base_course_credit_rules", "base_source_inventory"}:
+            actual = fingerprint.get(key) or {}
+            if actual.get("filename") != expected.get("filename"):
+                raise ValueError("C6 审核指纹不一致，请重新生成审核清单")
+            path_key = {
+                "base_flow_catalog": "flows",
+                "base_mapping": "mapping",
+                "base_course_credit_rules": "rules",
+                "base_source_inventory": "inventory",
+            }[key]
+            if not sha256_file_matches(paths[path_key], str(actual.get("sha256") or "")):
+                raise ValueError("C6 审核指纹不一致，请重新生成审核清单")
+        elif fingerprint.get(key) != expected:
+            raise ValueError("C6 审核指纹不一致，请重新生成审核清单")
     if fingerprint.get("base_source_workbooks") != expected_workbooks:
         raise ValueError("C6 原始 Excel 指纹不一致，请重新生成审核清单")
     expected_files = _source_files(_read(paths["inventory"]))
