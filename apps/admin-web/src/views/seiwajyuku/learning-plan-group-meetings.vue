@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import { useUserStoreHook } from "@/store/modules/user";
 import {
   getLearningPlanGroupMeetingFlows,
   type LearningPlanC6ReviewItem,
@@ -24,6 +25,15 @@ type C6Draft = {
   resolved_course_key: string;
   resolved_credit_points: number | null;
 };
+type CreditReviewGroup = {
+  key: string;
+  course_name: string;
+  course_key: string;
+  item_ids: string[];
+  cycle_labels: string[];
+  context_texts: string[];
+  suggested_credit_points: number | null;
+};
 
 const router = useRouter();
 const STORAGE_KEY = "seiwajyuku-learning-plan-group-flow-drafts-v1";
@@ -44,6 +54,7 @@ const C6_STORAGE_KEY = "seiwajyuku-learning-plan-c6-review-drafts-v1";
 const c6Drafts = ref<Record<string, C6Draft>>({});
 const c6Search = ref("");
 const c6EditorVisible = ref(false);
+const advancedC6Visible = ref<string[]>([]);
 const selectedC6ReviewId = ref("");
 const c6Form = ref<C6Draft>({
   resolution_status: null,
@@ -53,6 +64,11 @@ const c6Form = ref<C6Draft>({
   resolved_course_key: "",
   resolved_credit_points: null
 });
+const reviewerName = ref(
+  useUserStoreHook().nickname || useUserStoreHook().username || "系统管理员"
+);
+const creditInputs = ref<Record<string, number | null>>({});
+const creditOptions = [0, 15, 20, 30, 40];
 
 const fingerprint = computed(() => {
   if (!catalog.value) return "";
@@ -91,6 +107,7 @@ const c6FilteredItems = computed(() => {
 });
 const c6EffectiveDraft = (value: unknown): C6Draft | undefined => {
   const item = value as LearningPlanC6ReviewItem;
+  if (!item) return undefined;
   const saved = c6Drafts.value[item.review_id];
   if (saved) return saved;
   if (item.review_status !== "CONFIRMED" || !item.resolution_status) return undefined;
@@ -105,6 +122,62 @@ const c6EffectiveDraft = (value: unknown): C6Draft | undefined => {
 };
 const c6PendingCount = computed(() => c6Items.value.filter(item => !c6EffectiveDraft(item)?.resolution_status).length);
 const selectedC6Item = computed(() => c6Items.value.find(item => item.review_id === selectedC6ReviewId.value));
+const courseHints = [
+  // These are temporary review identifiers derived from source text, not published course keys.
+  { key: "AUTO-QR-HAPPINESS-CARE", name: "幸福关爱委讲解", aliases: ["幸福关爱委"] },
+  { key: "AUTO-QR-AMOEBA-INTRODUCTION", name: "阿米巴经营之概论", aliases: ["阿米巴经营之概论"] },
+  { key: "AUTO-QR-EXCELLENT-IMPROVEMENT", name: "优秀改善创新案例分享", aliases: ["优秀改善创新案例分享"] },
+  { key: "AUTO-QR-IMPROVEMENT-INNOVATION", name: "改善创新委讲解与案例分享", aliases: ["改善创新委", "改善创新案例"] },
+  { key: "AUTO-QR-HUNDRED-DAY-CAMPAIGN", name: "百日奋战学习", aliases: ["百日奋战"] }
+];
+const courseHintFor = (item: LearningPlanC6ReviewItem) => {
+  const text = String(item.context_text ?? "");
+  return courseHints.find(hint => hint.aliases.some(alias => text.includes(alias)));
+};
+const creditReviewGroups = computed<CreditReviewGroup[]>(() => {
+  const groups = new Map<string, CreditReviewGroup>();
+  for (const item of c6Items.value.filter(value => value.kind === "QR_REVIEW_REQUIRED")) {
+    const hint = courseHintFor(item);
+    const key = hint?.key ?? `UNMAPPED-${item.flow_key ?? item.review_id}`;
+    const existing = groups.get(key) ?? {
+      key,
+      course_name: hint?.name ?? "系统识别的课程二维码",
+      course_key: key,
+      item_ids: [],
+      cycle_labels: [],
+      context_texts: [],
+      suggested_credit_points: null
+    };
+    existing.item_ids.push(item.review_id);
+    const cycleLabel = item.year_index && item.cycle_index
+      ? `第${item.year_index}学年第${item.cycle_index}周期`
+      : item.flow_key ?? "周期待识别";
+    if (!existing.cycle_labels.includes(cycleLabel)) existing.cycle_labels.push(cycleLabel);
+    const context = String(item.context_text ?? "").trim();
+    if (context && !existing.context_texts.includes(context)) existing.context_texts.push(context);
+    groups.set(key, existing);
+  }
+  return [...groups.values()].sort((a, b) => a.course_name.localeCompare(b.course_name, "zh-CN"));
+});
+const creditGroupConfirmed = (value: unknown) => {
+  const group = value as CreditReviewGroup;
+  return group.item_ids.every(reviewId => {
+  const draft = c6EffectiveDraft(c6Items.value.find(item => item.review_id === reviewId));
+  return draft?.resolution_status === "COURSE_CONFIRMED" || draft?.resolution_status === "NON_COURSE_QR";
+  });
+};
+const creditPendingGroupCount = computed(() => creditReviewGroups.value.filter(group => !creditGroupConfirmed(group)).length);
+const confirmedCourseNodeCount = computed(() => c6Items.value.filter(item => {
+  if (item.kind !== "COURSE_NODE") return false;
+  const draft = c6EffectiveDraft(item);
+  return draft?.resolution_status === "COURSE_CONFIRMED" || draft?.resolution_status === "COURSE_CONFIRMED_CREDIT_PENDING";
+}).length);
+const technicalPendingCount = computed(() => c6Items.value.filter(item => {
+  if (item.kind === "QR_REVIEW_REQUIRED") return false;
+  return !c6EffectiveDraft(item)?.resolution_status;
+}).length);
+const sourceMissingCount = computed(() => c6Items.value.filter(item => c6EffectiveDraft(item)?.resolution_status === "SOURCE_MISSING").length);
+const c6ReadyForExport = computed(() => creditPendingGroupCount.value === 0 && technicalPendingCount.value === 0);
 const c6StatusOptions = computed(() => {
   const kind = selectedC6Item.value?.kind;
   if (kind === "MAPPING_CONFLICT") return ["MAPPED"];
@@ -150,9 +223,86 @@ const loadLocalC6Draft = () => {
   } catch { localStorage.removeItem(C6_STORAGE_KEY); c6Drafts.value = {}; }
 };
 
+const flowReviewSignature = (flow: LearningPlanGroupFlow) => JSON.stringify({
+  boundary: flow.boundary,
+  steps: flow.steps.map(step => ({ title: step.title, content: step.content, is_required: step.is_required })),
+  course_nodes: flow.course_nodes.map(node => ({
+    node_type: node.node_type,
+    media_target: node.media_target,
+    context_text: node.context_text,
+    course_key: node.course_key,
+    credit_points: node.credit_points,
+    credit_status: node.credit_status
+  }))
+});
+
+const autoConfirmTechnicalItems = () => {
+  if (!catalog.value) return;
+  const next = { ...c6Drafts.value };
+  for (const item of c6Items.value) {
+    if (next[item.review_id]) continue;
+    if (item.kind === "FLOW_SAMPLE") {
+      next[item.review_id] = {
+        resolution_status: "CONFIRMED",
+        reviewed_by: "系统自动核对",
+        notes: "系统已核对：从首个小组学习会开始，到首个空巴结束；空巴后的班会二维码已排除。",
+        resolved_flow_key: "",
+        resolved_course_key: "",
+        resolved_credit_points: null
+      };
+      continue;
+    }
+    if (item.kind === "COURSE_NODE" && item.source_credit_status === "MAPPED" && item.source_course_key) {
+      next[item.review_id] = {
+        resolution_status: "COURSE_CONFIRMED",
+        reviewed_by: "系统自动核对",
+        notes: "系统已按正式课程积分规则核对。",
+        resolved_flow_key: "",
+        resolved_course_key: item.source_course_key,
+        resolved_credit_points: typeof item.source_credit_points === "number" ? item.source_credit_points : null
+      };
+      continue;
+    }
+    if (item.kind === "MAPPING_CONFLICT" && item.candidate_flow_keys?.length) {
+      const candidates = item.candidate_flow_keys
+        .map(key => catalog.value?.flows.find(flow => flow.flow_key === key))
+        .filter((flow): flow is LearningPlanGroupFlow => Boolean(flow));
+      if (candidates.length === item.candidate_flow_keys.length && candidates.every(flow => flowReviewSignature(flow) === flowReviewSignature(candidates[0]))) {
+        next[item.review_id] = {
+          resolution_status: "MAPPED",
+          reviewed_by: "系统自动核对",
+          notes: "候选流程的步骤、空巴边界和课程节点完全一致，系统固定使用首个源文件作为证据键。",
+          resolved_flow_key: item.candidate_flow_keys[0],
+          resolved_course_key: "",
+          resolved_credit_points: null
+        };
+      }
+      continue;
+    }
+    if (item.kind === "MAPPING_MISSING") {
+      next[item.review_id] = {
+        resolution_status: "SOURCE_MISSING",
+        reviewed_by: "系统自动核对",
+        notes: "系统已核对权威目录：对应文件目前标记为“待完善”，未纳入正式运行源；该项由后台补齐，不需要运营人员选择流程。",
+        resolved_flow_key: "",
+        resolved_course_key: "",
+        resolved_credit_points: null
+      };
+    }
+  }
+  c6Drafts.value = next;
+  localStorage.setItem(C6_STORAGE_KEY, JSON.stringify({ fingerprint: fingerprint.value, drafts: next }));
+};
+
 const loadCatalog = async () => {
   loading.value = true; error.value = "";
-  try { const response = await getLearningPlanGroupMeetingFlows(); catalog.value = response.data; loadLocalDraft(); loadLocalC6Draft(); }
+  try {
+    const response = await getLearningPlanGroupMeetingFlows();
+    catalog.value = response.data;
+    loadLocalDraft();
+    loadLocalC6Draft();
+    autoConfirmTechnicalItems();
+  }
   catch (requestError) { error.value = "小组学习会完整流程加载失败，请刷新重试。"; console.error(requestError); }
   finally { loading.value = false; }
 };
@@ -193,8 +343,52 @@ const saveC6Item = () => {
   ElMessage.success("C6 复核暂存在本浏览器，导出后交由后端校验");
 };
 
+const creditInputFor = (value: unknown) => {
+  const group = value as CreditReviewGroup;
+  const saved = group.item_ids
+    .map(reviewId => c6EffectiveDraft(c6Items.value.find(item => item.review_id === reviewId)))
+    .find(draft => draft?.resolved_credit_points != null);
+  return creditInputs.value[group.key] ?? saved?.resolved_credit_points ?? null;
+};
+
+const confirmCreditGroup = (value: unknown) => {
+  const group = value as CreditReviewGroup;
+  const creditPoints = creditInputFor(group);
+  if (creditPoints == null || !Number.isInteger(creditPoints) || creditPoints < 0) {
+    ElMessage.warning("请先填写这门课程的学分；如果不计课程分，请选择 0 分");
+    return;
+  }
+  const next = { ...c6Drafts.value };
+  const note = `系统已核对流程与课程名称，本次确认课程学分为 ${creditPoints} 分。`;
+  for (const reviewId of group.item_ids) {
+    const item = c6Items.value.find(value => value.review_id === reviewId);
+    if (!item) continue;
+    const relatedNodes = c6Items.value.filter(value =>
+      value.kind === "COURSE_NODE" && value.flow_key === item.flow_key && value.node_index === item.node_index
+    );
+    for (const related of [item, ...relatedNodes]) {
+      next[related.review_id] = {
+        resolution_status: creditPoints === 0 ? "NON_COURSE_QR" : "COURSE_CONFIRMED",
+        reviewed_by: reviewerName.value.trim() || "系统管理员",
+        notes: note,
+        resolved_flow_key: "",
+        resolved_course_key: creditPoints === 0 ? "" : group.course_key,
+        resolved_credit_points: creditPoints === 0 ? null : creditPoints
+      };
+    }
+  }
+  c6Drafts.value = next;
+  creditInputs.value = { ...creditInputs.value, [group.key]: creditPoints };
+  localStorage.setItem(C6_STORAGE_KEY, JSON.stringify({ fingerprint: fingerprint.value, drafts: next }));
+  ElMessage.success(`${group.course_name} 已确认 ${creditPoints} 分`);
+};
+
 const exportC6Review = () => {
   if (!catalog.value) return;
+  if (!c6ReadyForExport.value) {
+    ElMessage.warning(`还有 ${creditPendingGroupCount.value} 门课程未确认学分，请先完成确认`);
+    return;
+  }
   const review = JSON.parse(JSON.stringify(catalog.value.c6_review));
   for (const item of [...review.mapping_conflicts, ...review.mapping_missing, ...review.qr_review_required, ...review.course_nodes, ...review.flow_samples]) {
     const draft = c6Drafts.value[item.review_id];
@@ -278,13 +472,13 @@ onMounted(loadCatalog);
       <template #header>
         <div class="config-header">
           <div><div class="config-title">学习计划配置 · 小组学习会完整流程</div><div class="config-subtitle">基于 2026 CONFIRMED 只读底座产生 2026.1 候选版本；流程到“空巴”结束</div></div>
-          <div class="config-actions"><el-button @click="router.push('/operations/learning-plan-review')">查看学习计划审核</el-button><el-button type="warning" :disabled="!catalog" @click="exportC6Review">导出 C6 复核清单</el-button><el-button type="primary" :disabled="!catalog || !changedCount" @click="exportDrafts">导出流程调整草稿（{{ changedCount }}）</el-button></div>
+          <div class="config-actions"><el-button @click="router.push('/operations/learning-plan-review')">查看学习计划审核</el-button><el-button type="warning" :disabled="!catalog || !c6ReadyForExport" @click="exportC6Review">导出审核结果</el-button><el-button type="primary" :disabled="!catalog || !changedCount" @click="exportDrafts">导出流程调整草稿（高级 {{ changedCount }}）</el-button></div>
         </div>
       </template>
 
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
       <template v-if="catalog">
-        <el-alert class="config-notice" title="2026 CONFIRMED 版本不可覆盖。这里编辑完整小组学习会流程草稿：只读保留575条 GROUP_MEETING 源片段，流程到首个空巴为止；空巴后的班会二维码排除。保存和导出均不写数据库。" type="warning" :closable="false" show-icon />
+        <el-alert class="config-notice" title="2026 CONFIRMED 版本不可覆盖。系统会自动核对流程和空巴边界；您只需确认课程学分。保存和导出均不写数据库。" type="warning" :closable="false" show-icon />
         <div class="config-summary">
           <div class="summary-item"><span>基线版本</span><el-tag type="success">{{ catalog.base_version_label }} 已确认</el-tag></div>
           <div class="summary-item"><span>完整流程源文件</span><strong>{{ catalog.flow_count }}</strong></div>
@@ -298,18 +492,68 @@ onMounted(loadCatalog);
           <el-descriptions-item label="标准 JSON SHA-256"><span class="fingerprint">{{ catalog.source_json_sha256 }}</span></el-descriptions-item>
           <el-descriptions-item label="课程积分规则 SHA-256"><span class="fingerprint">{{ catalog.base_course_credit_rules_sha256 }}</span></el-descriptions-item>
         </el-descriptions>
-        <div class="quality-strip"><el-tag type="success">首个空巴边界已识别</el-tag><el-tag type="info">空巴后二维码排除</el-tag><el-tag type="warning">二维码待人工确认 {{ catalog.quality_report.qr_review_required_count ?? 0 }}</el-tag><el-tag type="warning">映射冲突/缺失 {{ (catalog.mapping_quality_report.conflict_count ?? 0) + (catalog.mapping_quality_report.missing_count ?? 0) }}</el-tag></div>
+        <div class="quality-strip"><el-tag type="success">首个空巴边界已识别</el-tag><el-tag type="info">空巴后二维码排除</el-tag><el-tag type="success">流程由系统自动核对</el-tag><el-tag type="warning">待确认课程学分 {{ creditPendingGroupCount }} 门</el-tag></div>
         <el-card shadow="never" class="c6-card">
-          <template #header><div class="c6-header"><div><strong>C6 异常映射与二维码人工复核</strong><div class="c6-subtitle">只确认业务结论，不修改 2026 CONFIRMED；全部逐项确认后才可派生 2026.1 CONFIRMED CANDIDATE。</div></div><el-tag :type="catalog.c6_review_status === 'CONFIRMED_CANDIDATE' ? 'success' : 'warning'">{{ catalog.c6_review_status === 'CONFIRMED_CANDIDATE' ? '已完成' : `待复核 ${c6PendingCount} 项` }}</el-tag></div></template>
-          <div class="c6-summary"><el-tag type="danger">冲突 {{ catalog.c6_summary.mapping_conflict_count ?? 0 }}</el-tag><el-tag type="warning">缺失 {{ catalog.c6_summary.mapping_missing_count ?? 0 }}</el-tag><el-tag type="warning">二维码 {{ catalog.c6_summary.qr_review_required_count ?? 0 }}</el-tag><el-tag type="info">课程节点 {{ catalog.c6_summary.course_node_review_count ?? 0 }}</el-tag><el-tag type="info">流程抽查 {{ catalog.c6_summary.flow_sample_count ?? 0 }}</el-tag></div>
-          <div class="c6-toolbar"><el-input v-model="c6Search" clearable placeholder="搜索审核项、流程或源文件" style="max-width: 360px" /><span class="filter-count">显示 {{ c6FilteredItems.length }} / {{ c6Items.length }} 项；本地已填写 {{ c6Items.length - c6PendingCount }} 项</span></div>
-          <el-table :data="c6FilteredItems" border stripe max-height="430" row-key="review_id" empty-text="暂无 C6 复核项">
-            <el-table-column label="类别" width="150"><template #default="{ row }"><el-tag size="small" :type="row.kind === 'MAPPING_CONFLICT' ? 'danger' : row.kind === 'MAPPING_MISSING' || row.kind === 'QR_REVIEW_REQUIRED' ? 'warning' : 'info'">{{ row.kind }}</el-tag></template></el-table-column>
-            <el-table-column label="周期/流程" min-width="190"><template #default="{ row }">{{ row.mapping_key || row.flow_key || row.review_id }}</template></el-table-column>
-            <el-table-column label="源文件/内容" min-width="280" show-overflow-tooltip><template #default="{ row }">{{ row.source?.filename || row.context_text || row.review_prompt }}</template></el-table-column>
-            <el-table-column label="审核状态" width="170"><template #default="{ row }"><el-tag v-if="c6EffectiveDraft(row)?.resolution_status" type="success">{{ c6EffectiveDraft(row)?.resolution_status }}</el-tag><el-tag v-else type="warning">PENDING</el-tag></template></el-table-column>
-            <el-table-column label="操作" width="100" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="openC6Item(row)">{{ c6EffectiveDraft(row) ? '修改' : '审核' }}</el-button></template></el-table-column>
+          <template #header>
+            <div class="c6-header">
+              <div>
+                <strong>课程学分确认</strong>
+                <div class="c6-subtitle">流程、周期对应关系和“到空巴结束”的边界由系统自动核对；您只需要确认下面课程的学分。</div>
+              </div>
+              <el-tag :type="creditPendingGroupCount === 0 ? 'success' : 'warning'">{{ creditPendingGroupCount === 0 ? '已确认' : `待确认 ${creditPendingGroupCount} 门课程` }}</el-tag>
+            </div>
+          </template>
+          <el-alert
+            title="您不需要选择 flow_key，也不需要判断流程冲突。系统已经先核对流程内容；本页面只保留课程名称和学分确认。"
+            type="success"
+            :closable="false"
+            show-icon
+          />
+          <div class="c6-summary friendly-summary">
+            <el-tag type="success">流程边界已核对 {{ catalog.flow_count }} 份</el-tag>
+            <el-tag type="success">已按规则确认课程 {{ confirmedCourseNodeCount }} 个</el-tag>
+            <el-tag type="warning">待您确认学分 {{ creditPendingGroupCount }} 门</el-tag>
+            <el-tag v-if="sourceMissingCount" type="info">系统待补齐流程 {{ sourceMissingCount }} 项</el-tag>
+            <el-tag type="info">小组会出席基础分 {{ catalog.credit_policy.credit_points_per_person }} 分/人/周期</el-tag>
+          </div>
+          <div class="reviewer-row">
+            <span>确认人</span>
+            <el-input v-model="reviewerName" placeholder="系统已带出登录账号，也可以改成姓名" style="max-width: 320px" />
+            <span class="reviewer-help">确认后只保存在本浏览器，导出时一并记录。</span>
+          </div>
+          <el-table :data="creditReviewGroups" border stripe row-key="key" empty-text="系统暂未发现需要确认的课程学分">
+            <el-table-column label="系统识别的课程" min-width="250">
+              <template #default="{ row }">
+                <div class="course-review-name">{{ row.course_name }}</div>
+                <div class="course-review-meta">共 {{ row.item_ids.length }} 个二维码节点 · {{ row.cycle_labels.slice(0, 3).join("、") }}<span v-if="row.cycle_labels.length > 3">等</span></div>
+              </template>
+            </el-table-column>
+            <el-table-column label="学分" width="230">
+              <template #default="{ row }">
+                <el-select :model-value="creditInputFor(row)" placeholder="请选择学分" style="width: 150px" @update:model-value="value => creditInputs[row.key] = value">
+                  <el-option v-for="value in creditOptions" :key="value" :label="value === 0 ? '0 分（不计课程分）' : `${value} 分`" :value="value" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="150">
+              <template #default="{ row }"><el-tag :type="creditGroupConfirmed(row) ? 'success' : 'warning'">{{ creditGroupConfirmed(row) ? '已确认' : '待确认' }}</el-tag></template>
+            </el-table-column>
+            <el-table-column label="操作" width="130" fixed="right">
+              <template #default="{ row }"><el-button type="primary" :disabled="creditInputFor(row) == null" @click="confirmCreditGroup(row)">{{ creditGroupConfirmed(row) ? '重新确认' : '确定学分' }}</el-button></template>
+            </el-table-column>
           </el-table>
+          <el-collapse v-model="advancedC6Visible" class="advanced-c6">
+            <el-collapse-item title="查看系统核对详情（高级，不需要您操作）" name="details">
+              <el-alert v-if="technicalPendingCount" title="仍有技术项待后台处理，已由系统记录，不需要您选择流程。" type="warning" :closable="false" show-icon />
+              <div class="c6-toolbar"><el-input v-model="c6Search" clearable placeholder="搜索技术核对项" style="max-width: 360px" /><span class="filter-count">系统核对项 {{ c6FilteredItems.length }} / {{ c6Items.length }}</span></div>
+              <el-table :data="c6FilteredItems" border stripe max-height="430" row-key="review_id" empty-text="暂无 C6 复核项">
+                <el-table-column label="类型" width="150"><template #default="{ row }"><el-tag size="small" :type="row.kind === 'MAPPING_CONFLICT' ? 'danger' : row.kind === 'MAPPING_MISSING' || row.kind === 'QR_REVIEW_REQUIRED' ? 'warning' : 'info'">{{ row.kind }}</el-tag></template></el-table-column>
+                <el-table-column label="周期/流程" min-width="190"><template #default="{ row }">{{ row.mapping_key || row.flow_key || row.review_id }}</template></el-table-column>
+                <el-table-column label="系统结论" min-width="280" show-overflow-tooltip><template #default="{ row }">{{ c6EffectiveDraft(row)?.notes || row.context_text || row.review_prompt }}</template></el-table-column>
+                <el-table-column label="状态" width="170"><template #default="{ row }"><el-tag v-if="c6EffectiveDraft(row)?.resolution_status" type="success">{{ c6EffectiveDraft(row)?.resolution_status }}</el-tag><el-tag v-else type="warning">待后台处理</el-tag></template></el-table-column>
+              </el-table>
+            </el-collapse-item>
+          </el-collapse>
         </el-card>
         <div class="filters">
           <el-select v-model="yearFilter" style="width: 140px"><el-option label="全部学年" value="all" /><el-option label="第一学年" value="1" /><el-option label="第二学年" value="2" /><el-option label="第三学年" value="3" /></el-select>
@@ -397,6 +641,12 @@ onMounted(loadCatalog);
 .c6-header, .c6-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .c6-subtitle { margin-top: 5px; color: var(--el-text-color-secondary); font-size: 13px; }
 .c6-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.friendly-summary { margin-top: 14px; }
+.reviewer-row { display: flex; align-items: center; gap: 10px; margin: 14px 0; color: var(--el-text-color-regular); }
+.reviewer-help { color: var(--el-text-color-secondary); font-size: 13px; }
+.course-review-name { font-weight: 600; color: var(--el-text-color-primary); }
+.course-review-meta { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
+.advanced-c6 { margin-top: 16px; }
 .c6-toolbar { justify-content: flex-start; margin-bottom: 12px; }
 .c6-editor-meta, .c6-editor-form { margin-top: 16px; }
 </style>
