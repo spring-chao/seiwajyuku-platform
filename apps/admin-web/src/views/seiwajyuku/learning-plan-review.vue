@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
+import { useRouter } from "vue-router";
 import {
   getLearningPlanReview,
   type LearningPlanReview
@@ -16,6 +17,7 @@ type LocalReview = {
 };
 
 const STORAGE_KEY = "seiwajyuku-learning-plan-review-draft-v1";
+const router = useRouter();
 const loading = ref(false);
 const error = ref("");
 const review = ref<LearningPlanReview>();
@@ -225,6 +227,9 @@ onMounted(loadReview);
           </div>
           <div class="review-actions">
             <el-button :loading="loading" @click="loadReview">刷新清单</el-button>
+            <el-button @click="router.push('/operations/learning-plan-group-meetings')">
+              小组学习会配置
+            </el-button>
             <el-button type="primary" :disabled="!review" @click="exportReview">
               导出审核清单
             </el-button>

@@ -270,6 +270,25 @@ export default [
             "ops_center_data"
           ]
         }
+      },
+      {
+        path: "/operations/learning-plan-group-meetings",
+        name: "LearningPlanGroupMeetings",
+        component: () =>
+          import("@/views/seiwajyuku/learning-plan-group-meetings.vue"),
+        meta: {
+          title: "学习计划配置",
+          icon: "ep/reading",
+          roles: [
+            "system_admin",
+            "technical_admin",
+            "operations_admin",
+            "ops_center_director",
+            "ops_center_learning",
+            "ops_center_management",
+            "ops_center_data"
+          ]
+        }
       }
     ]
   }

@@ -74,6 +74,58 @@ def _learning_plan_review_payload() -> dict:
     }
 
 
+def _learning_plan_group_meeting_payload() -> dict:
+    """Return every group-meeting task for the future adjustment workspace.
+
+    The catalog is deliberately read-only.  The management page uses the
+    returned fingerprints to keep any proposed changes local to the browser
+    until a separately reviewed plan version is created.
+    """
+
+    manifest_path, plan_path = _review_artifact_paths()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    tasks: list[dict] = []
+    for track in plan.get("cohort_tracks", []):
+        cohort_month = int(track["cohort_month"])
+        for cycle in track.get("cycles", []):
+            cycle_index = int(cycle["cycle_index"])
+            for task_index, task in enumerate(cycle.get("tasks", []), start=1):
+                if task.get("task_type") != "GROUP_MEETING":
+                    continue
+                metadata = task.get("metadata") or {}
+                tasks.append(
+                    {
+                        "task_key": f"{cohort_month}-{cycle_index}-{task_index}",
+                        "cohort_month": cohort_month,
+                        "cycle_index": cycle_index,
+                        "year_index": cycle.get("year_index"),
+                        "year_cycle_index": cycle.get("year_cycle_index"),
+                        "nominal_calendar_month": cycle.get("nominal_calendar_month"),
+                        "task_type": "GROUP_MEETING",
+                        "title": task.get("title"),
+                        "description": task.get("description"),
+                        "credit_points": task.get("credit_points"),
+                        "is_required": bool(task.get("is_required")),
+                        "sort_order": task.get("sort_order"),
+                        "metadata": metadata,
+                    }
+                )
+    return {
+        "plan_key": manifest.get("plan_key"),
+        "version_label": manifest.get("version_label"),
+        "review_status": manifest.get("status"),
+        "confirmed_at": manifest.get("confirmed_at"),
+        "confirmed_by": manifest.get("confirmed_by"),
+        "source_commit": manifest.get("source_commit"),
+        "source_json": manifest.get("source_json"),
+        "source_json_sha256": manifest.get("source_json_sha256"),
+        "source_workbooks": manifest.get("source_workbooks", {}),
+        "task_count": len(tasks),
+        "tasks": tasks,
+    }
+
+
 class LearningPlanBindingPayload(BaseModel):
     plan_version_id: int = Field(gt=0)
     cohort_month: int | None = Field(default=None, ge=1, le=12)
@@ -111,6 +163,14 @@ def learning_plan_review(user: dict = Depends(require_permission("plans:read")))
         return {"success": True, "data": _learning_plan_review_payload()}
     except (FileNotFoundError, json.JSONDecodeError) as exc:
         raise HTTPException(503, "学习计划审核清单暂不可用") from exc
+
+
+@router.get("/learning-plan-group-meetings")
+def learning_plan_group_meetings(user: dict = Depends(require_permission("plans:read"))) -> dict:
+    try:
+        return {"success": True, "data": _learning_plan_group_meeting_payload()}
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise HTTPException(503, "小组学习会调整清单暂不可用") from exc
 
 
 @router.post("/classes/{class_org_unit_id}/learning-plan-binding")

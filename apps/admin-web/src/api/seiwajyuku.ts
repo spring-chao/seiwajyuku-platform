@@ -2222,3 +2222,39 @@ export const getLearningPlanReview = () =>
     "get",
     "/api/v1/learning-plan-review"
   );
+
+export type LearningPlanGroupMeetingTask = {
+  task_key: string;
+  cohort_month: number;
+  cycle_index: number;
+  year_index?: number | null;
+  year_cycle_index?: number | null;
+  nominal_calendar_month?: number | null;
+  task_type: "GROUP_MEETING";
+  title?: string | null;
+  description?: string | null;
+  credit_points?: number | null;
+  is_required: boolean;
+  sort_order?: number | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type LearningPlanGroupMeetingCatalog = {
+  plan_key: string;
+  version_label: string;
+  review_status: "PENDING" | "CONFIRMED";
+  confirmed_at?: string | null;
+  confirmed_by?: string | null;
+  source_commit: string;
+  source_json: string;
+  source_json_sha256: string;
+  source_workbooks: Record<string, { file: string; sha256: string }>;
+  task_count: number;
+  tasks: LearningPlanGroupMeetingTask[];
+};
+
+export const getLearningPlanGroupMeetings = () =>
+  http.request<{ success: boolean; data: LearningPlanGroupMeetingCatalog }>(
+    "get",
+    "/api/v1/learning-plan-group-meetings"
+  );
