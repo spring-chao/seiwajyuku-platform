@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import copy
+import base64
+import io
 import hashlib
 import json
 import sys
 from pathlib import Path
 
 import pytest
+from docx import Document
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -21,7 +23,6 @@ from app.api.learning_plans import (  # noqa: E402
 )
 
 
-SOURCE_ROOT = Path(r"E:\班级运营资料\6.班会+小组会学习会流程")
 INVENTORY = REPO_ROOT / "data/learning-plans/group-meeting-source-inventory-2026.json"
 FLOWS = REPO_ROOT / "data/learning-plans/group-meeting-flows-2026.1.json"
 MAPPING = REPO_ROOT / "data/learning-plans/cycle-flow-mapping-2026.1.json"
@@ -30,20 +31,39 @@ PLAN = REPO_ROOT / "data/learning-plans/standard-3y-2026.json"
 REVIEW = REPO_ROOT / "data/learning-plans/standard-3y-2026.review.json"
 
 
-def _first_year_first_cycle() -> Path:
-    return next(
-        path
-        for path in SOURCE_ROOT.rglob("*.docx")
-        if "【第1个月】" in path.name and "1、4、7、10" in path.name
-    )
+_ONE_PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
+
+
+def _sample_docx(tmp_path: Path) -> tuple[Path, Path]:
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    path = source_root / "【2026版】第1学年" / "【第1个月】2026版1、4、7、10月开班.docx"
+    path.parent.mkdir()
+    document = Document()
+    document.add_paragraph("第1个月小组学习会流程")
+    for text, with_image in (
+        ("1. 观看《如何制作核算表》视频并进行整体核算表研讨", True),
+        ("2. 幸福测评表结果检视与改善", True),
+        ("3. 班级学习会发表稿编写讲解", True),
+        ("4. 空巴", True),
+    ):
+        paragraph = document.add_paragraph(text)
+        if with_image:
+            paragraph.add_run().add_picture(io.BytesIO(_ONE_PIXEL_PNG), width=None)
+    document.add_paragraph("空巴后班会二维码（应排除）")
+    document.save(path)
+    return path, source_root
 
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_flow_parser_stops_at_first_konpa() -> None:
-    flow = parse_flow(_first_year_first_cycle(), SOURCE_ROOT, load_course_rules(RULES))
+def test_flow_parser_stops_at_first_konpa(tmp_path: Path) -> None:
+    path, source_root = _sample_docx(tmp_path)
+    flow = parse_flow(path, source_root, load_course_rules(RULES))
 
     assert flow["status"] == "PARSED"
     assert flow["boundary"]["terminal_step_count"] == 1
@@ -51,8 +71,9 @@ def test_flow_parser_stops_at_first_konpa() -> None:
     assert all("空巴" in step["content"] or "空吧" in step["content"] for step in flow["steps"][-1:])
 
 
-def test_qr_after_konpa_is_excluded() -> None:
-    flow = parse_flow(_first_year_first_cycle(), SOURCE_ROOT, load_course_rules(RULES))
+def test_qr_after_konpa_is_excluded(tmp_path: Path) -> None:
+    path, source_root = _sample_docx(tmp_path)
+    flow = parse_flow(path, source_root, load_course_rules(RULES))
 
     assert flow["boundary"]["qr_after_terminal_excluded"] is True
     assert all(
@@ -61,8 +82,9 @@ def test_qr_after_konpa_is_excluded() -> None:
     )
 
 
-def test_first_group_meeting_has_three_course_nodes() -> None:
-    flow = parse_flow(_first_year_first_cycle(), SOURCE_ROOT, load_course_rules(RULES))
+def test_first_group_meeting_has_three_course_nodes(tmp_path: Path) -> None:
+    path, source_root = _sample_docx(tmp_path)
+    flow = parse_flow(path, source_root, load_course_rules(RULES))
 
     assert len(flow["course_nodes"]) == 3
     assert [node["course_key"] for node in flow["course_nodes"]] == [
