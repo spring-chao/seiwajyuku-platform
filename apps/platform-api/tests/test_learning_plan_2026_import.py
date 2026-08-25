@@ -20,6 +20,7 @@ from learning_plan_2026 import (  # noqa: E402
 )
 from review_learning_plan_2026 import (  # noqa: E402
     build_review_manifest,
+    derive_manifest_status,
     verify_review_manifest,
 )
 
@@ -192,6 +193,8 @@ def test_review_manifest_binds_json_hash_and_all_36_checkpoints(tmp_path: Path) 
     confirmed["confirmed_at"] = "2026-08-25T00:00:00+08:00"
     for checkpoint in confirmed["checkpoints"]:
         checkpoint["status"] = "CONFIRMED"
+        checkpoint["reviewed_by"] = "reviewer"
+        checkpoint["reviewed_at"] = "2026-08-25T00:00:00+08:00"
     verify_review_manifest(
         confirmed,
         plan=plan,
@@ -203,3 +206,49 @@ def test_review_manifest_binds_json_hash_and_all_36_checkpoints(tmp_path: Path) 
     source_json.write_text(source_json.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="SHA-256"):
         verify_review_manifest(confirmed, plan=plan, source_json=source_json, expected_source_commit="370dc94")
+
+
+def test_review_status_is_derived_from_each_checkpoint(tmp_path: Path) -> None:
+    plan = _synthetic_plan()
+    # The fixture uses a temporary JSON below so the test is independent of the
+    # checked-in production-sized source file.
+    source_json = tmp_path / "_review-status-fixture.json"
+    source_json.write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+    manifest = build_review_manifest(plan, source_commit="370dc94", source_json=source_json)
+    assert derive_manifest_status(manifest) == "PENDING"
+    manifest["status"] = "CONFIRMED"
+    with pytest.raises(ValueError, match="自动派生"):
+        verify_review_manifest(manifest, plan=plan, source_json=source_json, expected_source_commit="370dc94")
+
+
+def test_review_manifest_checks_all_three_workbook_fingerprints(tmp_path: Path) -> None:
+    plan = _synthetic_plan()
+    source_json = tmp_path / "standard-3y-2026.json"
+    source_json.write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+    workbooks = {}
+    for year in (1, 2, 3):
+        path = tmp_path / f"year{year}.xlsx"
+        path.write_bytes(f"workbook-{year}".encode("utf-8"))
+        workbooks[year] = path
+    manifest = build_review_manifest(
+        plan,
+        source_commit="370dc94",
+        source_json=source_json,
+        source_workbooks=workbooks,
+    )
+    verify_review_manifest(
+        manifest,
+        plan=plan,
+        source_json=source_json,
+        expected_source_commit="370dc94",
+        source_workbooks=workbooks,
+    )
+    workbooks[2].write_bytes(b"changed")
+    with pytest.raises(ValueError, match="第2年原始 Excel SHA-256"):
+        verify_review_manifest(
+            manifest,
+            plan=plan,
+            source_json=source_json,
+            expected_source_commit="370dc94",
+            source_workbooks=workbooks,
+        )

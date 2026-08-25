@@ -13,7 +13,11 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from learning_plan_2026 import import_plan, validate_plan  # noqa: E402
-from review_learning_plan_2026 import git_commit, verify_review_manifest  # noqa: E402
+from review_learning_plan_2026 import (  # noqa: E402
+    git_commit,
+    verify_review_manifest,
+    verify_source_workbooks,
+)
 
 
 def main() -> int:
@@ -42,6 +46,9 @@ def main() -> int:
         "--source-commit",
         help="固定审核提交；--apply 时必须与审核清单中的 source_commit 一致",
     )
+    parser.add_argument("--year1", type=Path, help="第一年原始工作簿；--apply 时必须提供")
+    parser.add_argument("--year2", type=Path, help="第二年原始工作簿；--apply 时必须提供")
+    parser.add_argument("--year3", type=Path, help="第三年原始工作簿；--apply 时必须提供")
     parser.add_argument("--actor-user-id", type=int, default=None)
     args = parser.parse_args()
 
@@ -68,6 +75,9 @@ def main() -> int:
         raise RuntimeError("--apply 必须显式提供固定审核提交 --source-commit")
     if not args.review_manifest.exists():
         raise RuntimeError("缺少36项人工抽查审核清单，禁止 B2 导入")
+    if not all(path is not None for path in (args.year1, args.year2, args.year3)):
+        raise RuntimeError("--apply 必须显式提供 --year1、--year2、--year3 三份原始 Excel")
+    source_workbooks = {1: args.year1, 2: args.year2, 3: args.year3}
     review_manifest = json.loads(args.review_manifest.read_text(encoding="utf-8"))
     expected_commit = git_commit(REPO_ROOT, args.source_commit)
     verify_review_manifest(
@@ -75,8 +85,13 @@ def main() -> int:
         plan=plan,
         source_json=args.input,
         expected_source_commit=expected_commit,
+        source_workbooks=source_workbooks,
         require_confirmed=True,
     )
+    source_report = verify_source_workbooks(plan, source_workbooks=source_workbooks)
+    print(json.dumps({"source_verification": source_report}, ensure_ascii=False, indent=2))
+    if source_report["mismatch_count"]:
+        raise RuntimeError("原始 Excel 源单元格回读存在差异，禁止 B2 导入")
 
     from app.db import transaction
     from app.migrations import run_migrations

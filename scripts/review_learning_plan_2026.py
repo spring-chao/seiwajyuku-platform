@@ -14,6 +14,7 @@ from learning_plan_2026 import COHORT_MONTHS, assert_valid_plan
 
 
 CHECKPOINT_CYCLES = (1, 6, 12, 13, 18, 24, 25, 30, 36)
+REVIEW_STATUSES = {"PENDING", "CONFIRMED"}
 
 
 def sha256_file(path: Path) -> str:
@@ -162,6 +163,57 @@ def _checkpoint(plan: dict[str, Any], cohort_month: int, cycle_index: int) -> di
     }
 
 
+def expected_checkpoint_ids() -> tuple[str, ...]:
+    return tuple(
+        f"{cohort_month}-{cycle_index}"
+        for cohort_month in COHORT_MONTHS
+        for cycle_index in CHECKPOINT_CYCLES
+    )
+
+
+def _checkpoint_summary(checkpoints: list[dict[str, Any]]) -> tuple[str, str | None, str | None]:
+    """Derive the review summary; callers must not edit the top-level status directly."""
+
+    expected_ids = expected_checkpoint_ids()
+    actual_ids = [item.get("checkpoint_id") for item in checkpoints]
+    if tuple(actual_ids) != expected_ids or len(set(actual_ids)) != len(expected_ids):
+        raise ValueError("审核清单的36个 checkpoint_id 不完整或顺序不正确")
+    for item in checkpoints:
+        if item.get("status") not in REVIEW_STATUSES:
+            raise ValueError(f"审核清单包含无效状态: {item.get('status')!r}")
+        for field in ("reviewed_by", "reviewed_at", "notes"):
+            if field not in item:
+                raise ValueError(f"审核清单缺少逐项字段: {field}")
+    if not all(
+        item["status"] == "CONFIRMED"
+        and str(item.get("reviewed_by") or "").strip()
+        and str(item.get("reviewed_at") or "").strip()
+        for item in checkpoints
+    ):
+        return "PENDING", None, None
+    reviewers = sorted({str(item["reviewed_by"]).strip() for item in checkpoints})
+    reviewed_at = max(str(item["reviewed_at"]).strip() for item in checkpoints)
+    return "CONFIRMED", ",".join(reviewers), reviewed_at
+
+
+def derive_manifest_status(manifest: dict[str, Any]) -> str:
+    checkpoints = manifest.get("checkpoints")
+    if not isinstance(checkpoints, list):
+        raise ValueError("审核清单必须包含 checkpoints 数组")
+    return _checkpoint_summary(checkpoints)[0]
+
+
+def refresh_manifest_summary(manifest: dict[str, Any]) -> str:
+    checkpoints = manifest.get("checkpoints")
+    if not isinstance(checkpoints, list):
+        raise ValueError("审核清单必须包含 checkpoints 数组")
+    status, confirmed_by, confirmed_at = _checkpoint_summary(checkpoints)
+    manifest["status"] = status
+    manifest["confirmed_by"] = confirmed_by
+    manifest["confirmed_at"] = confirmed_at
+    return status
+
+
 def build_review_manifest(
     plan: dict[str, Any],
     *,
@@ -189,6 +241,7 @@ def build_review_manifest(
         "confirmed_by": None,
         "checkpoints": checkpoints,
     }
+    refresh_manifest_summary(manifest)
     if source_workbooks:
         manifest["source_workbooks"] = {
             str(year): {"file": path.name, "sha256": sha256_file(path)}
@@ -203,6 +256,7 @@ def verify_review_manifest(
     plan: dict[str, Any],
     source_json: Path,
     expected_source_commit: str | None = None,
+    source_workbooks: dict[int, Path] | None = None,
     require_confirmed: bool = False,
 ) -> None:
     assert_valid_plan(plan)
@@ -218,11 +272,27 @@ def verify_review_manifest(
     expected_count = len(COHORT_MONTHS) * len(CHECKPOINT_CYCLES)
     if manifest.get("required_checkpoint_count") != expected_count or not isinstance(checkpoints, list) or len(checkpoints) != expected_count:
         raise ValueError("审核清单必须包含36个固定抽查点")
+    derived_status, derived_confirmed_by, derived_confirmed_at = _checkpoint_summary(checkpoints)
+    if manifest.get("status") != derived_status:
+        raise ValueError("审核清单顶层 status 必须由36个逐项审核状态自动派生，不能手工修改")
+    if manifest.get("confirmed_by") != derived_confirmed_by or manifest.get("confirmed_at") != derived_confirmed_at:
+        raise ValueError("审核清单顶层确认信息必须由逐项审核记录自动派生")
+    stored_workbooks = manifest.get("source_workbooks")
+    if stored_workbooks is not None:
+        if source_workbooks is None:
+            raise ValueError("审核清单包含三份原始 Excel 指纹，必须显式提供 --year1、--year2、--year3")
+        expected_years = {1, 2, 3}
+        if set(source_workbooks) != expected_years or set(stored_workbooks) != {"1", "2", "3"}:
+            raise ValueError("审核清单必须绑定第一、第二、第三年三份原始 Excel")
+        for year, path in sorted(source_workbooks.items()):
+            entry = stored_workbooks.get(str(year))
+            if not isinstance(entry, dict) or entry.get("file") != path.name:
+                raise ValueError(f"第{year}年原始 Excel 文件名与审核指纹不一致")
+            if entry.get("sha256") != sha256_file(path):
+                raise ValueError(f"第{year}年原始 Excel SHA-256 与审核指纹不一致，人工确认已失效")
     if require_confirmed:
-        if manifest.get("status") != "CONFIRMED":
+        if derived_status != "CONFIRMED":
             raise ValueError("36项人工抽查尚未确认，禁止 B2 导入")
-        if any(item.get("status") != "CONFIRMED" for item in checkpoints):
-            raise ValueError("仍有抽查项不是 CONFIRMED，禁止 B2 导入")
 
 
 def main() -> int:
@@ -247,6 +317,15 @@ def main() -> int:
     parser.add_argument("--year1", type=Path, help="第一年原始工作簿（用于源单元格回读）")
     parser.add_argument("--year2", type=Path, help="第二年原始工作簿（用于源单元格回读）")
     parser.add_argument("--year3", type=Path, help="第三年原始工作簿（用于源单元格回读）")
+    parser.add_argument(
+        "--confirm-checkpoint",
+        action="append",
+        metavar="COHORT-CYCLE",
+        help="确认一个抽查项，例如 1-1；可重复指定，不能直接修改顶层状态",
+    )
+    parser.add_argument("--reviewed-by", help="逐项审核人；与 --confirm-checkpoint 一起使用")
+    parser.add_argument("--reviewed-at", help="逐项审核时间；默认当前 UTC 时间")
+    parser.add_argument("--notes", help="逐项审核备注；与 --confirm-checkpoint 一起使用")
     args = parser.parse_args()
     plan = json.loads(args.input.read_text(encoding="utf-8"))
     resolved_commit = git_commit(repo_root, args.source_commit)
@@ -259,13 +338,44 @@ def main() -> int:
         print(json.dumps({"source_verification": source_report}, ensure_ascii=False, indent=2))
         if source_report["mismatch_count"]:
             return 2
-    if args.verify:
+    if args.confirm_checkpoint:
+        if not all(path is not None for path in (args.year1, args.year2, args.year3)):
+            raise ValueError("--confirm-checkpoint 必须同时提供 --year1、--year2、--year3")
+        if not args.reviewed_by or not args.reviewed_by.strip():
+            raise ValueError("--confirm-checkpoint 必须提供 --reviewed-by")
         manifest = json.loads(args.output.read_text(encoding="utf-8"))
         verify_review_manifest(
             manifest,
             plan=plan,
             source_json=args.input,
             expected_source_commit=resolved_commit,
+            source_workbooks=source_workbooks,
+        )
+        checkpoint_by_id = {item["checkpoint_id"]: item for item in manifest["checkpoints"]}
+        unknown = sorted(set(args.confirm_checkpoint) - set(checkpoint_by_id))
+        if unknown:
+            raise ValueError(f"未知抽查项: {', '.join(unknown)}")
+        reviewed_at = args.reviewed_at or datetime.now(UTC).isoformat()
+        for checkpoint_id in args.confirm_checkpoint:
+            checkpoint = checkpoint_by_id[checkpoint_id]
+            checkpoint["status"] = "CONFIRMED"
+            checkpoint["reviewed_by"] = args.reviewed_by.strip()
+            checkpoint["reviewed_at"] = reviewed_at
+            checkpoint["notes"] = args.notes
+        refresh_manifest_summary(manifest)
+        args.output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps({"status": manifest["status"], "confirmed_checkpoint_count": sum(item["status"] == "CONFIRMED" for item in manifest["checkpoints"]), "output": str(args.output)}, ensure_ascii=False, indent=2))
+        return 0
+    if args.verify:
+        manifest = json.loads(args.output.read_text(encoding="utf-8"))
+        if source_workbooks is None and manifest.get("source_workbooks") is not None:
+            raise ValueError("--verify 必须同时提供 --year1、--year2、--year3 以核验三份原始 Excel 指纹")
+        verify_review_manifest(
+            manifest,
+            plan=plan,
+            source_json=args.input,
+            expected_source_commit=resolved_commit,
+            source_workbooks=source_workbooks,
         )
         print(json.dumps({"status": manifest.get("status"), "source_commit": resolved_commit, "source_json_sha256": sha256_file(args.input)}, ensure_ascii=False, indent=2))
         return 0
