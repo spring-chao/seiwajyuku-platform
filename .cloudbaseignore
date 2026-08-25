@@ -26,3 +26,10 @@ outputs
 *.log
 *.db
 *.sqlite*
+
+# Include only the fixed, non-personal learning-plan review artifacts in the
+# CloudRun source bundle. Original Excel files remain excluded.
+!data/
+!data/learning-plans/
+!data/learning-plans/standard-3y-2026.json
+!data/learning-plans/standard-3y-2026.review.json
