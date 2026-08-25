@@ -2417,3 +2417,68 @@ export const getLearningPlanCourseCreditRules = () =>
     success: boolean;
     data: { plan_key: string; version_label: string; sha256: string; rules: Record<string, unknown> };
   }>("get", "/api/v1/learning-plan-course-credit-rules");
+
+export type LearningPlanCourseCreditRule = {
+  id?: number | null;
+  course_key: string;
+  course_name: string;
+  year_index?: number | null;
+  credit_points: number;
+  status: "PENDING" | "CONFIGURED";
+  source: "BASELINE" | "SYSTEM_DEFAULT" | "OPERATIONS";
+  aliases: string[];
+  persisted: boolean;
+  updated_at?: string | null;
+};
+
+export type LearningPlanCourseCreditConfig = {
+  plan_key: string;
+  version_label: string;
+  version_status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  persisted: boolean;
+  based_on_version_label?: string | null;
+  available_credit_points: number[];
+  custom_credit_allowed: boolean;
+  storage_available: boolean;
+  can_edit: boolean;
+  can_manage: boolean;
+  rules: LearningPlanCourseCreditRule[];
+};
+
+export const getLearningPlanCourseCreditConfig = (params?: {
+  plan_key?: string;
+  version_label?: string;
+}) =>
+  http.request<{ success: boolean; data: LearningPlanCourseCreditConfig }>(
+    "get",
+    "/api/v1/learning-plan-course-credit-config",
+    { params }
+  );
+
+export const updateLearningPlanCourseCreditConfig = (
+  courseKey: string,
+  data: {
+    version_label?: string;
+    credit_points: number;
+    status: "PENDING" | "CONFIGURED";
+    course_name?: string;
+    year_index?: number;
+    aliases?: string[];
+  }
+) =>
+  http.request<{ success: boolean; data: LearningPlanCourseCreditConfig & { updated_rule: LearningPlanCourseCreditRule } }>(
+    "put",
+    `/api/v1/learning-plan-course-credit-config/${encodeURIComponent(courseKey)}`,
+    { data }
+  );
+
+export const createLearningPlanCourseCreditConfigVersion = (data: {
+  plan_key?: string;
+  version_label: string;
+  based_on_version_label?: string;
+}) =>
+  http.request<{ success: boolean; data: LearningPlanCourseCreditConfig }>(
+    "post",
+    "/api/v1/learning-plan-course-credit-config/versions",
+    { data }
+  );

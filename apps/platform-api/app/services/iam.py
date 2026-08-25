@@ -21,6 +21,7 @@ PERMISSIONS = {
     "org:read": ("查看组织", "INTERNAL"),
     "org:manage": ("维护组织", "SENSITIVE"),
     "plans:read": ("查看年度MP", "INTERNAL"),
+    "plans:credit_rules_manage": ("维护学习计划课程积分标准", "SENSITIVE"),
     "plans:period_write": ("维护本区域年度MP", "SENSITIVE"),
     "plans:import_global": ("全局导入年度MP", "RESTRICTED"),
     "plans:publish": ("发布年度方案", "SENSITIVE"),
@@ -51,7 +52,7 @@ ROLE_PERMISSIONS = {
     },
     "data_security_admin": {"org:read", "members:read", "exports:sensitive", "audit:read"},
     "operations_admin": {
-        "org:read", "org:manage", "plans:read", "plans:period_write", "plans:import_global", "plans:publish",
+        "org:read", "org:manage", "plans:read", "plans:credit_rules_manage", "plans:period_write", "plans:import_global", "plans:publish",
         "members:read", "members:manage", "members:detail_view", "members:enterprise_view",
         "followups:manage", "exports:normal", "audit:read",
         "integrations:manage", "renewals:read", "renewals:manage",
@@ -92,7 +93,7 @@ ROLE_PERMISSIONS = {
         "enrollment:enroll",
     },
     "ops_center_learning": {
-        "org:read", "plans:read", "members:read", "members:detail_view",
+        "org:read", "plans:read", "plans:credit_rules_manage", "members:read", "members:detail_view",
         "followups:manage", "attendance:adjudicate",
     },
     "ops_center_development": {
@@ -101,7 +102,7 @@ ROLE_PERMISSIONS = {
         "enrollment:read", "enrollment:review", "enrollment:enroll",
     },
     "ops_center_management": {
-        "org:read", "plans:read", "plans:period_write", "plans:publish",
+        "org:read", "plans:read", "plans:credit_rules_manage", "plans:period_write", "plans:publish",
         "members:read", "audit:read",
     },
     "ops_center_data": {

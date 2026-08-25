@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_permission
@@ -15,6 +15,13 @@ from app.services.learning_cycles import (
     get_class_learning_progress,
     list_learning_plans,
     update_current_learning_cycle,
+)
+from app.services.course_credit_rules import (
+    DEFAULT_PLAN_KEY,
+    DEFAULT_VERSION_LABEL,
+    create_course_credit_rule_version,
+    list_course_credit_rules,
+    update_course_credit_rule,
 )
 
 
@@ -241,6 +248,21 @@ class ConfirmClassMeetingPayload(BaseModel):
     confirmation_reason: str | None = Field(default=None, max_length=1000)
 
 
+class CourseCreditRuleUpdatePayload(BaseModel):
+    version_label: str = Field(default=DEFAULT_VERSION_LABEL, min_length=1, max_length=64)
+    credit_points: int = Field(ge=0, le=999)
+    status: Literal["PENDING", "CONFIGURED"] = "CONFIGURED"
+    course_name: str | None = Field(default=None, min_length=1, max_length=255)
+    year_index: int | None = Field(default=None, ge=1, le=20)
+    aliases: list[str] | None = Field(default=None, max_length=30)
+
+
+class CourseCreditRuleVersionPayload(BaseModel):
+    plan_key: str = Field(default=DEFAULT_PLAN_KEY, min_length=1, max_length=128)
+    version_label: str = Field(min_length=1, max_length=64)
+    based_on_version_label: str = Field(default=DEFAULT_VERSION_LABEL, min_length=1, max_length=64)
+
+
 @router.get("/learning-plans")
 def learning_plans(user: dict = Depends(require_permission("plans:read"))) -> dict:
     return {"success": True, "data": list_learning_plans()}
@@ -335,6 +357,60 @@ def learning_plan_course_credit_rules(
             "rules": payload["course_credit_rules"],
         },
     }
+
+
+@router.get("/learning-plan-course-credit-config")
+def learning_plan_course_credit_config(
+    plan_key: str = Query(default=DEFAULT_PLAN_KEY, min_length=1, max_length=128),
+    version_label: str = Query(default=DEFAULT_VERSION_LABEL, min_length=1, max_length=64),
+    user: dict = Depends(require_permission("plans:read")),
+) -> dict:
+    try:
+        data = list_course_credit_rules(plan_key, version_label)
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(503, "课程积分配置目录暂不可用") from exc
+    data["can_manage"] = "plans:credit_rules_manage" in user["permissions"]
+    return {"success": True, "data": data}
+
+
+@router.put("/learning-plan-course-credit-config/{course_key}")
+def update_learning_plan_course_credit_config(
+    course_key: str,
+    payload: CourseCreditRuleUpdatePayload,
+    user: dict = Depends(require_permission("plans:credit_rules_manage")),
+) -> dict:
+    try:
+        data = update_course_credit_rule(
+            actor_user_id=user["id"],
+            plan_key=DEFAULT_PLAN_KEY,
+            version_label=payload.version_label,
+            course_key=course_key,
+            credit_points=payload.credit_points,
+            status=payload.status,
+            course_name=payload.course_name,
+            year_index=payload.year_index,
+            aliases=payload.aliases,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/learning-plan-course-credit-config/versions")
+def create_learning_plan_course_credit_config_version(
+    payload: CourseCreditRuleVersionPayload,
+    user: dict = Depends(require_permission("plans:credit_rules_manage")),
+) -> dict:
+    try:
+        data = create_course_credit_rule_version(
+            actor_user_id=user["id"],
+            plan_key=payload.plan_key,
+            version_label=payload.version_label,
+            based_on_version_label=payload.based_on_version_label,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.post("/classes/{class_org_unit_id}/learning-plan-binding")

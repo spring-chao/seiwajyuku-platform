@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
-import { useUserStoreHook } from "@/store/modules/user";
+import { ElMessage, ElMessageBox } from "element-plus";
 import {
+  getLearningPlanCourseCreditConfig,
+  createLearningPlanCourseCreditConfigVersion,
+  updateLearningPlanCourseCreditConfig,
   getLearningPlanGroupMeetingFlows,
   type LearningPlanC6ReviewItem,
+  type LearningPlanCourseCreditConfig,
+  type LearningPlanCourseCreditRule,
   type LearningPlanGroupFlow,
   type LearningPlanGroupFlowCatalog,
   type LearningPlanGroupFlowStep
@@ -25,16 +29,6 @@ type C6Draft = {
   resolved_course_key: string;
   resolved_credit_points: number | null;
 };
-type CreditReviewGroup = {
-  key: string;
-  course_name: string;
-  course_key: string;
-  item_ids: string[];
-  cycle_labels: string[];
-  context_texts: string[];
-  suggested_credit_points: number | null;
-};
-
 const router = useRouter();
 const STORAGE_KEY = "seiwajyuku-learning-plan-group-flow-drafts-v1";
 const loading = ref(false);
@@ -64,11 +58,10 @@ const c6Form = ref<C6Draft>({
   resolved_course_key: "",
   resolved_credit_points: null
 });
-const reviewerName = ref(
-  useUserStoreHook().nickname || useUserStoreHook().username || "系统管理员"
-);
-const creditInputs = ref<Record<string, number | null>>({});
-const creditOptions = [0, 15, 20, 30, 40];
+const creditConfig = ref<LearningPlanCourseCreditConfig>();
+const creditValues = ref<Record<string, number>>({});
+const creditSavingKey = ref("");
+const creditOptions = computed(() => creditConfig.value?.available_credit_points ?? [0, 15, 20, 30, 40]);
 
 const fingerprint = computed(() => {
   if (!catalog.value) return "";
@@ -122,51 +115,20 @@ const c6EffectiveDraft = (value: unknown): C6Draft | undefined => {
 };
 const c6PendingCount = computed(() => c6Items.value.filter(item => !c6EffectiveDraft(item)?.resolution_status).length);
 const selectedC6Item = computed(() => c6Items.value.find(item => item.review_id === selectedC6ReviewId.value));
-const courseHints = [
-  // These are temporary review identifiers derived from source text, not published course keys.
-  { key: "AUTO-QR-HAPPINESS-CARE", name: "幸福关爱委讲解", aliases: ["幸福关爱委"] },
-  { key: "AUTO-QR-AMOEBA-INTRODUCTION", name: "阿米巴经营之概论", aliases: ["阿米巴经营之概论"] },
-  { key: "AUTO-QR-EXCELLENT-IMPROVEMENT", name: "优秀改善创新案例分享", aliases: ["优秀改善创新案例分享"] },
-  { key: "AUTO-QR-IMPROVEMENT-INNOVATION", name: "改善创新委讲解与案例分享", aliases: ["改善创新委", "改善创新案例"] },
-  { key: "AUTO-QR-HUNDRED-DAY-CAMPAIGN", name: "百日奋战学习", aliases: ["百日奋战"] }
-];
-const courseHintFor = (item: LearningPlanC6ReviewItem) => {
-  const text = String(item.context_text ?? "");
-  return courseHints.find(hint => hint.aliases.some(alias => text.includes(alias)));
+const creditRules = computed(() => creditConfig.value?.rules ?? []);
+const creditRuleYears = computed(() => [1, 2, 3].map(year => ({
+  year,
+  label: `第${year}学年`,
+  rules: creditRules.value.filter(rule => rule.year_index === year)
+})));
+const creditPendingGroupCount = computed(() => creditRules.value.filter(rule => rule.status === "PENDING").length);
+const configuredCreditCount = computed(() => creditRules.value.filter(rule => rule.status === "CONFIGURED").length);
+const creditValueFor = (rule: any) => creditValues.value[rule.course_key] ?? rule.credit_points;
+const setCreditValue = (rule: any, value: number | string | boolean | undefined) => {
+  if (typeof value === "boolean") return;
+  const next = Number(value);
+  if (Number.isInteger(next) && next >= 0 && next <= 999) creditValues.value = { ...creditValues.value, [rule.course_key]: next };
 };
-const creditReviewGroups = computed<CreditReviewGroup[]>(() => {
-  const groups = new Map<string, CreditReviewGroup>();
-  for (const item of c6Items.value.filter(value => value.kind === "QR_REVIEW_REQUIRED")) {
-    const hint = courseHintFor(item);
-    const key = hint?.key ?? `UNMAPPED-${item.flow_key ?? item.review_id}`;
-    const existing = groups.get(key) ?? {
-      key,
-      course_name: hint?.name ?? "系统识别的课程二维码",
-      course_key: key,
-      item_ids: [],
-      cycle_labels: [],
-      context_texts: [],
-      suggested_credit_points: null
-    };
-    existing.item_ids.push(item.review_id);
-    const cycleLabel = item.year_index && item.cycle_index
-      ? `第${item.year_index}学年第${item.cycle_index}周期`
-      : item.flow_key ?? "周期待识别";
-    if (!existing.cycle_labels.includes(cycleLabel)) existing.cycle_labels.push(cycleLabel);
-    const context = String(item.context_text ?? "").trim();
-    if (context && !existing.context_texts.includes(context)) existing.context_texts.push(context);
-    groups.set(key, existing);
-  }
-  return [...groups.values()].sort((a, b) => a.course_name.localeCompare(b.course_name, "zh-CN"));
-});
-const creditGroupConfirmed = (value: unknown) => {
-  const group = value as CreditReviewGroup;
-  return group.item_ids.every(reviewId => {
-  const draft = c6EffectiveDraft(c6Items.value.find(item => item.review_id === reviewId));
-  return draft?.resolution_status === "COURSE_CONFIRMED" || draft?.resolution_status === "NON_COURSE_QR";
-  });
-};
-const creditPendingGroupCount = computed(() => creditReviewGroups.value.filter(group => !creditGroupConfirmed(group)).length);
 const confirmedCourseNodeCount = computed(() => c6Items.value.filter(item => {
   if (item.kind !== "COURSE_NODE") return false;
   const draft = c6EffectiveDraft(item);
@@ -177,7 +139,6 @@ const technicalPendingCount = computed(() => c6Items.value.filter(item => {
   return !c6EffectiveDraft(item)?.resolution_status;
 }).length);
 const sourceMissingCount = computed(() => c6Items.value.filter(item => c6EffectiveDraft(item)?.resolution_status === "SOURCE_MISSING").length);
-const c6ReadyForExport = computed(() => creditPendingGroupCount.value === 0 && technicalPendingCount.value === 0);
 const c6StatusOptions = computed(() => {
   const kind = selectedC6Item.value?.kind;
   if (kind === "MAPPING_CONFLICT") return ["MAPPED"];
@@ -297,8 +258,13 @@ const autoConfirmTechnicalItems = () => {
 const loadCatalog = async () => {
   loading.value = true; error.value = "";
   try {
-    const response = await getLearningPlanGroupMeetingFlows();
-    catalog.value = response.data;
+    const [flowResponse, creditResponse] = await Promise.all([
+      getLearningPlanGroupMeetingFlows(),
+      getLearningPlanCourseCreditConfig({ plan_key: "STANDARD_3Y_2026", version_label: "2026.1" })
+    ]);
+    catalog.value = flowResponse.data;
+    creditConfig.value = creditResponse.data;
+    creditValues.value = Object.fromEntries(creditResponse.data.rules.map(rule => [rule.course_key, rule.credit_points]));
     loadLocalDraft();
     loadLocalC6Draft();
     autoConfirmTechnicalItems();
@@ -343,52 +309,61 @@ const saveC6Item = () => {
   ElMessage.success("C6 复核暂存在本浏览器，导出后交由后端校验");
 };
 
-const creditInputFor = (value: unknown) => {
-  const group = value as CreditReviewGroup;
-  const saved = group.item_ids
-    .map(reviewId => c6EffectiveDraft(c6Items.value.find(item => item.review_id === reviewId)))
-    .find(draft => draft?.resolved_credit_points != null);
-  return creditInputs.value[group.key] ?? saved?.resolved_credit_points ?? null;
-};
-
-const confirmCreditGroup = (value: unknown) => {
-  const group = value as CreditReviewGroup;
-  const creditPoints = creditInputFor(group);
-  if (creditPoints == null || !Number.isInteger(creditPoints) || creditPoints < 0) {
-    ElMessage.warning("请先填写这门课程的学分；如果不计课程分，请选择 0 分");
+const saveCreditRule = async (rule: any) => {
+  if (!creditConfig.value?.can_manage || !creditConfig.value.can_edit || !creditConfig.value.storage_available) {
+    ElMessage.warning("当前环境只读，需受控开启积分配置写入");
     return;
   }
-  const next = { ...c6Drafts.value };
-  const note = `系统已核对流程与课程名称，本次确认课程学分为 ${creditPoints} 分。`;
-  for (const reviewId of group.item_ids) {
-    const item = c6Items.value.find(value => value.review_id === reviewId);
-    if (!item) continue;
-    const relatedNodes = c6Items.value.filter(value =>
-      value.kind === "COURSE_NODE" && value.flow_key === item.flow_key && value.node_index === item.node_index
-    );
-    for (const related of [item, ...relatedNodes]) {
-      next[related.review_id] = {
-        resolution_status: creditPoints === 0 ? "NON_COURSE_QR" : "COURSE_CONFIRMED",
-        reviewed_by: reviewerName.value.trim() || "系统管理员",
-        notes: note,
-        resolved_flow_key: "",
-        resolved_course_key: creditPoints === 0 ? "" : group.course_key,
-        resolved_credit_points: creditPoints === 0 ? null : creditPoints
-      };
-    }
+  const points = creditValueFor(rule);
+  creditSavingKey.value = rule.course_key;
+  try {
+    const response = await updateLearningPlanCourseCreditConfig(rule.course_key, {
+      version_label: creditConfig.value.version_label,
+      credit_points: points,
+      status: "CONFIGURED",
+      course_name: rule.course_name,
+      year_index: rule.year_index ?? undefined,
+      aliases: rule.aliases
+    });
+    creditConfig.value = response.data;
+    creditValues.value = Object.fromEntries(response.data.rules.map(item => [item.course_key, item.credit_points]));
+    ElMessage.success(`${rule.course_name} 已保存为 ${points} 分；后续周期自动沿用`);
+  } catch (requestError: any) {
+    const status = requestError?.response?.status;
+    ElMessage.error(status === 403 ? "当前部署仍为只读，积分配置写入尚未开启" : "积分配置保存失败，请稍后重试");
+  } finally {
+    creditSavingKey.value = "";
   }
-  c6Drafts.value = next;
-  creditInputs.value = { ...creditInputs.value, [group.key]: creditPoints };
-  localStorage.setItem(C6_STORAGE_KEY, JSON.stringify({ fingerprint: fingerprint.value, drafts: next }));
-  ElMessage.success(`${group.course_name} 已确认 ${creditPoints} 分`);
+};
+
+const createCreditVersion = async () => {
+  if (!creditConfig.value?.can_manage || !creditConfig.value.storage_available) {
+    ElMessage.warning("当前账号没有创建积分版本的权限");
+    return;
+  }
+  try {
+    const prompt = await ElMessageBox.prompt("请输入新的候选版本号，例如 2026.2", "创建课程积分候选版本", {
+      confirmButtonText: "创建",
+      cancelButtonText: "取消",
+      inputPattern: /^[A-Za-z0-9._-]{1,64}$/,
+      inputErrorMessage: "版本号只能包含字母、数字、点、下划线或短横线"
+    });
+    const response = await createLearningPlanCourseCreditConfigVersion({
+      plan_key: creditConfig.value.plan_key,
+      version_label: prompt.value,
+      based_on_version_label: creditConfig.value.version_label
+    });
+    creditConfig.value = response.data;
+    creditValues.value = Object.fromEntries(response.data.rules.map(item => [item.course_key, item.credit_points]));
+    ElMessage.success(`已创建 ${prompt.value} 候选版本，后续调整不会影响原版本`);
+  } catch (requestError: any) {
+    if (requestError === "cancel" || requestError?.message === "cancel") return;
+    ElMessage.error("候选版本创建失败，请检查版本号或稍后重试");
+  }
 };
 
 const exportC6Review = () => {
   if (!catalog.value) return;
-  if (!c6ReadyForExport.value) {
-    ElMessage.warning(`还有 ${creditPendingGroupCount.value} 门课程未确认学分，请先完成确认`);
-    return;
-  }
   const review = JSON.parse(JSON.stringify(catalog.value.c6_review));
   for (const item of [...review.mapping_conflicts, ...review.mapping_missing, ...review.qr_review_required, ...review.course_nodes, ...review.flow_samples]) {
     const draft = c6Drafts.value[item.review_id];
@@ -472,13 +447,13 @@ onMounted(loadCatalog);
       <template #header>
         <div class="config-header">
           <div><div class="config-title">学习计划配置 · 小组学习会完整流程</div><div class="config-subtitle">基于 2026 CONFIRMED 只读底座产生 2026.1 候选版本；流程到“空巴”结束</div></div>
-          <div class="config-actions"><el-button @click="router.push('/operations/learning-plan-review')">查看学习计划审核</el-button><el-button type="warning" :disabled="!catalog || !c6ReadyForExport" @click="exportC6Review">导出审核结果</el-button><el-button type="primary" :disabled="!catalog || !changedCount" @click="exportDrafts">导出流程调整草稿（高级 {{ changedCount }}）</el-button></div>
+          <div class="config-actions"><el-button @click="router.push('/operations/learning-plan-review')">查看学习计划审核</el-button><el-button v-if="creditConfig" :disabled="!creditConfig.can_manage || !creditConfig.storage_available" @click="createCreditVersion">创建新积分候选版本</el-button><el-button type="primary" :disabled="!catalog || !changedCount" @click="exportDrafts">导出流程调整草稿（高级 {{ changedCount }}）</el-button></div>
         </div>
       </template>
 
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
       <template v-if="catalog">
-        <el-alert class="config-notice" title="2026 CONFIRMED 版本不可覆盖。系统会自动核对流程和空巴边界；您只需确认课程学分。保存和导出均不写数据库。" type="warning" :closable="false" show-icon />
+        <el-alert class="config-notice" :title="`${catalog.base_version_label} CONFIRMED 版本不可覆盖。当前课程积分版本为 ${creditConfig?.version_label ?? '2026.1'}；流程和空巴边界由系统自动核对，积分修改从候选版本生效。`" type="warning" :closable="false" show-icon />
         <div class="config-summary">
           <div class="summary-item"><span>基线版本</span><el-tag type="success">{{ catalog.base_version_label }} 已确认</el-tag></div>
           <div class="summary-item"><span>完整流程源文件</span><strong>{{ catalog.flow_count }}</strong></div>
@@ -492,56 +467,48 @@ onMounted(loadCatalog);
           <el-descriptions-item label="标准 JSON SHA-256"><span class="fingerprint">{{ catalog.source_json_sha256 }}</span></el-descriptions-item>
           <el-descriptions-item label="课程积分规则 SHA-256"><span class="fingerprint">{{ catalog.base_course_credit_rules_sha256 }}</span></el-descriptions-item>
         </el-descriptions>
-        <div class="quality-strip"><el-tag type="success">首个空巴边界已识别</el-tag><el-tag type="info">空巴后二维码排除</el-tag><el-tag type="success">流程由系统自动核对</el-tag><el-tag type="warning">待确认课程学分 {{ creditPendingGroupCount }} 门</el-tag></div>
+        <div class="quality-strip"><el-tag type="success">首个空巴边界已识别</el-tag><el-tag type="info">空巴后二维码排除</el-tag><el-tag type="success">流程由系统自动核对</el-tag><el-tag type="warning">待配置课程 {{ creditPendingGroupCount }} 门</el-tag><el-tag type="success">已配置 {{ configuredCreditCount }} 门</el-tag></div>
         <el-card shadow="never" class="c6-card">
           <template #header>
             <div class="c6-header">
               <div>
-                <strong>课程学分确认</strong>
-                <div class="c6-subtitle">流程、周期对应关系和“到空巴结束”的边界由系统自动核对；您只需要确认下面课程的学分。</div>
+                <strong>课程积分配置</strong>
+                <div class="c6-subtitle">系统已核对课程和流程。第一学年正式积分已自动带入；新课程默认0分/待配置，修改一次后全局沿用。</div>
               </div>
-              <el-tag :type="creditPendingGroupCount === 0 ? 'success' : 'warning'">{{ creditPendingGroupCount === 0 ? '已确认' : `待确认 ${creditPendingGroupCount} 门课程` }}</el-tag>
+              <el-tag :type="creditPendingGroupCount === 0 ? 'success' : 'warning'">{{ creditPendingGroupCount === 0 ? '全部已配置' : `待配置 ${creditPendingGroupCount} 门` }}</el-tag>
             </div>
           </template>
           <el-alert
-            title="您不需要选择 flow_key，也不需要判断流程冲突。系统已经先核对流程内容；本页面只保留课程名称和学分确认。"
+            title="您不需要选择流程，也不需要判断二维码。只需在课程行选择积分或输入自定义积分，然后点击“保存配置”。"
             type="success"
             :closable="false"
             show-icon
           />
           <div class="c6-summary friendly-summary">
             <el-tag type="success">流程边界已核对 {{ catalog.flow_count }} 份</el-tag>
-            <el-tag type="success">已按规则确认课程 {{ confirmedCourseNodeCount }} 个</el-tag>
-            <el-tag type="warning">待您确认学分 {{ creditPendingGroupCount }} 门</el-tag>
+            <el-tag type="success">已识别课程节点 {{ confirmedCourseNodeCount }} 个</el-tag>
+            <el-tag type="warning">待配置课程 {{ creditPendingGroupCount }} 门</el-tag>
             <el-tag v-if="sourceMissingCount" type="info">系统待补齐流程 {{ sourceMissingCount }} 项</el-tag>
             <el-tag type="info">小组会出席基础分 {{ catalog.credit_policy.credit_points_per_person }} 分/人/周期</el-tag>
           </div>
-          <div class="reviewer-row">
-            <span>确认人</span>
-            <el-input v-model="reviewerName" placeholder="系统已带出登录账号，也可以改成姓名" style="max-width: 320px" />
-            <span class="reviewer-help">确认后只保存在本浏览器，导出时一并记录。</span>
+          <el-alert v-if="creditConfig && !creditConfig.can_manage" title="当前账号只有查看权限；如需维护积分，请由系统管理员授予“维护学习计划课程积分标准”权限。" type="info" :closable="false" show-icon />
+          <el-alert v-if="creditConfig && !creditConfig.storage_available" title="积分配置数据表尚未进入当前部署的数据库；目前可查看标准目录，写入将在受控迁移后开放。" type="warning" :closable="false" show-icon />
+          <el-alert v-else-if="creditConfig && !creditConfig.can_edit" title="当前积分版本不可修改；如需调整已发布规则，请先创建新的候选版本。" type="warning" :closable="false" show-icon />
+          <div v-for="group in creditRuleYears" :key="group.year" class="credit-year-section">
+            <div class="credit-year-title">{{ group.label }} <span class="credit-year-count">{{ group.rules.length }} 门课程</span></div>
+            <el-table :data="group.rules" border stripe row-key="course_key" empty-text="暂无课程配置">
+              <el-table-column label="课程" min-width="280">
+                <template #default="{ row }"><div class="course-review-name">{{ row.course_name }}</div><div class="course-review-meta">{{ row.source === 'BASELINE' ? '第一学年正式标准' : row.status === 'PENDING' ? '系统默认0分，等待配置' : '运营配置，后续自动沿用' }}</div></template>
+              </el-table-column>
+              <el-table-column label="积分" min-width="360">
+                <template #default="{ row }">
+                  <div class="credit-editor"><el-radio-group :model-value="creditValueFor(row)" :disabled="!creditConfig?.can_manage || !creditConfig?.can_edit" size="small" @update:model-value="value => setCreditValue(row, value)"><el-radio-button v-for="value in creditOptions" :key="value" :label="value">{{ value }}分</el-radio-button></el-radio-group><el-input-number :model-value="creditValueFor(row)" :min="0" :max="999" :precision="0" :controls="false" :disabled="!creditConfig?.can_manage || !creditConfig?.can_edit" class="custom-credit-input" @update:model-value="value => setCreditValue(row, value ?? undefined)" /><span>自定义</span></div>
+                </template>
+              </el-table-column>
+              <el-table-column label="当前状态" width="150"><template #default="{ row }"><el-tag :type="row.status === 'CONFIGURED' ? 'success' : 'warning'">{{ row.credit_points }}分 · {{ row.status === 'CONFIGURED' ? '已配置' : '待配置' }}</el-tag></template></el-table-column>
+              <el-table-column label="操作" width="130" fixed="right"><template #default="{ row }"><el-button type="primary" :loading="creditSavingKey === row.course_key" :disabled="!creditConfig?.can_manage || !creditConfig?.can_edit" @click="saveCreditRule(row)">保存配置</el-button></template></el-table-column>
+            </el-table>
           </div>
-          <el-table :data="creditReviewGroups" border stripe row-key="key" empty-text="系统暂未发现需要确认的课程学分">
-            <el-table-column label="系统识别的课程" min-width="250">
-              <template #default="{ row }">
-                <div class="course-review-name">{{ row.course_name }}</div>
-                <div class="course-review-meta">共 {{ row.item_ids.length }} 个二维码节点 · {{ row.cycle_labels.slice(0, 3).join("、") }}<span v-if="row.cycle_labels.length > 3">等</span></div>
-              </template>
-            </el-table-column>
-            <el-table-column label="学分" width="230">
-              <template #default="{ row }">
-                <el-select :model-value="creditInputFor(row)" placeholder="请选择学分" style="width: 150px" @update:model-value="value => creditInputs[row.key] = value">
-                  <el-option v-for="value in creditOptions" :key="value" :label="value === 0 ? '0 分（不计课程分）' : `${value} 分`" :value="value" />
-                </el-select>
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" width="150">
-              <template #default="{ row }"><el-tag :type="creditGroupConfirmed(row) ? 'success' : 'warning'">{{ creditGroupConfirmed(row) ? '已确认' : '待确认' }}</el-tag></template>
-            </el-table-column>
-            <el-table-column label="操作" width="130" fixed="right">
-              <template #default="{ row }"><el-button type="primary" :disabled="creditInputFor(row) == null" @click="confirmCreditGroup(row)">{{ creditGroupConfirmed(row) ? '重新确认' : '确定学分' }}</el-button></template>
-            </el-table-column>
-          </el-table>
           <el-collapse v-model="advancedC6Visible" class="advanced-c6">
             <el-collapse-item title="查看系统核对详情（高级，不需要您操作）" name="details">
               <el-alert v-if="technicalPendingCount" title="仍有技术项待后台处理，已由系统记录，不需要您选择流程。" type="warning" :closable="false" show-icon />
@@ -642,8 +609,11 @@ onMounted(loadCatalog);
 .c6-subtitle { margin-top: 5px; color: var(--el-text-color-secondary); font-size: 13px; }
 .c6-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .friendly-summary { margin-top: 14px; }
-.reviewer-row { display: flex; align-items: center; gap: 10px; margin: 14px 0; color: var(--el-text-color-regular); }
-.reviewer-help { color: var(--el-text-color-secondary); font-size: 13px; }
+.credit-year-section { margin-top: 18px; }
+.credit-year-title { margin: 14px 0 8px; font-size: 16px; font-weight: 700; color: var(--el-text-color-primary); }
+.credit-year-count { margin-left: 8px; font-size: 13px; font-weight: 400; color: var(--el-text-color-secondary); }
+.credit-editor { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.custom-credit-input { width: 90px; }
 .course-review-name { font-weight: 600; color: var(--el-text-color-primary); }
 .course-review-meta { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
 .advanced-c6 { margin-top: 16px; }
