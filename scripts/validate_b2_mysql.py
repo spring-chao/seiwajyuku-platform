@@ -269,11 +269,16 @@ def _cycle_engine(version_id: int, admin_user_id: int) -> dict:
     results = []
     for class_id, group_id, cohort in classes:
         try:
+            # Use a historical synthetic timeline so the service's "current
+            # time" lookup can immediately see the next cycle after each
+            # confirmation; no wall-clock sleep is needed in CI.
+            timeline_start = datetime.now(UTC) - timedelta(days=365)
             bind_class_learning_plan(
                 actor_user_id=admin_user_id,
                 class_org_unit_id=class_id,
                 plan_version_id=version_id,
                 cohort_month=cohort,
+                started_at=timeline_start.isoformat(),
             )
             initial = get_class_learning_progress(user_id=admin_user_id, class_org_unit_id=class_id)
             if initial["current_cycle"]["learning_cycle_index"] != 1:
@@ -297,8 +302,7 @@ def _cycle_engine(version_id: int, admin_user_id: int) -> dict:
                 updates={"class_meeting_status": "PLANNED"},
             )
 
-            meeting_at = datetime.now(UTC)
-            first = meeting_at + timedelta(seconds=1)
+            first = timeline_start + timedelta(seconds=1)
             progress = confirm_class_meeting(
                 actor_user_id=admin_user_id,
                 class_org_unit_id=class_id,
@@ -324,7 +328,7 @@ def _cycle_engine(version_id: int, admin_user_id: int) -> dict:
                     class_org_unit_id=class_id,
                     updates={"group_meeting_policy": "SUSPENDED"},
                 )
-                current_meeting = max(datetime.now(UTC), current_meeting) + timedelta(seconds=1)
+                current_meeting = current_meeting + timedelta(seconds=1)
                 progress = confirm_class_meeting(
                     actor_user_id=admin_user_id,
                     class_org_unit_id=class_id,
