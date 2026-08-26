@@ -407,7 +407,7 @@ def create_member(
             actor_user_id=actor_user_id,
             member_status=status,
             renewal_month=renewal_month,
-            org_unit_id=development_org_unit_id or org_unit_id,
+            org_unit_id=org_unit_id,
         )
         return member_id
 
@@ -744,7 +744,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
                 actor_user_id=actor_user_id,
                 member_status=updates.get("status", current["status"]),
                 renewal_month=updates.get("renewal_month", current["renewal_month"]),
-                org_unit_id=target_development or target_org,
+                org_unit_id=target_org,
             )
     return member_id
 
@@ -1283,6 +1283,8 @@ def get_member_change_history(
         "group_name",
         "class_org_unit_id",
         "group_org_unit_id",
+        "source",
+        "renewal_cycle_id",
     }
 
     def safe_snapshot(value: Any) -> dict[str, Any]:
@@ -1483,9 +1485,7 @@ def get_member_timeline(
                 )
 
     if "renewals:read" in user["permissions"]:
-        current_renewal_org_id = (
-            member["development_org_unit_id"] or member["org_unit_id"]
-        )
+        current_renewal_org_id = member["org_unit_id"]
         cycle_rows = fetch_all(
             "SELECT c.id, c.renewal_year, c.org_unit_id, c.due_month, c.phase, c.status, "
             "c.completed_at, c.updated_at FROM renewal_cycles c WHERE c.member_id=? "

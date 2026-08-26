@@ -1237,6 +1237,24 @@ export type RenewalCoverage = {
   truncated: boolean;
 };
 
+export type RenewalMemberStatusReconciliationRow = {
+  member_id: number;
+  member_name: string;
+  member_status: string;
+  renewal_cycle_id: number;
+  renewal_year: number;
+  renewal_status: "RENEWED";
+  completed_at: string | null;
+  evidence: RenewalEvidenceType;
+  completion_time_reliable: boolean;
+};
+
+export type RenewalMemberStatusReconciliation = {
+  count: number;
+  rows: RenewalMemberStatusReconciliationRow[];
+  policy: string;
+};
+
 export type RenewalAnnualOrganization = {
   org_unit_id: string | null;
   org_name: string;
@@ -2024,6 +2042,14 @@ export const getRenewalAnnualAnalytics = (year: number, orgUnitId?: string) =>
     { params: { year, ...(orgUnitId ? { org_unit_id: orgUnitId } : {}) } }
   );
 
+export const getRenewalMemberStatusReconciliation = (orgUnitId?: string) =>
+  http.request<{
+    success: boolean;
+    data: RenewalMemberStatusReconciliation;
+  }>("get", "/api/v1/renewals/reconciliation/member-status", {
+    params: orgUnitId ? { org_unit_id: orgUnitId } : undefined
+  });
+
 export const getRenewalTodayActions = (
   year: number,
   params: {
@@ -2132,7 +2158,18 @@ export const updateRenewalCycle = (
     assigned_user_id?: number;
   }
 ) =>
-  http.request<{ success: boolean; data: { id: number } }>(
+  http.request<{
+    success: boolean;
+    data: {
+      id: number;
+      member_status_sync?: {
+        code: "NOT_APPLICABLE" | "REACTIVATED" | "UNCHANGED" | "MEMBER_STATUS_CONFLICT";
+        member_status_before?: string | null;
+        member_status_after?: string | null;
+        message?: string;
+      };
+    };
+  }>(
     "patch",
     `/api/v1/renewals/cycles/${cycleId}`,
     { data }

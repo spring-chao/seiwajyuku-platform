@@ -141,9 +141,7 @@ def build_member_service_signals(
             )
 
     if "renewals:read" in permissions:
-        current_renewal_org_id = (
-            member.get("development_org_unit_id") or member.get("org_unit_id")
-        )
+        current_renewal_org_id = member.get("org_unit_id")
         cycle_rows = fetch_all(
             "SELECT renewal_year, due_month, status FROM renewal_cycles "
             "WHERE member_id=?",

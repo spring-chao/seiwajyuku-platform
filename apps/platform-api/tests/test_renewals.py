@@ -21,6 +21,7 @@ from app.services.members import create_member, get_member_timeline, update_memb
 from app.services.renewals import (
     _linked_member_id,
     _master_index,
+    _normalize_followup_datetime,
     add_followup,
     apply_preview,
     create_cycle_from_member,
@@ -31,12 +32,14 @@ from app.services.renewals import (
     list_cycles,
     list_followups,
     list_overview,
+    maybe_create_historical_cycle,
     list_today_actions,
     preview_result_view,
     rollback_import,
     save_preview,
     update_cycle,
 )
+from app.services.renewal_reconciliation import list_member_status_reconciliation
 
 
 @pytest.mark.parametrize(
@@ -577,7 +580,7 @@ def test_list_cycles_defaults_to_remaining_unrenewed_and_supports_filters() -> N
     assert {row["due_month"] for row in all_rows} == {7, 9, 10}
 
 
-def test_renewal_ledger_reads_current_member_management_profile() -> None:
+def test_renewal_ledger_uses_primary_member_org_and_preserves_import_snapshot() -> None:
     admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
     assert admin is not None
     now = datetime.now().isoformat()
@@ -608,7 +611,7 @@ def test_renewal_ledger_reads_current_member_management_profile() -> None:
             connection,
             "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, status, created_at, updated_at) "
             "VALUES (?, ?, ?, 1, 'IN_COMMUNICATION', ?, ?)",
-            (member_id, datetime.now().year, primary_org, now, now),
+            (member_id, datetime.now().year, development_org, now, now),
         )
 
     update_member(
@@ -620,20 +623,77 @@ def test_renewal_ledger_reads_current_member_management_profile() -> None:
     rows = list_cycles(
         admin["id"],
         datetime.now().year,
-        org_unit_id=development_org,
+        org_unit_id=primary_org,
         member_name="数据库维护后姓名",
         renewal_status="ALL",
         include_past=True,
     )
     assert len(rows) == 1
     assert rows[0]["member_name"] == "数据库维护后姓名"
-    assert rows[0]["org_unit_id"] == development_org
-    assert rows[0]["org_name"] == "学员管理发展中心"
-    assert rows[0]["imported_org_unit_id"] == primary_org
+    assert rows[0]["org_unit_id"] == primary_org
+    assert rows[0]["org_name"] == "续费主归属测试中心"
+    assert rows[0]["imported_org_unit_id"] == development_org
+
+    assert list_cycles(
+        admin["id"],
+        datetime.now().year,
+        org_unit_id=development_org,
+        member_name="数据库维护后姓名",
+        renewal_status="ALL",
+        include_past=True,
+    ) == []
+
+    primary_user = create_user(
+        admin["id"],
+        username=f"renewal-primary-scope-{suffix}",
+        display_name="续费主归属范围测试",
+        password=f"test-{uuid4().hex}",
+        roles=["regional_manager"],
+        scopes=[{"scope_type": "UNIT", "org_unit_id": primary_org}],
+    )
+    development_user = create_user(
+        admin["id"],
+        username=f"renewal-development-scope-{suffix}",
+        display_name="续费发展归属范围测试",
+        password=f"test-{uuid4().hex}",
+        roles=["regional_manager"],
+        scopes=[{"scope_type": "UNIT", "org_unit_id": development_org}],
+    )
+    assert len(list_cycles(
+        primary_user,
+        datetime.now().year,
+        member_name="数据库维护后姓名",
+        renewal_status="ALL",
+        include_past=True,
+    )) == 1
+    assert list_cycles(
+        development_user,
+        datetime.now().year,
+        member_name="数据库维护后姓名",
+        renewal_status="ALL",
+        include_past=True,
+    ) == []
+
+    today_actions = list_today_actions(
+        admin["id"],
+        datetime.now().year,
+        org_unit_id=primary_org,
+        as_of=date(datetime.now().year, 8, 19),
+    )
+    assert any(
+        item["member_name"] == "数据库维护后姓名"
+        for item in today_actions["items"]
+    )
+    assert list_today_actions(
+        admin["id"],
+        datetime.now().year,
+        org_unit_id=development_org,
+        as_of=date(datetime.now().year, 8, 19),
+    )["items"] == []
 
     overview = list_overview(admin["id"], datetime.now().year)
     assert any(
-        row["org_unit_id"] == development_org and row["count"] >= 1
+        row["org_unit_id"] == primary_org and row["count"] >= 1
         for row in overview["rows"]
     )
 
@@ -819,7 +879,7 @@ def test_create_cycle_from_member_is_single_record_audited_and_idempotent() -> N
     cycle = fetch_one("SELECT * FROM renewal_cycles WHERE id=?", (cycle_id,))
     assert cycle is not None
     assert cycle["member_id"] == member_id
-    assert cycle["org_unit_id"] == development_org
+    assert cycle["org_unit_id"] == primary_org
     assert cycle["due_month"] == 11
     assert cycle["status"] == "PENDING_FIRST_CONTACT"
     audit = fetch_one(
@@ -1097,7 +1157,7 @@ def test_apply_preview_imports_only_confirmed_production_links() -> None:
     )["status"] == "ROLLED_BACK"
 
 
-def test_apply_preview_uses_member_management_development_org() -> None:
+def test_apply_preview_preserves_imported_org_for_history_but_uses_member_org_scope() -> None:
     admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
     assert admin is not None
     now = datetime.now().isoformat()
@@ -1134,7 +1194,7 @@ def test_apply_preview_uses_member_management_development_org() -> None:
             connection,
             "INSERT INTO renewal_import_staging(batch_id, row_no, match_status, member_id, org_unit_id, due_month, proposed_status, raw_json, created_at) "
             "VALUES (?, 2, 'MASTER_PHONE_EXACT', ?, ?, 8, 'IN_COMMUNICATION', '{}', ?)",
-            (batch_id, member_id, primary_org, now),
+            (batch_id, member_id, development_org, now),
         )
 
     renewal_year = 2098 + uuid4().int % 10
@@ -1202,10 +1262,12 @@ def test_renewal_cycle_followup_and_status_update() -> None:
         channel="PHONE",
         summary="已完成首次续费联系",
         intention="继续沟通",
+        next_followup_at="2099-09-05 14:30",
     )
     update_cycle(cycle_id, 1, status="IN_COMMUNICATION", assigned_user_id=1)
     followups = list_followups(cycle_id, 1)
     assert followups[0]["id"] == followup_id
+    assert followups[0]["next_followup_at"] == "2099-09-05 14:30:00"
     cycle = fetch_one(
         "SELECT status, assigned_user_id FROM renewal_cycles WHERE id=?", (cycle_id,)
     )
@@ -1227,6 +1289,334 @@ def test_renewal_cycle_followup_and_status_update() -> None:
     )["completed_at"] is None
     with pytest.raises(ValueError, match="不能超过64个字符"):
         update_cycle(cycle_id, 1, result="超长结果" * 20)
+
+
+def _status_sync_fixture(member_status: str) -> tuple[int, int, int]:
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin is not None
+    suffix = uuid4().hex[:10]
+    center_id = "renewal-status-center"
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT OR IGNORE INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+            "VALUES (?, 'RENEWAL_STATUS_CENTER', '续费状态同步测试中心', 'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+            (center_id, now, now),
+        )
+    member_id = create_member(
+        admin["id"],
+        member_code=f"RENEWAL-STATUS-{suffix}",
+        name=f"续费状态测试学长{suffix}",
+        org_unit_id=center_id,
+        development_org_unit_id=None,
+        phone=None,
+        status=member_status,
+    )
+    with transaction() as connection:
+        cycle_id = execute(
+            connection,
+            "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, "
+            "status, created_at, updated_at) VALUES (?, 2099, ?, 11, "
+            "'PENDING_FIRST_CONTACT', ?, ?)",
+            (member_id, center_id, now, now),
+        ).lastrowid
+    return int(member_id), int(cycle_id), int(admin["id"])
+
+
+def test_live_renewed_reactivates_inactive_member_with_history_and_audit() -> None:
+    member_id, cycle_id, admin_id = _status_sync_fixture("INACTIVE")
+
+    result = update_cycle(cycle_id, admin_id, status="RENEWED")
+
+    assert result["member_status_sync"]["code"] == "REACTIVATED"
+    assert fetch_one("SELECT status FROM members WHERE id=?", (member_id,))["status"] == "ACTIVE"
+    history = fetch_one(
+        "SELECT change_type, before_json, after_json FROM member_change_history "
+        "WHERE member_id=? AND change_type='RENEWAL_REACTIVATION' ORDER BY id DESC LIMIT 1",
+        (member_id,),
+    )
+    assert history is not None
+    assert json.loads(history["before_json"]) == {"status": "INACTIVE"}
+    assert json.loads(history["after_json"]) == {
+        "status": "ACTIVE",
+        "source": "RENEWAL_RENEWED",
+        "renewal_cycle_id": cycle_id,
+    }
+    audit = fetch_one(
+        "SELECT result, before_json, after_json FROM audit_logs "
+        "WHERE action='members.status.sync_from_renewal' AND resource_id=? "
+        "ORDER BY id DESC LIMIT 1",
+        (str(member_id),),
+    )
+    assert audit is not None
+    assert audit["result"] == "SUCCESS"
+    assert json.loads(audit["after_json"])["source"] == "RENEWAL_RENEWED"
+
+
+def test_active_member_is_not_changed_or_given_duplicate_member_history() -> None:
+    member_id, cycle_id, admin_id = _status_sync_fixture("ACTIVE")
+
+    result = update_cycle(cycle_id, admin_id, status="RENEWED")
+
+    assert result["member_status_sync"]["code"] == "UNCHANGED"
+    assert fetch_one("SELECT status FROM members WHERE id=?", (member_id,))["status"] == "ACTIVE"
+    assert fetch_one(
+        "SELECT COUNT(*) AS count FROM member_change_history "
+        "WHERE member_id=? AND change_type='RENEWAL_REACTIVATION'",
+        (member_id,),
+    )["count"] == 0
+
+
+def test_suspended_member_returns_conflict_without_overwriting_master_status() -> None:
+    member_id, cycle_id, admin_id = _status_sync_fixture("SUSPENDED")
+
+    result = update_cycle(cycle_id, admin_id, status="RENEWED")
+
+    assert result["member_status_sync"]["code"] == "MEMBER_STATUS_CONFLICT"
+    assert "暂停状态" in result["member_status_sync"]["message"]
+    assert fetch_one("SELECT status FROM members WHERE id=?", (member_id,))["status"] == "SUSPENDED"
+    assert fetch_one(
+        "SELECT COUNT(*) AS count FROM member_change_history "
+        "WHERE member_id=? AND change_type='RENEWAL_REACTIVATION'",
+        (member_id,),
+    )["count"] == 0
+    audit = fetch_one(
+        "SELECT result, after_json FROM audit_logs "
+        "WHERE action='members.status.sync_from_renewal' AND resource_id=? "
+        "ORDER BY id DESC LIMIT 1",
+        (str(member_id),),
+    )
+    assert audit is not None
+    assert audit["result"] == "CONFLICT"
+    assert json.loads(audit["after_json"])["code"] == "MEMBER_STATUS_CONFLICT"
+
+
+@pytest.mark.parametrize("status", ["DEFERRED", "NOT_RENEWING"])
+def test_non_live_renewal_results_do_not_change_member_status(status: str) -> None:
+    member_id, cycle_id, admin_id = _status_sync_fixture("INACTIVE")
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE renewal_cycles SET status=? WHERE id=?",
+            (status, cycle_id),
+        )
+
+    # A later edit of the same result is not an explicit transition into
+    # RENEWED, so no status mapping is applied.
+    result = update_cycle(cycle_id, admin_id, status=status)
+
+    assert result["member_status_sync"]["code"] == "NOT_APPLICABLE"
+    assert fetch_one("SELECT status FROM members WHERE id=?", (member_id,))["status"] == "INACTIVE"
+    assert fetch_one(
+        "SELECT COUNT(*) AS count FROM member_change_history "
+        "WHERE member_id=? AND change_type='RENEWAL_REACTIVATION'",
+        (member_id,),
+    )["count"] == 0
+
+
+def test_historical_auto_reconciliation_does_not_reactivate_inactive_member() -> None:
+    member_id, _, admin_id = _status_sync_fixture("INACTIVE")
+    now = datetime(2026, 8, 26, tzinfo=UTC)
+    with transaction() as connection:
+        cycle_id = maybe_create_historical_cycle(
+            connection,
+            member_id=member_id,
+            actor_user_id=admin_id,
+            member_status="INACTIVE",
+            renewal_month="2026-07",
+            org_unit_id="renewal-status-center",
+            renewal_year=2026,
+            now=now,
+        )
+
+    assert cycle_id is None
+    assert fetch_one("SELECT status FROM members WHERE id=?", (member_id,))["status"] == "INACTIVE"
+    assert fetch_one(
+        "SELECT COUNT(*) AS count FROM member_change_history "
+        "WHERE member_id=? AND change_type='RENEWAL_REACTIVATION'",
+        (member_id,),
+    )["count"] == 0
+
+
+def test_import_snapshot_renewed_does_not_reactivate_inactive_member() -> None:
+    member_id, _, admin_id = _status_sync_fixture("INACTIVE")
+    preview = {
+        "source_name": "historical-renewal.xlsx",
+        "source_sha256": uuid4().hex,
+        "summary": {"total": 1},
+        "rows": [
+            {
+                "row_no": 2,
+                "name": "历史导入测试学长",
+                "center_name": "苏州分中心",
+                "class_name": "",
+                "due_month": 7,
+                "match_status": "MATCHED",
+                "issue_code": "",
+                "proposed_status": "RENEWED",
+                "history_note": "历史导入",
+                "assistance_note": "",
+                "member_id": member_id,
+                "org_unit_id": "renewal-status-center",
+                "raw": {"姓名": "历史导入测试学长"},
+            }
+        ],
+    }
+    batch_id = save_preview(preview, admin_id)
+    apply_preview(batch_id, admin_id, 2098, "确认正式导入续费周期")
+
+    assert fetch_one("SELECT status FROM members WHERE id=?", (member_id,))["status"] == "INACTIVE"
+    assert fetch_one(
+        "SELECT COUNT(*) AS count FROM member_change_history "
+        "WHERE member_id=? AND change_type='RENEWAL_REACTIVATION'",
+        (member_id,),
+    )["count"] == 0
+
+
+def test_renewed_status_sync_is_atomic_and_rolls_back_on_audit_failure(monkeypatch) -> None:
+    member_id, cycle_id, admin_id = _status_sync_fixture("INACTIVE")
+    from app.services import renewals as renewals_service
+
+    original_write_audit = renewals_service.write_audit
+
+    def fail_member_sync_audit(connection, **kwargs):
+        if kwargs.get("action") == "members.status.sync_from_renewal":
+            raise RuntimeError("forced member sync audit failure")
+        return original_write_audit(connection, **kwargs)
+
+    monkeypatch.setattr(renewals_service, "write_audit", fail_member_sync_audit)
+    with pytest.raises(RuntimeError, match="forced member sync audit failure"):
+        update_cycle(cycle_id, admin_id, status="RENEWED")
+
+    assert fetch_one("SELECT status FROM members WHERE id=?", (member_id,))["status"] == "INACTIVE"
+    assert fetch_one("SELECT status FROM renewal_cycles WHERE id=?", (cycle_id,))["status"] == "PENDING_FIRST_CONTACT"
+    assert fetch_one(
+        "SELECT COUNT(*) AS count FROM renewal_status_history "
+        "WHERE renewal_cycle_id=? AND to_status='RENEWED'",
+        (cycle_id,),
+    )["count"] == 0
+    assert fetch_one(
+        "SELECT COUNT(*) AS count FROM member_change_history "
+        "WHERE member_id=? AND change_type='RENEWAL_REACTIVATION'",
+        (member_id,),
+    )["count"] == 0
+
+
+def test_renewal_current_attribution_uses_member_org_not_development_org() -> None:
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin is not None
+    suffix = uuid4().hex[:8]
+    current_org = f"renewal-current-org-{suffix}"
+    development_org = f"renewal-development-org-{suffix}"
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        for org_id, code, name in (
+            (current_org, f"RENEWAL_CURRENT_{suffix}", "续费当前归属测试中心"),
+            (development_org, f"RENEWAL_DEVELOPMENT_{suffix}", "续费发展归属测试中心"),
+        ):
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+                (org_id, code, name, now, now),
+            )
+    member_id = create_member(
+        admin["id"],
+        member_code=f"RENEWAL-ORG-{suffix}",
+        name=f"续费归属测试学长{suffix}",
+        org_unit_id=current_org,
+        development_org_unit_id=development_org,
+        phone=None,
+    )
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, status, created_at, updated_at) "
+            "VALUES (?, 2097, ?, 11, 'PENDING_FIRST_CONTACT', ?, ?)",
+            (member_id, development_org, now, now),
+        )
+
+    rows = list_cycles(
+        admin["id"], 2097, org_unit_id=current_org, renewal_status="ALL", include_past=True
+    )
+    assert any(row["member_id"] == member_id for row in rows)
+    assert all(row["org_unit_id"] == current_org for row in rows)
+    assert list_cycles(
+        admin["id"], 2097, org_unit_id=development_org, renewal_status="ALL", include_past=True
+    ) == []
+
+
+def test_member_status_reconciliation_is_read_only_scoped_and_privacy_safe() -> None:
+    member_id, cycle_id, admin_id = _status_sync_fixture("INACTIVE")
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        batch_id = execute(
+            connection,
+            "INSERT INTO renewal_import_batches(source_name, source_sha256, status, preview_json, created_by, created_at) "
+            "VALUES ('reconciliation-import.xlsx', ?, 'APPLIED', '{}', ?, ?)",
+            (uuid4().hex, admin_id, now),
+        ).lastrowid
+        execute(
+            connection,
+            "UPDATE renewal_cycles SET status='RENEWED', completed_at=?, source_batch_id=? WHERE id=?",
+            (now, batch_id, cycle_id),
+        )
+        execute(
+            connection,
+            "INSERT INTO renewal_status_history(renewal_cycle_id, from_status, to_status, reason, changed_by, created_at) "
+            "VALUES (?, 'PENDING_FIRST_CONTACT', 'RENEWED', '续费名单正式导入（批次 #test）', ?, ?)",
+            (cycle_id, admin_id, now),
+        )
+
+    data = list_member_status_reconciliation(
+        admin_id, org_unit_id="renewal-status-center"
+    )
+    row = next(item for item in data["rows"] if item["member_id"] == member_id)
+    assert row["renewal_cycle_id"] == cycle_id
+    assert row["member_status"] == "INACTIVE"
+    assert row["evidence"] == "IMPORT_SNAPSHOT"
+    assert "phone" not in row
+    assert "summary" not in row
+    assert fetch_one("SELECT status FROM members WHERE id=?", (member_id,))["status"] == "INACTIVE"
+
+    out_of_scope_org = "renewal-reconciliation-outside"
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT OR IGNORE INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+            "VALUES (?, 'RENEWAL_RECON_OUTSIDE', '续费核验越权测试中心', 'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
+            (out_of_scope_org, now, now),
+        )
+    out_of_scope_user = create_user(
+        admin_id,
+        username=f"renewal-reconciliation-out-{uuid4().hex[:8]}",
+        display_name="续费核验越权测试",
+        password="renewal-reconciliation-test-password",
+        roles=["ops_center_operations"],
+        scopes=[{"scope_type": "UNIT", "org_unit_id": out_of_scope_org}],
+    )
+    with pytest.raises(renewals_api.HTTPException) as exc:
+        renewals_api.member_status_reconciliation(
+            org_unit_id="renewal-status-center", user={"id": out_of_scope_user}
+        )
+    assert exc.value.status_code == 403
+
+
+def test_followup_datetime_accepts_shorthand_and_rejects_invalid_input() -> None:
+    reference = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
+    assert _normalize_followup_datetime("9-28", now=reference) == (
+        "2026-09-28 00:00:00"
+    )
+    assert _normalize_followup_datetime("1-5", now=datetime(2026, 12, 20)) == (
+        "2027-01-05 00:00:00"
+    )
+    assert _normalize_followup_datetime("2026-09-28T09:30:00+08:00") == (
+        "2026-09-28 01:30:00"
+    )
+    assert _normalize_followup_datetime("2026-09-28") == "2026-09-28 00:00:00"
+    with pytest.raises(ValueError, match="下次跟进时间格式无效"):
+        _normalize_followup_datetime("不是日期")
 
 
 def test_renewal_assignee_requires_manage_permission_and_matching_scope() -> None:

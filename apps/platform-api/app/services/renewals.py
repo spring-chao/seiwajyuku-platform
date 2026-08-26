@@ -89,14 +89,11 @@ PREVIEW_ROW_FIELDS = (
     "assistance_note",
 )
 
-# Renewal attribution is a member-management fact.  A member's development
-# relation is the authoritative center for renewal and regional reporting;
-# the primary member relation is the safe fallback for older profiles that do
-# not yet have a development relation.  The workbook's center is only used
-# during the one-time matching/import flow and is never used for daily reads.
-MEMBER_RENEWAL_ORG_SQL = (
-    "COALESCE(NULLIF(m.development_org_unit_id, ''), m.org_unit_id)"
-)
+# Renewal current attribution follows the current member-master organization.
+# development_org_unit_id is a separate development-attribution fact and must
+# not control renewal display, filtering, reporting, or authorization. The
+# cycle's own org_unit_id remains available as the original/imported snapshot.
+MEMBER_RENEWAL_ORG_SQL = "m.org_unit_id"
 MEMBER_CLASS_NAME_SQL = (
     "(SELECT ou.name FROM member_org_relations mor "
     "JOIN org_units ou ON ou.id=mor.org_unit_id "
@@ -284,6 +281,81 @@ def _calendar_date(value: Any) -> date | None:
         return date.fromisoformat(text[:10])
     except ValueError:
         return None
+
+
+_FOLLOWUP_SHORT_DATE_RE = re.compile(
+    r"^(?P<month>\d{1,2})[-/](?P<day>\d{1,2})"
+    r"(?:[ T]+(?P<time>\d{1,2}(?::\d{1,2}){0,2}))?$"
+)
+_FOLLOWUP_DATETIME_ERROR = (
+    "下次跟进时间格式无效，请使用 YYYY-MM-DD HH:mm "
+    "（例如 2026-09-28 09:00；也支持 9-28）"
+)
+
+
+def _normalize_followup_datetime(
+    value: Any,
+    *,
+    now: datetime | None = None,
+) -> str | None:
+    """Normalize operator-entered follow-up times for a SQL DATETIME column.
+
+    The renewal drawer historically accepted free-form text, so operators
+    commonly entered a shorthand such as ``9-28``. Passing that text directly
+    to MySQL's DATETIME column causes the insert to fail. Keep the input
+    friendly while making the storage format explicit and portable across
+    SQLite and MySQL.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        candidate = value
+    elif isinstance(value, date):
+        candidate = datetime(value.year, value.month, value.day)
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+
+        short_match = _FOLLOWUP_SHORT_DATE_RE.fullmatch(text)
+        if short_match:
+            reference = now or datetime.now(UTC)
+            if reference.tzinfo is not None:
+                reference = reference.astimezone(UTC).replace(tzinfo=None)
+            month = int(short_match.group("month"))
+            day = int(short_match.group("day"))
+            time_parts = [
+                int(part) for part in (short_match.group("time") or "").split(":")
+                if part
+            ]
+            hour = time_parts[0] if time_parts else 0
+            minute = time_parts[1] if len(time_parts) > 1 else 0
+            second = time_parts[2] if len(time_parts) > 2 else 0
+            try:
+                candidate = datetime(
+                    reference.year, month, day, hour, minute, second
+                )
+            except ValueError as exc:
+                raise ValueError(_FOLLOWUP_DATETIME_ERROR) from exc
+            # A month/day without a year means the next occurrence. This keeps
+            # a December operator entry such as ``1-5`` from being scheduled in
+            # the past while still making ``9-28`` resolve to the current year.
+            if candidate.date() < reference.date():
+                try:
+                    candidate = candidate.replace(year=reference.year + 1)
+                except ValueError as exc:
+                    raise ValueError(_FOLLOWUP_DATETIME_ERROR) from exc
+        else:
+            try:
+                candidate = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError(_FOLLOWUP_DATETIME_ERROR) from exc
+
+    if candidate.tzinfo is not None:
+        candidate = candidate.astimezone(UTC).replace(tzinfo=None)
+    else:
+        candidate = candidate.replace(tzinfo=None)
+    return candidate.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _renewal_action_strategy(
@@ -783,8 +855,8 @@ def apply_preview(batch_id: int, actor_user_id: int, renewal_year: int, confirma
     )["count"]
     placeholders = ",".join("?" for _ in IMPORTABLE_MATCH_STATUSES)
     rows = fetch_all(
-        "SELECT s.id, s.member_id, "
-        f"{MEMBER_RENEWAL_ORG_SQL} AS org_unit_id, "
+        "SELECT s.id, s.member_id, s.org_unit_id AS imported_org_unit_id, "
+        "m.org_unit_id AS member_org_unit_id, "
         "s.due_month, s.proposed_status FROM renewal_import_staging s "
         "JOIN members m ON m.id=s.member_id "
         f"WHERE s.batch_id=? AND s.member_id IS NOT NULL AND s.org_unit_id IS NOT NULL "
@@ -792,7 +864,7 @@ def apply_preview(batch_id: int, actor_user_id: int, renewal_year: int, confirma
         (batch_id, *sorted(IMPORTABLE_MATCH_STATUSES)),
     )
     if allowed is not None:
-        rows = [row for row in rows if row["org_unit_id"] in allowed]
+        rows = [row for row in rows if row["member_org_unit_id"] in allowed]
     if not rows:
         raise ValueError("没有已关联生产学员且通过匹配门禁的可导入记录")
     # A renewal workbook can contain more than one eligible line for the same
@@ -833,7 +905,7 @@ def apply_preview(batch_id: int, actor_user_id: int, renewal_year: int, confirma
                 "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, "
                 "status, source_batch_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    row["member_id"], renewal_year, row["org_unit_id"], row["due_month"],
+                    row["member_id"], renewal_year, row["imported_org_unit_id"], row["due_month"],
                     row["proposed_status"], batch_id, now, now,
                 ),
             ).lastrowid
@@ -1448,6 +1520,133 @@ def create_cycle_from_member(
     return int(cycle_id)
 
 
+def _sync_member_status_from_renewal(
+    connection: Any,
+    *,
+    cycle_id: int,
+    member_id: int,
+    actor_user_id: int,
+    now: str,
+) -> dict[str, Any]:
+    """Synchronise the current member master after an explicit renewal.
+
+    Only the live ``update_cycle`` transition into ``RENEWED`` is allowed to
+    reactivate a member.  Historical maintenance and import paths intentionally
+    do not call this helper, because their completion timestamp is not proof of
+    a current operational decision.
+    """
+    member = execute(
+        connection,
+        "SELECT id, status, org_unit_id FROM members WHERE id=?",
+        (member_id,),
+    ).fetchone()
+    if not member:
+        raise ValueError("续费周期关联学员不存在")
+
+    current_status = str(member["status"] or "").strip().upper()
+    if current_status == "INACTIVE":
+        execute(
+            connection,
+            "UPDATE members SET status='ACTIVE', updated_at=? WHERE id=?",
+            (now, member_id),
+        )
+        before = {"status": "INACTIVE"}
+        after = {
+            "status": "ACTIVE",
+            "source": "RENEWAL_RENEWED",
+            "renewal_cycle_id": cycle_id,
+        }
+        execute(
+            connection,
+            "INSERT INTO member_change_history(member_id, change_type, before_json, "
+            "after_json, changed_by, changed_at) VALUES (?, 'RENEWAL_REACTIVATION', ?, ?, ?, ?)",
+            (
+                member_id,
+                json.dumps(before, ensure_ascii=False),
+                json.dumps(after, ensure_ascii=False),
+                actor_user_id,
+                now,
+            ),
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="members.status.sync_from_renewal",
+            resource_type="member",
+            resource_id=str(member_id),
+            org_unit_id=member["org_unit_id"],
+            purpose="人工确认续费后同步学员主档状态",
+            before=before,
+            after=after,
+        )
+        return {
+            "code": "REACTIVATED",
+            "member_status_before": "INACTIVE",
+            "member_status_after": "ACTIVE",
+        }
+
+    if current_status == "SUSPENDED":
+        conflict = {
+            "code": "MEMBER_STATUS_CONFLICT",
+            "member_status_before": "SUSPENDED",
+            "member_status_after": "SUSPENDED",
+            "message": "学员已续费，但主档当前为暂停状态，请确认是否恢复在册。",
+        }
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="members.status.sync_from_renewal",
+            resource_type="member",
+            resource_id=str(member_id),
+            org_unit_id=member["org_unit_id"],
+            purpose="人工确认续费后检查学员主档状态",
+            result="CONFLICT",
+            before={"status": "SUSPENDED"},
+            after=conflict,
+        )
+        return conflict
+
+    if current_status == "ACTIVE":
+        unchanged = {
+            "code": "UNCHANGED",
+            "member_status_before": "ACTIVE",
+            "member_status_after": "ACTIVE",
+        }
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="members.status.sync_from_renewal",
+            resource_type="member",
+            resource_id=str(member_id),
+            org_unit_id=member["org_unit_id"],
+            purpose="人工确认续费后检查学员主档状态",
+            after=unchanged,
+        )
+        return unchanged
+
+    # Unknown member statuses are never overwritten by a renewal action.  A
+    # conflict record makes the exception visible without inventing a mapping.
+    conflict = {
+        "code": "MEMBER_STATUS_CONFLICT",
+        "member_status_before": current_status or None,
+        "member_status_after": current_status or None,
+        "message": "学员已续费，但主档状态无法自动同步，请人工确认。",
+    }
+    write_audit(
+        connection,
+        actor_user_id=actor_user_id,
+        action="members.status.sync_from_renewal",
+        resource_type="member",
+        resource_id=str(member_id),
+        org_unit_id=member["org_unit_id"],
+        purpose="人工确认续费后检查学员主档状态",
+        result="CONFLICT",
+        before={"status": current_status or None},
+        after=conflict,
+    )
+    return conflict
+
+
 def update_cycle(
     cycle_id: int,
     actor_user_id: int,
@@ -1456,7 +1655,7 @@ def update_cycle(
     phase: str | None = None,
     result: str | None = None,
     assigned_user_id: int | None = None,
-) -> None:
+) -> dict[str, Any]:
     if status is not None:
         status = status.strip().upper()
         if status not in RENEWAL_STATUSES:
@@ -1497,6 +1696,7 @@ def update_cycle(
         fields["completed_at"] = (
             now if status in {"RENEWED", "NOT_RENEWING", "EXITED"} else None
         )
+    member_status_sync: dict[str, Any] = {"code": "NOT_APPLICABLE"}
     with transaction() as connection:
         assignments = ", ".join(f"{key}=?" for key in fields)
         execute(connection, f"UPDATE renewal_cycles SET {assignments} WHERE id=?", (*fields.values(), cycle_id))
@@ -1507,6 +1707,17 @@ def update_cycle(
                 "changed_by, created_at) VALUES (?, ?, ?, ?, ?)",
                 (cycle_id, cycle["status"], status, actor_user_id, now),
             )
+        if (
+            status == "RENEWED"
+            and str(cycle["status"] or "").upper() != "RENEWED"
+        ):
+            member_status_sync = _sync_member_status_from_renewal(
+                connection,
+                cycle_id=cycle_id,
+                member_id=int(cycle["member_id"]),
+                actor_user_id=actor_user_id,
+                now=now,
+            )
         write_audit(
             connection,
             actor_user_id=actor_user_id,
@@ -1514,8 +1725,9 @@ def update_cycle(
             resource_type="renewal_cycle",
             resource_id=str(cycle_id),
             org_unit_id=cycle["member_org_unit_id"],
-            after=fields,
+            after={**fields, "member_status_sync": member_status_sync},
         )
+    return {"id": cycle_id, "member_status_sync": member_status_sync}
 
 
 def add_followup(
@@ -1539,6 +1751,7 @@ def add_followup(
         raise ValueError("不支持的联系渠道")
     if len(summary.strip()) < 4:
         raise ValueError("跟进摘要至少填写4个字符")
+    normalized_next_followup_at = _normalize_followup_datetime(next_followup_at)
     now = datetime.now(UTC).isoformat()
     with transaction() as connection:
         followup_id = execute(
@@ -1548,7 +1761,8 @@ def add_followup(
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 cycle_id, now, actor_user_id, channel.strip().upper(), summary.strip(),
-                intention, 1 if needs_support else 0, next_action, next_followup_at, now,
+                intention, 1 if needs_support else 0, next_action,
+                normalized_next_followup_at, now,
             ),
         ).lastrowid
         write_audit(

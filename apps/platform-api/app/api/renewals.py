@@ -27,6 +27,7 @@ from app.services.renewals import (
     save_preview,
     update_cycle,
 )
+from app.services.renewal_reconciliation import list_member_status_reconciliation
 from app.services.renewal_analytics import get_annual_renewal_analytics
 
 router = APIRouter(prefix="/api/v1/renewals", tags=["renewals"])
@@ -80,6 +81,20 @@ def annual_analytics(
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/reconciliation/member-status")
+def member_status_reconciliation(
+    org_unit_id: str | None = None,
+    user: dict = Depends(require_permission("renewals:read")),
+) -> dict:
+    try:
+        data = list_member_status_reconciliation(
+            user["id"], org_unit_id=org_unit_id
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
     return {"success": True, "data": data}
 
 
@@ -256,12 +271,14 @@ def edit_cycle(
     user: dict = Depends(require_permission("renewals:manage")),
 ) -> dict:
     try:
-        update_cycle(cycle_id, user["id"], **payload.model_dump(exclude_unset=True))
+        data = update_cycle(
+            cycle_id, user["id"], **payload.model_dump(exclude_unset=True)
+        )
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"success": True, "data": {"id": cycle_id}}
+    return {"success": True, "data": data}
 
 
 @router.get("/cycles/{cycle_id}/action-card")

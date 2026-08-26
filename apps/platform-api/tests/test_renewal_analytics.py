@@ -48,15 +48,16 @@ def _analytics_fixture() -> tuple[int, str, str, int]:
             due_month: int,
             status: str,
             org_id: str = center_id,
+            development_org_id: str | None = None,
             completed_at: str | None = None,
             history: tuple[str | None, str, str | None, str] | None = None,
             source_batch_id: int | None = None,
         ) -> int:
             member_id = execute(
                 connection,
-                "INSERT INTO members(member_code, name, org_unit_id, status, created_at, updated_at) "
-                "VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
-                (f"ANALYTICS-MEMBER-{suffix}-{name}", name, org_id, now, now),
+                "INSERT INTO members(member_code, name, org_unit_id, development_org_unit_id, status, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?)",
+                (f"ANALYTICS-MEMBER-{suffix}-{name}", name, org_id, development_org_id, now, now),
             ).lastrowid
             cycle_id = execute(
                 connection,
@@ -86,6 +87,7 @@ def _analytics_fixture() -> tuple[int, str, str, int]:
                 stage_name,
                 11,
                 "RENEWED",
+                development_org_id=other_center_id if stage_name == "准备阶段可信" else None,
                 completed_at=completed,
                 history=("IN_COMMUNICATION", "RENEWED", None, completed),
             )

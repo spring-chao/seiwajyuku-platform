@@ -632,12 +632,21 @@ async function saveCycleDetail() {
   }
   cycleSaving.value = true;
   try {
-    await updateRenewalCycle(selectedCycle.value.id, {
+    const response = await updateRenewalCycle(selectedCycle.value.id, {
       status: cycleForm.status,
       result: cycleForm.result || undefined,
       assigned_user_id: cycleForm.assigned_user_id
     });
-    ElMessage.success("续费周期已更新并写入审计");
+    const sync = response.data.member_status_sync;
+    if (sync?.code === "MEMBER_STATUS_CONFLICT") {
+      ElMessage.warning(
+        sync.message || "学员已续费，但主档当前为暂停状态，请人工确认是否恢复在册"
+      );
+    } else if (sync?.code === "REACTIVATED") {
+      ElMessage.success("续费周期已更新，学员主档已同步恢复在册");
+    } else {
+      ElMessage.success("续费周期已更新并写入审计");
+    }
     const currentCycle = selectedCycle.value;
     const assignee = cycleAssignees.value.find(
       item => item.id === cycleForm.assigned_user_id
