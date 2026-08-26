@@ -1,0 +1,85 @@
+name: B2 MySQL Validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  b2-mysql:
+    name: CI-MYSQL B2 (ephemeral)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      mysql:
+        # Keep this pinned.  It matches the existing MySQL integration job's
+        # major/minor rather than following the moving ``latest`` tag.
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: b2-ci-root-password
+          MYSQL_DATABASE: seiwajyuku_b2_ci
+          MYSQL_USER: seiwajyuku
+          MYSQL_PASSWORD: b2-ci-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pb2-ci-root-password"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 18
+    env:
+      # This is a short-lived CI target, not a CloudBase staging deployment.
+      APP_ENV: staging
+      B2_MYSQL_VALIDATION: "true"
+      DATABASE_URL: mysql+pymysql://seiwajyuku:b2-ci-password@127.0.0.1:3306/seiwajyuku_b2_ci?charset=utf8mb4
+      DEPLOYMENT_READ_ONLY: "false"
+      RUN_BOOTSTRAP_ON_STARTUP: "false"
+      ALLOW_PRODUCTION_MUTATIONS: "false"
+      IDENTITY_ADMIN_WRITES_ENABLED: "false"
+      VOLUNTEER_SERVICE_INVITATIONS_ENABLED: "false"
+      JWT_SECRET: b2-ci-jwt-secret-000000000000000000000
+      FIELD_ENCRYPTION_KEY: b2-ci-field-encryption-key
+      BOOTSTRAP_ADMIN_USERNAME: b2-ci-admin
+      BOOTSTRAP_ADMIN_PASSWORD: b2-ci-admin-password
+      PYTHONPATH: apps/platform-api
+    steps:
+      - name: Checkout full history for fixed source commit verification
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/platform-api/requirements.txt
+
+      - name: Install API dependencies
+        run: pip install -r apps/platform-api/requirements.txt
+
+      - name: Assert this job cannot point at production
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$DATABASE_URL" in
+            *shengheshu*|*cloudbase*|*production*|*prod-*)
+              echo "拒绝疑似生产数据库地址" >&2
+              exit 1
+              ;;
+          esac
+          test "$APP_ENV" = "staging"
+          test "$B2_MYSQL_VALIDATION" = "true"
+          test "$ALLOW_PRODUCTION_MUTATIONS" = "false"
+          test "$IDENTITY_ADMIN_WRITES_ENABLED" = "false"
+
+      - name: Run B2 against ephemeral MySQL (explicit --apply)
+        run: python scripts/validate_b2_mysql.py --apply --report b2-mysql-report.json
+
+      - name: Upload frozen validation report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: b2-mysql-validation-${{ github.run_id }}
+          path: b2-mysql-report.json
+          if-no-files-found: warn
