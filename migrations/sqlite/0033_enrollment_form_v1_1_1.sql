@@ -1,5 +1,5 @@
 -- 0033: V1.1.1 structured enrollment form fields.
--- Existing application rows remain readable; new public submissions use the
+-- Existing application rows remain readable and new public submissions use the
 -- structured fields while legacy long-form columns stay nullable for history.
 
 ALTER TABLE member_enrollment_applications ADD COLUMN company_tax_id TEXT;
