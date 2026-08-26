@@ -1,3 +1,6 @@
+import json
+from datetime import UTC, datetime
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -8,6 +11,7 @@ from app.services.course_credit_rules import (
     list_course_credit_rules,
     update_course_credit_rule,
 )
+from app.services.audit import write_audit
 
 
 def _actor_id() -> int:
@@ -50,6 +54,28 @@ def test_update_is_versioned_and_audited():
     assert audit
     assert audit["resource_type"] == "learning_plan_credit_rule"
     assert '"credit_points": 20' in audit["after_json"]
+
+
+def test_audit_serializes_mysql_datetime_snapshots():
+    actor_id = _actor_id()
+    updated_at = datetime(2026, 8, 26, 12, 5, 31, tzinfo=UTC)
+    with transaction() as connection:
+        write_audit(
+            connection,
+            actor_user_id=actor_id,
+            action="learning_plan.credit_rule.datetime_smoke",
+            resource_type="learning_plan_credit_rule",
+            before={"updated_at": updated_at},
+            after={"updated_at": updated_at},
+        )
+    audit = fetch_one(
+        "SELECT before_json, after_json FROM audit_logs "
+        "WHERE action='learning_plan.credit_rule.datetime_smoke' "
+        "ORDER BY id DESC LIMIT 1"
+    )
+    assert audit
+    assert json.loads(audit["before_json"])["updated_at"] == updated_at.isoformat()
+    assert json.loads(audit["after_json"])["updated_at"] == updated_at.isoformat()
 
 
 def test_published_version_cannot_be_overwritten_and_new_version_clones():

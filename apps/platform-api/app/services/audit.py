@@ -1,10 +1,29 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from app.db import execute
+
+
+def _audit_json_default(value: Any) -> str:
+    """Keep audit payloads JSON-safe across SQLite and MySQL drivers.
+
+    SQLite commonly returns timestamp fields as strings, whereas the production
+    MySQL driver returns ``datetime`` instances.  Audit records must never make
+    an otherwise valid business transaction fail merely because a before/after
+    snapshot contains such a timestamp.
+    """
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _audit_json(value: Any) -> str | None:
+    if value is None:
+        return None
+    return json.dumps(value, ensure_ascii=False, default=_audit_json_default)
 
 
 def write_audit(
@@ -34,8 +53,8 @@ def write_audit(
             org_unit_id,
             purpose,
             result,
-            json.dumps(before, ensure_ascii=False) if before is not None else None,
-            json.dumps(after, ensure_ascii=False) if after is not None else None,
+            _audit_json(before),
+            _audit_json(after),
             request_id,
             datetime.now(UTC).isoformat(),
         ),
