@@ -1,10 +1,10 @@
 {
-  "description": "学习服务助手 - 新学长信息登记",
+  "description": "学习服务助手 - 新学长信息登记 [TEST]",
   "packOptions": {
     "ignore": []
   },
   "setting": {
-    "urlCheck": true,
+    "urlCheck": false,
     "es6": true,
     "enhance": true,
     "postcss": true,
@@ -12,7 +12,7 @@
   },
   "compileType": "miniprogram",
   "libVersion": "3.8.0",
-  "appid": "touristappid",
+  "appid": "wxb63212d3ce337b81",
   "projectname": "learning-service-assistant",
   "miniprogramRoot": "./"
 }

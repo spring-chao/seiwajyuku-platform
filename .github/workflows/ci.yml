@@ -50,6 +50,18 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build:staging
 
+  wechat-miniprogram:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22.14.0"
+      - name: Check TEST mini-program configuration and source syntax
+        run: node scripts/check_wechat_miniprogram.mjs
+        env:
+          MINIPROGRAM_EXPECTED_APPID: wxb63212d3ce337b81
+
   api-container:
     runs-on: ubuntu-latest
     steps:
