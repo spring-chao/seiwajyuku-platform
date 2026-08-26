@@ -286,6 +286,81 @@ def _calendar_date(value: Any) -> date | None:
         return None
 
 
+_FOLLOWUP_SHORT_DATE_RE = re.compile(
+    r"^(?P<month>\d{1,2})[-/](?P<day>\d{1,2})"
+    r"(?:[ T]+(?P<time>\d{1,2}(?::\d{1,2}){0,2}))?$"
+)
+_FOLLOWUP_DATETIME_ERROR = (
+    "下次跟进时间格式无效，请使用 YYYY-MM-DD HH:mm "
+    "（例如 2026-09-28 09:00；也支持 9-28）"
+)
+
+
+def _normalize_followup_datetime(
+    value: Any,
+    *,
+    now: datetime | None = None,
+) -> str | None:
+    """Normalize operator-entered follow-up times for a SQL DATETIME column.
+
+    The renewal drawer historically accepted free-form text, so operators
+    commonly entered a shorthand such as ``9-28``. Passing that text directly
+    to MySQL's DATETIME column causes the insert to fail. Keep the input
+    friendly while making the storage format explicit and portable across
+    SQLite and MySQL.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        candidate = value
+    elif isinstance(value, date):
+        candidate = datetime(value.year, value.month, value.day)
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+
+        short_match = _FOLLOWUP_SHORT_DATE_RE.fullmatch(text)
+        if short_match:
+            reference = now or datetime.now(UTC)
+            if reference.tzinfo is not None:
+                reference = reference.astimezone(UTC).replace(tzinfo=None)
+            month = int(short_match.group("month"))
+            day = int(short_match.group("day"))
+            time_parts = [
+                int(part) for part in (short_match.group("time") or "").split(":")
+                if part
+            ]
+            hour = time_parts[0] if time_parts else 0
+            minute = time_parts[1] if len(time_parts) > 1 else 0
+            second = time_parts[2] if len(time_parts) > 2 else 0
+            try:
+                candidate = datetime(
+                    reference.year, month, day, hour, minute, second
+                )
+            except ValueError as exc:
+                raise ValueError(_FOLLOWUP_DATETIME_ERROR) from exc
+            # A month/day without a year means the next occurrence. This keeps
+            # a December operator entry such as ``1-5`` from being scheduled in
+            # the past while still making ``9-28`` resolve to the current year.
+            if candidate.date() < reference.date():
+                try:
+                    candidate = candidate.replace(year=reference.year + 1)
+                except ValueError as exc:
+                    raise ValueError(_FOLLOWUP_DATETIME_ERROR) from exc
+        else:
+            try:
+                candidate = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError(_FOLLOWUP_DATETIME_ERROR) from exc
+
+    if candidate.tzinfo is not None:
+        candidate = candidate.astimezone(UTC).replace(tzinfo=None)
+    else:
+        candidate = candidate.replace(tzinfo=None)
+    return candidate.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _renewal_action_strategy(
     stage_code: str,
     *,
@@ -1539,6 +1614,7 @@ def add_followup(
         raise ValueError("不支持的联系渠道")
     if len(summary.strip()) < 4:
         raise ValueError("跟进摘要至少填写4个字符")
+    normalized_next_followup_at = _normalize_followup_datetime(next_followup_at)
     now = datetime.now(UTC).isoformat()
     with transaction() as connection:
         followup_id = execute(
@@ -1548,7 +1624,8 @@ def add_followup(
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 cycle_id, now, actor_user_id, channel.strip().upper(), summary.strip(),
-                intention, 1 if needs_support else 0, next_action, next_followup_at, now,
+                intention, 1 if needs_support else 0, next_action,
+                normalized_next_followup_at, now,
             ),
         ).lastrowid
         write_audit(

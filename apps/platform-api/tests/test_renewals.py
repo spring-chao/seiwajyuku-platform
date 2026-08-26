@@ -21,6 +21,7 @@ from app.services.members import create_member, get_member_timeline, update_memb
 from app.services.renewals import (
     _linked_member_id,
     _master_index,
+    _normalize_followup_datetime,
     add_followup,
     apply_preview,
     create_cycle_from_member,
@@ -1196,16 +1197,19 @@ def test_renewal_cycle_followup_and_status_update() -> None:
             "VALUES ('org-renewal-other', 'RENEWAL_OTHER', '续费测试异地分中心', 'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
             (now, now),
         )
+    expected_next_followup_at = _normalize_followup_datetime("9-28")
     followup_id = add_followup(
         cycle_id,
         1,
         channel="PHONE",
         summary="已完成首次续费联系",
         intention="继续沟通",
+        next_followup_at="9-28",
     )
     update_cycle(cycle_id, 1, status="IN_COMMUNICATION", assigned_user_id=1)
     followups = list_followups(cycle_id, 1)
     assert followups[0]["id"] == followup_id
+    assert followups[0]["next_followup_at"] == expected_next_followup_at
     cycle = fetch_one(
         "SELECT status, assigned_user_id FROM renewal_cycles WHERE id=?", (cycle_id,)
     )
@@ -1227,6 +1231,22 @@ def test_renewal_cycle_followup_and_status_update() -> None:
     )["completed_at"] is None
     with pytest.raises(ValueError, match="不能超过64个字符"):
         update_cycle(cycle_id, 1, result="超长结果" * 20)
+
+
+def test_followup_datetime_accepts_shorthand_and_rejects_invalid_input() -> None:
+    reference = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
+    assert _normalize_followup_datetime("9-28", now=reference) == (
+        "2026-09-28 00:00:00"
+    )
+    assert _normalize_followup_datetime("1-5", now=datetime(2026, 12, 20)) == (
+        "2027-01-05 00:00:00"
+    )
+    assert _normalize_followup_datetime("2026-09-28T09:30:00+08:00") == (
+        "2026-09-28 01:30:00"
+    )
+    assert _normalize_followup_datetime("2026-09-28") == "2026-09-28 00:00:00"
+    with pytest.raises(ValueError, match="下次跟进时间格式无效"):
+        _normalize_followup_datetime("不是日期")
 
 
 def test_renewal_assignee_requires_manage_permission_and_matching_scope() -> None:
