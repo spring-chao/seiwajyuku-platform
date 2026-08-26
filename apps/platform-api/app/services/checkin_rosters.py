@@ -307,6 +307,81 @@ def roster_members(
     return results
 
 
+def cross_class_members(
+    *,
+    name: str,
+    event_class_org_unit_id: str,
+) -> list[dict[str, Any]]:
+    """Find active formal members from another class by an exact full name.
+
+    This is deliberately narrower than a general member search: it is only for
+    a currently selected class-meeting check-in, requires a valid target class,
+    and returns no phone data. The signin service performs the final event and
+    duplicate-check-in validation before it records attendance.
+    """
+    normalized_name = str(name or "").strip()
+    target_class_id = str(event_class_org_unit_id or "").strip()
+    if not normalized_name:
+        raise ValueError("请输入完整姓名")
+    if not target_class_id:
+        raise ValueError("缺少当前班会的班级组织 ID")
+
+    target_class = fetch_one(
+        "SELECT id FROM org_units WHERE id=? AND unit_type='CLASS' AND is_active=1",
+        (target_class_id,),
+    )
+    if not target_class:
+        raise ValueError("当前班会的班级组织无效")
+
+    now = _now()
+    rows = fetch_all(
+        "SELECT m.id AS member_id, m.member_code, m.name, m.company_name, "
+        "m.org_unit_id AS primary_org_id, primary_org.name AS primary_org_name, "
+        "class_rel.org_unit_id AS home_class_org_unit_id, "
+        "class_org.name AS home_class_name, "
+        "(SELECT group_org.name FROM member_org_relations group_rel "
+        " JOIN org_units group_org ON group_org.id=group_rel.org_unit_id "
+        " WHERE group_rel.member_id=m.id "
+        " AND group_rel.relation_type='STUDY_GROUP' "
+        " AND group_org.is_active=1 "
+        " AND group_org.parent_id=class_rel.org_unit_id "
+        " AND (group_rel.valid_from IS NULL OR group_rel.valid_from<=?) "
+        " AND (group_rel.valid_until IS NULL OR group_rel.valid_until>=?) "
+        " ORDER BY group_rel.is_primary DESC, group_rel.updated_at DESC, group_rel.id DESC "
+        " LIMIT 1) AS home_group_name "
+        "FROM members m "
+        "JOIN member_org_relations class_rel ON class_rel.member_id=m.id "
+        "JOIN org_units class_org ON class_org.id=class_rel.org_unit_id "
+        "LEFT JOIN org_units primary_org ON primary_org.id=m.org_unit_id "
+        "WHERE m.status='ACTIVE' AND m.name=? "
+        "AND NOT EXISTS (SELECT 1 FROM member_org_relations event_class_rel "
+        " WHERE event_class_rel.member_id=m.id "
+        " AND event_class_rel.relation_type='STUDY_CLASS' "
+        " AND event_class_rel.org_unit_id=? "
+        " AND (event_class_rel.valid_from IS NULL OR event_class_rel.valid_from<=?) "
+        " AND (event_class_rel.valid_until IS NULL OR event_class_rel.valid_until>=?)) "
+        "AND class_rel.relation_type='STUDY_CLASS' "
+        "AND class_org.unit_type='CLASS' AND class_org.is_active=1 "
+        "AND class_rel.org_unit_id<>? "
+        "AND (class_rel.valid_from IS NULL OR class_rel.valid_from<=?) "
+        "AND (class_rel.valid_until IS NULL OR class_rel.valid_until>=?) "
+        "ORDER BY m.id, class_rel.is_primary DESC, class_rel.updated_at DESC, class_rel.id DESC",
+        (now, now, normalized_name, target_class_id, now, now, target_class_id, now, now),
+    )
+
+    # Historical or accidental duplicate class relations must not produce two
+    # public candidates. The primary/newest current relation wins deterministically.
+    seen_member_ids: set[int] = set()
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        member_id = int(row["member_id"])
+        if member_id in seen_member_ids:
+            continue
+        seen_member_ids.add(member_id)
+        results.append(dict(row))
+    return results
+
+
 def upsert_relation(
     actor_user_id: int,
     *,
