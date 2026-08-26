@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api.auth import require_permission
 from app.services.enrollment import (
     EnrollmentRateLimitError,
+    EnrollmentValidationError,
     confirm_enrollment_payment,
     create_enrollment_link,
     disable_enrollment_link,
@@ -35,32 +36,50 @@ class PublicEnrollmentPayload(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     phone: str = Field(pattern=r"^1\d{10}$")
     privacy_consent: Literal[True]
-    gender: Literal["MALE", "FEMALE", "OTHER"] | None = None
+    gender: Literal["MALE", "FEMALE"] | None = None
     birthday: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     district: str | None = Field(default=None, max_length=255)
     political_status: str | None = Field(default=None, max_length=255)
     company_name: str = Field(min_length=1, max_length=500)
+    company_tax_id: str | None = Field(default=None, max_length=64)
     company_address: str = Field(min_length=1, max_length=1000)
     email: str | None = Field(default=None, max_length=255)
     position: str = Field(min_length=1, max_length=255)
     referrer: str = Field(min_length=1, max_length=255)
-    invoice_info: str = Field(min_length=1, max_length=4000)
     invoice_type: str = Field(min_length=1, max_length=64)
+    invoice_info: str | None = Field(default=None, max_length=4000)
+    invoice_title: str | None = Field(default=None, max_length=500)
+    invoice_tax_id: str | None = Field(default=None, max_length=64)
+    invoice_registered_address: str | None = Field(default=None, max_length=1000)
+    invoice_phone: str | None = Field(default=None, max_length=64)
+    invoice_bank: str | None = Field(default=None, max_length=255)
+    invoice_account: str | None = Field(default=None, max_length=128)
     industry_category: str | None = Field(default=None, max_length=255)
-    industry: str = Field(min_length=1, max_length=255)
+    industry_other: str | None = Field(default=None, max_length=255)
+    # ``industry`` remains optional for old H5 clients and historical imports;
+    # new clients send the canonical ``industry_category`` value.
+    industry: str | None = Field(default=None, max_length=255)
     company_products: str = Field(min_length=1, max_length=4000)
     employee_count: int = Field(ge=0, le=10000000)
-    books_read: str = Field(min_length=1, max_length=4000)
-    enrollment_reason_philosophy: str = Field(min_length=1, max_length=4000)
-    enrollment_reason_change: str = Field(min_length=1, max_length=4000)
-    enrollment_reason_other: str = Field(min_length=1, max_length=4000)
+    # Legacy long-form fields are accepted only for old clients and remain
+    # nullable; the V1.1.1 mini-program no longer renders them.
+    books_read: str | None = Field(default=None, max_length=4000)
+    enrollment_reason_philosophy: str | None = Field(default=None, max_length=4000)
+    enrollment_reason_change: str | None = Field(default=None, max_length=4000)
+    enrollment_reason_other: str | None = Field(default=None, max_length=4000)
     learning_years_goal: str | None = Field(default=None, max_length=255)
     learning_participation_goal: str | None = Field(default=None, max_length=4000)
     business_goal: str | None = Field(default=None, max_length=4000)
     other_goal: str | None = Field(default=None, max_length=4000)
+    goal_years: str | None = Field(default=None, max_length=32)
+    revenue_growth_target: str | None = Field(default=None, max_length=64)
+    profit_growth_target: str | None = Field(default=None, max_length=64)
     annual_sales: str = Field(min_length=1, max_length=255)
     profit_margin: str | None = Field(default=None, max_length=64)
     notes: str | None = Field(default=None, max_length=1000)
+    # New clients must send true.  ``None`` keeps already-installed legacy
+    # H5 clients readable while their old long-form fields are still present.
+    rules_acknowledged: Literal[True] | None = None
 
 
 class EnrollmentReviewPayload(BaseModel):
@@ -69,18 +88,26 @@ class EnrollmentReviewPayload(BaseModel):
     decision: Literal["SAVE", "APPROVE"] = "APPROVE"
     review_note: str | None = Field(default=None, max_length=2000)
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    gender: Literal["MALE", "FEMALE", "OTHER"] | None = None
+    gender: Literal["MALE", "FEMALE"] | None = None
     birthday: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
     district: str | None = Field(default=None, max_length=255)
     political_status: str | None = Field(default=None, max_length=255)
     company_name: str | None = Field(default=None, max_length=500)
+    company_tax_id: str | None = Field(default=None, max_length=64)
     company_address: str | None = Field(default=None, max_length=1000)
     email: str | None = Field(default=None, max_length=255)
     position: str | None = Field(default=None, max_length=255)
     referrer: str | None = Field(default=None, max_length=255)
     invoice_info: str | None = Field(default=None, max_length=4000)
     invoice_type: str | None = Field(default=None, max_length=64)
+    invoice_title: str | None = Field(default=None, max_length=500)
+    invoice_tax_id: str | None = Field(default=None, max_length=64)
+    invoice_registered_address: str | None = Field(default=None, max_length=1000)
+    invoice_phone: str | None = Field(default=None, max_length=64)
+    invoice_bank: str | None = Field(default=None, max_length=255)
+    invoice_account: str | None = Field(default=None, max_length=128)
     industry_category: str | None = Field(default=None, max_length=255)
+    industry_other: str | None = Field(default=None, max_length=255)
     industry: str | None = Field(default=None, max_length=255)
     company_products: str | None = Field(default=None, max_length=4000)
     employee_count: int | None = Field(default=None, ge=0, le=10000000)
@@ -92,6 +119,9 @@ class EnrollmentReviewPayload(BaseModel):
     learning_participation_goal: str | None = Field(default=None, max_length=4000)
     business_goal: str | None = Field(default=None, max_length=4000)
     other_goal: str | None = Field(default=None, max_length=4000)
+    goal_years: str | None = Field(default=None, max_length=32)
+    revenue_growth_target: str | None = Field(default=None, max_length=64)
+    profit_growth_target: str | None = Field(default=None, max_length=64)
     annual_sales: str | None = Field(default=None, max_length=255)
     profit_margin: str | None = Field(default=None, max_length=64)
     notes: str | None = Field(default=None, max_length=1000)
@@ -170,6 +200,8 @@ def submit_enrollment(
         )
     except EnrollmentRateLimitError as exc:
         raise HTTPException(429, str(exc)) from exc
+    except EnrollmentValidationError as exc:
+        raise HTTPException(422, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     return {"success": True, "data": data}

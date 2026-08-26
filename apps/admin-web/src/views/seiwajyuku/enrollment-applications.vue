@@ -57,6 +57,44 @@ const canManageLink = computed(() =>
   permissions.value.includes("enrollment:manage_link")
 );
 
+const industryOptions = [
+  { value: "制造业", label: "制造业" },
+  { value: "纺织 / 服装", label: "纺织 / 服装" },
+  { value: "商贸 / 零售", label: "商贸 / 零售" },
+  { value: "服务业", label: "服务业" },
+  { value: "建筑 / 工程", label: "建筑 / 工程" },
+  { value: "信息技术 / 软件", label: "信息技术 / 软件" },
+  { value: "餐饮 / 文旅", label: "餐饮 / 文旅" },
+  { value: "医疗 / 健康", label: "医疗 / 健康" },
+  { value: "教育", label: "教育" },
+  { value: "金融 / 投资", label: "金融 / 投资" },
+  { value: "房地产", label: "房地产" },
+  { value: "其他", label: "其他" }
+];
+const invoiceOptions = [
+  { value: "NORMAL", label: "普票" },
+  { value: "SPECIAL", label: "专票" },
+  { value: "NONE", label: "无需开票" }
+];
+const profitMarginOptions = [
+  { value: "GE_10_PERCENT", label: "10%及以上" },
+  { value: "LT_10_PERCENT", label: "0%～10%以下" },
+  { value: "LOSS", label: "亏损" }
+];
+const goalYearOptions = [
+  { value: "1", label: "1年" },
+  { value: "2", label: "2年" },
+  { value: "3", label: "3年" },
+  { value: "5", label: "5年" }
+];
+const growthTargetOptions = [
+  { value: "UNSET", label: "暂不设定" },
+  { value: "1.5", label: "1.5倍" },
+  { value: "2", label: "2倍" },
+  { value: "3", label: "3倍" },
+  { value: "5", label: "5倍" }
+];
+
 const editForm = reactive({
   name: "",
   gender: "" as "" | "MALE" | "FEMALE" | "OTHER",
@@ -64,13 +102,21 @@ const editForm = reactive({
   district: "",
   political_status: "",
   company_name: "",
+  company_tax_id: "",
   company_address: "",
   email: "",
   position: "",
   referrer: "",
   invoice_info: "",
   invoice_type: "",
+  invoice_title: "",
+  invoice_tax_id: "",
+  invoice_registered_address: "",
+  invoice_phone: "",
+  invoice_bank: "",
+  invoice_account: "",
   industry_category: "",
+  industry_other: "",
   industry: "",
   company_products: "",
   employee_count: null as number | null,
@@ -82,6 +128,9 @@ const editForm = reactive({
   learning_participation_goal: "",
   business_goal: "",
   other_goal: "",
+  goal_years: "",
+  revenue_growth_target: "",
+  profit_growth_target: "",
   annual_sales: "",
   profit_margin: "",
   notes: "",
@@ -105,6 +154,21 @@ const filteredRows = computed(() =>
     ? rows.value
     : rows.value.filter(row => row.computed_status === statusFilter.value)
 );
+
+const hasLegacyLearningFields = computed(() => {
+  const value = detail.value;
+  if (!value) return false;
+  return [
+    value.books_read,
+    value.enrollment_reason_philosophy,
+    value.enrollment_reason_change,
+    value.enrollment_reason_other,
+    value.learning_years_goal,
+    value.learning_participation_goal,
+    value.business_goal,
+    value.other_goal
+  ].some(item => Boolean(item && String(item).trim()));
+});
 
 const statusLabels: Record<EnrollmentComputedStatus, string> = {
   PENDING_REVIEW: "待审核",
@@ -169,13 +233,21 @@ function syncEditForm(value: EnrollmentApplicationDetail) {
     district: value.district || "",
     political_status: value.political_status || "",
     company_name: value.company_name || "",
+    company_tax_id: value.company_tax_id || "",
     company_address: value.company_address || "",
     email: value.email || "",
     position: value.position || "",
     referrer: value.referrer || "",
     invoice_info: value.invoice_info || "",
     invoice_type: value.invoice_type || "",
+    invoice_title: value.invoice_title || "",
+    invoice_tax_id: value.invoice_tax_id || "",
+    invoice_registered_address: value.invoice_registered_address || "",
+    invoice_phone: value.invoice_phone || "",
+    invoice_bank: value.invoice_bank || "",
+    invoice_account: value.invoice_account || "",
     industry_category: value.industry_category || "",
+    industry_other: value.industry_other || "",
     industry: value.industry || "",
     company_products: value.company_products || "",
     employee_count: value.employee_count ?? null,
@@ -187,6 +259,9 @@ function syncEditForm(value: EnrollmentApplicationDetail) {
     learning_participation_goal: value.learning_participation_goal || "",
     business_goal: value.business_goal || "",
     other_goal: value.other_goal || "",
+    goal_years: value.goal_years || "",
+    revenue_growth_target: value.revenue_growth_target || "",
+    profit_growth_target: value.profit_growth_target || "",
     annual_sales: value.annual_sales || "",
     profit_margin: value.profit_margin || "",
     notes: value.notes || "",
@@ -219,7 +294,7 @@ function buildReviewPayload(
     decision,
     review_note: editForm.review_note.trim() || undefined,
     name: editForm.name.trim(),
-    gender: editForm.gender || null,
+    gender: editForm.gender === "OTHER" ? undefined : editForm.gender || null,
     birthday: editForm.birthday || null,
     district: editForm.district.trim() || null,
     political_status: editForm.political_status.trim() || null,
@@ -228,29 +303,62 @@ function buildReviewPayload(
     email: editForm.email.trim() || null,
     position: editForm.position.trim() || null,
     referrer: editForm.referrer.trim() || null,
-    invoice_info: editForm.invoice_info.trim() || null,
-    invoice_type: editForm.invoice_type.trim() || null,
-    industry_category: editForm.industry_category.trim() || null,
-    industry: editForm.industry.trim() || null,
     company_products: editForm.company_products.trim() || null,
     employee_count: editForm.employee_count,
-    books_read: editForm.books_read.trim() || null,
-    enrollment_reason_philosophy:
-      editForm.enrollment_reason_philosophy.trim() || null,
-    enrollment_reason_change: editForm.enrollment_reason_change.trim() || null,
-    enrollment_reason_other: editForm.enrollment_reason_other.trim() || null,
-    learning_years_goal: editForm.learning_years_goal.trim() || null,
-    learning_participation_goal:
-      editForm.learning_participation_goal.trim() || null,
-    business_goal: editForm.business_goal.trim() || null,
-    other_goal: editForm.other_goal.trim() || null,
     notes: editForm.notes.trim() || null,
     org_unit_id: editForm.org_unit_id || null,
     join_date: editForm.join_date || null
   };
+  if (editForm.industry_category.trim() || editForm.industry.trim()) {
+    payload.industry_category = editForm.industry_category.trim() || null;
+    payload.industry_other = editForm.industry_other.trim() || null;
+    payload.industry = editForm.industry.trim() || null;
+  }
+  if (hasLegacyLearningFields.value) {
+    payload.books_read = editForm.books_read.trim() || null;
+    payload.enrollment_reason_philosophy =
+      editForm.enrollment_reason_philosophy.trim() || null;
+    payload.enrollment_reason_change = editForm.enrollment_reason_change.trim() || null;
+    payload.enrollment_reason_other = editForm.enrollment_reason_other.trim() || null;
+    payload.learning_years_goal = editForm.learning_years_goal.trim() || null;
+    payload.learning_participation_goal =
+      editForm.learning_participation_goal.trim() || null;
+    payload.business_goal = editForm.business_goal.trim() || null;
+    payload.other_goal = editForm.other_goal.trim() || null;
+  }
+  if (editForm.goal_years.trim()) payload.goal_years = editForm.goal_years.trim();
+  if (editForm.revenue_growth_target.trim()) {
+    payload.revenue_growth_target = editForm.revenue_growth_target.trim();
+  }
+  if (editForm.profit_growth_target.trim()) {
+    payload.profit_growth_target = editForm.profit_growth_target.trim();
+  }
   if (detail.value?.financial_fields_visible) {
     payload.annual_sales = editForm.annual_sales.trim() || null;
     payload.profit_margin = editForm.profit_margin.trim() || null;
+    const invoiceHasValue = [
+      editForm.company_tax_id,
+      editForm.invoice_type,
+      editForm.invoice_info,
+      editForm.invoice_title,
+      editForm.invoice_tax_id,
+      editForm.invoice_registered_address,
+      editForm.invoice_phone,
+      editForm.invoice_bank,
+      editForm.invoice_account
+    ].some(value => value.trim());
+    if (invoiceHasValue) {
+      payload.company_tax_id = editForm.company_tax_id.trim() || null;
+      payload.invoice_type = editForm.invoice_type.trim() || null;
+      payload.invoice_info = editForm.invoice_info.trim() || null;
+      payload.invoice_title = editForm.invoice_title.trim() || null;
+      payload.invoice_tax_id = editForm.invoice_tax_id.trim() || null;
+      payload.invoice_registered_address =
+        editForm.invoice_registered_address.trim() || null;
+      payload.invoice_phone = editForm.invoice_phone.trim() || null;
+      payload.invoice_bank = editForm.invoice_bank.trim() || null;
+      payload.invoice_account = editForm.invoice_account.trim() || null;
+    }
   }
   return payload;
 }
@@ -819,14 +927,20 @@ onMounted(async () => {
               </el-form-item>
               <el-form-item label="性别">
                 <el-select
+                  v-if="editForm.gender !== 'OTHER'"
                   v-model="editForm.gender"
                   clearable
                   :disabled="!canReview"
                 >
                   <el-option label="男" value="MALE" />
                   <el-option label="女" value="FEMALE" />
-                  <el-option label="其他/不便填写" value="OTHER" />
                 </el-select>
+                <el-alert
+                  v-else
+                  title="其他（历史值）"
+                  type="info"
+                  :closable="false"
+                />
               </el-form-item>
               <el-form-item label="生日">
                 <el-date-picker
@@ -851,6 +965,13 @@ onMounted(async () => {
                   :disabled="!canReview"
                 />
               </el-form-item>
+              <el-form-item label="统一社会信用代码 / 税号">
+                <el-input
+                  v-model="editForm.company_tax_id"
+                  :disabled="!canReview || !detail.financial_fields_visible"
+                  placeholder="敏感资料权限可见"
+                />
+              </el-form-item>
               <el-form-item label="职务">
                 <el-input v-model="editForm.position" :disabled="!canReview" />
               </el-form-item>
@@ -867,19 +988,41 @@ onMounted(async () => {
                 />
               </el-form-item>
               <el-form-item label="发票类型">
-                <el-input
+                <el-select
                   v-model="editForm.invoice_type"
-                  :disabled="!canReview"
-                />
+                  clearable
+                  :disabled="!canReview || !detail.invoice_fields_visible"
+                >
+                  <el-option
+                    v-for="option in invoiceOptions"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
               </el-form-item>
               <el-form-item label="行业大类">
-                <el-input
+                <el-select
                   v-model="editForm.industry_category"
                   :disabled="!canReview"
-                />
+                  clearable
+                >
+                  <el-option
+                    v-for="option in industryOptions"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
               </el-form-item>
-              <el-form-item label="细分行业">
-                <el-input v-model="editForm.industry" :disabled="!canReview" />
+              <el-form-item
+                v-if="editForm.industry_category === '其他'"
+                label="其他行业"
+              >
+                <el-input
+                  v-model="editForm.industry_other"
+                  :disabled="!canReview"
+                />
               </el-form-item>
               <el-form-item label="正式归属分中心">
                 <el-select
@@ -926,83 +1069,163 @@ onMounted(async () => {
               />
             </el-form-item>
 
-            <el-form-item label="开票资料">
-              <el-input
-                v-model="editForm.invoice_info"
-                type="textarea"
-                :rows="2"
-                :disabled="!canReview"
+            <div class="invoice-detail">
+              <div class="section-label">开票资料</div>
+              <el-alert
+                v-if="!detail.invoice_fields_visible"
+                title="开票抬头、税号及银行资料属于敏感信息，当前账号无查看权限。"
+                type="info"
+                :closable="false"
+                show-icon
               />
-            </el-form-item>
+              <template v-else-if="editForm.invoice_type !== 'NONE'">
+                <el-alert
+                  v-if="editForm.invoice_info && !editForm.invoice_title"
+                  title="这是历史申请的开票资料原文；保存前请按下方结构化字段核对。"
+                  type="warning"
+                  :closable="false"
+                />
+                <el-input
+                  v-if="editForm.invoice_info && !editForm.invoice_title"
+                  v-model="editForm.invoice_info"
+                  type="textarea"
+                  :rows="2"
+                  disabled
+                  class="legacy-invoice"
+                />
+                <div class="form-grid">
+                  <el-form-item label="发票抬头">
+                    <el-input v-model="editForm.invoice_title" :disabled="!canReview" />
+                  </el-form-item>
+                  <el-form-item label="发票税号">
+                    <el-input v-model="editForm.invoice_tax_id" :disabled="!canReview" />
+                  </el-form-item>
+                </div>
+                <div v-if="editForm.invoice_type === 'SPECIAL'" class="form-grid">
+                  <el-form-item label="注册地址">
+                    <el-input v-model="editForm.invoice_registered_address" :disabled="!canReview" />
+                  </el-form-item>
+                  <el-form-item label="注册电话">
+                    <el-input v-model="editForm.invoice_phone" :disabled="!canReview" />
+                  </el-form-item>
+                  <el-form-item label="开户银行">
+                    <el-input v-model="editForm.invoice_bank" :disabled="!canReview" />
+                  </el-form-item>
+                  <el-form-item label="银行账号">
+                    <el-input v-model="editForm.invoice_account" :disabled="!canReview" />
+                  </el-form-item>
+                </div>
+              </template>
+              <p v-else class="muted">申请人选择无需开票。</p>
+            </div>
 
-            <el-form-item label="所读稻盛和夫著作">
+            <div v-if="hasLegacyLearningFields" class="legacy-learning-panel">
+              <div class="section-label">历史申请字段（仅历史有值时显示）</div>
+              <el-form-item label="所读稻盛和夫著作">
               <el-input
                 v-model="editForm.books_read"
                 type="textarea"
                 :rows="2"
                 :disabled="!canReview"
               />
-            </el-form-item>
+              </el-form-item>
 
-            <div class="form-grid">
-              <el-form-item label="认同的哲学理念">
+              <div class="form-grid">
+                <el-form-item label="认同的哲学理念">
+                  <el-input
+                    v-model="editForm.enrollment_reason_philosophy"
+                    type="textarea"
+                    :rows="3"
+                    :disabled="!canReview"
+                  />
+                </el-form-item>
+                <el-form-item label="期望改变或努力方向">
+                  <el-input
+                    v-model="editForm.enrollment_reason_change"
+                    type="textarea"
+                    :rows="3"
+                    :disabled="!canReview"
+                  />
+                </el-form-item>
+              </div>
+              <el-form-item label="入塾初心的其他内容">
                 <el-input
-                  v-model="editForm.enrollment_reason_philosophy"
+                  v-model="editForm.enrollment_reason_other"
                   type="textarea"
                   :rows="3"
                   :disabled="!canReview"
                 />
               </el-form-item>
-              <el-form-item label="期望改变或努力方向">
-                <el-input
-                  v-model="editForm.enrollment_reason_change"
-                  type="textarea"
-                  :rows="3"
-                  :disabled="!canReview"
-                />
-              </el-form-item>
+
+              <div class="goal-panel">
+                <div class="section-label">历史入塾后目标</div>
+                <el-form-item label="学习年限目标">
+                  <el-input
+                    v-model="editForm.learning_years_goal"
+                    :disabled="!canReview"
+                  />
+                </el-form-item>
+                <el-form-item label="学习与活动参与目标">
+                  <el-input
+                    v-model="editForm.learning_participation_goal"
+                    type="textarea"
+                    :rows="2"
+                    :disabled="!canReview"
+                  />
+                </el-form-item>
+                <el-form-item label="公司业绩目标">
+                  <el-input
+                    v-model="editForm.business_goal"
+                    type="textarea"
+                    :rows="2"
+                    :disabled="!canReview"
+                  />
+                </el-form-item>
+                <el-form-item label="其他目标">
+                  <el-input
+                    v-model="editForm.other_goal"
+                    type="textarea"
+                    :rows="2"
+                    :disabled="!canReview"
+                  />
+                </el-form-item>
+              </div>
             </div>
-            <el-form-item label="入塾初心的其他内容">
-              <el-input
-                v-model="editForm.enrollment_reason_other"
-                type="textarea"
-                :rows="3"
-                :disabled="!canReview"
-              />
-            </el-form-item>
 
             <div class="goal-panel">
-              <div class="section-label">入塾后目标</div>
-              <el-form-item label="学习年限目标">
-                <el-input
-                  v-model="editForm.learning_years_goal"
-                  :disabled="!canReview"
-                />
-              </el-form-item>
-              <el-form-item label="学习与活动参与目标">
-                <el-input
-                  v-model="editForm.learning_participation_goal"
-                  type="textarea"
-                  :rows="2"
-                  :disabled="!canReview"
-                />
-              </el-form-item>
-              <el-form-item label="公司业绩目标">
-                <el-input
-                  v-model="editForm.business_goal"
-                  type="textarea"
-                  :rows="2"
-                  :disabled="!canReview"
-                />
-              </el-form-item>
-              <el-form-item label="其他目标">
-                <el-input
-                  v-model="editForm.other_goal"
-                  type="textarea"
-                  :rows="2"
-                  :disabled="!canReview"
-                />
-              </el-form-item>
+              <div class="section-label">V1.1.1 结构化目标</div>
+              <div class="form-grid">
+                <el-form-item label="计划学习年限">
+                  <el-select v-model="editForm.goal_years" :disabled="!canReview" clearable placeholder="可选">
+                    <el-option
+                      v-for="option in goalYearOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="业绩提升目标">
+                  <el-select v-model="editForm.revenue_growth_target" :disabled="!canReview" clearable placeholder="可选">
+                    <el-option
+                      v-for="option in growthTargetOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="利润提升目标">
+                  <el-select v-model="editForm.profit_growth_target" :disabled="!canReview" clearable placeholder="可选">
+                    <el-option
+                      v-for="option in growthTargetOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </el-form-item>
+              </div>
             </div>
 
             <div class="financial-detail">
@@ -1015,10 +1238,18 @@ onMounted(async () => {
                   />
                 </el-form-item>
                 <el-form-item label="利润率">
-                  <el-input
+                  <el-select
                     v-model="editForm.profit_margin"
                     :disabled="!canReview"
-                  />
+                    clearable
+                  >
+                    <el-option
+                      v-for="option in profitMarginOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
                 </el-form-item>
               </div>
               <el-alert
@@ -1049,6 +1280,13 @@ onMounted(async () => {
               />
             </el-form-item>
           </el-form>
+
+          <el-alert
+            :title="detail.rules_acknowledged ? '申请人已确认加入守则与缴费说明' : '申请人尚未确认加入守则与缴费说明（历史记录）'"
+            :type="detail.rules_acknowledged ? 'success' : 'warning'"
+            :closable="false"
+            show-icon
+          />
 
           <div class="gate-panel">
             <div class="section-label">正式入塾门槛</div>
@@ -1288,6 +1526,8 @@ onMounted(async () => {
 
 .financial-detail,
 .goal-panel,
+.invoice-detail,
+.legacy-learning-panel,
 .gate-panel {
   padding: 16px;
   margin-bottom: 20px;

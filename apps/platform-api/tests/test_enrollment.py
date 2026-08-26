@@ -83,26 +83,25 @@ class EnrollmentApplicationTests(unittest.TestCase):
             "name": "申请测试学长",
             "phone": phone,
             "privacy_consent": True,
+            "rules_acknowledged": True,
+            "gender": "MALE",
             "birthday": "1980-01-02",
             "company_name": "申请测试企业",
+            "company_tax_id": "91320000TEST2026",
             "company_address": "苏州工业园区测试路1号",
             "position": "总经理",
             "referrer": "推荐测试学长",
-            "invoice_info": "申请测试企业|91320000TEST2026|苏州工业园区测试路1号",
-            "invoice_type": "增值税普通发票",
-            "industry": "制造业",
+            "invoice_type": "NORMAL",
+            "invoice_title": "申请测试企业",
+            "invoice_tax_id": "91320000TEST2026",
+            "industry_category": "制造业",
             "company_products": "测试产品",
             "employee_count": 20,
-            "books_read": "活法",
-            "enrollment_reason_philosophy": "认同敬天爱人的理念",
-            "enrollment_reason_change": "提升经营能力",
-            "enrollment_reason_other": "修身齐家治企",
-            "learning_years_goal": "长期坚持学习",
-            "learning_participation_goal": "保持学习打卡并参加活动",
-            "business_goal": "提升销售额和利润率",
-            "other_goal": "为社会做出贡献",
             "annual_sales": "测试销售额区间",
-            "profit_margin": "测试利润率区间",
+            "profit_margin": "GE_10_PERCENT",
+            "goal_years": "3",
+            "revenue_growth_target": "2",
+            "profit_growth_target": "1.5",
             "notes": "希望了解学习安排",
         }
         payload.update(overrides)
@@ -118,14 +117,136 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertFalse(data["collects_organization"])
         self.assertIn("company_address", data["required_fields"])
         self.assertIn("employee_count", data["required_fields"])
-        self.assertIn("books_read", data["required_fields"])
-        self.assertIn("enrollment_reason_philosophy", data["required_fields"])
+        self.assertIn("industry_category", data["required_fields"])
+        self.assertIn("rules_acknowledged", data["required_fields"])
+        self.assertNotIn("books_read", data["required_fields"])
         self.assertIn("annual_sales", data["required_fields"])
         self.assertIn("profit_margin", data["optional_fields"])
         rejected = self._submit(
             token, _phone(), org_unit_id="enrollment-test-center"
         )
         self.assertEqual(rejected.status_code, 422, rejected.text)
+
+    def test_v111_structured_fields_and_rules_acknowledgement(self) -> None:
+        _, token = self._create_link()
+        phone = _phone()
+        response = self._submit(
+            token,
+            phone,
+            invoice_type="NONE",
+            company_tax_id=None,
+            invoice_title=None,
+            invoice_tax_id=None,
+            industry_category="信息技术 / 软件",
+            goal_years="5",
+            revenue_growth_target="3",
+            profit_growth_target="UNSET",
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        row = fetch_one(
+            "SELECT invoice_type, invoice_info, company_tax_id, industry_category, "
+            "industry, goal_years, revenue_growth_target, profit_growth_target, "
+            "rules_acknowledged, rules_acknowledged_at "
+            "FROM member_enrollment_applications WHERE phone_hash=?",
+            (phone_hash(phone),),
+        )
+        self.assertEqual(row["invoice_type"], "NONE")
+        self.assertIsNone(row["invoice_info"])
+        self.assertEqual(row["industry_category"], "信息技术 / 软件")
+        self.assertEqual(row["industry"], "信息技术 / 软件")
+        self.assertEqual(row["goal_years"], "5")
+        self.assertEqual(row["revenue_growth_target"], "3")
+        self.assertEqual(row["profit_growth_target"], "UNSET")
+        self.assertTrue(row["rules_acknowledged"])
+        self.assertIsNotNone(row["rules_acknowledged_at"])
+
+    def test_v111_rejects_other_gender_and_invalid_industry(self) -> None:
+        _, token = self._create_link()
+        other_gender = self._submit(token, _phone(), gender="OTHER")
+        self.assertEqual(other_gender.status_code, 422, other_gender.text)
+        invalid_industry = self._submit(
+            token, _phone(), industry_category="不存在的行业"
+        )
+        self.assertEqual(invalid_industry.status_code, 422, invalid_industry.text)
+        missing_other = self._submit(token, _phone(), industry_category="其他")
+        self.assertEqual(missing_other.status_code, 422, missing_other.text)
+        other = self._submit(
+            token,
+            _phone(),
+            industry_category="其他",
+            industry_other="新能源设备",
+        )
+        self.assertEqual(other.status_code, 200, other.text)
+
+    def test_v111_invoice_modes_are_validated(self) -> None:
+        _, token = self._create_link()
+        none_invoice = self._submit(
+            token,
+            _phone(),
+            invoice_type="NONE",
+            company_tax_id=None,
+            invoice_title=None,
+            invoice_tax_id=None,
+        )
+        self.assertEqual(none_invoice.status_code, 200, none_invoice.text)
+
+        normal_missing = self._submit(
+            token,
+            _phone(),
+            invoice_type="NORMAL",
+            company_tax_id=None,
+            invoice_title=None,
+            invoice_tax_id=None,
+        )
+        self.assertEqual(normal_missing.status_code, 422, normal_missing.text)
+
+        special_missing = self._submit(
+            token,
+            _phone(),
+            invoice_type="SPECIAL",
+            invoice_title="申请测试企业",
+            invoice_tax_id="91320000TEST2026",
+        )
+        self.assertEqual(special_missing.status_code, 422, special_missing.text)
+
+        special = self._submit(
+            token,
+            _phone(),
+            invoice_type="SPECIAL",
+            invoice_title="申请测试企业",
+            invoice_tax_id="91320000TEST2026",
+            invoice_registered_address="苏州工业园区测试路1号",
+            invoice_phone="0512-12345678",
+            invoice_bank="测试银行",
+            invoice_account="6222000000000000",
+        )
+        self.assertEqual(special.status_code, 200, special.text)
+
+    def test_v111_rules_acknowledgement_is_required(self) -> None:
+        _, token = self._create_link()
+        response = self._submit(token, _phone(), rules_acknowledged=False)
+        self.assertEqual(response.status_code, 422, response.text)
+
+    def test_legacy_long_form_client_without_new_ack_remains_compatible(self) -> None:
+        _, token = self._create_link()
+        phone = _phone()
+        response = self._submit(
+            token,
+            phone,
+            rules_acknowledged=None,
+            books_read="活法",
+            enrollment_reason_philosophy="认同敬天爱人的理念",
+            enrollment_reason_change="提升经营能力",
+            enrollment_reason_other="修身齐家治企",
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        row = fetch_one(
+            "SELECT books_read, rules_acknowledged FROM "
+            "member_enrollment_applications WHERE phone_hash=?",
+            (phone_hash(phone),),
+        )
+        self.assertEqual(row["books_read"], "活法")
+        self.assertFalse(row["rules_acknowledged"])
 
     def test_public_submit_is_protected_generic_and_does_not_create_member(self) -> None:
         _, token = self._create_link()
@@ -145,10 +266,13 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertEqual(row["payment_status"], "UNCONFIRMED")
         self.assertIsNone(row["org_unit_id"])
         self.assertEqual(row["company_address"], "苏州工业园区测试路1号")
-        self.assertEqual(row["invoice_type"], "增值税普通发票")
+        self.assertEqual(row["invoice_type"], "NORMAL")
+        self.assertEqual(row["invoice_title"], "申请测试企业")
+        self.assertEqual(row["invoice_tax_id"], "91320000TEST2026")
+        self.assertEqual(row["industry_category"], "制造业")
         self.assertEqual(row["employee_count"], 20)
-        self.assertEqual(row["books_read"], "活法")
-        self.assertEqual(row["enrollment_reason_philosophy"], "认同敬天爱人的理念")
+        self.assertIsNone(row["books_read"])
+        self.assertTrue(row["rules_acknowledged"])
         self.assertNotEqual(row["phone_ciphertext"], phone)
         self.assertNotIn("测试销售额", row["enterprise_financial_ciphertext"])
         self.assertEqual(len(fetch_all("SELECT id FROM members")), before_members)

@@ -4,9 +4,9 @@
   ],
   "window": {
     "navigationBarTitleText": "新学长信息登记",
-    "navigationBarBackgroundColor": "#f7f3ec",
-    "navigationBarTextStyle": "black",
-    "backgroundColor": "#f7f3ec",
+    "navigationBarBackgroundColor": "#741F2B",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f8f2ef",
     "backgroundTextStyle": "light"
   },
   "style": "v2",

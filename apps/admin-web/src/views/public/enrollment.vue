@@ -20,28 +20,36 @@ const config = ref<PublicEnrollmentForm>();
 const form = reactive({
   name: "",
   phone: "",
-  gender: "" as "" | "MALE" | "FEMALE" | "OTHER",
+  gender: "" as "" | "MALE" | "FEMALE",
   birthday: "",
   political_status: "",
   company_name: "",
+  company_tax_id: "",
   company_address: "",
   email: "",
   position: "",
   referrer: "",
-  invoice_info: "",
-  invoice_type: "",
-  industry: "",
+  invoice_type: "" as "" | "NORMAL" | "SPECIAL" | "NONE",
+  invoice_title: "",
+  invoice_tax_id: "",
+  invoice_registered_address: "",
+  invoice_phone: "",
+  invoice_bank: "",
+  invoice_account: "",
+  industry_category: "",
+  industry_other: "",
   company_products: "",
   employee_count: "",
-  books_read: "",
-  enrollment_reason_philosophy: "",
-  enrollment_reason_change: "",
-  enrollment_reason_other: "",
-  learning_years_goal: "",
-  learning_participation_goal: "",
-  business_goal: "",
-  other_goal: "",
   annual_sales: "",
+  profit_margin: "",
+  goal_years: "",
+  goal_years_other: "",
+  revenue_growth_target: "",
+  revenue_growth_other: "",
+  profit_growth_target: "",
+  profit_growth_other: "",
+  notes: "",
+  rules_acknowledged: false,
   privacy_consent: false
 });
 
@@ -68,9 +76,8 @@ const rules: FormRules = {
   company_name: requiredText("公司名称", 500),
   company_address: requiredText("公司地址", 1000),
   position: requiredText("职务", 255),
-  invoice_info: requiredText("开票资料", 4000),
   invoice_type: requiredText("发票类型", 64),
-  industry: requiredText("所属行业", 255),
+  industry_category: requiredText("所属行业", 255),
   company_products: requiredText("主要产品", 4000),
   employee_count: [
     { required: true, message: "请填写员工人数", trigger: "blur" },
@@ -80,10 +87,6 @@ const rules: FormRules = {
       trigger: "blur"
     }
   ],
-  books_read: requiredText("所读稻盛和夫著作", 4000),
-  enrollment_reason_philosophy: requiredText("认同的哲学理念", 4000),
-  enrollment_reason_change: requiredText("期望改变或努力方向", 4000),
-  enrollment_reason_other: requiredText("入塾初心的其他内容", 4000),
   annual_sales: requiredText("年销售额", 255),
   email: [
     { type: "email", message: "邮箱格式不正确", trigger: "blur" },
@@ -94,6 +97,15 @@ const rules: FormRules = {
       validator: (_rule, value, callback) => {
         if (value === true) callback();
         else callback(new Error("请阅读并同意资料使用说明"));
+      },
+      trigger: "change"
+    }
+  ],
+  rules_acknowledged: [
+    {
+      validator: (_rule, value, callback) => {
+        if (value === true) callback();
+        else callback(new Error("请阅读并确认加入守则与缴费说明"));
       },
       trigger: "change"
     }
@@ -120,34 +132,85 @@ async function submit() {
   if (!formRef.value || !(await formRef.value.validate().catch(() => false))) {
     return;
   }
+  if (
+    form.invoice_type !== "NONE" &&
+    (!form.invoice_title.trim() || !form.invoice_tax_id.trim())
+  ) {
+    errorMessage.value = "请填写发票抬头和税号。";
+    return;
+  }
+  if (
+    form.invoice_type === "SPECIAL" &&
+    [
+      form.invoice_registered_address,
+      form.invoice_phone,
+      form.invoice_bank,
+      form.invoice_account
+    ].some(value => !value.trim())
+  ) {
+    errorMessage.value = "专票资料请填写完整。";
+    return;
+  }
+  if (form.industry_category === "其他" && !form.industry_other.trim()) {
+    errorMessage.value = "请填写其他行业。";
+    return;
+  }
+  if (form.goal_years === "OTHER" && !/^\d+$/.test(form.goal_years_other.trim())) {
+    errorMessage.value = "请填写计划学习年限。";
+    return;
+  }
+  if (
+    (form.revenue_growth_target === "CUSTOM" &&
+      !/^\d+(\.\d+)?$/.test(form.revenue_growth_other.trim())) ||
+    (form.profit_growth_target === "CUSTOM" &&
+      !/^\d+(\.\d+)?$/.test(form.profit_growth_other.trim()))
+  ) {
+    errorMessage.value = "自定义目标请输入数字。";
+    return;
+  }
   submitting.value = true;
   errorMessage.value = "";
   const payload: PublicEnrollmentPayload = {
     name: form.name.trim(),
     phone: form.phone.trim(),
     privacy_consent: true,
+    rules_acknowledged: true,
     gender: form.gender || undefined,
     birthday: form.birthday,
     political_status: optional(form.political_status),
     company_name: form.company_name.trim(),
+    company_tax_id: optional(form.company_tax_id),
     company_address: form.company_address.trim(),
     email: optional(form.email),
     position: form.position.trim(),
     referrer: form.referrer.trim(),
-    invoice_info: form.invoice_info.trim(),
-    invoice_type: form.invoice_type.trim(),
-    industry: form.industry.trim(),
+    invoice_type: form.invoice_type as "NORMAL" | "SPECIAL" | "NONE",
+    invoice_title: optional(form.invoice_title),
+    invoice_tax_id: optional(form.invoice_tax_id),
+    invoice_registered_address: optional(form.invoice_registered_address),
+    invoice_phone: optional(form.invoice_phone),
+    invoice_bank: optional(form.invoice_bank),
+    invoice_account: optional(form.invoice_account),
+    industry_category: form.industry_category.trim(),
+    industry_other: optional(form.industry_other),
     company_products: form.company_products.trim(),
     employee_count: Number(form.employee_count),
-    books_read: form.books_read.trim(),
-    enrollment_reason_philosophy: form.enrollment_reason_philosophy.trim(),
-    enrollment_reason_change: form.enrollment_reason_change.trim(),
-    enrollment_reason_other: form.enrollment_reason_other.trim(),
-    learning_years_goal: optional(form.learning_years_goal),
-    learning_participation_goal: optional(form.learning_participation_goal),
-    business_goal: optional(form.business_goal),
-    other_goal: optional(form.other_goal),
-    annual_sales: form.annual_sales.trim()
+    annual_sales: form.annual_sales.trim(),
+    profit_margin: optional(form.profit_margin),
+    goal_years: optional(
+      form.goal_years === "OTHER" ? form.goal_years_other : form.goal_years
+    ),
+    revenue_growth_target: optional(
+      form.revenue_growth_target === "CUSTOM"
+        ? form.revenue_growth_other
+        : form.revenue_growth_target
+    ),
+    profit_growth_target: optional(
+      form.profit_growth_target === "CUSTOM"
+        ? form.profit_growth_other
+        : form.profit_growth_target
+    ),
+    notes: optional(form.notes)
   };
   try {
     await submitPublicEnrollment(token.value, payload);
@@ -174,6 +237,7 @@ onMounted(loadForm);
       <div>
         <p class="eyebrow">盛和塾运营平台</p>
         <h1>{{ config?.title || "新学长入塾申请" }}</h1>
+        <p class="hero-subtitle">{{ config?.subtitle || "欢迎您填写入塾申请资料" }}</p>
       </div>
     </section>
 
@@ -242,7 +306,6 @@ onMounted(loadForm);
             <el-radio-group v-model="form.gender">
               <el-radio value="MALE">男</el-radio>
               <el-radio value="FEMALE">女</el-radio>
-              <el-radio value="OTHER">其他/不便填写</el-radio>
             </el-radio-group>
           </el-form-item>
 
@@ -300,6 +363,14 @@ onMounted(loadForm);
             />
           </el-form-item>
 
+          <el-form-item label="统一社会信用代码 / 税号">
+            <el-input
+              v-model="form.company_tax_id"
+              maxlength="64"
+              placeholder="手工填写，可选"
+            />
+          </el-form-item>
+
           <el-form-item label="公司地址" prop="company_address" required>
             <el-input
               v-model="form.company_address"
@@ -317,32 +388,56 @@ onMounted(loadForm);
               />
             </el-form-item>
             <el-form-item label="发票类型" prop="invoice_type" required>
-              <el-input
+              <el-select
                 v-model="form.invoice_type"
-                maxlength="64"
-                placeholder="如：增值税普通发票"
-              />
+                placeholder="请选择发票类型"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="option in config?.invoice_types || []"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
             </el-form-item>
           </div>
 
-          <el-form-item label="开票资料" prop="invoice_info" required>
-            <el-input
-              v-model="form.invoice_info"
-              type="textarea"
-              :rows="2"
-              maxlength="4000"
-              show-word-limit
-              placeholder="请填写发票抬头、税号等开票资料"
-            />
-          </el-form-item>
+          <template v-if="form.invoice_type !== 'NONE'">
+            <div class="two-column">
+              <el-form-item label="发票抬头" required>
+                <el-input v-model="form.invoice_title" maxlength="500" placeholder="请填写发票抬头" />
+              </el-form-item>
+              <el-form-item label="发票税号" required>
+                <el-input v-model="form.invoice_tax_id" maxlength="64" placeholder="请填写税号" />
+              </el-form-item>
+            </div>
+            <div v-if="form.invoice_type === 'SPECIAL'" class="two-column">
+              <el-form-item label="注册地址" required>
+                <el-input v-model="form.invoice_registered_address" maxlength="1000" />
+              </el-form-item>
+              <el-form-item label="注册电话" required>
+                <el-input v-model="form.invoice_phone" maxlength="64" />
+              </el-form-item>
+              <el-form-item label="开户银行" required>
+                <el-input v-model="form.invoice_bank" maxlength="255" />
+              </el-form-item>
+              <el-form-item label="银行账号" required>
+                <el-input v-model="form.invoice_account" maxlength="128" />
+              </el-form-item>
+            </div>
+          </template>
 
           <div class="two-column">
-            <el-form-item label="所属行业" prop="industry" required>
-              <el-input
-                v-model="form.industry"
-                maxlength="255"
-                placeholder="如：制造业"
-              />
+            <el-form-item label="所属行业" prop="industry_category" required>
+              <el-select v-model="form.industry_category" placeholder="请选择所属行业" style="width: 100%">
+                <el-option
+                  v-for="option in config?.industry_options || []"
+                  :key="option"
+                  :label="option"
+                  :value="option"
+                />
+              </el-select>
             </el-form-item>
             <el-form-item label="员工人数" prop="employee_count" required>
               <el-input
@@ -353,6 +448,10 @@ onMounted(loadForm);
               />
             </el-form-item>
           </div>
+
+          <el-form-item v-if="form.industry_category === '其他'" label="其他行业" required>
+            <el-input v-model="form.industry_other" maxlength="255" placeholder="请填写行业名称" />
+          </el-form-item>
 
           <el-form-item label="主要产品" prop="company_products" required>
             <el-input
@@ -374,107 +473,90 @@ onMounted(loadForm);
                 placeholder="如：5000万元，或填写销售额区间"
               />
             </el-form-item>
+            <el-form-item label="利润率">
+              <el-select v-model="form.profit_margin" placeholder="请选择（可选）" style="width: 100%">
+                <el-option
+                  v-for="option in config?.profit_margin_options || []"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
+            </el-form-item>
             <p>年销售额仅供获授权人员在入塾审核和后续经营学习服务中使用。</p>
           </div>
 
           <div class="section-heading spaced">
             <span>03</span>
             <div>
-              <h2>学习经历与入塾初心</h2>
-              <p>帮助工作人员了解你的学习基础与加入动机</p>
+              <h2>你在盛和塾想获得什么？</h2>
+              <p>可按目前计划选择，提交后仍可由工作人员联系确认</p>
             </div>
           </div>
 
-          <el-form-item label="所读稻盛和夫著作" prop="books_read" required>
-            <el-input
-              v-model="form.books_read"
-              type="textarea"
-              :rows="3"
-              maxlength="4000"
-              show-word-limit
-              placeholder="请列举几本，如无请填写“无”"
-            />
-          </el-form-item>
-
-          <el-form-item
-            label="对稻盛塾长的哪些哲学理念比较认同"
-            prop="enrollment_reason_philosophy"
-            required
-          >
-            <el-input
-              v-model="form.enrollment_reason_philosophy"
-              type="textarea"
-              :rows="3"
-              maxlength="4000"
-              show-word-limit
-            />
-          </el-form-item>
-
-          <el-form-item
-            label="期望在哪方面改变或朝哪方面努力"
-            prop="enrollment_reason_change"
-            required
-          >
-            <el-input
-              v-model="form.enrollment_reason_change"
-              type="textarea"
-              :rows="3"
-              maxlength="4000"
-              show-word-limit
-            />
-          </el-form-item>
-
-          <el-form-item
-            label="其他（修身、齐家、治企、益社会等）"
-            prop="enrollment_reason_other"
-            required
-          >
-            <el-input
-              v-model="form.enrollment_reason_other"
-              type="textarea"
-              :rows="3"
-              maxlength="4000"
-              show-word-limit
-            />
-          </el-form-item>
-
-          <div class="section-heading spaced">
-            <span>04</span>
-            <div>
-              <h2>入塾后目标</h2>
-              <p>可按目前计划填写，后续可在审核时补充</p>
-            </div>
+          <div class="two-column">
+            <el-form-item label="计划学习年限">
+              <el-select v-model="form.goal_years" placeholder="请选择" style="width: 100%">
+                <el-option label="1年" value="1" />
+                <el-option label="2年" value="2" />
+                <el-option label="3年" value="3" />
+                <el-option label="5年" value="5" />
+                <el-option label="其他" value="OTHER" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="业绩提升目标">
+              <el-select v-model="form.revenue_growth_target" placeholder="请选择" style="width: 100%">
+                <el-option label="暂不设定" value="UNSET" />
+                <el-option label="1.5倍" value="1.5" />
+                <el-option label="2倍" value="2" />
+                <el-option label="3倍" value="3" />
+                <el-option label="5倍" value="5" />
+                <el-option label="自定义" value="CUSTOM" />
+              </el-select>
+            </el-form-item>
           </div>
+          <el-form-item v-if="form.goal_years === 'OTHER'" label="自定义学习年限" required>
+            <el-input v-model="form.goal_years_other" maxlength="3" inputmode="numeric" placeholder="请输入年数" />
+          </el-form-item>
+          <el-form-item label="利润提升目标">
+            <el-select v-model="form.profit_growth_target" placeholder="请选择" style="width: 100%">
+              <el-option label="暂不设定" value="UNSET" />
+              <el-option label="1.5倍" value="1.5" />
+              <el-option label="2倍" value="2" />
+              <el-option label="3倍" value="3" />
+              <el-option label="5倍" value="5" />
+              <el-option label="自定义" value="CUSTOM" />
+            </el-select>
+          </el-form-item>
 
-          <el-form-item label="计划入塾学习年限目标">
-            <el-input v-model="form.learning_years_goal" maxlength="255" />
+          <el-form-item v-if="form.revenue_growth_target === 'CUSTOM'" label="自定义业绩目标" required>
+            <el-input v-model="form.revenue_growth_other" maxlength="8" inputmode="decimal" placeholder="请输入倍数" />
           </el-form-item>
-          <el-form-item label="计划入塾学习目标（打卡、活动参与、分享发表等）">
-            <el-input
-              v-model="form.learning_participation_goal"
-              type="textarea"
-              :rows="3"
-              maxlength="4000"
-              show-word-limit
-            />
+          <el-form-item v-if="form.profit_growth_target === 'CUSTOM'" label="自定义利润目标" required>
+            <el-input v-model="form.profit_growth_other" maxlength="8" inputmode="decimal" placeholder="请输入倍数" />
           </el-form-item>
-          <el-form-item label="入塾提升公司业绩目标（销售额、利润率等）">
-            <el-input
-              v-model="form.business_goal"
-              type="textarea"
-              :rows="3"
-              maxlength="4000"
-              show-word-limit
-            />
+
+          <el-form-item label="补充说明">
+            <el-input v-model="form.notes" type="textarea" :rows="3" maxlength="1000" show-word-limit placeholder="可选填写" />
           </el-form-item>
-          <el-form-item label="其他目标（个人、家庭、公司、社会贡献等）">
-            <el-input
-              v-model="form.other_goal"
-              type="textarea"
-              :rows="3"
-              maxlength="4000"
-              show-word-limit
-            />
+
+          <el-form-item prop="rules_acknowledged" class="consent-item">
+            <el-checkbox v-model="form.rules_acknowledged">
+              我已阅读并确认加入守则与缴费说明
+            </el-checkbox>
+            <div class="rules-copy">
+              <p>盛和塾是认同稻盛哲学、经营学理念的企业经营者相互学习、相互交流和共同成长的学习平台，致力于让幸福企业遍布苏城。</p>
+              <p>每一位准备加入盛和塾苏州分中心的学员，均需认真阅读并遵守以下加入守则。</p>
+              <p><strong>（一）加入条件</strong></p>
+              <p>1. 依法开展经营的企业经营者，包括企业股东、总经理、合伙人等；</p>
+              <p>2. 认同稻盛哲学与经营学，并自愿加入的企业经营者配偶、二代接班人；</p>
+              <p>3. 加入后按照学员守则要求，坚持线上读书打卡、分享学习感悟，并积极参加线下学习活动。不得利用盛和塾资源平台发布与稻盛经营学无关的企业咨询、企业培训等商业广告，或从事其他商业推广活动；不得以个人商业推广为目的，在相关群内主动添加非本班陌生学长微信（线下活动正常认识除外）。违反相关约定者，自愿接受退出处理。</p>
+              <p><strong>（二）缴费说明</strong></p>
+              <p>盛和塾学员费：4800元/人/年。</p>
+              <p>汇款账户：无锡稻合企业管理顾问有限公司<br />账号：512914112210201<br />开户行：招商银行苏州新区支行</p>
+              <p>转款后请将转款截图提交工作人员。收到会费后，工作人员将开具电子发票，并通过微信或邮箱提供。</p>
+              <p><strong>如有疑问请联系</strong><br />盛和塾苏州分中心事务所<br />张玲嫣：199-8486-4833<br />胡延辉：137-7605-2728<br />苏州市高新区竹园路189号2幢102室2楼</p>
+            </div>
           </el-form-item>
 
           <el-form-item prop="privacy_consent" class="consent-item">
@@ -554,6 +636,12 @@ footer {
   color: #6f8178;
   font-size: 13px;
   letter-spacing: 0.12em;
+}
+
+.hero-subtitle {
+  margin: 6px 0 0;
+  color: #6f8178;
+  font-size: 14px;
 }
 
 h1,
@@ -665,6 +753,24 @@ h1 {
   color: #77837d;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.rules-copy {
+  padding: 12px 14px;
+  margin: 10px 0 0 24px;
+  color: #6c6254;
+  font-size: 12px;
+  line-height: 1.7;
+  background: #fffaf0;
+  border-radius: 10px;
+}
+
+.rules-copy p {
+  margin: 0 0 8px;
+}
+
+.rules-copy p:last-child {
+  margin-bottom: 0;
 }
 
 .submit-button {

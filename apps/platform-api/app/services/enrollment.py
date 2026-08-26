@@ -25,6 +25,64 @@ PUBLIC_SUCCESS_MESSAGE = "申请已提交，请等待工作人员联系。"
 ACTIVE_APPLICATION_STATUSES = {"SUBMITTED", "APPROVED"}
 EDITABLE_APPLICATION_STATUSES = {"SUBMITTED", "APPROVED"}
 FINANCIAL_FIELDS = {"annual_sales", "profit_margin"}
+INVOICE_FIELDS = {
+    "company_tax_id",
+    "invoice_info",
+    "invoice_type",
+    "invoice_title",
+    "invoice_tax_id",
+    "invoice_registered_address",
+    "invoice_phone",
+    "invoice_bank",
+    "invoice_account",
+}
+INVOICE_SENSITIVE_FIELDS = INVOICE_FIELDS - {"invoice_type"}
+INDUSTRY_OPTIONS = (
+    "制造业",
+    "纺织 / 服装",
+    "商贸 / 零售",
+    "服务业",
+    "建筑 / 工程",
+    "信息技术 / 软件",
+    "餐饮 / 文旅",
+    "医疗 / 健康",
+    "教育",
+    "金融 / 投资",
+    "房地产",
+    "其他",
+)
+INVOICE_TYPE_LABELS = {
+    "NORMAL": "普票",
+    "SPECIAL": "专票",
+    "NONE": "无需开票",
+}
+INVOICE_TYPE_ALIASES = {
+    "普票": "NORMAL",
+    "普通发票": "NORMAL",
+    "增值税普通发票": "NORMAL",
+    "专票": "SPECIAL",
+    "增值税专用发票": "SPECIAL",
+    "无需开票": "NONE",
+    "不需要发票": "NONE",
+}
+PROFIT_MARGIN_LABELS = {
+    "GE_10_PERCENT": "10%及以上",
+    "LT_10_PERCENT": "0%～10%以下",
+    "LOSS": "亏损",
+}
+PROFIT_MARGIN_ALIASES = {
+    "10%及以上": "GE_10_PERCENT",
+    "0%～10%以下": "LT_10_PERCENT",
+    "0%~10%以下": "LT_10_PERCENT",
+    "亏损": "LOSS",
+}
+GROWTH_TARGET_OPTIONS = ("UNSET", "1.5", "2", "3", "5")
+LEGACY_REQUIRED_FIELDS = (
+    "books_read",
+    "enrollment_reason_philosophy",
+    "enrollment_reason_change",
+    "enrollment_reason_other",
+)
 REVIEW_FIELDS = {
     "name",
     "gender",
@@ -32,13 +90,21 @@ REVIEW_FIELDS = {
     "district",
     "political_status",
     "company_name",
+    "company_tax_id",
     "company_address",
     "email",
     "position",
     "referrer",
     "invoice_info",
     "invoice_type",
+    "invoice_title",
+    "invoice_tax_id",
+    "invoice_registered_address",
+    "invoice_phone",
+    "invoice_bank",
+    "invoice_account",
     "industry_category",
+    "industry_other",
     "industry",
     "company_products",
     "employee_count",
@@ -50,6 +116,9 @@ REVIEW_FIELDS = {
     "learning_participation_goal",
     "business_goal",
     "other_goal",
+    "goal_years",
+    "revenue_growth_target",
+    "profit_growth_target",
     "notes",
     "org_unit_id",
     "join_date",
@@ -58,6 +127,10 @@ REVIEW_FIELDS = {
 
 class EnrollmentRateLimitError(ValueError):
     pass
+
+
+class EnrollmentValidationError(ValueError):
+    """A public form value is syntactically valid but violates business rules."""
 
 
 def _now() -> str:
@@ -90,6 +163,144 @@ def _json_safe_row(row: dict[str, Any]) -> dict[str, Any]:
 def _clean_optional(value: str | None) -> str | None:
     cleaned = (value or "").strip()
     return cleaned or None
+
+
+def _canonical_profit_margin(value: str | None) -> str | None:
+    cleaned = _clean_optional(value)
+    if not cleaned:
+        return None
+    canonical = PROFIT_MARGIN_ALIASES.get(cleaned, cleaned)
+    if canonical not in PROFIT_MARGIN_LABELS:
+        raise EnrollmentValidationError("利润率请选择标准选项")
+    return canonical
+
+
+def _canonical_goal_value(
+    value: str | None, *, label: str, integer_only: bool = False
+) -> str | None:
+    cleaned = _clean_optional(value)
+    if not cleaned:
+        return None
+    if cleaned in {"UNSET", "暂不设定"}:
+        return "UNSET"
+    pattern = r"^\d+$" if integer_only else r"^\d+(?:\.\d+)?$"
+    if not re.fullmatch(pattern, cleaned):
+        raise EnrollmentValidationError(f"{label}请输入正数或选择暂不设定")
+    number = Decimal(cleaned)
+    if number <= 0 or number > 100:
+        raise EnrollmentValidationError(f"{label}超出允许范围")
+    if integer_only:
+        return str(int(number))
+    return format(number.normalize(), "f")
+
+
+def _canonical_industry(payload: dict[str, Any]) -> dict[str, str | None]:
+    selected = _clean_optional(payload.get("industry_category"))
+    legacy_value = _clean_optional(payload.get("industry"))
+    if not selected:
+        selected = legacy_value
+    aliases = {"纺织服装": "纺织 / 服装", "商贸零售": "商贸 / 零售"}
+    selected = aliases.get(selected or "", selected)
+    if selected not in INDUSTRY_OPTIONS:
+        raise EnrollmentValidationError("所属行业请选择标准选项")
+    if selected == "其他":
+        supplement = _clean_optional(payload.get("industry_other"))
+        if not supplement and legacy_value and legacy_value not in INDUSTRY_OPTIONS:
+            supplement = legacy_value
+        if not supplement:
+            raise EnrollmentValidationError("请选择或填写其他行业")
+        return {
+            "industry_category": "其他",
+            "industry": supplement,
+            "industry_other": supplement,
+        }
+    return {
+        "industry_category": selected,
+        "industry": selected,
+        "industry_other": None,
+    }
+
+
+def _legacy_invoice_values(value: str | None) -> dict[str, str]:
+    cleaned = _clean_optional(value)
+    if not cleaned:
+        return {}
+    try:
+        parsed = json.loads(cleaned)
+    except (TypeError, json.JSONDecodeError):
+        parts = [part.strip() for part in cleaned.split("|")]
+        keys = ("invoice_title", "invoice_tax_id", "invoice_registered_address")
+        return {key: part for key, part in zip(keys, parts) if part}
+    return (
+        {str(key): str(item).strip() for key, item in parsed.items() if item not in (None, "")}
+        if isinstance(parsed, dict)
+        else {}
+    )
+
+
+def _canonical_invoice(payload: dict[str, Any]) -> dict[str, str | None]:
+    raw_type = _clean_optional(payload.get("invoice_type"))
+    invoice_type = INVOICE_TYPE_ALIASES.get(raw_type or "", raw_type)
+    if invoice_type not in INVOICE_TYPE_LABELS:
+        raise EnrollmentValidationError("发票类型请选择普票、专票或无需开票")
+    if invoice_type == "NONE":
+        return {
+            "invoice_type": "NONE",
+            "invoice_info": None,
+            "company_tax_id": _clean_optional(payload.get("company_tax_id")),
+            "invoice_title": None,
+            "invoice_tax_id": None,
+            "invoice_registered_address": None,
+            "invoice_phone": None,
+            "invoice_bank": None,
+            "invoice_account": None,
+        }
+    legacy = _legacy_invoice_values(payload.get("invoice_info"))
+    get_value = lambda key: _clean_optional(payload.get(key)) or legacy.get(key)
+    company_tax_id = _clean_optional(payload.get("company_tax_id"))
+    tax_id = get_value("invoice_tax_id") or company_tax_id
+    title = get_value("invoice_title")
+    registered_address = get_value("invoice_registered_address")
+    phone = get_value("invoice_phone")
+    bank = get_value("invoice_bank")
+    account = get_value("invoice_account")
+    if not title or not tax_id:
+        raise EnrollmentValidationError("普票或专票必须填写发票抬头和税号")
+    if invoice_type == "SPECIAL" and not all(
+        (registered_address, phone, bank, account)
+    ):
+        raise EnrollmentValidationError("专票还需填写注册地址、注册电话、开户银行和银行账号")
+    structured = {
+        "invoice_type": invoice_type,
+        "invoice_title": title,
+        "invoice_tax_id": tax_id,
+        "invoice_registered_address": registered_address,
+        "invoice_phone": phone,
+        "invoice_bank": bank,
+        "invoice_account": account,
+    }
+    return {
+        **structured,
+        "company_tax_id": company_tax_id or tax_id,
+        "invoice_info": json.dumps(structured, ensure_ascii=False),
+    }
+
+
+def _invoice_fields_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: row.get(key)
+        for key in (
+            "invoice_type",
+            "invoice_info",
+            "company_tax_id",
+            "invoice_title",
+            "invoice_tax_id",
+            "invoice_registered_address",
+            "invoice_phone",
+            "invoice_bank",
+            "invoice_account",
+        )
+    }
 
 
 def _financial_ciphertext(
@@ -348,8 +559,9 @@ def get_public_enrollment_form(token: str) -> dict[str, Any]:
     return {
         "title": "新学长入塾申请",
         "link_name": link["name"],
-        "notice": "提交申请不代表已正式入塾，工作人员审核、确认收款及归属分中心后才会建立正式学长档案。",
-        "privacy_notice": "所填资料仅用于入塾审核与后续服务。手机号和企业财务资料将加密保存并按权限使用。",
+        "subtitle": "欢迎您填写入塾申请资料",
+        "notice": "提交资料不代表已经正式入塾。工作人员审核资料、确认所属分中心及会费后，才会建立正式学员档案。本页面不进行任何转账或收费。",
+        "privacy_notice": "所填资料仅用于入塾审核与后续服务。手机号、税号、银行账号和企业财务资料将按权限使用。",
         "required_fields": [
             "name",
             "phone",
@@ -358,16 +570,12 @@ def get_public_enrollment_form(token: str) -> dict[str, Any]:
             "company_name",
             "company_address",
             "position",
-            "invoice_info",
             "invoice_type",
-            "industry",
+            "industry_category",
             "company_products",
             "employee_count",
             "annual_sales",
-            "books_read",
-            "enrollment_reason_philosophy",
-            "enrollment_reason_change",
-            "enrollment_reason_other",
+            "rules_acknowledged",
             "privacy_consent",
         ],
         "optional_fields": [
@@ -375,14 +583,34 @@ def get_public_enrollment_form(token: str) -> dict[str, Any]:
             "district",
             "political_status",
             "email",
-            "industry_category",
+            "company_tax_id",
+            "industry_other",
+            "invoice_title",
+            "invoice_tax_id",
+            "invoice_registered_address",
+            "invoice_phone",
+            "invoice_bank",
+            "invoice_account",
             "profit_margin",
-            "learning_years_goal",
-            "learning_participation_goal",
-            "business_goal",
-            "other_goal",
+            "goal_years",
+            "revenue_growth_target",
+            "profit_growth_target",
             "notes",
         ],
+        "industry_options": list(INDUSTRY_OPTIONS),
+        "invoice_types": [
+            {"value": value, "label": label}
+            for value, label in INVOICE_TYPE_LABELS.items()
+        ],
+        "profit_margin_options": [
+            {"value": value, "label": label}
+            for value, label in PROFIT_MARGIN_LABELS.items()
+        ],
+        "growth_target_options": [
+            {"value": value, "label": "暂不设定" if value == "UNSET" else f"{value}倍"}
+            for value in GROWTH_TARGET_OPTIONS
+        ],
+        "goal_year_options": ["1", "2", "3", "5", "OTHER"],
         "collects_organization": False,
     }
 
@@ -446,6 +674,57 @@ def _check_submission_rate_limit(token_hash: str, client_address: str) -> None:
         )
 
 
+def _prepare_public_values(payload: dict[str, Any]) -> dict[str, Any]:
+    legacy_submission = (
+        payload.get("rules_acknowledged") is None
+        and all(_clean_optional(payload.get(field)) for field in LEGACY_REQUIRED_FIELDS)
+    )
+    if payload.get("rules_acknowledged") is not True and not legacy_submission:
+        raise EnrollmentValidationError("请先阅读并确认加入守则与缴费说明")
+    industry = _canonical_industry(payload)
+    invoice = _canonical_invoice(payload)
+    values: dict[str, Any] = {
+        key: _clean_optional(payload.get(key))
+        for key in (
+            "gender",
+            "birthday",
+            "district",
+            "political_status",
+            "company_name",
+            "company_address",
+            "email",
+            "position",
+            "referrer",
+            "company_products",
+            "books_read",
+            "enrollment_reason_philosophy",
+            "enrollment_reason_change",
+            "enrollment_reason_other",
+            "learning_years_goal",
+            "learning_participation_goal",
+            "business_goal",
+            "other_goal",
+            "notes",
+        )
+    }
+    values["employee_count"] = payload.get("employee_count")
+    values["annual_sales"] = _clean_optional(payload.get("annual_sales"))
+    values["profit_margin"] = _canonical_profit_margin(payload.get("profit_margin"))
+    values["goal_years"] = _canonical_goal_value(
+        payload.get("goal_years"), label="计划学习年限", integer_only=True
+    )
+    values["revenue_growth_target"] = _canonical_goal_value(
+        payload.get("revenue_growth_target"), label="业绩目标"
+    )
+    values["profit_growth_target"] = _canonical_goal_value(
+        payload.get("profit_growth_target"), label="利润目标"
+    )
+    values["_legacy_submission"] = legacy_submission
+    values.update(industry)
+    values.update(invoice)
+    return values
+
+
 def submit_public_enrollment(
     token: str, payload: dict[str, Any], client_address: str
 ) -> dict[str, Any]:
@@ -457,6 +736,7 @@ def submit_public_enrollment(
     name = payload["name"].strip()
     if not name:
         raise ValueError("姓名不能为空")
+    values = _prepare_public_values(payload)
     phone_fields = protected_phone(payload["phone"])
     existing_application = fetch_one(
         "SELECT id FROM member_enrollment_applications "
@@ -471,94 +751,98 @@ def submit_public_enrollment(
         (phone_fields["phone_hash"],),
     )
     financial_ciphertext = _financial_ciphertext(
-        payload.get("annual_sales"), payload.get("profit_margin")
+        values["annual_sales"], values["profit_margin"]
     )
     now = _now()
     application_no = _application_number()
-    values = {
-        key: _clean_optional(payload.get(key))
-        for key in (
-            "gender",
-            "birthday",
-            "district",
-            "political_status",
-            "company_name",
-            "company_address",
-            "email",
-            "position",
-            "referrer",
-            "invoice_info",
-            "invoice_type",
-            "industry_category",
-            "industry",
-            "company_products",
-            "books_read",
-            "enrollment_reason_philosophy",
-            "enrollment_reason_change",
-            "enrollment_reason_other",
-            "learning_years_goal",
-            "learning_participation_goal",
-            "business_goal",
-            "other_goal",
-            "notes",
-        )
-    }
-    values["employee_count"] = payload.get("employee_count")
-    insert_values = (
-        application_no,
-        link["id"],
-        phone_fields["phone_ciphertext"],
-        phone_fields["phone_hash"],
-        phone_fields["phone_last4"],
-        phone_fields["phone_masked"],
-        phone_fields["phone_hash"],
-        name,
-        values["gender"],
-        values["birthday"],
-        values["district"],
-        values["political_status"],
-        values["company_name"],
-        values["company_address"],
-        values["email"],
-        values["position"],
-        values["referrer"],
-        values["invoice_info"],
-        values["invoice_type"],
-        values["industry_category"],
-        values["industry"],
-        values["company_products"],
-        values["employee_count"],
-        values["books_read"],
-        values["enrollment_reason_philosophy"],
-        values["enrollment_reason_change"],
-        values["enrollment_reason_other"],
-        values["learning_years_goal"],
-        values["learning_participation_goal"],
-        values["business_goal"],
-        values["other_goal"],
-        financial_ciphertext,
-        values["notes"],
-        now,
+    values.update(
+        {
+            "application_no": application_no,
+            "link_id": link["id"],
+            "phone_ciphertext": phone_fields["phone_ciphertext"],
+            "phone_hash": phone_fields["phone_hash"],
+            "phone_last4": phone_fields["phone_last4"],
+            "phone_masked": phone_fields["phone_masked"],
+            "active_phone_guard": phone_fields["phone_hash"],
+            "name": name,
+            "enterprise_financial_ciphertext": financial_ciphertext,
+            "privacy_consent_at": now,
+            "rules_acknowledged": 0 if values.pop("_legacy_submission", False) else 1,
+            "rules_acknowledged_at": now,
+            "application_status": "SUBMITTED",
+            "payment_status": "UNCONFIRMED",
+            "duplicate_member_risk": 1 if duplicate_member else 0,
+            "org_unit_id": None,
+            "created_at": now,
+            "updated_at": now,
+        }
     )
+    insert_columns = [
+        "application_no",
+        "link_id",
+        "phone_ciphertext",
+        "phone_hash",
+        "phone_last4",
+        "phone_masked",
+        "active_phone_guard",
+        "name",
+        "gender",
+        "birthday",
+        "district",
+        "political_status",
+        "company_name",
+        "company_tax_id",
+        "company_address",
+        "email",
+        "position",
+        "referrer",
+        "invoice_type",
+        "invoice_info",
+        "invoice_title",
+        "invoice_tax_id",
+        "invoice_registered_address",
+        "invoice_phone",
+        "invoice_bank",
+        "invoice_account",
+        "industry_category",
+        "industry",
+        "industry_other",
+        "company_products",
+        "employee_count",
+        "books_read",
+        "enrollment_reason_philosophy",
+        "enrollment_reason_change",
+        "enrollment_reason_other",
+        "learning_years_goal",
+        "learning_participation_goal",
+        "business_goal",
+        "other_goal",
+        "goal_years",
+        "revenue_growth_target",
+        "profit_growth_target",
+        "enterprise_financial_ciphertext",
+        "notes",
+        "privacy_consent_at",
+        "rules_acknowledged",
+        "rules_acknowledged_at",
+        "application_status",
+        "payment_status",
+        "duplicate_member_risk",
+        "org_unit_id",
+        "created_at",
+        "updated_at",
+    ]
+    insert_values = tuple(values[column] for column in insert_columns)
     try:
         with transaction() as connection:
             cursor = execute(
                 connection,
                 "INSERT INTO member_enrollment_applications("
-                "application_no, link_id, phone_ciphertext, phone_hash, phone_last4, "
-                "phone_masked, active_phone_guard, name, gender, birthday, district, "
-                "political_status, company_name, company_address, email, position, "
-                "referrer, invoice_info, invoice_type, industry_category, industry, "
-                "company_products, employee_count, books_read, "
-                "enrollment_reason_philosophy, enrollment_reason_change, "
-                "enrollment_reason_other, learning_years_goal, "
-                "learning_participation_goal, business_goal, other_goal, "
-                "enterprise_financial_ciphertext, notes, privacy_consent_at, "
-                "application_status, payment_status, duplicate_member_risk, "
-                "org_unit_id, created_at, updated_at) "
-                f"VALUES ({', '.join('?' for _ in insert_values)}, "
-                "'SUBMITTED', 'UNCONFIRMED', ?, NULL, ?, ?)",
-                insert_values + (1 if duplicate_member else 0, now, now),
+                + ", ".join(insert_columns)
+                + ") VALUES ("
+                + ", ".join("?" for _ in insert_values)
+                + ")",
+                insert_values,
             )
             application_id = int(cursor.lastrowid)
             write_audit(
@@ -572,6 +856,7 @@ def submit_public_enrollment(
                     "phone": phone_fields["phone_masked"],
                     "duplicate_member_risk": bool(duplicate_member),
                     "link_id": link["id"],
+                    "rules_acknowledged": bool(values["rules_acknowledged"]),
                 },
             )
     except Exception:
@@ -768,6 +1053,7 @@ def get_enrollment_application(actor_user_id: int, application_id: int) -> dict[
         "phone_last4",
         "active_phone_guard",
         "enterprise_financial_ciphertext",
+        *INVOICE_SENSITIVE_FIELDS,
     }
     safe = _json_safe_row({key: value for key, value in row.items() if key not in excluded})
     if not can_view_payment_detail:
@@ -781,6 +1067,17 @@ def get_enrollment_application(actor_user_id: int, application_id: int) -> dict[
     safe["financial_fields_visible"] = can_view_financial
     safe["annual_sales"] = financial_values.get("annual_sales")
     safe["profit_margin"] = financial_values.get("profit_margin")
+    safe["invoice_fields_visible"] = can_view_financial
+    if can_view_financial:
+        safe.update(
+            {
+                key: row.get(key)
+                for key in INVOICE_SENSITIVE_FIELDS
+                if key != "invoice_info"
+            }
+        )
+        safe["invoice_info"] = row.get("invoice_info")
+    safe["rules_acknowledged"] = bool(row.get("rules_acknowledged"))
     safe["missing_gates"] = _missing_enrollment_gates(row)
     safe["can_enroll"] = (
         row["application_status"] != "ENROLLED" and not safe["missing_gates"]
@@ -817,23 +1114,65 @@ def review_enrollment_application(
         raise ValueError("当前申请状态不能再审核或修改")
     if decision not in {"SAVE", "APPROVE"}:
         raise ValueError("审核动作无效")
-    unknown = set(updates) - REVIEW_FIELDS - FINANCIAL_FIELDS
+    incoming = dict(updates)
+    unknown = set(incoming) - REVIEW_FIELDS - FINANCIAL_FIELDS
     if unknown:
         raise ValueError("包含不允许修改的申请字段")
-    if "org_unit_id" in updates:
-        _validate_target_org(actor_user_id, updates.get("org_unit_id"))
-    if "name" in updates and not (updates.get("name") or "").strip():
+    if "org_unit_id" in incoming:
+        _validate_target_org(actor_user_id, incoming.get("org_unit_id"))
+    if "name" in incoming and not (incoming.get("name") or "").strip():
         raise ValueError("姓名不能为空")
+    if "gender" in incoming and incoming.get("gender") not in {None, "MALE", "FEMALE"}:
+        raise ValueError("性别只能选择男或女")
 
     user = user_context(actor_user_id) or {"permissions": []}
-    financial_changes = FINANCIAL_FIELDS.intersection(updates)
-    if financial_changes and "members:enterprise_view" not in user["permissions"]:
+    invoice_input_fields = INVOICE_FIELDS.intersection(incoming)
+    if invoice_input_fields:
+        invoice_payload = _invoice_fields_from_row(current)
+        invoice_payload.update(
+            {key: incoming[key] for key in invoice_input_fields if key in incoming}
+        )
+        invoice_values = _canonical_invoice(invoice_payload)
+        for key in INVOICE_FIELDS:
+            incoming.pop(key, None)
+        incoming.update(invoice_values)
+    financial_changes = FINANCIAL_FIELDS.intersection(incoming)
+    if (financial_changes or invoice_input_fields) and "members:enterprise_view" not in user["permissions"]:
         raise PermissionError("当前角色不能维护企业敏感财务资料")
+
+    industry_input_fields = {"industry", "industry_category", "industry_other"}.intersection(
+        incoming
+    )
+    if industry_input_fields:
+        industry_payload = {
+            "industry_category": current.get("industry_category"),
+            "industry": current.get("industry"),
+            "industry_other": current.get("industry_other"),
+        }
+        industry_payload.update(
+            {key: incoming[key] for key in industry_input_fields if key in incoming}
+        )
+        industry_values = _canonical_industry(industry_payload)
+        for key in industry_input_fields:
+            incoming.pop(key, None)
+        incoming.update(industry_values)
+    if "profit_margin" in incoming:
+        incoming["profit_margin"] = _canonical_profit_margin(incoming["profit_margin"])
+    for key, label, integer_only in (
+        ("goal_years", "计划学习年限", True),
+        ("revenue_growth_target", "业绩目标", False),
+        ("profit_growth_target", "利润目标", False),
+    ):
+        if key in incoming:
+            incoming[key] = _canonical_goal_value(
+                incoming[key], label=label, integer_only=integer_only
+            )
+
     financial_ciphertext = current.get("enterprise_financial_ciphertext")
     if financial_changes:
         financial = _financial_values(financial_ciphertext)
         for key in financial_changes:
-            value = _clean_optional(updates.pop(key))
+            value = _clean_optional(incoming.pop(key))
             if value:
                 financial[key] = value
             else:
@@ -845,8 +1184,9 @@ def review_enrollment_application(
     now = _now()
     assignments: list[str] = []
     params: list[Any] = []
-    for field in sorted(updates):
-        value = updates[field]
+    changed_fields = set(incoming) | financial_changes | invoice_input_fields
+    for field in sorted(incoming):
+        value = incoming[field]
         if isinstance(value, str):
             value = _clean_optional(value)
         assignments.append(f"{field}=?")
@@ -880,11 +1220,11 @@ def review_enrollment_application(
             ),
             resource_type="member_enrollment_application",
             resource_id=str(application_id),
-            org_unit_id=updates.get("org_unit_id", current.get("org_unit_id")),
+            org_unit_id=incoming.get("org_unit_id", current.get("org_unit_id")),
             before={"status": current["application_status"]},
             after={
                 "status": "APPROVED" if decision == "APPROVE" else current["application_status"],
-                "changed_fields": sorted(set(updates) | financial_changes),
+                "changed_fields": sorted(changed_fields),
             },
         )
     return get_enrollment_application(actor_user_id, application_id)
