@@ -22,6 +22,7 @@ from app.services.organization_management import (
     list_learning_org_units,
     move_learning_org_unit,
     preview_learning_org_move,
+    rename_learning_group,
     transfer_group_member_relation,
 )
 from app.services.identity_admin import assert_identity_write_enabled
@@ -62,6 +63,15 @@ class LearningOrgCreatePayload(BaseModel):
     unit_type: str = Field(pattern="^(CLASS|GROUP)$")
     parent_id: str = Field(min_length=1, max_length=64)
     confirmation: str = Field(min_length=4, max_length=300)
+
+
+class LearningGroupRenamePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    confirmation: str = Field(min_length=4, max_length=300)
+    reason: str = Field(
+        default="班级运营调整小组名称，成员关系保持不变",
+        max_length=1000,
+    )
 
 
 class LearningOrgMovePayload(BaseModel):
@@ -166,6 +176,21 @@ def add_learning_org_unit(
 ) -> dict:
     try:
         data = create_learning_org_unit(actor["id"], **payload.model_dump())
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.patch("/iam/org-units/{unit_id}/name")
+def rename_learning_group_name(
+    unit_id: str,
+    payload: LearningGroupRenamePayload,
+    actor: dict = Depends(require_permission("org:manage")),
+) -> dict:
+    try:
+        data = rename_learning_group(actor["id"], unit_id, **payload.model_dump())
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:

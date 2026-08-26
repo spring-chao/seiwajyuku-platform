@@ -1256,18 +1256,19 @@ def test_renewal_cycle_followup_and_status_update() -> None:
             "VALUES ('org-renewal-other', 'RENEWAL_OTHER', '续费测试异地分中心', 'REGIONAL_CENTER', 'org-suzhou', 1, ?, ?)",
             (now, now),
         )
+    expected_next_followup_at = _normalize_followup_datetime("9-28")
     followup_id = add_followup(
         cycle_id,
         1,
         channel="PHONE",
         summary="已完成首次续费联系",
         intention="继续沟通",
-        next_followup_at="2099-09-05 14:30",
+        next_followup_at="9-28",
     )
     update_cycle(cycle_id, 1, status="IN_COMMUNICATION", assigned_user_id=1)
     followups = list_followups(cycle_id, 1)
     assert followups[0]["id"] == followup_id
-    assert followups[0]["next_followup_at"] == "2099-09-05 14:30:00"
+    assert followups[0]["next_followup_at"] == expected_next_followup_at
     cycle = fetch_one(
         "SELECT status, assigned_user_id FROM renewal_cycles WHERE id=?", (cycle_id,)
     )

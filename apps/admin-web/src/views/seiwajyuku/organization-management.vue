@@ -10,6 +10,7 @@ import {
   getSystemEnvironment,
   moveLearningOrgUnit,
   previewLearningOrgMove,
+  renameLearningGroup,
   transferLearningGroupMember,
   type LearningGroupMemberTransferOptions,
   type LearningOrgManagement,
@@ -26,9 +27,11 @@ const centerFilter = ref("");
 const classFilter = ref("");
 const statusFilter = ref("ACTIVE");
 const createVisible = ref(false);
+const renameVisible = ref(false);
 const moveVisible = ref(false);
 const memberTransferVisible = ref(false);
 const movingUnit = ref<ManagedLearningOrgUnit>();
+const renamingUnit = ref<ManagedLearningOrgUnit>();
 const memberTransferSource = ref<ManagedLearningOrgUnit>();
 const memberTransferData = ref<LearningGroupMemberTransferOptions>();
 const createForm = reactive({
@@ -38,6 +41,7 @@ const createForm = reactive({
   parent_id: ""
 });
 const moveForm = reactive({ target_parent_id: "", reason: "" });
+const renameForm = reactive({ name: "" });
 const memberTransferForm = reactive({
   targetByMember: {} as Record<number, string>,
   reason: "清理重复小组关联"
@@ -339,6 +343,46 @@ async function submitCreate() {
   }
 }
 
+function openRename(item: ManagedLearningOrgUnit) {
+  renamingUnit.value = item;
+  renameForm.name = item.name;
+  renameVisible.value = true;
+}
+
+async function submitRename() {
+  const unit = renamingUnit.value;
+  const name = renameForm.name.trim();
+  if (!unit || !name) {
+    ElMessage.warning("请输入小组名称");
+    return;
+  }
+  if (name === unit.name) {
+    ElMessage.info("名称未变化，无需保存");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认将小组“${unit.name}”改名为“${name}”？成员关系、所属班级和历史记录不会改变。`,
+      "确认修改小组名称",
+      { type: "warning", confirmButtonText: "确认修改" }
+    );
+    saving.value = true;
+    const response = await renameLearningGroup(unit.id, {
+      name,
+      confirmation: `确认将小组“${unit.name}”改名为“${name}”`
+    });
+    renameVisible.value = false;
+    ElMessage.success(
+      `小组已改名为“${response.data.name}”，成员关系保持不变并已记录审计`
+    );
+    await load();
+  } catch (error) {
+    if (error !== "cancel") ElMessage.error(errorText(error));
+  } finally {
+    saving.value = false;
+  }
+}
+
 function openMove(item: ManagedLearningOrgUnit) {
   movingUnit.value = item;
   Object.assign(moveForm, { target_parent_id: item.parent_id || "", reason: "" });
@@ -488,7 +532,7 @@ onMounted(load);
       <div>
         <p>系统设置 · 组织主数据</p>
         <h1>班级与小组管理</h1>
-        <span>这里是分中心、班级和小组关系的唯一维护入口；调整班级归属后，关联学员及全系统当前视图会自动同步。</span>
+        <span>这里是分中心、班级和小组关系的唯一维护入口；小组改名只更新组织名称，不改变成员关系或所属班级。</span>
       </div>
       <div class="hero-actions">
         <el-button type="warning" :disabled="!writeEnabled || saving" @click="cleanKunshanYanwuDuplicates">归并炎武重复班级</el-button>
@@ -535,9 +579,10 @@ onMounted(load);
         <el-table-column label="当前关联" min-width="260">
           <template #default="{ row }">{{ referenceText(asManagedUnit(row)) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="210" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.unit_type === 'CLASS' && row.is_active" link type="primary" :disabled="!writeEnabled" @click="openMove(asManagedUnit(row))">调整归属</el-button>
+            <el-button v-if="row.unit_type === 'GROUP' && row.is_active" link type="primary" :disabled="!writeEnabled || saving" @click="openRename(asManagedUnit(row))">编辑名称</el-button>
             <el-button v-if="row.unit_type === 'GROUP' && row.is_active && row.reference_counts.active_member_relations" link type="primary" :disabled="!writeEnabled || saving" @click="openMemberTransfer(asManagedUnit(row))">查看并迁移（{{ row.reference_counts.active_member_relations }}）</el-button>
             <el-button v-if="row.is_active" link type="danger" :disabled="!writeEnabled || saving" @click="deactivate(asManagedUnit(row))">停用</el-button>
           </template>
@@ -564,6 +609,28 @@ onMounted(load);
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="submitCreate">新增并记录审计</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="renameVisible" title="修改小组名称" width="560px">
+      <el-alert
+        title="仅修改小组名称，不改变成员关系、所属班级或历史记录。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="rename-alert"
+      />
+      <el-form label-position="top" class="rename-form">
+        <el-form-item label="所属班级">
+          <el-input :model-value="renamingUnit?.parent_name || '—'" disabled />
+        </el-form-item>
+        <el-form-item label="新小组名称" required>
+          <el-input v-model="renameForm.name" maxlength="255" show-word-limit @keyup.enter="submitRename" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="renameVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="submitRename">保存名称并记录审计</el-button>
       </template>
     </el-dialog>
 
@@ -629,6 +696,8 @@ onMounted(load);
 .filters { display: flex; gap: 12px; margin-bottom: 18px; }
 .filters .el-select { width: 220px; }
 .el-alert { margin-top: 18px; }
+.rename-alert { margin-top: 0; }
+.rename-form { margin-top: 18px; }
 .transfer-hint { margin: 0 0 14px; color: #677a73; }
 .transfer-reason { margin-top: 18px; }
 @media (max-width: 860px) { .hero { align-items: flex-start; flex-direction: column; } .filters { flex-wrap: wrap; } }
