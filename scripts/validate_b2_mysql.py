@@ -310,7 +310,14 @@ def _cycle_engine(version_id: int, admin_user_id: int) -> dict:
                 confirmation_reason="B2 CI 周期边界验证",
             )
             if progress["current_cycle"]["learning_cycle_index"] != 2:
-                _fail(f"{cohort}月班班会确认后未进入周期2")
+                from app.db import fetch_all
+
+                rows = fetch_all(
+                    "SELECT learning_cycle_index, opened_at, actual_class_meeting_at, cycle_status "
+                    "FROM class_learning_cycles WHERE class_org_unit_id=? ORDER BY learning_cycle_index",
+                    (class_id,),
+                )
+                _fail(f"{cohort}月班班会确认后未进入周期2: {rows}")
             # A group completed after the class meeting is stored on cycle 2.
             update_current_learning_cycle(
                 actor_user_id=admin_user_id,
