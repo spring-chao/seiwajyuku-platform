@@ -402,6 +402,96 @@ def create_learning_org_unit(
     return {"id": unit_id, "name": normalized_name, "unit_type": normalized_type}
 
 
+def rename_learning_group(
+    actor_user_id: int,
+    unit_id: str,
+    *,
+    name: str,
+    confirmation: str,
+    reason: str = "班级运营调整小组名称，成员关系保持不变",
+) -> dict[str, Any]:
+    """Rename an active group without changing its identity or memberships."""
+    normalized_name = name.strip()
+    normalized_reason = (reason or "班级运营调整小组名称，成员关系保持不变").strip()
+    if not normalized_reason:
+        normalized_reason = "班级运营调整小组名称，成员关系保持不变"
+    if not normalized_name or len(normalized_name) > 255:
+        raise ValueError("小组名称不能为空且不能超过255个字符")
+    _ensure_allowed(actor_user_id, unit_id)
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        unit = _unit(connection, unit_id)
+        if not unit or unit["unit_type"] != "GROUP" or not unit["is_active"]:
+            raise ValueError("仅允许修改启用小组的名称")
+        parent = _unit(connection, unit["parent_id"])
+        if not parent or parent["unit_type"] != "CLASS" or not parent["is_active"]:
+            raise ValueError("该小组所属班级不存在或已停用")
+        expected = f"确认将小组“{unit['name']}”改名为“{normalized_name}”"
+        if confirmation.strip() != expected:
+            raise ValueError("确认文字不匹配，未修改小组名称")
+        if unit["name"] == normalized_name:
+            return {
+                "id": unit_id,
+                "previous_name": unit["name"],
+                "name": normalized_name,
+                "unit_type": "GROUP",
+                "parent_id": parent["id"],
+                "changed": False,
+                "membership_unchanged": True,
+            }
+        duplicate = execute(
+            connection,
+            "SELECT id FROM org_units WHERE is_active=1 AND unit_type='GROUP' "
+            "AND parent_id=? AND name=? AND id<>?",
+            (parent["id"], normalized_name, unit_id),
+        ).fetchone()
+        if duplicate:
+            raise ValueError("该班级已存在启用的同名小组")
+        relation_count = int(
+            execute(
+                connection,
+                "SELECT COUNT(*) AS count FROM member_org_relations WHERE org_unit_id=?",
+                (unit_id,),
+            ).fetchone()["count"]
+        )
+        execute(
+            connection,
+            "UPDATE org_units SET name=?, updated_at=? WHERE id=?",
+            (normalized_name, now, unit_id),
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="org.learning_group.rename",
+            resource_type="org_unit",
+            resource_id=unit_id,
+            org_unit_id=parent["id"],
+            purpose=normalized_reason,
+            before={
+                "name": unit["name"],
+                "unit_type": "GROUP",
+                "parent_id": parent["id"],
+                "member_relation_count": relation_count,
+            },
+            after={
+                "name": normalized_name,
+                "unit_type": "GROUP",
+                "parent_id": parent["id"],
+                "member_relation_count": relation_count,
+                "membership_unchanged": True,
+            },
+        )
+    return {
+        "id": unit_id,
+        "previous_name": unit["name"],
+        "name": normalized_name,
+        "unit_type": "GROUP",
+        "parent_id": parent["id"],
+        "changed": True,
+        "membership_unchanged": True,
+    }
+
+
 def preview_learning_org_move(
     actor_user_id: int, unit_id: str, *, target_parent_id: str
 ) -> dict[str, Any]:

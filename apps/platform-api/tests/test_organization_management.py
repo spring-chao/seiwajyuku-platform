@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.db import execute, fetch_one, transaction
+from app.db import execute, fetch_all, fetch_one, transaction
 from app.main import app
 from app.services.members import list_members
 from app.services.renewals import list_cycle_coverage
@@ -148,6 +148,89 @@ class OrganizationManagementTests(unittest.TestCase):
             (group_id,),
         )
         self.assertEqual(audit["action"], "org.learning_unit.create")
+
+    def test_rename_group_keeps_identity_memberships_and_updates_views(self) -> None:
+        group_id = "group-management-move"
+        old_name = fetch_one("SELECT name FROM org_units WHERE id=?", (group_id,))["name"]
+        new_name = f"{old_name}-改名"
+        before_relations = [
+            (
+                row["id"],
+                row["member_id"],
+                row["org_unit_id"],
+                row["relation_type"],
+                row["valid_from"],
+                row["valid_until"],
+            )
+            for row in fetch_all(
+                "SELECT id, member_id, org_unit_id, relation_type, valid_from, valid_until "
+                "FROM member_org_relations WHERE org_unit_id=? ORDER BY id",
+                (group_id,),
+            )
+        ]
+        parent_before = fetch_one(
+            "SELECT parent_id FROM org_units WHERE id=?", (group_id,)
+        )["parent_id"]
+
+        renamed = self.client.patch(
+            f"/api/v1/iam/org-units/{group_id}/name",
+            headers=self.headers,
+            json={
+                "name": new_name,
+                "confirmation": f"确认将小组“{old_name}”改名为“{new_name}”",
+            },
+        )
+        self.assertEqual(renamed.status_code, 200, renamed.text)
+        self.assertTrue(renamed.json()["data"]["changed"])
+        self.assertTrue(renamed.json()["data"]["membership_unchanged"])
+
+        group = fetch_one(
+            "SELECT id, name, parent_id FROM org_units WHERE id=?", (group_id,)
+        )
+        self.assertEqual(group["id"], group_id)
+        self.assertEqual(group["name"], new_name)
+        self.assertEqual(group["parent_id"], parent_before)
+        after_relations = [
+            (
+                row["id"],
+                row["member_id"],
+                row["org_unit_id"],
+                row["relation_type"],
+                row["valid_from"],
+                row["valid_until"],
+            )
+            for row in fetch_all(
+                "SELECT id, member_id, org_unit_id, relation_type, valid_from, valid_until "
+                "FROM member_org_relations WHERE org_unit_id=? ORDER BY id",
+                (group_id,),
+            )
+        ]
+        self.assertEqual(after_relations, before_relations)
+
+        listed = self.client.get(
+            "/api/v1/iam/org-units/learning-management", headers=self.headers
+        )
+        self.assertEqual(listed.status_code, 200, listed.text)
+        listed_group = next(
+            row for row in listed.json()["data"]["units"] if row["id"] == group_id
+        )
+        self.assertEqual(listed_group["name"], new_name)
+        members = self.client.get("/api/v1/members", headers=self.headers)
+        self.assertEqual(members.status_code, 200, members.text)
+        member = next(
+            row for row in members.json()["data"] if row["id"] == self.sync_member_id
+        )
+        self.assertEqual(member["group_name"], new_name)
+
+        audit = fetch_one(
+            "SELECT action, before_json, after_json FROM audit_logs "
+            "WHERE resource_id=? AND action='org.learning_group.rename' "
+            "ORDER BY id DESC LIMIT 1",
+            (group_id,),
+        )
+        self.assertEqual(audit["action"], "org.learning_group.rename")
+        self.assertIn(old_name, audit["before_json"])
+        self.assertIn(new_name, audit["after_json"])
 
     def test_move_class_keeps_group_tree_and_records_rollback_parent(self) -> None:
         preview = self.client.get(

@@ -1478,6 +1478,27 @@ export const createLearningOrgUnit = (data: {
     { data }
   );
 
+export const renameLearningGroup = (
+  unitId: string,
+  data: {
+    name: string;
+    confirmation: string;
+    reason?: string;
+  }
+) =>
+  http.request<{
+    success: boolean;
+    data: {
+      id: string;
+      previous_name: string;
+      name: string;
+      unit_type: "GROUP";
+      parent_id: string;
+      changed: boolean;
+      membership_unchanged: boolean;
+    };
+  }>("patch", `/api/v1/iam/org-units/${unitId}/name`, { data });
+
 export const previewLearningOrgMove = (
   unitId: string,
   targetParentId: string
