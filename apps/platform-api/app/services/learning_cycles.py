@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
@@ -31,6 +32,28 @@ def _normalize_datetime(value: str | None, field_name: str, *, required: bool = 
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC).isoformat()
+
+
+def _cycle_query_datetime(connection, value: str) -> str:
+    """Use a MySQL DATETIME-compatible value for cycle boundary lookups.
+
+    SQLite stores the service's ISO-8601 strings verbatim, while MySQL returns
+    DATETIME columns without the ``T`` separator, timezone suffix, or
+    microseconds.  Comparing a MySQL DATETIME column to the ISO string can
+    select the previous cycle when the next cycle opens at the same second.
+    Keep the SQLite representation unchanged for its existing lexical-order
+    semantics and normalize only the MySQL query parameter.
+    """
+
+    if isinstance(connection, sqlite3.Connection):
+        return value
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _visible_class(class_org_unit_id: str, user_id: int) -> dict[str, Any]:
@@ -131,11 +154,12 @@ def _active_binding(connection, class_org_unit_id: str) -> dict[str, Any] | None
 def _cycle_at(
     connection, binding_id: int, at: str
 ) -> dict[str, Any] | None:
+    query_at = _cycle_query_datetime(connection, at)
     row = execute(
         connection,
         "SELECT * FROM class_learning_cycles WHERE binding_id=? AND opened_at<=? "
         "ORDER BY opened_at DESC, learning_cycle_index DESC LIMIT 1",
-        (binding_id, at),
+        (binding_id, query_at),
     ).fetchone()
     if not row:
         row = execute(

@@ -5,12 +5,19 @@ from uuid import uuid4
 
 from app.db import execute, fetch_one, transaction
 from app.services.learning_cycles import (
+    _cycle_query_datetime,
     bind_class_learning_plan,
     confirm_class_meeting,
     get_class_learning_progress,
     list_learning_plans,
     update_current_learning_cycle,
 )
+
+
+def test_mysql_cycle_query_datetime_normalizes_iso_boundary() -> None:
+    assert _cycle_query_datetime(
+        object(), "2026-08-26T05:48:51.987654+00:00"
+    ) == "2026-08-26 05:48:51"
 
 
 def _fixture() -> tuple[int, str, str, str]:
