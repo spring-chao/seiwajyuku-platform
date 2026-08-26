@@ -202,7 +202,13 @@ def _api_readback(plan: dict, version_id: int) -> dict:
                     _fail(f"API {cohort}/{cycle_index} 任务数不一致")
                 for expected, actual in zip(source_tasks, api_tasks, strict=True):
                     for field in ("task_type", "title", "description", "credit_points", "sort_order"):
-                        if expected.get(field) != actual.get(field):
+                        expected_value = expected.get(field)
+                        actual_value = actual.get(field)
+                        if field == "credit_points" and expected_value is not None and actual_value is not None:
+                            values_match = float(expected_value) == float(actual_value)
+                        else:
+                            values_match = expected_value == actual_value
+                        if not values_match:
                             _fail(f"API {cohort}/{cycle_index} 字段不一致: {field}")
                 checks.append(f"{cohort}-{cycle_index}")
         return {"status": response.status_code, "checked_boundaries": checks}
