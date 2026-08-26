@@ -1,5 +1,5 @@
 -- 0034: capture an optional social role for party-member applicants.
--- Political status remains a plain text field for legacy compatibility; the
+-- Political status remains a plain text field for legacy compatibility, and the
 -- public form offers the two standard choices and only asks for this field
 -- when the applicant selects 党员.
 
