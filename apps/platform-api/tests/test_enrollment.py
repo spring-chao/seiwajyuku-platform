@@ -86,6 +86,8 @@ class EnrollmentApplicationTests(unittest.TestCase):
             "rules_acknowledged": True,
             "gender": "MALE",
             "birthday": "1980-01-02",
+            "political_status": "群众",
+            "social_role": None,
             "company_name": "申请测试企业",
             "company_tax_id": "91320000TEST2026",
             "company_address": "苏州工业园区测试路1号",
@@ -122,6 +124,9 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertNotIn("books_read", data["required_fields"])
         self.assertIn("annual_sales", data["required_fields"])
         self.assertIn("profit_margin", data["optional_fields"])
+        self.assertEqual(data["political_status_options"], ["群众", "党员"])
+        self.assertIn("social_role", data["optional_fields"])
+        self.assertNotIn("company_tax_id", data["optional_fields"])
         rejected = self._submit(
             token, _phone(), org_unit_id="enrollment-test-center"
         )
@@ -159,6 +164,40 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertEqual(row["profit_growth_target"], "UNSET")
         self.assertTrue(row["rules_acknowledged"])
         self.assertIsNotNone(row["rules_acknowledged_at"])
+
+    def test_political_status_and_party_social_role(self) -> None:
+        _, token = self._create_link()
+        party_phone = _phone()
+        party = self._submit(
+            token,
+            party_phone,
+            political_status="党员",
+            social_role="苏州市政协委员",
+        )
+        self.assertEqual(party.status_code, 200, party.text)
+        party_row = fetch_one(
+            "SELECT political_status, social_role FROM "
+            "member_enrollment_applications WHERE phone_hash=?",
+            (phone_hash(party_phone),),
+        )
+        self.assertEqual(party_row["political_status"], "党员")
+        self.assertEqual(party_row["social_role"], "苏州市政协委员")
+
+        masses_phone = _phone()
+        masses = self._submit(
+            token,
+            masses_phone,
+            political_status="群众",
+            social_role="不应保存的角色",
+        )
+        self.assertEqual(masses.status_code, 200, masses.text)
+        masses_row = fetch_one(
+            "SELECT political_status, social_role FROM "
+            "member_enrollment_applications WHERE phone_hash=?",
+            (phone_hash(masses_phone),),
+        )
+        self.assertEqual(masses_row["political_status"], "群众")
+        self.assertIsNone(masses_row["social_role"])
 
     def test_v111_rejects_other_gender_and_invalid_industry(self) -> None:
         _, token = self._create_link()

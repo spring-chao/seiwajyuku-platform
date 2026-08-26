@@ -24,6 +24,7 @@ export type PublicEnrollmentForm = {
   required_fields: string[];
   optional_fields: string[];
   industry_options: string[];
+  political_status_options: string[];
   invoice_types: { value: "NORMAL" | "SPECIAL" | "NONE"; label: string }[];
   profit_margin_options: { value: string; label: string }[];
   growth_target_options: { value: string; label: string }[];
@@ -39,6 +40,7 @@ export type PublicEnrollmentPayload = {
   birthday: string;
   district?: string;
   political_status?: string;
+  social_role?: string;
   company_name: string;
   company_tax_id?: string;
   company_address: string;
@@ -100,6 +102,7 @@ export type EnrollmentApplicationDetail = EnrollmentApplicationListItem & {
   birthday?: string | null;
   district?: string | null;
   political_status?: string | null;
+  social_role?: string | null;
   company_tax_id?: string | null;
   company_address?: string | null;
   email?: string | null;
@@ -160,6 +163,7 @@ export type EnrollmentReviewPayload = {
   birthday?: string | null;
   district?: string | null;
   political_status?: string | null;
+  social_role?: string | null;
   company_address?: string | null;
   company_tax_id?: string | null;
   email?: string | null;

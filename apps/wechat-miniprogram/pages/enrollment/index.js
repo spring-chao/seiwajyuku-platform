@@ -31,6 +31,7 @@ const INDUSTRY_OPTIONS = [
 ];
 const GENDER_OPTIONS = ["男", "女"];
 const GENDER_VALUES = ["MALE", "FEMALE"];
+const POLITICAL_OPTIONS = ["群众", "党员"];
 const INVOICE_OPTIONS = ["普票", "专票", "无需开票"];
 const INVOICE_VALUES = ["NORMAL", "SPECIAL", "NONE"];
 const PROFIT_OPTIONS = ["10%及以上", "0%～10%以下", "亏损"];
@@ -85,6 +86,7 @@ Page({
       }
     ],
     industryOptions: INDUSTRY_OPTIONS,
+    politicalOptions: POLITICAL_OPTIONS,
     invoiceOptions: INVOICE_OPTIONS,
     genderOptions: GENDER_OPTIONS,
     profitOptions: PROFIT_OPTIONS,
@@ -96,10 +98,10 @@ Page({
       birthday: "",
       gender: "",
       political_status: "",
+      social_role: "",
       referrer: "",
       email: "",
       company_name: "",
-      company_tax_id: "",
       company_address: "",
       position: "",
       invoice_type: "",
@@ -178,6 +180,7 @@ Page({
         state: "ready",
         formMeta: { ...this.data.formMeta, ...metadata },
         industryOptions: metadata.industry_options || INDUSTRY_OPTIONS,
+        politicalOptions: metadata.political_status_options || POLITICAL_OPTIONS,
         invoiceOptions: metadata.invoice_types ? metadata.invoice_types.map(item => item.label) : INVOICE_OPTIONS,
         profitOptions: metadata.profit_margin_options ? metadata.profit_margin_options.map(item => item.label) : PROFIT_OPTIONS,
         growthOptions: metadata.growth_target_options ? metadata.growth_target_options.map(item => item.label) : GROWTH_OPTIONS,
@@ -199,6 +202,14 @@ Page({
 
   handleGenderChange(event) {
     this.setData({ "form.gender": GENDER_VALUES[Number(event.detail.value)] || "" });
+  },
+
+  handlePoliticalStatusChange(event) {
+    const value = this.data.politicalOptions[Number(event.detail.value)] || "";
+    this.setData({
+      "form.political_status": value,
+      "form.social_role": value === "党员" ? this.data.form.social_role : ""
+    });
   },
 
   handleIndustryChange(event) {
@@ -326,10 +337,10 @@ Page({
       gender: form.gender,
       birthday: form.birthday,
       political_status: form.political_status.trim(),
+      social_role: form.social_role.trim(),
       referrer: form.referrer.trim(),
       email: form.email.trim(),
       company_name: form.company_name.trim(),
-      company_tax_id: form.company_tax_id.trim(),
       company_address: form.company_address.trim(),
       position: form.position.trim(),
       invoice_type: form.invoice_type,

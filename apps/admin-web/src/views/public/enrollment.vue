@@ -16,6 +16,9 @@ const pageState = ref<"loading" | "ready" | "invalid" | "success">("loading");
 const submitting = ref(false);
 const errorMessage = ref("");
 const config = ref<PublicEnrollmentForm>();
+const politicalOptions = computed(
+  () => config.value?.political_status_options || ["群众", "党员"]
+);
 
 const form = reactive({
   name: "",
@@ -23,8 +26,8 @@ const form = reactive({
   gender: "" as "" | "MALE" | "FEMALE",
   birthday: "",
   political_status: "",
+  social_role: "",
   company_name: "",
-  company_tax_id: "",
   company_address: "",
   email: "",
   position: "",
@@ -52,6 +55,8 @@ const form = reactive({
   rules_acknowledged: false,
   privacy_consent: false
 });
+
+const isPartyMember = computed(() => form.political_status === "党员");
 
 const requiredText = (label: string, max: number) => [
   { required: true, message: `请填写${label}`, trigger: "blur" },
@@ -178,8 +183,8 @@ async function submit() {
     gender: form.gender || undefined,
     birthday: form.birthday,
     political_status: optional(form.political_status),
+    social_role: isPartyMember.value ? optional(form.social_role) : undefined,
     company_name: form.company_name.trim(),
-    company_tax_id: optional(form.company_tax_id),
     company_address: form.company_address.trim(),
     email: optional(form.email),
     position: form.position.trim(),
@@ -320,13 +325,29 @@ onMounted(loadForm);
               />
             </el-form-item>
             <el-form-item label="政治面貌">
-              <el-input
+              <el-select
                 v-model="form.political_status"
-                maxlength="255"
-                placeholder="如：群众、中共党员"
-              />
+                clearable
+                placeholder="请选择"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="option in politicalOptions"
+                  :key="option"
+                  :label="option"
+                  :value="option"
+                />
+              </el-select>
             </el-form-item>
           </div>
+
+          <el-form-item v-if="isPartyMember" label="党员承担的社会角色">
+            <el-input
+              v-model="form.social_role"
+              maxlength="255"
+              placeholder="如：人大代表、政协委员、行业协会职务（可选）"
+            />
+          </el-form-item>
 
           <div class="two-column">
             <el-form-item label="推荐人" prop="referrer" required>
@@ -360,14 +381,6 @@ onMounted(loadForm);
               v-model="form.company_name"
               maxlength="500"
               placeholder="请填写企业全称"
-            />
-          </el-form-item>
-
-          <el-form-item label="统一社会信用代码 / 税号">
-            <el-input
-              v-model="form.company_tax_id"
-              maxlength="64"
-              placeholder="手工填写，可选"
             />
           </el-form-item>
 

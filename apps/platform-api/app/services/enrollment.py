@@ -51,6 +51,13 @@ INDUSTRY_OPTIONS = (
     "房地产",
     "其他",
 )
+POLITICAL_STATUS_OPTIONS = ("群众", "党员")
+POLITICAL_STATUS_ALIASES = {
+    "群众": "群众",
+    "党员": "党员",
+    "中共党员": "党员",
+    "中国共产党党员": "党员",
+}
 INVOICE_TYPE_LABELS = {
     "NORMAL": "普票",
     "SPECIAL": "专票",
@@ -89,6 +96,7 @@ REVIEW_FIELDS = {
     "birthday",
     "district",
     "political_status",
+    "social_role",
     "company_name",
     "company_tax_id",
     "company_address",
@@ -219,6 +227,16 @@ def _canonical_industry(payload: dict[str, Any]) -> dict[str, str | None]:
         "industry": selected,
         "industry_other": None,
     }
+
+
+def _canonical_political(payload: dict[str, Any]) -> dict[str, str | None]:
+    """Normalize new choices while keeping historical free-text values readable."""
+    status = _clean_optional(payload.get("political_status"))
+    status = POLITICAL_STATUS_ALIASES.get(status or "", status)
+    role = _clean_optional(payload.get("social_role"))
+    if status != "党员":
+        role = None
+    return {"political_status": status, "social_role": role}
 
 
 def _legacy_invoice_values(value: str | None) -> dict[str, str]:
@@ -582,8 +600,8 @@ def get_public_enrollment_form(token: str) -> dict[str, Any]:
             "gender",
             "district",
             "political_status",
+            "social_role",
             "email",
-            "company_tax_id",
             "industry_other",
             "invoice_title",
             "invoice_tax_id",
@@ -598,6 +616,7 @@ def get_public_enrollment_form(token: str) -> dict[str, Any]:
             "notes",
         ],
         "industry_options": list(INDUSTRY_OPTIONS),
+        "political_status_options": list(POLITICAL_STATUS_OPTIONS),
         "invoice_types": [
             {"value": value, "label": label}
             for value, label in INVOICE_TYPE_LABELS.items()
@@ -682,6 +701,7 @@ def _prepare_public_values(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("rules_acknowledged") is not True and not legacy_submission:
         raise EnrollmentValidationError("请先阅读并确认加入守则与缴费说明")
     industry = _canonical_industry(payload)
+    political = _canonical_political(payload)
     invoice = _canonical_invoice(payload)
     values: dict[str, Any] = {
         key: _clean_optional(payload.get(key))
@@ -689,7 +709,6 @@ def _prepare_public_values(payload: dict[str, Any]) -> dict[str, Any]:
             "gender",
             "birthday",
             "district",
-            "political_status",
             "company_name",
             "company_address",
             "email",
@@ -707,6 +726,7 @@ def _prepare_public_values(payload: dict[str, Any]) -> dict[str, Any]:
             "notes",
         )
     }
+    values.update(political)
     values["employee_count"] = payload.get("employee_count")
     values["annual_sales"] = _clean_optional(payload.get("annual_sales"))
     values["profit_margin"] = _canonical_profit_margin(payload.get("profit_margin"))
@@ -790,6 +810,7 @@ def submit_public_enrollment(
         "birthday",
         "district",
         "political_status",
+        "social_role",
         "company_name",
         "company_tax_id",
         "company_address",
@@ -1124,6 +1145,20 @@ def review_enrollment_application(
         raise ValueError("姓名不能为空")
     if "gender" in incoming and incoming.get("gender") not in {None, "MALE", "FEMALE"}:
         raise ValueError("性别只能选择男或女")
+
+    political_input_fields = {"political_status", "social_role"}.intersection(incoming)
+    if political_input_fields:
+        political_payload = {
+            "political_status": current.get("political_status"),
+            "social_role": current.get("social_role"),
+        }
+        political_payload.update(
+            {key: incoming[key] for key in political_input_fields if key in incoming}
+        )
+        political_values = _canonical_political(political_payload)
+        for key in political_input_fields:
+            incoming.pop(key, None)
+        incoming.update(political_values)
 
     user = user_context(actor_user_id) or {"permissions": []}
     invoice_input_fields = INVOICE_FIELDS.intersection(incoming)

@@ -44,9 +44,15 @@
         <view class="field-label required">推荐人</view>
         <input class="field-input" data-field="referrer" value="{{form.referrer}}" bindinput="handleInput" placeholder="请填写推荐学长姓名" />
       </view>
-      <view class="field-row">
+      <view class="field-row picker-row">
         <view class="field-label">政治面貌</view>
-        <input class="field-input" data-field="political_status" value="{{form.political_status}}" bindinput="handleInput" placeholder="如：群众、中共党员" />
+        <picker mode="selector" range="{{politicalOptions}}" bindchange="handlePoliticalStatusChange">
+          <view class="picker-value {{form.political_status ? '' : 'placeholder'}}">{{form.political_status || '请选择'}}</view>
+        </picker>
+      </view>
+      <view wx:if="{{form.political_status === '党员'}}" class="field-row">
+        <view class="field-label">党员承担的社会角色</view>
+        <input class="field-input" data-field="social_role" value="{{form.social_role}}" bindinput="handleInput" placeholder="如：人大代表、政协委员、行业协会职务（可选）" />
       </view>
       <view class="field-row">
         <view class="field-label">邮箱</view>
@@ -59,10 +65,6 @@
       <view class="field-row">
         <view class="field-label required">公司名称</view>
         <input class="field-input" data-field="company_name" value="{{form.company_name}}" bindinput="handleInput" placeholder="请手工填写企业全称" />
-      </view>
-      <view class="field-row">
-        <view class="field-label">统一社会信用代码 / 税号</view>
-        <input class="field-input" data-field="company_tax_id" value="{{form.company_tax_id}}" bindinput="handleInput" placeholder="手工填写，可选" />
       </view>
       <view class="field-row multiline-row">
         <view class="field-label required">公司地址</view>
@@ -104,7 +106,7 @@
 
     <view class="section-card">
       <view class="section-title">开票信息</view>
-      <view class="section-hint">公司名称、税号和开票资料均为手工填写，请提交前自行核对。</view>
+      <view class="section-hint">发票抬头、税号和开票资料均为手工填写，请提交前自行核对。</view>
       <view class="field-row picker-row">
         <view class="field-label required">发票类型</view>
         <picker mode="selector" range="{{invoiceOptions}}" bindchange="handleInvoiceChange">

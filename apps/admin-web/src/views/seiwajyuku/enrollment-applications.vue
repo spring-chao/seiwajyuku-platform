@@ -71,6 +71,10 @@ const industryOptions = [
   { value: "房地产", label: "房地产" },
   { value: "其他", label: "其他" }
 ];
+const politicalOptions = [
+  { value: "群众", label: "群众" },
+  { value: "党员", label: "党员" }
+];
 const invoiceOptions = [
   { value: "NORMAL", label: "普票" },
   { value: "SPECIAL", label: "专票" },
@@ -101,6 +105,7 @@ const editForm = reactive({
   birthday: "",
   district: "",
   political_status: "",
+  social_role: "",
   company_name: "",
   company_tax_id: "",
   company_address: "",
@@ -232,6 +237,7 @@ function syncEditForm(value: EnrollmentApplicationDetail) {
     birthday: value.birthday || "",
     district: value.district || "",
     political_status: value.political_status || "",
+    social_role: value.social_role || "",
     company_name: value.company_name || "",
     company_tax_id: value.company_tax_id || "",
     company_address: value.company_address || "",
@@ -298,6 +304,10 @@ function buildReviewPayload(
     birthday: editForm.birthday || null,
     district: editForm.district.trim() || null,
     political_status: editForm.political_status.trim() || null,
+    social_role:
+      editForm.political_status.trim() === "党员"
+        ? editForm.social_role.trim() || null
+        : null,
     company_name: editForm.company_name.trim() || null,
     company_address: editForm.company_address.trim() || null,
     email: editForm.email.trim() || null,
@@ -954,22 +964,34 @@ onMounted(async () => {
                 <el-input v-model="editForm.district" :disabled="!canReview" />
               </el-form-item>
               <el-form-item label="政治面貌">
-                <el-input
+                <el-select
                   v-model="editForm.political_status"
+                  clearable
                   :disabled="!canReview"
+                >
+                  <el-option
+                    v-for="option in politicalOptions"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item
+                v-if="editForm.political_status === '党员'"
+                label="党员承担的社会角色"
+              >
+                <el-input
+                  v-model="editForm.social_role"
+                  :disabled="!canReview"
+                  maxlength="255"
+                  placeholder="如：人大代表、政协委员、行业协会职务（可选）"
                 />
               </el-form-item>
               <el-form-item label="企业名称">
                 <el-input
                   v-model="editForm.company_name"
                   :disabled="!canReview"
-                />
-              </el-form-item>
-              <el-form-item label="统一社会信用代码 / 税号">
-                <el-input
-                  v-model="editForm.company_tax_id"
-                  :disabled="!canReview || !detail.financial_fields_visible"
-                  placeholder="敏感资料权限可见"
                 />
               </el-form-item>
               <el-form-item label="职务">
