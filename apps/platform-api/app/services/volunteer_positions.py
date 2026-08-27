@@ -405,7 +405,10 @@ def _parse_term(
     start_text = (starts_at or "").strip()
     end_text = (ends_at or "").strip()
     try:
-        start = datetime.fromisoformat(start_text) if start_text else datetime.now(UTC)
+        # MySQL DATETIME(0) rounds fractional seconds on INSERT. A default
+        # "effective now" at .9s could otherwise be stored in the NEXT second,
+        # briefly denying the newly assigned volunteer's capability.
+        start = datetime.fromisoformat(start_text) if start_text else datetime.now(UTC).replace(microsecond=0)
     except (TypeError, ValueError) as exc:
         raise ValueError("任职开始时间格式无效") from exc
     if start.tzinfo is None:

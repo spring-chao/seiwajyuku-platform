@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
+from unittest.mock import patch
 
 import pytest
 
@@ -17,6 +18,16 @@ from app.services.wechat_identity import get_member_role_scopes, role_for_target
 
 def _stamp(days: int = 0) -> str:
     return (datetime.now(UTC) + timedelta(days=days)).isoformat()
+
+
+def test_default_start_never_rounds_forward_in_mysql_datetime_zero():
+    from app.services.volunteer_positions import _parse_term
+    instant = datetime(2026, 8, 27, 12, 0, 0, 900000, tzinfo=UTC)
+    with patch("app.services.volunteer_positions.datetime", wraps=datetime) as clock:
+        clock.now.return_value = instant
+        start, end = _parse_term(None, None)
+    assert start == instant.replace(microsecond=0)
+    assert start <= instant and end is None
 
 
 def _admin_id() -> int:
