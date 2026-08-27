@@ -177,6 +177,33 @@ export default [
             "read_only"
           ]
         }
+      },
+      {
+        path: "/operations/study-meetings",
+        name: "StudyMeetings",
+        component: () => import("@/views/seiwajyuku/study-meetings.vue"),
+        meta: {
+          title: "小组学习会记录",
+          icon: "ep/notebook",
+          roles: [
+            "system_admin",
+            "operations_admin",
+            "ops_center_director",
+            "ops_center_operations",
+            "ops_center_learning",
+            "ops_center_management",
+            "ops_center_data",
+            "regional_manager",
+            "class_counselor",
+            "group_leader",
+            "volunteer_director",
+            "volunteer_regional_lead",
+            "volunteer_regional_service",
+            "volunteer_class_counselor",
+            "volunteer_group_leader",
+            "read_only"
+          ]
+        }
       }
     ]
   },
