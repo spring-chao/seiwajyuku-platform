@@ -1,6 +1,12 @@
+import { execFileSync } from "node:child_process";
 import { getPluginsList } from "./build/plugins";
 import { include, exclude } from "./build/optimize";
-import { type UserConfigExport, type ConfigEnv, loadEnv } from "vite";
+import {
+  type ConfigEnv,
+  type Plugin,
+  type UserConfigExport,
+  loadEnv
+} from "vite";
 import {
   root,
   alias,
@@ -8,6 +14,41 @@ import {
   pathResolve,
   __APP_INFO__
 } from "./build/utils";
+
+const resolveBuildCommit = () => {
+  const configuredCommit =
+    process.env.VITE_BUILD_COMMIT_SHA || process.env.GITHUB_SHA;
+  if (configuredCommit) return configuredCommit;
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8"
+    }).trim();
+  } catch {
+    return "unknown";
+  }
+};
+
+const buildInfoPlugin = (mode: string): Plugin => ({
+  name: "emit-build-info",
+  generateBundle() {
+    const buildInfo = {
+      commit_sha: resolveBuildCommit(),
+      build_time:
+        process.env.VITE_BUILD_TIME || new Date().toISOString(),
+      version:
+        process.env.VITE_RELEASE_VERSION ||
+        process.env.VITE_APP_VERSION ||
+        __APP_INFO__.pkg.version,
+      environment: process.env.VITE_BUILD_ENV || mode
+    };
+    this.emitFile({
+      type: "asset",
+      fileName: "build-info.json",
+      source: `${JSON.stringify(buildInfo, null, 2)}\n`
+    });
+  }
+});
 
 export default ({ mode }: ConfigEnv): UserConfigExport => {
   const { VITE_CDN, VITE_PORT, VITE_COMPRESSION, VITE_PUBLIC_PATH } =
@@ -30,7 +71,10 @@ export default ({ mode }: ConfigEnv): UserConfigExport => {
         clientFiles: ["./index.html", "./src/{views,components}/*"]
       }
     },
-    plugins: getPluginsList(VITE_CDN, VITE_COMPRESSION),
+    plugins: [
+      ...getPluginsList(VITE_CDN, VITE_COMPRESSION),
+      buildInfoPlugin(mode)
+    ],
     // https://cn.vitejs.dev/config/dep-optimization-options.html#dep-optimization-options
     optimizeDeps: {
       include,
