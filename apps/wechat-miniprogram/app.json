@@ -1,9 +1,15 @@
 {
   "pages": [
+    "pages/home/index",
+    "pages/identity/bind",
+    "pages/study-meeting/index",
+    "pages/study-meeting/members",
+    "pages/study-meeting/submit",
+    "pages/study-meeting/result",
     "pages/enrollment/index"
   ],
   "window": {
-    "navigationBarTitleText": "新学长信息登记",
+    "navigationBarTitleText": "盛和塾学习服务助手",
     "navigationBarBackgroundColor": "#741F2B",
     "navigationBarTextStyle": "white",
     "backgroundColor": "#f8f2ef",

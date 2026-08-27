@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 
 from app.core.privacy import decrypt_text, encrypt_text, protected_phone
+from app.core.security import create_token, decode_token
 from app.core.settings import get_settings
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
@@ -372,6 +373,41 @@ def get_active_enrollment_link() -> dict[str, Any] | None:
     return _link_public_metadata(row) if row else None
 
 
+def get_public_portal() -> dict[str, Any]:
+    """Return the public mini-program landing configuration.
+
+    The long-lived enrollment token is intentionally never returned.  Instead
+    the home page receives a short-lived, signed handoff that is resolved
+    against the currently active enrollment link on every request.
+    """
+
+    link = fetch_one(
+        "SELECT id, name, status, token_hash, updated_at FROM member_enrollment_links "
+        "WHERE status='ACTIVE' ORDER BY id DESC LIMIT 1"
+    )
+    if not link:
+        return {
+            "enrollment_available": False,
+            "enrollment_entry": None,
+        }
+    handoff_token = create_token(
+        int(link["id"]),
+        1,
+        "enrollment_handoff",
+        timedelta(minutes=10),
+        extra_claims={"link_version": _token_hash(str(link["token_hash"]))},
+    )
+    return {
+        "enrollment_available": True,
+        "enrollment_entry": {
+            "page": "pages/enrollment/index",
+            "handoff_token": handoff_token,
+            "expires_in": 600,
+            "link_name": link["name"],
+        },
+    }
+
+
 def create_enrollment_link(actor_user_id: int, name: str) -> dict[str, Any]:
     # 微信小程序码的 scene 最多承载 32 个可见字符；128 bit 随机值已经
     # 足够作为公开入口令牌，同时保留 H5 旧令牌的兼容解析能力。
@@ -561,13 +597,58 @@ def generate_wechat_miniprogram_code(
 
 
 def _resolve_public_link(token: str) -> dict[str, Any] | None:
-    if not token or len(token) > 256:
+    # Raw enrollment scenes are short, while the signed unified-home handoff
+    # is a compact JWT.  Keep a bounded upper limit for both forms.
+    if not token or len(token) > 512:
         return None
-    return fetch_one(
+    raw_link = fetch_one(
         "SELECT id, name, token_hash FROM member_enrollment_links "
         "WHERE token_hash=? AND status='ACTIVE' LIMIT 1",
         (_token_hash(token),),
     )
+    if raw_link:
+        return raw_link
+
+    # Unified-home navigation uses a short-lived signed handoff.  It points
+    # to the active link row rather than carrying the enrollment secret.  A
+    # rotation/disable updates the row and therefore invalidates older
+    # handoffs immediately (with a small second-level tolerance for MySQL
+    # DATETIME precision).
+    try:
+        payload = decode_token(token, "enrollment_handoff")
+        link_id = int(payload["sub"])
+        issued_at = datetime.fromtimestamp(int(payload["iat"]), UTC)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    link = fetch_one(
+        "SELECT id, name, token_hash, status, updated_at FROM member_enrollment_links "
+        "WHERE id=? AND status='ACTIVE' LIMIT 1",
+        (link_id,),
+    )
+    if not link:
+        return None
+    link_version = payload.get("link_version")
+    if link_version:
+        if not hmac.compare_digest(
+            str(link_version), _token_hash(str(link["token_hash"]))
+        ):
+            return None
+    updated_at = link.get("updated_at")
+    if not link_version and updated_at:
+        if isinstance(updated_at, datetime):
+            updated_dt = updated_at
+        else:
+            text = str(updated_at).replace("Z", "+00:00")
+            try:
+                updated_dt = datetime.fromisoformat(text)
+            except ValueError:
+                updated_dt = None
+        if updated_dt:
+            if updated_dt.tzinfo is None:
+                updated_dt = updated_dt.replace(tzinfo=UTC)
+            if updated_dt.astimezone(UTC) > issued_at + timedelta(seconds=2):
+                return None
+    return link
 
 
 def get_public_enrollment_form(token: str) -> dict[str, Any]:

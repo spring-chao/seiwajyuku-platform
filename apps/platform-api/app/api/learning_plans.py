@@ -20,6 +20,7 @@ from app.services.course_credit_rules import (
     DEFAULT_PLAN_KEY,
     DEFAULT_VERSION_LABEL,
     create_course_credit_rule_version,
+    get_group_meeting_credit_policy,
     list_course_credit_rules,
     update_course_credit_rule,
 )
@@ -29,13 +30,10 @@ router = APIRouter(prefix="/api/v1", tags=["learning-plans"])
 
 
 # 小组会基础出席分是周期级规则，不是每一条 GROUP_MEETING 流程任务的任务级学分。
-# 该规则属于运行与配置边界，故不改写已经确认的标准计划 JSON。
+# 规则由审核过的 course-credit-rules 工件提供，避免 API 与运行时各自维护分值。
 GROUP_MEETING_CREDIT_POLICY = {
-    "mode": "CYCLE_ATTENDANCE_ONCE",
-    "credit_points_per_person": 4,
-    "task_level_credit_points": None,
+    **get_group_meeting_credit_policy(),
     "task_level_credit_editable": False,
-    "label": "小组会基础出席分：4分/人/学习周期（周期内只计一次）",
 }
 
 

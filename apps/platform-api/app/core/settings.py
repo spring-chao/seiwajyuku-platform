@@ -40,6 +40,13 @@ class Settings:
     class_roster_org_import_enabled: bool = False
     member_service_signal_feedback_enabled: bool = False
     agent_api_enabled: bool = False
+    # V1.2 unified mini-program capabilities remain explicitly closed by
+    # default.  Each capability is opened independently after local/staging
+    # validation and a bounded release approval.
+    wechat_member_binding_enabled: bool = False
+    study_meeting_submission_enabled: bool = False
+    study_meeting_review_enabled: bool = False
+    learning_credit_settlement_enabled: bool = False
     agent_client_id: str = ""
     agent_client_secret: str = ""
     agent_allowed_channels: tuple[str, ...] = ("api", "wecom", "wechat")
@@ -156,6 +163,12 @@ def get_settings() -> Settings:
             "MEMBER_SERVICE_SIGNAL_FEEDBACK_ENABLED"
         ),
         agent_api_enabled=_bool("AGENT_API_ENABLED"),
+        wechat_member_binding_enabled=_bool("WECHAT_MEMBER_BINDING_ENABLED"),
+        study_meeting_submission_enabled=_bool("STUDY_MEETING_SUBMISSION_ENABLED"),
+        study_meeting_review_enabled=_bool("STUDY_MEETING_REVIEW_ENABLED"),
+        learning_credit_settlement_enabled=_bool(
+            "LEARNING_CREDIT_SETTLEMENT_ENABLED"
+        ),
         agent_client_id=os.getenv("AGENT_CLIENT_ID", "").strip(),
         agent_client_secret=os.getenv("AGENT_CLIENT_SECRET", "").strip(),
         agent_allowed_channels=tuple(

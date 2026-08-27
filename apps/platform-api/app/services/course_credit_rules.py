@@ -24,6 +24,35 @@ def _catalog_path() -> Path:
     raise FileNotFoundError("找不到课程积分配置目录")
 
 
+def _policy_path() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        path = parent / "data" / "learning-plans" / "course-credit-rules-2026.json"
+        if path.is_file():
+            return path
+    raise FileNotFoundError("找不到课程积分政策配置")
+
+
+def get_group_meeting_credit_policy() -> dict[str, Any]:
+    """Read the cycle-level group-meeting policy from the approved artifact."""
+
+    payload = json.loads(_policy_path().read_text(encoding="utf-8"))
+    policy = dict(payload.get("group_meeting_base_credit") or {})
+    if policy.get("mode") != "CYCLE_ATTENDANCE_ONCE":
+        raise ValueError("小组会基础积分政策格式不正确")
+    points = policy.get("credit_points_per_person")
+    if not isinstance(points, int) or isinstance(points, bool) or points < 0:
+        raise ValueError("小组会基础积分政策缺少有效分值")
+    task_points = policy.get("task_level_credit_points")
+    return {
+        "mode": policy["mode"],
+        "credit_points_per_person": points,
+        "task_level_credit_points": task_points,
+        # Keep the public policy shape stable; descriptive source text remains
+        # in the approved artifact rather than becoming an API contract.
+        "label": f"小组会基础出席分：{points}分/人/学习周期（周期内只计一次）",
+    }
+
+
 def _catalog(plan_key: str) -> list[dict[str, Any]]:
     payload = json.loads(_catalog_path().read_text(encoding="utf-8"))
     if payload.get("plan_key") != plan_key:

@@ -3,6 +3,9 @@
 module.exports = {
   apiBaseUrl:
     "https://seiwajyuku-platform-api-287369-8-1453587887.sh.run.tcloudbase.com",
+  environment: "TEST",
+  sessionStorageKey: "seiwajyuku_member_session",
+  homePage: "pages/home/index",
   serviceSubjectName: "学长服务助手",
   privacyContractTitle: "用户隐私保护指引"
 };

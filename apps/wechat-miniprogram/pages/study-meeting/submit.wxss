@@ -1,0 +1,18 @@
+.page-shell { min-height: 100vh; box-sizing: border-box; padding: 28rpx; background: #f8f2ef; color: #3d2a2a; }
+.hero-card { padding: 42rpx 34rpx; border-radius: 28rpx; background: linear-gradient(135deg, #741f2b, #a84c52); color: #fff; box-shadow: 0 16rpx 34rpx rgba(116, 31, 43, .18); }
+.eyebrow { font-size: 24rpx; opacity: .82; letter-spacing: 2rpx; }
+.hero-title { margin-top: 16rpx; font-size: 46rpx; font-weight: 700; }
+.hero-copy { margin-top: 16rpx; line-height: 1.65; font-size: 27rpx; opacity: .92; }
+.section-card, .state-card { margin-top: 24rpx; padding: 28rpx; border-radius: 24rpx; background: #fff; box-shadow: 0 8rpx 24rpx rgba(80, 35, 35, .06); }
+.section-title { font-size: 34rpx; font-weight: 700; }
+.radio-row { display: flex; margin-top: 22rpx; }
+.radio { flex: 1; padding: 22rpx; margin-right: 14rpx; border: 1rpx solid #e2d2ce; border-radius: 14rpx; color: #806f6f; text-align: center; font-size: 28rpx; }
+.radio:last-child { margin-right: 0; }
+.radio.checked { border-color: #741f2b; background: #fff1eb; color: #741f2b; font-weight: 700; }
+.picker-value { margin-top: 20rpx; padding: 22rpx; border: 1rpx solid #dfd0cc; border-radius: 12rpx; font-size: 28rpx; }
+.placeholder, .section-hint { color: #9b8984; }
+.course-hint { margin-top: 14rpx; color: #741f2b; font-size: 25rpx; line-height: 1.5; }
+.notice-card { border-left: 8rpx solid #d79a83; }
+.section-hint { margin-top: 12rpx; font-size: 25rpx; line-height: 1.6; }
+.primary-button { margin-top: 24rpx; border-radius: 12rpx; background: #741f2b; color: #fff; font-size: 29rpx; }
+.error { color: #b33b44; }

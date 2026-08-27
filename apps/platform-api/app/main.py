@@ -24,6 +24,9 @@ from app.api.imports import router as imports_router
 from app.api.direct_class_preflight import router as direct_class_preflight_router
 from app.api.direct_class_import import router as direct_class_import_router
 from app.api.enrollment import router as enrollment_router
+from app.api.portal import router as portal_router
+from app.api.wechat import router as wechat_router
+from app.api.study_meetings import router as study_meetings_router
 from app.api.learning_plans import router as learning_plans_router
 from app.api.member_roster_import import router as member_roster_import_router
 from app.api.plans import router as plans_router
@@ -181,6 +184,9 @@ app.include_router(class_roster_org_import_router)
 app.include_router(direct_class_preflight_router)
 app.include_router(direct_class_import_router)
 app.include_router(enrollment_router)
+app.include_router(portal_router)
+app.include_router(wechat_router)
+app.include_router(study_meetings_router)
 app.include_router(learning_plans_router)
 app.include_router(member_roster_import_router)
 app.include_router(plans_router)

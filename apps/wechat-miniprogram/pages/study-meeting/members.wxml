@@ -1,0 +1,34 @@
+<view class="page-shell">
+  <view wx:if="{{loading}}" class="state-card">正在加载本组 ACTIVE 学员…</view>
+  <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <block wx:if="{{!loading && assignment && assignment.current_cycle}}">
+    <view class="hero-card">
+      <view class="eyebrow">{{assignment.class_name}}</view>
+      <view class="hero-title">{{assignment.group_name}}</view>
+      <view class="hero-copy">第 {{assignment.current_cycle.learning_cycle_index}} 学习周期 · 先一键全选，再取消当天未到的学长。</view>
+    </view>
+    <view class="section-card">
+      <view class="toolbar"><view class="section-title">本组学员 {{members.length}} 人</view><view class="toolbar-actions"><text bindtap="selectAll">全选</text><text bindtap="clearAll">清空</text></view></view>
+      <view wx:for="{{members}}" wx:key="member_id" class="member-row" data-member-id="{{item.member_id}}" bindtap="toggleMember">
+        <view class="checkbox {{selected[item.member_id] ? 'checked' : ''}}">{{selected[item.member_id] ? '✓' : ''}}</view>
+        <view class="member-name">{{item.name}}</view>
+      </view>
+      <view class="count-copy">已选择 {{selectedCount}} / {{members.length}} 人</view>
+    </view>
+
+    <view class="section-card">
+      <view class="section-title">添加同班其他小组学长</view>
+      <view class="section-hint">只允许同一班级的其他小组，正式组织关系不会改变。</view>
+      <view class="search-row"><input class="search-input" value="{{searchText}}" bindinput="handleSearch" placeholder="按姓名搜索" /><button class="search-button" loading="{{searching}}" bindtap="searchCross">搜索</button></view>
+      <view wx:for="{{crossMembers}}" wx:key="member_id" class="member-row" data-member-id="{{item.member_id}}" bindtap="toggleCross">
+        <view class="checkbox {{crossSelected[item.member_id] ? 'checked' : ''}}">{{crossSelected[item.member_id] ? '✓' : ''}}</view>
+        <view><view class="member-name">{{item.name}}</view><view class="member-meta">{{item.class_name}} · {{item.group_name}}</view></view>
+      </view>
+      <view class="count-copy">已添加跨组学长 {{crossSelectedCount}} 人</view>
+    </view>
+    <button class="primary-button" bindtap="continueSubmit">下一步：填写课程</button>
+  </block>
+  <view wx:if="{{!loading && assignment && !assignment.current_cycle}}" class="state-card error">
+    {{assignment.cycle_error || '当前学习周期暂不可用，请联系运营人员。'}}
+  </view>
+</view>

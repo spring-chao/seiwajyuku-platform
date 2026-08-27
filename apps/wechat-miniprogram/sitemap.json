@@ -3,6 +3,30 @@
   "rules": [
     {
       "action": "allow",
+      "page": "pages/home/index"
+    },
+    {
+      "action": "allow",
+      "page": "pages/identity/bind"
+    },
+    {
+      "action": "allow",
+      "page": "pages/study-meeting/index"
+    },
+    {
+      "action": "allow",
+      "page": "pages/study-meeting/members"
+    },
+    {
+      "action": "allow",
+      "page": "pages/study-meeting/submit"
+    },
+    {
+      "action": "allow",
+      "page": "pages/study-meeting/result"
+    },
+    {
+      "action": "allow",
       "page": "pages/enrollment/index"
     }
   ]

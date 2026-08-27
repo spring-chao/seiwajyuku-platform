@@ -54,7 +54,14 @@ def verify_password(password: str, encoded: str) -> bool:
         return False
 
 
-def create_token(subject: int, token_version: int, token_type: str, expires_delta: timedelta) -> str:
+def create_token(
+    subject: int,
+    token_version: int,
+    token_type: str,
+    expires_delta: timedelta,
+    *,
+    extra_claims: dict[str, Any] | None = None,
+) -> str:
     settings = get_settings()
     now = datetime.now(UTC)
     payload = {
@@ -65,6 +72,11 @@ def create_token(subject: int, token_version: int, token_type: str, expires_delt
         "exp": int((now + expires_delta).timestamp()),
         "jti": secrets.token_urlsafe(12),
     }
+    if extra_claims:
+        reserved = set(payload).intersection(extra_claims)
+        if reserved:
+            raise ValueError(f"令牌扩展字段不能覆盖保留字段: {sorted(reserved)}")
+        payload.update(extra_claims)
     header = {"alg": "HS256", "typ": "JWT"}
     signing_input = f"{_b64(json.dumps(header, separators=(',', ':')).encode())}.{_b64(json.dumps(payload, separators=(',', ':')).encode())}"
     signature = hmac.new(settings.jwt_secret.encode(), signing_input.encode(), hashlib.sha256).digest()
@@ -93,4 +105,3 @@ def decode_token(token: str, expected_type: str) -> dict[str, Any]:
 
 def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
-
