@@ -18,7 +18,9 @@ function request(path, options = {}) {
           return;
         }
         const detail = response.data && response.data.detail;
-        reject(new Error(typeof detail === "string" ? detail : "服务暂时不可用，请稍后重试。"));
+        const error = new Error(typeof detail === "string" ? detail : "服务暂时不可用，请稍后重试。");
+        error.statusCode = response.statusCode;
+        reject(error);
       },
       fail(error) {
         reject(new Error(error.errMsg || "网络请求失败"));

@@ -7,6 +7,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+import pytest
 from PIL import Image
 
 from app.core.privacy import protected_phone
@@ -185,6 +186,41 @@ def test_member_binding_masks_identity_and_revoke_closes_session() -> None:
             revoke = client.post("/api/v1/wechat/member-bindings/revoke", headers=headers)
             assert revoke.status_code == 200, revoke.text
             assert client.get("/api/v1/wechat/me", headers=headers).status_code == 401
+
+
+@pytest.mark.parametrize("position", ["volunteer_group_leader", "volunteer_group_counselor", None])
+def test_home_identity_is_independent_of_study_meeting_capability(position, monkeypatch) -> None:
+    fixture = _seed_group_leader_fixture()
+    monkeypatch.setenv("WECHAT_MEMBER_BINDING_ENABLED", "true")
+    monkeypatch.setenv("STUDY_MEETING_SUBMISSION_ENABLED", "true")
+    monkeypatch.setenv("IDENTITY_AUTHORIZATION_ENABLED", "true")
+    monkeypatch.setenv("WECHAT_MINIPROGRAM_APP_ID", "v12-home-test")
+    credits_before = fetch_one("SELECT COUNT(*) AS n FROM attendance_score_records")["n"]
+    person_id = fetch_one("SELECT person_id FROM member_identities WHERE member_id=?", (fixture["member_id"],))["person_id"]
+    with transaction() as connection:
+        execute(connection, "UPDATE volunteer_appointments SET appointment_key=?, status=? WHERE person_id=?",
+                (position or "volunteer_group_leader", "ACTIVE" if position else "ENDED", person_id))
+    with patch("app.services.wechat_identity.exchange_wechat_code", return_value={
+        "appid": "v12-home-test", "openid": f"home-{fixture['suffix']}"
+    }), TestClient(app) as client:
+        bound = client.post("/api/v1/wechat/member-bindings/verify", json={
+            "code": "synthetic-code", "name": "V1.2组长", "phone": fixture["phone"]
+        })
+        assert bound.status_code == 200, bound.text
+        headers = {"Authorization": "Bearer " + bound.json()["data"]["access_token"]}
+        me = client.get("/api/v1/wechat/me", headers=headers)
+        assert me.status_code == 200
+        assert me.json()["data"]["member"]["member_id"] == fixture["member_id"]
+        context = client.get("/api/v1/study-meetings/context", headers=headers)
+        if position:
+            assert context.status_code == 200, context.text
+            assert [item["group_org_unit_id"] for item in context.json()["data"]["assignments"]] == [fixture["group_id"]]
+        else:
+            assert context.status_code == 403, context.text
+            assert client.get("/api/v1/wechat/me", headers=headers).status_code == 200
+        assert client.post("/api/v1/wechat/member-bindings/revoke", headers=headers).status_code == 200
+        assert client.get("/api/v1/wechat/me", headers=headers).status_code == 401
+    assert fetch_one("SELECT COUNT(*) AS n FROM attendance_score_records")["n"] == credits_before
 
 
 def test_study_meeting_same_class_cross_group_does_not_change_relations(tmp_path, monkeypatch) -> None:

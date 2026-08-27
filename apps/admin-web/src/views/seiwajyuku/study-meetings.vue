@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
+import { studyMeetingErrorMessage } from "@/utils/studyMeetingError";
 import {
   getStudyMeetingRecord,
   getStudyMeetingRecords,
@@ -15,6 +16,8 @@ defineOptions({ name: "StudyMeetings" });
 const loading = ref(false);
 const detailLoading = ref(false);
 const error = ref("");
+const localApiLabel = import.meta.env.DEV
+  ? `本地开发验收 · API：${import.meta.env.VITE_API_BASE_URL || "当前站点（未单独配置）"}` : "";
 const records = ref<StudyMeetingRecord[]>([]);
 const detailVisible = ref(false);
 const detail = ref<StudyMeetingRecordDetail>();
@@ -78,9 +81,9 @@ const loadRecords = async () => {
     });
     records.value = response.data.records || [];
   } catch (requestError) {
-    error.value = "小组学习会记录加载失败，请刷新重试。";
+    records.value = [];
+    error.value = studyMeetingErrorMessage(requestError);
     ElMessage.error(error.value);
-    console.error(requestError);
   } finally {
     loading.value = false;
   }
@@ -96,8 +99,7 @@ const openDetail = async (record: any) => {
     const response = await getStudyMeetingRecord(record.id);
     detail.value = response.data;
   } catch (requestError) {
-    ElMessage.error("学习会详情加载失败，请稍后重试。");
-    console.error(requestError);
+    ElMessage.error(studyMeetingErrorMessage(requestError, "学习会详情加载"));
   } finally {
     detailLoading.value = false;
   }
@@ -113,8 +115,8 @@ const viewPhoto = async () => {
       releasePhoto();
       photoUrl.value = URL.createObjectURL(blob);
     }
-  } catch {
-    ElMessage.error("合影暂不可用、已过期或无查看权限。");
+  } catch (requestError) {
+    ElMessage.error(studyMeetingErrorMessage(requestError, "合影查看"));
   } finally { photoLoading.value = false; }
 };
 
@@ -137,8 +139,8 @@ const saveCourses = async () => {
     editingCourses.value = false;
     ElMessage.success("课程已修正，操作已记录；未产生积分");
     await loadRecords();
-  } catch (error: any) {
-    ElMessage.error(error?.response?.data?.detail || "课程修正失败，请刷新后重试。");
+  } catch (requestError) {
+    ElMessage.error(studyMeetingErrorMessage(requestError, "课程修正"));
   } finally { savingCourses.value = false; }
 };
 
@@ -155,6 +157,7 @@ onMounted(loadRecords);
             <div class="records-subtitle">
               查看学习记录与合影，按权限修正课程；不做审核、积分结算或组织关系修改。
             </div>
+            <div v-if="localApiLabel" class="muted">{{ localApiLabel }}</div>
           </div>
           <el-button :loading="loading" @click="loadRecords">刷新</el-button>
         </div>
@@ -168,6 +171,7 @@ onMounted(loadRecords);
         show-icon
         class="records-alert"
       />
+      <div v-if="error" class="muted records-alert">接口：GET /api/v1/study-meetings/records</div>
 
       <div class="records-filters">
         <el-select v-model="filters.status" clearable placeholder="全部状态" class="status-select">

@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import sqlite3
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from app.db import fetch_all, fetch_one, execute, transaction
+from app.core.security import create_token
 from app.main import app
 from app.services.course_credit_rules import list_course_credit_rules
 from app.services.study_evidence_storage import EvidenceStorage, EvidenceStorageError, normalize_image, MAX_BYTES
@@ -282,6 +284,43 @@ def test_api_auth_photo_and_operator_correction(monkeypatch):
                             json={"course_keys": [], "expected_course_keys": []}).status_code == 401
         oversized = client.post(url, headers=headers, content=b"x" * (MAX_BYTES + 65537))
         assert oversized.status_code == 413
+
+
+def test_operator_http_list_detail_photo_correction_and_permission_errors():
+    f = _seed_group_leader_fixture()
+    rules = list_course_credit_rules()["rules"][:3]
+    keys = [rule["course_key"] for rule in rules]
+    session = create(f, keys)
+    upload(f, session)
+    submit_study_meeting(member_id=f["member_id"], session_id=session["id"])
+    user = fetch_one("SELECT id, token_version FROM app_users WHERE username='admin'")
+    token = create_token(user["id"], user["token_version"], "access", timedelta(minutes=5))
+    headers = {"Authorization": "Bearer " + token}
+    before_credits = fetch_one("SELECT COUNT(*) AS n FROM attendance_score_records")["n"]
+    url = f"/api/v1/study-meetings/records/{session['id']}"
+    with TestClient(app) as client:
+        unauthenticated = client.get("/api/v1/study-meetings/records")
+        assert unauthenticated.status_code == 401
+        assert unauthenticated.json() == {"detail": "需要登录"}
+        with patch("app.api.auth.user_context", return_value={**dict(user), "permissions": []}):
+            forbidden = client.get("/api/v1/study-meetings/records", headers=headers)
+            assert forbidden.status_code == 403
+            assert forbidden.json() == {"detail": "无此操作权限"}
+        records = client.get("/api/v1/study-meetings/records", headers=headers)
+        assert records.status_code == 200, records.text
+        row = next(row for row in records.json()["data"]["records"] if row["id"] == session["id"])
+        assert len(row["courses"]) == 3
+        detail = client.get(url, headers=headers)
+        assert detail.status_code == 200 and len(detail.json()["data"]["courses"]) == 3
+        image = client.get(url + "/evidence", headers=headers)
+        assert image.status_code == 200 and image.headers["content-type"] == "image/jpeg"
+        corrected = client.patch(url + "/courses", headers=headers, json={
+            "course_keys": keys[:1], "expected_course_keys": keys,
+            "note": "B2.1.1 隔离数据回归"
+        })
+        assert corrected.status_code == 200, corrected.text
+        assert len(client.get(url, headers=headers).json()["data"]["courses"]) == 1
+    assert fetch_one("SELECT COUNT(*) AS n FROM attendance_score_records")["n"] == before_credits
 
 
 def test_defaults_and_disabled_evidence_cannot_bypass_photo(monkeypatch):

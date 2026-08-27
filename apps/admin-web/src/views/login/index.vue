@@ -28,6 +28,8 @@ const router = useRouter();
 const loading = ref(false);
 const disabled = ref(false);
 const loginError = ref("");
+const isLocalDevelopment = import.meta.env.DEV;
+const apiTarget = import.meta.env.VITE_API_BASE_URL || "当前站点";
 const ruleFormRef = ref<FormInstance>();
 
 const { initStorage } = useLayout();
@@ -141,8 +143,8 @@ useEventListener(document, "keydown", ({ code }) => {
 
           <el-alert
             class="preview-notice"
-            title="生产环境已启用"
-            description="管理门户、持久数据库和完整 API 已部署，可正常登录和使用。"
+            :title="isLocalDevelopment ? '本地开发验收' : '运营平台登录'"
+            :description="isLocalDevelopment ? `当前 API：${apiTarget}。请使用对应环境的测试账号，不要使用线上账号。` : '请使用管理员分配的账号登录。'"
             type="success"
             :closable="false"
             show-icon

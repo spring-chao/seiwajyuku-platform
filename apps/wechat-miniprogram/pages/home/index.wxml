@@ -1,30 +1,32 @@
 <view class="page-shell">
   <view class="hero-card">
     <view class="eyebrow">盛和塾 · 学长服务</view>
-    <view class="hero-title">学长服务助手</view>
-    <view class="hero-copy">入塾申请和小组学习会登记，都从这里开始。</view>
+    <view class="hero-title">{{identityState === 'bound' ? '欢迎回来' : '学长服务助手'}}</view>
+    <view class="hero-copy">{{identityState === 'bound' ? '学习服务从这里开始' : identityState === 'unbound' ? '新学长申请和学长服务，从这里开始' : '盛和塾 · 学长服务'}}</view>
   </view>
 
   <view wx:if="{{loading}}" class="state-card">正在加载，请稍候…</view>
   <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <button wx:if="{{!loading && (errorMessage || serviceMessage)}}" class="plain-button" bindtap="loadHome">重新加载</button>
 
-  <view wx:if="{{!loading}}" class="section-card">
+  <view wx:if="{{!loading && identityState !== 'unknown'}}" class="section-card">
     <view class="section-title">我的入口</view>
     <view wx:if="{{member}}" class="identity-card">
       <view class="identity-name">{{member.name_masked}}</view>
       <view wx:if="{{displayRole}}" class="identity-role">{{displayRole}}</view>
       <view class="identity-copy">{{displayScope || '暂未关联班级 · 暂未关联小组'}}</view>
-      <button class="primary-button" bindtap="openStudyMeeting">登记小组学习会</button>
+      <button wx:if="{{canManageStudyMeeting}}" class="primary-button" bindtap="openStudyMeeting">小组学习会登记</button>
+      <view wx:else class="identity-copy">{{serviceMessage || '当前暂无需要操作的学习服务'}}</view>
       <button class="plain-button" bindtap="unbind">解除本机绑定</button>
     </view>
     <view wx:else class="identity-card">
       <view class="identity-name">尚未绑定正式学员身份</view>
-      <view class="identity-copy">组长或辅导员首次使用时，输入姓名和手机号即可完成绑定。</view>
+      <view class="identity-copy">在册学长首次使用，输入姓名和手机号即可绑定。</view>
       <button class="primary-button" bindtap="openBinding">绑定我的学员身份</button>
     </view>
   </view>
 
-  <view class="section-card enrollment-card">
+  <view wx:if="{{!loading && identityState === 'unbound'}}" class="section-card enrollment-card">
     <view class="section-title">新学长入塾申请</view>
     <view class="section-hint">公开申请只用于入塾审核，不会直接建立正式学员档案。</view>
     <button class="secondary-button" bindtap="openEnrollment">填写申请</button>

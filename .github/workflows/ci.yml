@@ -48,6 +48,7 @@ jobs:
           cache-dependency-path: apps/admin-web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - run: node --test tests/study-meeting-error.test.mjs
       - run: pnpm build:staging
 
   wechat-miniprogram:
@@ -62,7 +63,7 @@ jobs:
         env:
           MINIPROGRAM_EXPECTED_APPID: wxb63212d3ce337b81
       - name: Multi-course photo and retry interaction tests
-        run: node --test scripts/test_study_meeting_miniprogram.mjs
+        run: node --test scripts/test_study_meeting_miniprogram.mjs scripts/test_home_identity_miniprogram.mjs
 
   api-container:
     runs-on: ubuntu-latest
