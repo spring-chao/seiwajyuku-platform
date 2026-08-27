@@ -350,7 +350,7 @@ def user_context(user_id: int) -> dict | None:
             "SELECT DISTINCT va.appointment_key FROM account_person_links apl "
             "JOIN volunteer_appointments va ON va.person_id=apl.person_id "
             "WHERE apl.user_id=? AND va.status IN ('PLANNED','ACTIVE') "
-            "AND va.starts_at<=? AND va.ends_at>=?",
+            "AND va.starts_at<=? AND (va.ends_at IS NULL OR va.ends_at>=?)",
             (user_id, now, now),
         )
     ] if identity_enabled else []
@@ -403,7 +403,7 @@ def user_context(user_id: int) -> dict | None:
         "va.ends_at AS valid_until FROM account_person_links apl "
         "JOIN volunteer_appointments va ON va.person_id=apl.person_id "
         "WHERE apl.user_id=? AND va.status IN ('PLANNED','ACTIVE') "
-        "AND va.starts_at<=? AND va.ends_at>=?",
+        "AND va.starts_at<=? AND (va.ends_at IS NULL OR va.ends_at>=?)",
         (user_id, now, now),
     ) if identity_enabled else []
     unique_scopes: dict[tuple, dict] = {}

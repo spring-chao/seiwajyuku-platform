@@ -193,3 +193,45 @@ def test_group_position_is_limited_to_its_group_and_status_keeps_history() -> No
         "SELECT COUNT(*) AS count FROM volunteer_appointments WHERE id=?",
         (appointment["id"],),
     )["count"] == 1
+
+
+def test_member_entry_defaults_to_machine_source_and_open_ended_term() -> None:
+    data = _fixture()
+    actor = _admin_id()
+    appointment = create_member_volunteer_appointment(
+        actor,
+        int(data["member_id"]),
+        position_key="volunteer_group_leader",
+        org_unit_id=str(data["group_id"]),
+    )
+
+    row = fetch_one(
+        "SELECT starts_at, ends_at, source_reference, status "
+        "FROM volunteer_appointments WHERE id=?",
+        (appointment["id"],),
+    )
+    assert row["starts_at"]
+    assert row["ends_at"] is None
+    assert row["source_reference"] == "MEMBER_ADMIN_MANUAL"
+    assert row["status"] == "ACTIVE"
+    assert appointment["ends_at"] is None
+    assert role_for_target(
+        int(data["member_id"]), str(data["class_id"]), str(data["group_id"])
+    ) == "GROUP_LEADER"
+
+    listed = list_member_volunteer_appointments(actor, int(data["member_id"]))
+    assert listed["appointments"][0]["ends_at"] is None
+
+    change_member_volunteer_appointment_status(
+        actor,
+        int(data["member_id"]),
+        int(appointment["id"]),
+        status="ENDED",
+    )
+    audit = fetch_one(
+        "SELECT purpose FROM audit_logs "
+        "WHERE action='identity.volunteer_appointment.status_change' "
+        "AND resource_id=? ORDER BY id DESC LIMIT 1",
+        (str(appointment["id"]),),
+    )
+    assert audit["purpose"] == "运营人员在学员管理中确认结束该志工任职"

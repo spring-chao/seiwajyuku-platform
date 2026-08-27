@@ -137,15 +137,17 @@ class BirthdayGreetingDraftPayload(BaseModel):
 class MemberVolunteerAppointmentPayload(BaseModel):
     position_key: str = Field(min_length=3, max_length=64)
     org_unit_id: str = Field(min_length=1, max_length=64)
-    starts_at: str
-    ends_at: str
-    source_reference: str = Field(min_length=4, max_length=500)
-    confirmation_note: str = Field(min_length=8, max_length=1000)
+    starts_at: str | None = None
+    ends_at: str | None = None
+    # The member-management entry point records a stable machine source and
+    # actor in the audit log. Operators may add a short optional note, but do
+    # not need to provide a technical evidence string.
+    confirmation_note: str | None = Field(default=None, max_length=1000)
 
 
 class MemberVolunteerAppointmentStatusPayload(BaseModel):
     status: Literal["SUSPENDED", "ENDED", "REVOKED"]
-    reason: str = Field(min_length=6, max_length=1000)
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 @router.post("/members")

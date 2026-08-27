@@ -21,6 +21,8 @@ from app.services.iam import accessible_org_ids
 
 
 STUDY_MEETING_MANAGE = "STUDY_MEETING_MANAGE"
+MEMBER_ADMIN_MANUAL_SOURCE = "MEMBER_ADMIN_MANUAL"
+MEMBER_APPOINTMENT_DEFAULT_PURPOSE = "学员管理手工添加正式志工任职"
 CAPABILITY_NAMES = {
     STUDY_MEETING_MANAGE: "登记小组学习会",
 }
@@ -314,7 +316,7 @@ def _insert_appointment(
     org_unit_id: str,
     scope_type: str,
     starts_at: str,
-    ends_at: str,
+    ends_at: str | None,
     source_reference: str,
     confirmation_note: str,
 ) -> int:
@@ -324,14 +326,25 @@ def _insert_appointment(
         org_unit_id=org_unit_id,
         scope_type=scope_type,
     )
-    if execute(
-        connection,
-        "SELECT id FROM volunteer_appointments WHERE person_id=? "
-        "AND appointment_key=? AND org_unit_id=? "
-        "AND status IN ('PLANNED','ACTIVE','SUSPENDED') "
-        "AND starts_at<? AND ends_at>? LIMIT 1",
-        (person_id, position_key, org_unit_id, ends_at, starts_at),
-    ).fetchone():
+    if ends_at is None:
+        overlapping = execute(
+            connection,
+            "SELECT id FROM volunteer_appointments WHERE person_id=? "
+            "AND appointment_key=? AND org_unit_id=? "
+            "AND status IN ('PLANNED','ACTIVE','SUSPENDED') "
+            "AND (ends_at IS NULL OR ends_at>?) LIMIT 1",
+            (person_id, position_key, org_unit_id, starts_at),
+        ).fetchone()
+    else:
+        overlapping = execute(
+            connection,
+            "SELECT id FROM volunteer_appointments WHERE person_id=? "
+            "AND appointment_key=? AND org_unit_id=? "
+            "AND status IN ('PLANNED','ACTIVE','SUSPENDED') "
+            "AND starts_at<? AND (ends_at IS NULL OR ends_at>?) LIMIT 1",
+            (person_id, position_key, org_unit_id, ends_at, starts_at),
+        ).fetchone()
+    if overlapping:
         raise ValueError("相同组织和任职存在重叠任期")
     now = _db_timestamp(connection)
     try:
@@ -386,16 +399,25 @@ def _insert_appointment(
     return appointment_id
 
 
-def _parse_term(starts_at: str, ends_at: str) -> tuple[datetime, datetime]:
+def _parse_term(
+    starts_at: str | None, ends_at: str | None
+) -> tuple[datetime, datetime | None]:
+    start_text = (starts_at or "").strip()
+    end_text = (ends_at or "").strip()
     try:
-        start = datetime.fromisoformat(starts_at)
-        end = datetime.fromisoformat(ends_at)
+        start = datetime.fromisoformat(start_text) if start_text else datetime.now(UTC)
     except (TypeError, ValueError) as exc:
-        raise ValueError("任职时间格式无效") from exc
+        raise ValueError("任职开始时间格式无效") from exc
     if start.tzinfo is None:
         start = start.replace(tzinfo=UTC)
     else:
         start = start.astimezone(UTC)
+    if not end_text:
+        return start, None
+    try:
+        end = datetime.fromisoformat(end_text)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("任职结束时间格式无效") from exc
     if end.tzinfo is None:
         end = end.replace(tzinfo=UTC)
     else:
@@ -413,21 +435,28 @@ def create_member_volunteer_appointment(
     *,
     position_key: str,
     org_unit_id: str,
-    starts_at: str,
-    ends_at: str,
-    source_reference: str,
-    confirmation_note: str,
+    starts_at: str | None = None,
+    ends_at: str | None = None,
+    source_reference: str | None = None,
+    confirmation_note: str | None = None,
 ) -> dict[str, Any]:
-    """Explicitly add a formal appointment from the member-management page."""
+    """Add a member-management appointment with operator-friendly defaults.
+
+    ``source_reference`` remains an accepted keyword for callers compiled
+    against the M2 API, but the member-management entry point deliberately
+    replaces it with a stable machine source. This prevents a technical audit
+    field from becoming a required operator input while preserving an
+    auditable actor and timestamp.
+    """
 
     _write_gate(write=True)
-    source = source_reference.strip()
-    note = confirmation_note.strip()
-    if len(source) < 4:
-        raise ValueError("确认依据至少填写 4 个字符")
-    if len(note) < 8:
-        raise ValueError("业务确认说明至少填写 8 个字符")
-    _parse_term(starts_at, ends_at)
+    start_value, end_value = _parse_term(starts_at, ends_at)
+    normalized_starts_at = start_value.isoformat()
+    normalized_ends_at = end_value.isoformat() if end_value else None
+    source = MEMBER_ADMIN_MANUAL_SOURCE
+    note = (confirmation_note or "").strip() or MEMBER_APPOINTMENT_DEFAULT_PURPOSE
+    if len(note) > 1000:
+        raise ValueError("备注不能超过 1000 个字符")
     member = fetch_one(
         "SELECT id, name, org_unit_id, status FROM members WHERE id=?",
         (member_id,),
@@ -447,8 +476,8 @@ def create_member_volunteer_appointment(
             position_key=position_key.strip(),
             org_unit_id=org_unit_id.strip(),
             scope_type="UNIT",
-            starts_at=starts_at,
-            ends_at=ends_at,
+            starts_at=normalized_starts_at,
+            ends_at=normalized_ends_at,
             source_reference=source,
             confirmation_note=note,
         )
@@ -458,6 +487,9 @@ def create_member_volunteer_appointment(
         "person_id": person_id,
         "position_key": position_key.strip(),
         "org_unit_id": org_unit_id.strip(),
+        "starts_at": normalized_starts_at,
+        "ends_at": normalized_ends_at,
+        "source_reference": source,
     }
 
 
@@ -509,15 +541,15 @@ def change_member_volunteer_appointment_status(
     appointment_id: int,
     *,
     status: str,
-    reason: str,
+    reason: str | None = None,
 ) -> dict[str, Any]:
     _write_gate(write=True)
     normalized_status = status.upper().strip()
     if normalized_status not in {"SUSPENDED", "ENDED", "REVOKED"}:
         raise ValueError("志工任职状态只能是 SUSPENDED、ENDED 或 REVOKED")
-    reason = reason.strip()
-    if len(reason) < 6:
-        raise ValueError("任职状态变更原因至少填写 6 个字符")
+    reason = (reason or "").strip() or "运营人员在学员管理中确认结束该志工任职"
+    if len(reason) > 1000:
+        raise ValueError("任职状态变更备注不能超过 1000 个字符")
     member = fetch_one(
         "SELECT id, org_unit_id, status FROM members WHERE id=?",
         (member_id,),

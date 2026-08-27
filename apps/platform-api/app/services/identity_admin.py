@@ -728,7 +728,7 @@ def create_volunteer_appointment(
             "SELECT id FROM volunteer_appointments WHERE person_id=? "
             "AND appointment_key=? AND org_unit_id=? "
             "AND status IN ('PLANNED','ACTIVE','SUSPENDED') "
-            "AND starts_at<? AND ends_at>? LIMIT 1",
+            "AND starts_at<? AND (ends_at IS NULL OR ends_at>?) LIMIT 1",
             (person_id, appointment_key, org_unit_id, ends_at, starts_at),
         ).fetchone():
             raise ValueError("相同组织和任职存在重叠任期")

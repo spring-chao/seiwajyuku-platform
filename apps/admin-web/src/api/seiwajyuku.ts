@@ -564,7 +564,7 @@ export type MemberVolunteerAppointment = {
   org_unit_type: string;
   scope_type: "UNIT" | "SUBTREE";
   starts_at: string;
-  ends_at: string;
+  ends_at: string | null;
   status: string;
   source_reference: string;
   created_at?: string;
@@ -1867,10 +1867,9 @@ export const createMemberVolunteerAppointment = (
   data: {
     position_key: string;
     org_unit_id: string;
-    starts_at: string;
-    ends_at: string;
-    source_reference: string;
-    confirmation_note: string;
+    starts_at?: string;
+    ends_at?: string;
+    confirmation_note?: string;
   }
 ) =>
   http.request<{
@@ -1881,13 +1880,19 @@ export const createMemberVolunteerAppointment = (
       person_id: string;
       position_key: string;
       org_unit_id: string;
+      starts_at: string;
+      ends_at: string | null;
+      source_reference: string;
     };
   }>("post", `/api/v1/members/${memberId}/volunteer-appointments`, { data });
 
 export const changeMemberVolunteerAppointmentStatus = (
   memberId: number,
   appointmentId: number,
-  data: { status: "SUSPENDED" | "ENDED" | "REVOKED"; reason: string }
+  data: {
+    status: "SUSPENDED" | "ENDED" | "REVOKED";
+    reason?: string;
+  }
 ) =>
   http.request<{
     success: boolean;

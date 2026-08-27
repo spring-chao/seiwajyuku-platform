@@ -344,7 +344,8 @@ def get_member_role_scopes(member_id: int) -> list[dict[str, Any]]:
             "JOIN volunteer_position_capabilities pc ON pc.position_key=c.position_key "
             "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
             "AND c.is_active=1 AND pc.capability_key=? "
-            "AND va.status IN ('PLANNED','ACTIVE') AND va.starts_at<=? AND va.ends_at>=?",
+            "AND va.status IN ('PLANNED','ACTIVE') AND va.starts_at<=? "
+            "AND (va.ends_at IS NULL OR va.ends_at>=?)",
             (member_id, STUDY_MEETING_MANAGE, now, now),
         )
     except Exception as exc:
@@ -359,7 +360,8 @@ def get_member_role_scopes(member_id: int) -> list[dict[str, Any]]:
             "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
             "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
             "AND va.appointment_key IN ('volunteer_group_leader','volunteer_class_counselor') "
-            "AND va.status IN ('PLANNED','ACTIVE') AND va.starts_at<=? AND va.ends_at>=?",
+            "AND va.status IN ('PLANNED','ACTIVE') AND va.starts_at<=? "
+            "AND (va.ends_at IS NULL OR va.ends_at>=?)",
             (member_id, now, now),
         )
     for row in canonical:

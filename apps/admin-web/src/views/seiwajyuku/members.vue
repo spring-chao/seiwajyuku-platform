@@ -70,12 +70,12 @@ const memberVolunteerAppointments = ref<MemberVolunteerAppointments>();
 const volunteerAppointmentsLoading = ref(false);
 const volunteerAppointmentDialogVisible = ref(false);
 const volunteerAppointmentSaving = ref(false);
+const volunteerAppointmentAdvanced = ref(false);
 const volunteerAppointmentForm = reactive({
   position_key: "",
   org_unit_id: "",
   starts_at: "",
   ends_at: "",
-  source_reference: "",
   confirmation_note: ""
 });
 const preflightVisible = ref(false);
@@ -1076,15 +1076,14 @@ async function loadMemberVolunteerAppointments(memberId: number) {
 
 function resetVolunteerAppointmentForm() {
   const start = new Date();
-  const end = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
   Object.assign(volunteerAppointmentForm, {
     position_key: "",
     org_unit_id: "",
     starts_at: start.toISOString(),
-    ends_at: end.toISOString(),
-    source_reference: "",
+    ends_at: "",
     confirmation_note: ""
   });
+  volunteerAppointmentAdvanced.value = false;
 }
 
 async function openVolunteerAppointmentDialog() {
@@ -1108,20 +1107,14 @@ async function saveVolunteerAppointment() {
     ElMessage.error(volunteerScopeHint(position.scope_level));
     return;
   }
-  if (!volunteerAppointmentForm.source_reference.trim()) {
-    ElMessage.error("请填写任职依据");
-    return;
-  }
-  if (volunteerAppointmentForm.confirmation_note.trim().length < 8) {
-    ElMessage.error("业务说明至少填写8个字符");
-    return;
-  }
   volunteerAppointmentSaving.value = true;
   try {
     await createMemberVolunteerAppointment(editingMemberId.value, {
-      ...volunteerAppointmentForm,
-      source_reference: volunteerAppointmentForm.source_reference.trim(),
-      confirmation_note: volunteerAppointmentForm.confirmation_note.trim()
+      position_key: volunteerAppointmentForm.position_key,
+      org_unit_id: volunteerAppointmentForm.org_unit_id,
+      starts_at: volunteerAppointmentForm.starts_at || undefined,
+      ends_at: volunteerAppointmentForm.ends_at || undefined,
+      confirmation_note: volunteerAppointmentForm.confirmation_note.trim() || undefined
     });
     await loadMemberVolunteerAppointments(editingMemberId.value);
     volunteerAppointmentDialogVisible.value = false;
@@ -1148,7 +1141,7 @@ async function endVolunteerAppointment(appointment: MemberVolunteerAppointment) 
     await changeMemberVolunteerAppointmentStatus(
       editingMemberId.value,
       appointment.id,
-      { status: "ENDED", reason: "运营人员在学员管理中确认结束该志工任职" }
+      { status: "ENDED" }
     );
     await loadMemberVolunteerAppointments(editingMemberId.value);
     ElMessage.success("志工任职已结束");
@@ -1599,7 +1592,7 @@ onMounted(async () => {
     >
       <el-alert
         title="只需选择岗位和服务范围"
-        description="系统会按岗位定义自动校验班级/小组层级；同一学员可以同时保留多个有效任职。"
+        description="系统会按岗位定义自动校验班级/小组层级；开始时间默认今天，结束时间不填即为长期有效。"
         type="info"
         :closable="false"
         show-icon
@@ -1637,36 +1630,40 @@ onMounted(async () => {
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="任职开始时间" required>
-          <el-date-picker
-            v-model="volunteerAppointmentForm.starts_at"
-            type="datetime"
-            value-format="YYYY-MM-DDTHH:mm:ssZ"
-            placeholder="请选择开始时间"
-          />
-        </el-form-item>
-        <el-form-item label="任职结束时间" required>
-          <el-date-picker
-            v-model="volunteerAppointmentForm.ends_at"
-            type="datetime"
-            value-format="YYYY-MM-DDTHH:mm:ssZ"
-            placeholder="请选择结束时间"
-          />
-        </el-form-item>
-        <el-form-item label="任职依据" required>
-          <el-input
-            v-model="volunteerAppointmentForm.source_reference"
-            placeholder="如：2026年秋季班委确认表"
-          />
-        </el-form-item>
-        <el-form-item label="业务说明" required>
-          <el-input
-            v-model="volunteerAppointmentForm.confirmation_note"
-            type="textarea"
-            :rows="3"
-            placeholder="请说明本次任职已由谁确认"
-          />
-        </el-form-item>
+        <div class="volunteer-appointment-advanced-toggle">
+          <el-button link type="primary" @click="volunteerAppointmentAdvanced = !volunteerAppointmentAdvanced">
+            {{ volunteerAppointmentAdvanced ? "收起更多设置" : "更多设置（可选）" }}
+          </el-button>
+        </div>
+        <template v-if="volunteerAppointmentAdvanced">
+          <el-form-item label="任职开始时间">
+            <el-date-picker
+              v-model="volunteerAppointmentForm.starts_at"
+              type="datetime"
+              value-format="YYYY-MM-DDTHH:mm:ssZ"
+              placeholder="默认今天"
+            />
+          </el-form-item>
+          <el-form-item label="任职结束时间">
+            <el-date-picker
+              v-model="volunteerAppointmentForm.ends_at"
+              type="datetime"
+              value-format="YYYY-MM-DDTHH:mm:ssZ"
+              placeholder="长期有效，可不填"
+              clearable
+            />
+          </el-form-item>
+          <el-form-item label="备注（选填）" class="full">
+            <el-input
+              v-model="volunteerAppointmentForm.confirmation_note"
+              type="textarea"
+              :rows="2"
+              maxlength="1000"
+              show-word-limit
+              placeholder="如有特殊情况，可补充说明"
+            />
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="volunteerAppointmentDialogVisible = false">取消</el-button>
@@ -2060,7 +2057,7 @@ onMounted(async () => {
                       <span>{{ appointment.org_name }}</span>
                       <small>
                         {{ volunteerAppointmentStatusLabel(appointment.status) }} ·
-                        {{ appointment.starts_at }} 至 {{ appointment.ends_at }}
+                        {{ appointment.starts_at }} 至 {{ appointment.ends_at || "长期有效" }}
                       </small>
                     </div>
                     <el-button
@@ -2538,6 +2535,9 @@ onMounted(async () => {
 .volunteer-appointment-form :deep(.el-select),
 .volunteer-appointment-form :deep(.el-date-editor) {
   width: 100%;
+}
+.volunteer-appointment-advanced-toggle {
+  margin: -4px 0 4px;
 }
 
 .tenure-field {
