@@ -49,6 +49,9 @@ class Settings:
     wechat_member_binding_enabled: bool = False
     study_meeting_submission_enabled: bool = False
     study_meeting_review_enabled: bool = False
+    study_meeting_evidence_enabled: bool = False
+    study_meeting_course_edit_enabled: bool = False
+    study_evidence_retention_hours: int = 168
     learning_credit_settlement_enabled: bool = False
     agent_client_id: str = ""
     agent_client_secret: str = ""
@@ -86,6 +89,11 @@ class Settings:
             raise RuntimeError(f"未知 APP_ENV: {self.app_env}")
         if self.wechat_local_test_mode and self.app_env not in {"dev", "test"}:
             raise RuntimeError("WECHAT_LOCAL_TEST_MODE 仅允许 dev/test 环境")
+        if self.study_evidence_retention_hours < 1:
+            raise RuntimeError("STUDY_EVIDENCE_RETENTION_HOURS 必须大于0")
+        if self.study_meeting_evidence_enabled and self.app_env not in {"dev", "test"}:
+            if os.getenv("STUDY_EVIDENCE_STORAGE_BACKEND", "local") != "cos":
+                raise RuntimeError("部署环境学习合影必须使用独立私有 COS 存储")
         if self.app_env in {"dev", "test"} and "production" in self.database_url.lower():
             raise RuntimeError("开发/测试环境禁止使用疑似生产数据库地址")
         if self.app_env in {"staging", "production"} and len(self.jwt_secret) < 32:
@@ -172,6 +180,9 @@ def get_settings() -> Settings:
         wechat_member_binding_enabled=_bool("WECHAT_MEMBER_BINDING_ENABLED"),
         study_meeting_submission_enabled=_bool("STUDY_MEETING_SUBMISSION_ENABLED"),
         study_meeting_review_enabled=_bool("STUDY_MEETING_REVIEW_ENABLED"),
+        study_meeting_evidence_enabled=_bool("STUDY_MEETING_EVIDENCE_ENABLED"),
+        study_meeting_course_edit_enabled=_bool("STUDY_MEETING_COURSE_EDIT_ENABLED"),
+        study_evidence_retention_hours=int(os.getenv("STUDY_EVIDENCE_RETENTION_HOURS", "168")),
         learning_credit_settlement_enabled=_bool(
             "LEARNING_CREDIT_SETTLEMENT_ENABLED"
         ),

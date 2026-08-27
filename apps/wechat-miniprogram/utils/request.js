@@ -27,4 +27,19 @@ function request(path, options = {}) {
   });
 }
 
-module.exports = { request };
+function uploadPhoto(path, filePath) {
+  const baseUrl = (app.globalData.apiBaseUrl || "").replace(/\/$/, "");
+  return new Promise((resolve, reject) => wx.uploadFile({
+    url: baseUrl + path, filePath, name: "photo", timeout: 30000,
+    header: { Authorization: "Bearer " + (app.globalData.memberSessionToken || "") },
+    success(response) {
+      let data;
+      try { data = JSON.parse(response.data); } catch (_) { data = {}; }
+      if (response.statusCode >= 200 && response.statusCode < 300) { resolve(data); return; }
+      reject(new Error(typeof data.detail === "string" ? data.detail : "合影上传失败，请重试"));
+    },
+    fail() { reject(new Error("合影上传中断，请重试")); }
+  }));
+}
+
+module.exports = { request, uploadPhoto };

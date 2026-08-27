@@ -13,17 +13,30 @@
         <view class="radio {{!hasCourse ? 'checked' : ''}}" data-value="false" bindtap="handleCourseSwitch">{{!hasCourse ? '✓' : '○'}} 没有</view>
         <view class="radio {{hasCourse ? 'checked' : ''}}" data-value="true" bindtap="handleCourseSwitch">{{hasCourse ? '✓' : '○'}} 有</view>
       </view>
-      <picker wx:if="{{hasCourse && courses.length}}" mode="selector" range="{{courseOptions}}" value="{{courseIndex < 0 ? 0 : courseIndex}}" bindchange="handleCourseChange">
-        <view class="picker-value {{courseName ? '' : 'placeholder'}}">{{courseLabel || '请选择一门在线课程'}}</view>
-      </picker>
+      <block wx:if="{{hasCourse && courses.length}}">
+        <view class="course-hint">可以多选 · 已选 {{selectedCourseKeys.length}} 门</view>
+        <input class="picker-value" placeholder="搜索课程名称" value="{{courseSearch}}" bindinput="searchCourses" />
+        <scroll-view scroll-y class="course-list">
+          <view wx:for="{{visibleCourses}}" wx:key="course_key" class="course-item {{item.selected ? 'selected' : ''}}" data-key="{{item.course_key}}" bindtap="toggleCourse">
+            <view class="course-check">{{item.selected ? '✓' : '○'}}</view>
+            <view><view>{{item.course_name}}</view><view class="course-points">{{item.creditLabel}}</view></view>
+          </view>
+        </scroll-view>
+      </block>
       <view wx:if="{{hasCourse && !courses.length}}" class="course-hint">当前没有可选在线课程，请先选择“没有”。</view>
-      <view wx:if="{{hasCourse && courseIndex >= 0}}" class="course-hint">{{courses[courseIndex].status === 'CONFIGURED' ? courses[courseIndex].credit_points + ' 分 · 已配置' : '课程已记录 · 学分待配置'}}</view>
+    </view>
+    <view class="section-card">
+      <view class="section-title">一张学习合影</view>
+      <view class="section-hint">拍一张，或从相册选择。仅用于学习记录核验，默认保留7天。</view>
+      <image wx:if="{{photoPath}}" class="study-photo" src="{{photoPath}}" mode="aspectFit" bindtap="previewPhoto" />
+      <button class="photo-button" bindtap="choosePhoto" loading="{{choosingPhoto}}" disabled="{{submitting || choosingPhoto || !evidenceEnabled}}">{{photoPath ? '重新选择合影' : '拍照 / 选择合影'}}</button>
+      <view wx:if="{{!evidenceEnabled}}" class="course-hint">合影功能尚未开启，请联系运营人员。</view>
     </view>
     <view class="section-card notice-card">
       <view class="section-title">本次登记</view>
       <view class="section-hint">本组 {{homeCount}} 人{{crossSummary}}。提交后即可完成本次学习会登记。</view>
     </view>
-    <button class="primary-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="submit">提交本次学习会</button>
+    <button class="primary-button" loading="{{submitting}}" disabled="{{submitting || choosingPhoto || !evidenceEnabled}}" bindtap="submit">提交本次学习会</button>
   </block>
   <view wx:if="{{!loading && assignment && !assignment.current_cycle}}" class="state-card error">
     {{assignment.cycle_error || '当前学习周期暂不可用，请联系运营人员。'}}

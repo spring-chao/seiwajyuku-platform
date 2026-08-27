@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import os
+import io
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.core.privacy import protected_phone
 from app.db import execute, fetch_one, transaction
@@ -185,7 +187,9 @@ def test_member_binding_masks_identity_and_revoke_closes_session() -> None:
             assert client.get("/api/v1/wechat/me", headers=headers).status_code == 401
 
 
-def test_study_meeting_same_class_cross_group_does_not_change_relations() -> None:
+def test_study_meeting_same_class_cross_group_does_not_change_relations(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("STUDY_MEETING_EVIDENCE_ENABLED", "true")
+    monkeypatch.setenv("STUDY_EVIDENCE_LOCAL_ROOT", str(tmp_path))
     fixture = _seed_group_leader_fixture()
     with patch.dict(
         os.environ,
@@ -226,6 +230,13 @@ def test_study_meeting_same_class_cross_group_does_not_change_relations() -> Non
             )
             assert created.status_code == 200, created.text
             session = created.json()["data"]
+            photo = io.BytesIO()
+            Image.new("RGB", (20, 20), "white").save(photo, "JPEG")
+            uploaded = client.post(
+                f"/api/v1/study-meetings/{session['id']}/evidence", headers=headers,
+                files={"photo": ("photo.jpg", photo.getvalue(), "image/jpeg")},
+            )
+            assert uploaded.status_code == 200, uploaded.text
             submitted = client.post(
                 f"/api/v1/study-meetings/{session['id']}/submit", headers=headers
             )

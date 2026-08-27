@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { onMounted, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import {
   getStudyMeetingRecord,
   getStudyMeetingRecords,
+  getStudyMeetingPhoto,
+  correctStudyMeetingCourses,
   type StudyMeetingRecord,
   type StudyMeetingRecordDetail
 } from "@/api/study-meetings";
@@ -16,6 +18,18 @@ const error = ref("");
 const records = ref<StudyMeetingRecord[]>([]);
 const detailVisible = ref(false);
 const detail = ref<StudyMeetingRecordDetail>();
+const photoUrl = ref("");
+const photoLoading = ref(false);
+const editingCourses = ref(false);
+const savingCourses = ref(false);
+const selectedCourses = ref<string[]>([]);
+const correctionNote = ref("");
+const releasePhoto = () => {
+  if (photoUrl.value) URL.revokeObjectURL(photoUrl.value);
+  photoUrl.value = "";
+};
+watch(detailVisible, visible => { if (!visible) releasePhoto(); });
+onBeforeUnmount(releasePhoto);
 const filters = reactive<{
   status: "" | StudyMeetingRecord["status"];
   meeting_date_from: string;
@@ -41,6 +55,11 @@ const formatDateTime = (value?: string | null) =>
 // Element Plus exposes table slot rows as a generic DefaultRow in templates;
 // the API payload is still typed at the boundary above.
 const courseLabel = (record: any) => {
+  if (Array.isArray(record.courses)) {
+    return record.courses.map(course =>
+      `${course.course_name_snapshot}（${course.course_rule_status === "PENDING" ? "学分待配置" : course.course_credit_snapshot + "学分"}）`
+    ).join("；") || "未观看课程";
+  }
   if (!record.has_course) return "未观看课程";
   if (record.course_rule_status === "PENDING") {
     return `${record.course_name_snapshot || "已选课程"}（学分待配置）`;
@@ -68,6 +87,8 @@ const loadRecords = async () => {
 };
 
 const openDetail = async (record: any) => {
+  releasePhoto();
+  editingCourses.value = false;
   detailVisible.value = true;
   detailLoading.value = true;
   detail.value = undefined;
@@ -82,6 +103,45 @@ const openDetail = async (record: any) => {
   }
 };
 
+const viewPhoto = async () => {
+  if (!detail.value) return;
+  const sessionId = detail.value.id;
+  photoLoading.value = true;
+  try {
+    const blob = await getStudyMeetingPhoto(sessionId);
+    if (detail.value?.id === sessionId && detailVisible.value) {
+      releasePhoto();
+      photoUrl.value = URL.createObjectURL(blob);
+    }
+  } catch {
+    ElMessage.error("合影暂不可用、已过期或无查看权限。");
+  } finally { photoLoading.value = false; }
+};
+
+const editCourses = () => {
+  selectedCourses.value = detail.value?.courses.map(item => item.course_key) || [];
+  correctionNote.value = "";
+  editingCourses.value = true;
+};
+
+const saveCourses = async () => {
+  if (!detail.value || savingCourses.value) return;
+  savingCourses.value = true;
+  try {
+    const response = await correctStudyMeetingCourses(detail.value.id, {
+      course_keys: selectedCourses.value,
+      expected_course_keys: detail.value.courses.map(item => item.course_key),
+      note: correctionNote.value || undefined
+    });
+    detail.value = response.data;
+    editingCourses.value = false;
+    ElMessage.success("课程已修正，操作已记录；未产生积分");
+    await loadRecords();
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || "课程修正失败，请刷新后重试。");
+  } finally { savingCourses.value = false; }
+};
+
 onMounted(loadRecords);
 </script>
 
@@ -93,7 +153,7 @@ onMounted(loadRecords);
           <div>
             <div class="records-title">小组学习会记录</div>
             <div class="records-subtitle">
-              只读查看组长提交的学习事实；本页不做审核、积分结算或组织关系修改。
+              查看学习记录与合影，按权限修正课程；不做审核、积分结算或组织关系修改。
             </div>
           </div>
           <el-button :loading="loading" @click="loadRecords">刷新</el-button>
@@ -203,12 +263,30 @@ onMounted(loadRecords);
               <span v-if="!detail.cross_group_attendees.length" class="muted">无</span>
             </div>
           </div>
-          <el-alert
-            title="合影对象存储将在 MVP-B2 接入；当前版本只保存成员、周期和课程学习事实。"
-            type="info"
-            :closable="false"
-            show-icon
-          />
+          <section class="attendee-section">
+            <div class="detail-title">学习合影</div>
+            <template v-if="detail.evidence">
+              <el-button :loading="photoLoading" @click="viewPhoto">查看合影</el-button>
+              <div class="muted">默认保留7天，到期后清理照片，保留学习记录。</div>
+              <img v-if="photoUrl" :src="photoUrl" alt="本次学习合影" class="study-photo" />
+            </template>
+            <span v-else class="muted">未上传或已到期清理</span>
+          </section>
+          <section v-if="detail.can_edit_courses" class="attendee-section">
+            <el-button v-if="!editingCourses" @click="editCourses">修正课程</el-button>
+            <template v-else>
+              <div class="detail-title">本次观看的课程（可多选，留空表示无课程）</div>
+              <el-select v-model="selectedCourses" multiple filterable placeholder="选择课程" style="width: 100%">
+                <el-option v-for="course in detail.course_options" :key="course.course_key"
+                  :value="course.course_key"
+                  :label="course.course_name + (course.status === 'CONFIGURED' ? ' · ' + course.credit_points + '学分' : ' · 学分待配置')" />
+              </el-select>
+              <el-input v-model="correctionNote" placeholder="修正备注（选填）" maxlength="1000" class="correction-note" />
+              <el-button type="primary" :loading="savingCourses" @click="saveCourses">保存修正</el-button>
+              <el-button :disabled="savingCourses" @click="editingCourses = false">取消</el-button>
+              <div class="muted">仅修正课程名单，保留已有课程的原积分快照；不修改积分标准。</div>
+            </template>
+          </section>
         </template>
       </div>
     </el-drawer>
@@ -231,4 +309,6 @@ onMounted(loadRecords);
 .attendee-section { margin: 22px 0; }
 .detail-title { color: #542a31; font-size: 15px; font-weight: 700; margin-bottom: 10px; }
 .attendee-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.study-photo { width: 100%; max-height: 420px; object-fit: contain; margin-top: 16px; }
+.correction-note { margin: 14px 0; }
 </style>

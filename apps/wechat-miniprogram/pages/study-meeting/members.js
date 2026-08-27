@@ -36,7 +36,8 @@ Page({
       const response = await request(`/api/v1/study-meetings/context?group_org_unit_id=${encodeURIComponent(this.data.groupId)}`, { auth: true });
       const context = response.data || {};
       const assignment = context.assignment || {};
-      const draft = app.globalData.studyMeetingDraft || {};
+      const storedDraft = app.globalData.studyMeetingDraft || {};
+      const draft = storedDraft.group_org_unit_id === this.data.groupId ? storedDraft : {};
       this.setData({
         assignment,
         members: assignment.members || [],

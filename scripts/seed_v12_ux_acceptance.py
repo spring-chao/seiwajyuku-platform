@@ -182,6 +182,7 @@ def main() -> int:
             phone=counselor_phone,
         )
         _relation(connection, counselor_id, class_id, "STUDY_CLASS", now)
+        _relation(connection, counselor_id, group_id, "STUDY_GROUP", now)
         counselor_person_id = f"v12-ux-counselor-person-{suffix}"
         execute(
             connection,
@@ -199,8 +200,8 @@ def main() -> int:
             connection,
             "INSERT INTO volunteer_appointments(person_id, appointment_key, org_unit_id, scope_type, "
             "starts_at, ends_at, status, source_reference, created_at, updated_at) "
-            "VALUES (?, 'volunteer_class_counselor', ?, 'UNIT', ?, ?, 'ACTIVE', 'v12-local-ux', ?, ?)",
-            (counselor_person_id, class_id, starts_at, ends_at, now, now),
+            "VALUES (?, 'volunteer_group_counselor', ?, 'UNIT', ?, ?, 'ACTIVE', 'v12-local-ux', ?, ?)",
+            (counselor_person_id, group_id, starts_at, ends_at, now, now),
         )
 
         plan_cursor = execute(

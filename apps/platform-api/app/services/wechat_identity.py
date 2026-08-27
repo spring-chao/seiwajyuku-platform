@@ -198,6 +198,12 @@ def verify_member_binding(*, code: str, name: str, phone: str) -> dict[str, Any]
         raise WeChatIdentityError("暂时无法完成身份匹配，请联系工作人员")
     member_id = int(matches[0]["id"])
 
+    # Isolated UX acceptance simulates distinct WeChat accounts when switching
+    # fixture people in a single developer tool. Never alter real provider IDs.
+    settings = get_settings()
+    if settings.wechat_local_test_mode and settings.app_env in {"dev", "test"}:
+        openid = f"local-test-member-{member_id}"
+
     with transaction() as connection:
         now = _db_timestamp(connection)
         existing_openid = execute(

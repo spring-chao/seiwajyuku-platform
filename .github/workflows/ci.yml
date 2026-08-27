@@ -61,6 +61,8 @@ jobs:
         run: node scripts/check_wechat_miniprogram.mjs
         env:
           MINIPROGRAM_EXPECTED_APPID: wxb63212d3ce337b81
+      - name: Multi-course photo and retry interaction tests
+        run: node --test scripts/test_study_meeting_miniprogram.mjs
 
   api-container:
     runs-on: ubuntu-latest
@@ -68,6 +70,53 @@ jobs:
       - uses: actions/checkout@v7
       - name: Build production API image (root Dockerfile with migrations)
         run: docker build -t seiwajyuku-platform-api:ci .
+
+  study-meeting-mysql:
+    # Disposable, isolated CI database. No production credentials or deployment.
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-b21-root
+          MYSQL_DATABASE: seiwajyuku_b21_test
+          MYSQL_USER: b21_test
+          MYSQL_PASSWORD: ci-b21-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-b21-root"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENV: test
+      DATABASE_URL: mysql+pymysql://b21_test:ci-b21-password@127.0.0.1:3306/seiwajyuku_b21_test?charset=utf8mb4
+      ALLOW_PRODUCTION_MUTATIONS: "false"
+      BOOTSTRAP_ADMIN_PASSWORD: test-admin-password
+      PYTHONPATH: apps/platform-api
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -r apps/platform-api/requirements.txt
+      - name: MySQL photo, course, binding and capability integration
+        run: >-
+          python -m pytest apps/platform-api/tests/test_study_meeting_evidence.py
+          apps/platform-api/tests/test_v12_mvp.py
+          apps/platform-api/tests/test_volunteer_position_model.py
+          -q --junitxml=b21-mysql.xml
+      - name: Verify 0041 rollback on disposable test data
+        run: |
+          docker exec -i "${{ job.services.mysql.id }}" mysql -uroot -pci-b21-root seiwajyuku_b21_test < migrations/rollback/mysql/0041_study_meeting_courses_evidence.down.sql
+          result="$(docker exec "${{ job.services.mysql.id }}" mysql -N -uroot -pci-b21-root seiwajyuku_b21_test -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('study_meeting_courses','study_meeting_evidence');")"
+          test "$result" = "0"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: b21-mysql-results
+          path: b21-mysql.xml
 
   mysql-staging:
     runs-on: ubuntu-latest

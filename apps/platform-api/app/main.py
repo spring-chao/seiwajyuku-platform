@@ -37,6 +37,7 @@ from app.api.system import router as system_router
 from app.core.settings import get_settings
 from app.migrations import run_migrations
 from app.services.iam import seed_iam
+from app.core.study_photo_body_limit import StudyPhotoBodyLimit
 
 
 settings = get_settings()
@@ -129,6 +130,7 @@ app.add_middleware(
     ],
     expose_headers=["Mcp-Session-Id"],
 )
+app.add_middleware(StudyPhotoBodyLimit)
 
 
 @app.middleware("http")

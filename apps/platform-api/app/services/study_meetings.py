@@ -3,13 +3,15 @@
 This module intentionally has no relationship with the legacy attendance
 tables and never advances a class learning cycle or settles credits.  It
 stores the people and course fact exactly as submitted by an authorized group
-leader/class counsellor; review, evidence storage and settlement are later
-phases.
+leader/counsellor. B2.1 adds course detail snapshots and private photo evidence;
+review and credit settlement remain separate, disabled phases.
 """
 
 from __future__ import annotations
 
 import secrets
+import hashlib
+import json
 import sqlite3
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
@@ -28,7 +30,7 @@ from app.services.wechat_identity import (
     role_for_target,
     resolve_member_session,
 )
-from app.services.iam import accessible_org_ids
+from app.services.iam import accessible_org_ids, user_context
 
 
 class StudyMeetingError(ValueError):
@@ -137,6 +139,82 @@ def _course_rules() -> dict[str, dict[str, Any]]:
     return {str(rule["course_key"]): rule for rule in payload.get("rules", [])}
 
 
+def _require_write() -> None:
+    settings = get_settings()
+    if settings.deployment_read_only or (settings.is_production and not settings.allow_production_mutations):
+        raise StudyMeetingPermissionError("当前环境不允许写入")
+
+
+def _lock_session(connection, session_id: int) -> dict:
+    # Serialize submit, evidence replacement and operator correction on both DBs.
+    execute(connection, "UPDATE study_meeting_sessions SET id=id WHERE id=?", (session_id,))
+    row = execute(connection, "SELECT * FROM study_meeting_sessions WHERE id=?", (session_id,)).fetchone()
+    if not row:
+        raise StudyMeetingError("学习会记录不存在")
+    return dict(row)
+
+
+def _read_courses(connection, row: dict, details: list[dict] | None = None) -> list[dict]:
+    if details is None:
+        details = [dict(item) for item in execute(
+            connection, "SELECT * FROM study_meeting_courses WHERE study_meeting_session_id=? ORDER BY id",
+            (row["id"],),
+        ).fetchall()]
+    if details:
+        return [{key: _serialize(value) for key, value in item.items()} for item in details]
+    if not row.get("course_details_initialized") and row.get("course_key"):
+        return [{
+            "course_key": row["course_key"], "course_name_snapshot": row["course_name_snapshot"],
+            "course_credit_snapshot": row["course_credit_snapshot"],
+            "course_rule_status": "CONFIGURED" if row["course_credit_snapshot"] is not None else "PENDING",
+            "rule_reference_json": None, "legacy": True,
+        }]
+    return []
+
+
+def _course_snapshots(keys: list[str]) -> list[dict]:
+    if any(not isinstance(key, str) or not key or len(key) > 128 for key in keys):
+        raise StudyMeetingError("课程编号无效")
+    if len(keys) != len(set(keys)):
+        raise StudyMeetingError("同一课程不能重复添加")
+    directory = list_course_credit_rules()
+    rules = {item["course_key"]: item for item in directory["rules"]}
+    snapshots = []
+    for key in keys:
+        rule = rules.get(key)
+        if not rule:
+            raise StudyMeetingError("课程不在当前课程积分目录中")
+        item = {
+            "course_key": key, "course_name_snapshot": rule["course_name"],
+            "course_credit_snapshot": rule["credit_points"] if rule["status"] == "CONFIGURED" else None,
+            "course_rule_status": rule["status"],
+        }
+        reference = {
+            "plan_key": directory["plan_key"], "version_label": directory["version_label"],
+            "rule_id": rule.get("id"), "rule_updated_at": _serialize(rule.get("updated_at")),
+            "source": rule.get("source"), "version_status": directory["version_status"],
+            "snapshot_sha256": hashlib.sha256(json.dumps(item, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
+        }
+        item["rule_reference_json"] = json.dumps(reference, ensure_ascii=False, sort_keys=True)
+        snapshots.append(item)
+    return snapshots
+
+
+def _write_courses(connection, session_id: int, snapshots: list[dict]) -> None:
+    now = _db_timestamp(connection)
+    execute(connection, "DELETE FROM study_meeting_courses WHERE study_meeting_session_id=?", (session_id,))
+    for item in snapshots:
+        execute(connection,
+            "INSERT INTO study_meeting_courses(study_meeting_session_id, course_key, course_name_snapshot, "
+            "course_credit_snapshot, course_rule_status, rule_reference_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, item["course_key"], item["course_name_snapshot"], item["course_credit_snapshot"],
+             item["course_rule_status"], item["rule_reference_json"], now, now))
+    # Includes the empty-list case, so clearing a legacy course cannot resurrect it.
+    execute(connection, "UPDATE study_meeting_sessions SET course_details_initialized=1, updated_at=? WHERE id=?",
+            (now, session_id))
+
+
 def _session_payload(connection, session_id: int) -> dict[str, Any] | None:
     row = execute(
         connection,
@@ -154,7 +232,10 @@ def _session_payload(connection, session_id: int) -> dict[str, Any] | None:
         return None
     result = {key: _serialize(value) for key, value in dict(row).items()}
     result["id"] = int(result["id"])
-    result["has_course"] = bool(result["has_course"])
+    result["courses"] = _read_courses(connection, result)
+    result["has_course"] = bool(result["courses"])
+    from app.services.study_meeting_evidence import evidence_metadata
+    result["evidence"] = evidence_metadata(connection, session_id)
     result["course_rule_status"] = (
         "CONFIGURED" if result.get("course_key") and result.get("course_credit_snapshot") is not None else
         "PENDING" if result.get("course_key") else None
@@ -278,6 +359,8 @@ def get_study_meeting_context(
         "assignments": assignments,
         "courses": courses,
         "credit_policy": credit_policy,
+        "evidence_enabled": get_settings().study_meeting_evidence_enabled,
+        "evidence_required": True,
     }
 
 
@@ -427,9 +510,11 @@ def create_study_meeting(
     member_ids: list[int],
     cross_group_member_ids: list[int],
     has_course: bool,
-    course_key: str | None,
+    course_key: str | None = None,
+    course_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     _require_enabled()
+    _require_write()
     target = _target_for_member(member_id, group_org_unit_id)
     role = role_for_target(
         member_id, target["class_org_unit_id"], target["group_org_unit_id"]
@@ -444,15 +529,12 @@ def create_study_meeting(
         raise StudyMeetingError("同一学长不能重复添加")
     if set(home_ids) & set(cross_ids):
         raise StudyMeetingError("本组与跨组名单不能重复")
-    chosen_course = None
-    if has_course:
-        if not course_key:
-            raise StudyMeetingError("选择观看课程后必须选择一门课程")
-        chosen_course = _course_rules().get(course_key)
-        if not chosen_course:
-            raise StudyMeetingError("课程不在当前课程积分目录中")
-    elif course_key:
-        raise StudyMeetingError("未观看课程时不能传入课程")
+    if course_keys is not None and course_key is not None:
+        raise StudyMeetingError("请使用课程列表，不要同时传入旧课程字段")
+    keys = course_keys if course_keys is not None else ([course_key] if course_key else [])
+    if bool(keys) != has_course:
+        raise StudyMeetingError("观看课程选项与课程列表不一致")
+    snapshots = _course_snapshots(keys)
     meeting_day = _parse_meeting_date(meeting_date)
     now = _now()
 
@@ -514,15 +596,16 @@ def create_study_meeting(
                 meeting_day,
                 member_id,
                 role,
-                1 if has_course else 0,
-                chosen_course["course_key"] if chosen_course else None,
-                chosen_course["course_name"] if chosen_course else None,
-                chosen_course["credit_points"] if chosen_course and chosen_course.get("status") == "CONFIGURED" else None,
+                0,  # Legacy single-course fields are no longer written.
+                None,
+                None,
+                None,
                 db_now,
                 db_now,
             ),
         )
         session_id = int(cursor.lastrowid)
+        _write_courses(connection, session_id, snapshots)
         for item in home_ids:
             execute(
                 connection,
@@ -555,7 +638,8 @@ def create_study_meeting(
                 "learning_cycle_id": int(cycle["id"]),
                 "home_count": len(home_ids),
                 "cross_group_count": len(cross_ids),
-                "course_key": chosen_course["course_key"] if chosen_course else None,
+                "courses": snapshots,
+                "created_by_member_id": member_id,
             },
         )
         payload = _session_payload(connection, session_id)
@@ -566,12 +650,9 @@ def create_study_meeting(
 
 def submit_study_meeting(*, member_id: int, session_id: int) -> dict[str, Any]:
     _require_enabled()
+    _require_write()
     with transaction() as connection:
-        row = execute(
-            connection,
-            "SELECT * FROM study_meeting_sessions WHERE id=? LIMIT 1",
-            (session_id,),
-        ).fetchone()
+        row = _lock_session(connection, session_id)
         if not row:
             raise StudyMeetingError("学习会记录不存在")
         role = role_for_target(
@@ -592,11 +673,11 @@ def submit_study_meeting(*, member_id: int, session_id: int) -> dict[str, Any]:
             raise StudyMeetingError("当前学习周期已变化，请重新登记本场学习会")
         _validate_session_attendees(connection, row)
         course_rules = _course_rules()
-        if row["has_course"]:
-            if not row["course_key"] or row["course_key"] not in course_rules:
-                raise StudyMeetingError("课程不在当前课程积分目录中")
-        elif row["course_key"]:
-            raise StudyMeetingError("未观看课程时不能传入课程")
+        if any(item["course_key"] not in course_rules for item in _read_courses(connection, row)):
+            raise StudyMeetingError("课程不在当前课程积分目录中")
+        from app.services.study_meeting_evidence import evidence_metadata
+        if not evidence_metadata(connection, session_id):
+            raise StudyMeetingError("请先上传一张学习合影")
 
         now = _db_timestamp(connection)
         execute(
@@ -685,7 +766,7 @@ def list_study_meeting_records(
         "s.study_group_org_unit_id, g.name AS group_name, s.learning_cycle_id, "
         "lc.learning_cycle_index AS cycle_index, s.meeting_date, "
         "s.created_by_member_id, creator.name AS creator_name, s.has_course, "
-        "s.course_key, s.course_name_snapshot, s.course_credit_snapshot, s.status, "
+        "s.course_key, s.course_name_snapshot, s.course_credit_snapshot, s.status, s.course_details_initialized, "
         "s.submitted_at, s.created_at, s.updated_at, "
         "SUM(CASE WHEN a.attendance_type='HOME_GROUP' THEN 1 ELSE 0 END) AS home_count, "
         "SUM(CASE WHEN a.attendance_type='CROSS_GROUP' THEN 1 ELSE 0 END) AS cross_group_count, "
@@ -700,15 +781,29 @@ def list_study_meeting_records(
         "GROUP BY s.id, s.session_code, s.class_org_unit_id, c.name, s.study_group_org_unit_id, g.name, "
         "s.learning_cycle_id, lc.learning_cycle_index, s.meeting_date, s.created_by_member_id, "
         "creator.name, s.has_course, s.course_key, s.course_name_snapshot, s.course_credit_snapshot, "
-        "s.status, s.submitted_at, s.created_at, s.updated_at "
+        "s.status, s.submitted_at, s.created_at, s.updated_at, s.course_details_initialized "
         "ORDER BY s.meeting_date DESC, s.id DESC LIMIT 500",
         tuple(params),
     )
+    connection = connect()
+    try:
+        grouped: dict[int, list[dict]] = {}
+        if rows:
+            ids = tuple(row["id"] for row in rows)
+            placeholders = ",".join("?" for _ in ids)
+            for item in execute(connection,
+                f"SELECT * FROM study_meeting_courses WHERE study_meeting_session_id IN ({placeholders}) ORDER BY id",
+                ids).fetchall():
+                grouped.setdefault(item["study_meeting_session_id"], []).append(dict(item))
+        for row in rows:
+            row["courses"] = _read_courses(connection, row, grouped.get(row["id"], []))
+    finally:
+        connection.close()
     return [
         {
             **{key: _serialize(value) for key, value in dict(row).items()},
             "id": int(row["id"]),
-            "has_course": bool(row["has_course"]),
+            "has_course": bool(row["courses"]),
             "home_count": int(row["home_count"] or 0),
             "cross_group_count": int(row["cross_group_count"] or 0),
             "total_count": int(row["total_count"] or 0),
@@ -739,7 +834,54 @@ def get_study_meeting_record_for_operations(
         connection.close()
     if not result:
         raise StudyMeetingError("学习会记录不存在")
+    result["can_edit_courses"] = can_edit_meeting_courses(actor_user_id) and result["status"] == "SUBMITTED"
+    result["course_options"] = list(_course_rules().values()) if result["can_edit_courses"] else []
     return result
+
+
+def can_edit_meeting_courses(actor_user_id: int) -> bool:
+    settings = get_settings()
+    user = user_context(actor_user_id) or {}
+    return (
+        settings.study_meeting_course_edit_enabled
+        and not settings.deployment_read_only
+        and (not settings.is_production or settings.allow_production_mutations)
+        and "study_meetings:courses_edit" in user.get("permissions", [])
+    )
+
+
+def correct_meeting_courses(*, actor_user_id: int, session_id: int,
+                            course_keys: list[str], expected_course_keys: list[str],
+                            note: str | None = None) -> dict:
+    _require_write()
+    if not can_edit_meeting_courses(actor_user_id):
+        raise StudyMeetingPermissionError("课程修正功能未开启或无此权限")
+    with transaction() as connection:
+        row = _lock_session(connection, session_id)
+        if not _operation_scope_allows(actor_user_id, row["class_org_unit_id"]):
+            raise StudyMeetingPermissionError("学习会记录不在当前组织授权范围内")
+        if row["status"] != "SUBMITTED":
+            raise StudyMeetingError("仅能修正已提交学习会的课程")
+        before = _read_courses(connection, row)
+        if sorted(item["course_key"] for item in before) != sorted(expected_course_keys):
+            raise StudyMeetingError("课程已被其他人修改，请刷新后重试")
+        snapshots = _course_snapshots(course_keys)
+        # A correction adds/removes courses, not a hidden re-pricing of retained facts.
+        old = {item["course_key"]: item for item in before}
+        for previous in old.values():
+            if not previous.get("rule_reference_json"):
+                previous["rule_reference_json"] = json.dumps({
+                    "source": "LEGACY_SINGLE_COURSE", "version_label": None,
+                    "note": "保留旧单课程快照，不推断历史积分规则版本",
+                }, ensure_ascii=False)
+        snapshots = [old[item["course_key"]] if item["course_key"] in old
+                     else item for item in snapshots]
+        _write_courses(connection, session_id, snapshots)
+        write_audit(connection, actor_user_id=actor_user_id, action="study_meeting.courses_correct",
+                    resource_type="study_meeting_session", resource_id=str(session_id),
+                    org_unit_id=row["class_org_unit_id"], purpose=(note or "").strip() or None,
+                    before={"courses": before}, after={"courses": snapshots, "status": "SUBMITTED"})
+    return get_study_meeting_record_for_operations(actor_user_id=actor_user_id, session_id=session_id)
 
 
 def member_from_session_token(token: str) -> dict[str, Any]:

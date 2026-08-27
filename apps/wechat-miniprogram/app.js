@@ -30,5 +30,7 @@ App({
 
   clearMemberSession() {
     this.setMemberSession("");
+    this.globalData.studyMeetingDraft = null;
+    this.globalData.studyMeetingResult = null;
   }
 });

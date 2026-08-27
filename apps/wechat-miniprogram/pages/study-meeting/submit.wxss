@@ -16,3 +16,10 @@
 .section-hint { margin-top: 12rpx; font-size: 25rpx; line-height: 1.6; }
 .primary-button { margin-top: 24rpx; border-radius: 12rpx; background: #741f2b; color: #fff; font-size: 29rpx; }
 .error { color: #b33b44; }
+.course-list { max-height: 500rpx; height: 500rpx; margin-top: 16rpx; }
+.course-item { display: flex; align-items: center; gap: 18rpx; padding: 24rpx 18rpx; border: 2rpx solid #eee4df; border-radius: 14rpx; margin-bottom: 12rpx; font-size: 28rpx; }
+.course-item.selected { background: #fff1eb; border-color: #741f2b; color: #741f2b; }
+.course-check { flex-shrink: 0; font-size: 34rpx; }
+.course-points { font-size: 24rpx; color: #93796f; margin-top: 8rpx; }
+.study-photo { width: 100%; height: 360rpx; margin-top: 20rpx; border-radius: 16rpx; background: #fbf7f3; }
+.photo-button { margin-top: 22rpx; background: #f6eeea; color: #741f2b; font-size: 28rpx; }

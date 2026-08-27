@@ -1,5 +1,12 @@
 import { http } from "@/utils/http";
 
+export type MeetingCourse = {
+  course_key: string;
+  course_name_snapshot: string;
+  course_credit_snapshot: number | null;
+  course_rule_status: "CONFIGURED" | "PENDING";
+};
+
 export type StudyMeetingRecord = {
   id: number;
   session_code: string;
@@ -13,6 +20,7 @@ export type StudyMeetingRecord = {
   created_by_member_id: number;
   creator_name: string;
   has_course: boolean;
+  courses: MeetingCourse[];
   course_key?: string | null;
   course_name_snapshot?: string | null;
   course_credit_snapshot?: number | null;
@@ -40,7 +48,20 @@ export type StudyMeetingRecordDetail = StudyMeetingRecord & {
   attendees: StudyMeetingAttendee[];
   home_attendees: StudyMeetingAttendee[];
   cross_group_attendees: StudyMeetingAttendee[];
+  evidence: { id: number; expires_at: string } | null;
+  can_edit_courses: boolean;
+  course_options: { course_key: string; course_name: string; credit_points: number; status: string }[];
 };
+
+export const getStudyMeetingPhoto = (sessionId: number) =>
+  http.request<Blob>("get", `/api/v1/study-meetings/records/${sessionId}/evidence`, { responseType: "blob" });
+
+export const correctStudyMeetingCourses = (
+  sessionId: number,
+  data: { course_keys: string[]; expected_course_keys: string[]; note?: string }
+) => http.request<{ success: boolean; data: StudyMeetingRecordDetail }>(
+  "patch", `/api/v1/study-meetings/records/${sessionId}/courses`, { data }
+);
 
 export const getStudyMeetingRecords = (params?: {
   status?: StudyMeetingRecord["status"];
