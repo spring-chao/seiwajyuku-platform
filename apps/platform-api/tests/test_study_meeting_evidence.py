@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import sqlite3
 from datetime import timedelta
 from pathlib import Path
@@ -353,6 +354,71 @@ def test_cos_adapter_private_acl_and_no_public_url(monkeypatch):
         assert storage.get(key) == b"photo"
         storage.delete(key)
         client.delete_object.assert_called_once_with(Bucket="isolated-test-123", Key=key)
+
+
+def test_cloudbase_adapter_uses_runtime_credentials_and_scoped_private_keys(monkeypatch):
+    monkeypatch.setenv("STUDY_EVIDENCE_STORAGE_BACKEND", "cloudbase")
+    monkeypatch.setenv("CLOUDBASE_STORAGE_BUCKET", "7368-test-cloudbase")
+    monkeypatch.setenv("CLOUDBASE_STORAGE_REGION", "ap-shanghai")
+    monkeypatch.setenv("CLOUDBASE_STORAGE_PREFIX", "study-meetings/")
+    monkeypatch.setenv("TENCENTCLOUD_SECRETID", "runtime-test-id")
+    monkeypatch.setenv("TENCENTCLOUD_SECRETKEY", "runtime-test-key")
+    monkeypatch.setenv("TENCENTCLOUD_SESSIONTOKEN", "runtime-test-token")
+    monkeypatch.delenv("CLOUDBASE_STORAGE_SECRET_ID", raising=False)
+    monkeypatch.delenv("CLOUDBASE_STORAGE_SECRET_KEY", raising=False)
+    client = MagicMock()
+    client.get_object.return_value = {"Body": MagicMock(get_raw_stream=lambda: io.BytesIO(b"photo"))}
+    with patch("qcloud_cos.CosS3Client", return_value=client) as client_ctor, patch(
+        "qcloud_cos.CosConfig", return_value=MagicMock()
+    ) as config_ctor:
+        storage = EvidenceStorage()
+        assert storage.backend == "cloudbase"
+        assert storage.credential_mode == "runtime"
+        key = storage.make_key(session_id=42, extension="jpg")
+        assert re.fullmatch(r"study-meetings/test/[0-9]{4}/[0-9]{2}/[a-f0-9]{32}\.jpg", key)
+        credential = config_ctor.call_args.kwargs["CredentialInstance"]
+        assert credential.secret_id == "runtime-test-id"
+        assert credential.secret_key == "runtime-test-key"
+        assert credential.token == "runtime-test-token"
+        storage.put(key, b"photo", "image/jpeg")
+        assert client.put_object.call_args.kwargs["ACL"] == "private"
+        assert client.put_object.call_args.kwargs["IfNoneMatch"] == "*"
+        assert storage.get(key) == b"photo"
+        storage.delete(key)
+        client_ctor.assert_called_once()
+
+
+def test_cloudbase_adapter_rejects_unapproved_prefix_and_missing_object_is_idempotent(monkeypatch):
+    monkeypatch.setenv("STUDY_EVIDENCE_STORAGE_BACKEND", "cloudbase")
+    monkeypatch.setenv("CLOUDBASE_STORAGE_BUCKET", "7368-test-cloudbase")
+    monkeypatch.setenv("CLOUDBASE_STORAGE_REGION", "ap-shanghai")
+    monkeypatch.setenv("CLOUDBASE_STORAGE_SECRET_ID", "runtime-test-id")
+    monkeypatch.setenv("CLOUDBASE_STORAGE_SECRET_KEY", "runtime-test-key")
+    monkeypatch.setenv("CLOUDBASE_STORAGE_PREFIX", "other/")
+    with pytest.raises(EvidenceStorageError, match="前缀"):
+        EvidenceStorage()
+    monkeypatch.setenv("CLOUDBASE_STORAGE_PREFIX", "study-meetings/")
+    client = MagicMock()
+
+    class MissingObject(Exception):
+        def get_error_code(self):
+            return "NoSuchKey"
+
+    client.delete_object.side_effect = MissingObject("missing")
+    with patch("qcloud_cos.CosS3Client", return_value=client):
+        storage = EvidenceStorage()
+        key = "study-meetings/test/2026/08/" + "b" * 32 + ".jpg"
+        storage.delete(key)
+        with pytest.raises(EvidenceStorageError, match="路径"):
+            storage.delete("study-evidence/test/1/" + "a" * 32 + ".jpg")
+
+
+def test_production_cleanup_requires_explicit_enablement(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("STUDY_EVIDENCE_STORAGE_BACKEND", "cloudbase")
+    monkeypatch.delenv("STUDY_EVIDENCE_CLEANUP_ENABLED", raising=False)
+    with pytest.raises(StudyMeetingPermissionError, match="未显式开启"):
+        cleanup_evidence(apply=True)
 
 
 def test_0041_sqlite_forward_rollback_preserves_legacy_record():

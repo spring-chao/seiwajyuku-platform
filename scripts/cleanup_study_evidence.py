@@ -1,4 +1,10 @@
-"""Bounded dev/test cleanup. Metadata/audit retained; dry run unless --apply."""
+"""Bounded study-evidence cleanup.
+
+Dry-run is the default.  Staging/production require
+``STUDY_EVIDENCE_CLEANUP_ENABLED=true`` and an explicit ``--apply`` still
+requires the normal production mutation gate.  The service itself enforces the
+CloudBase bucket/prefix allowlist and never logs credentials or image content.
+"""
 from __future__ import annotations
 
 import argparse

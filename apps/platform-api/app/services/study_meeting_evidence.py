@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
 
 from app.core.settings import get_settings
 from app.db import execute, fetch_all, fetch_one, transaction
@@ -44,10 +44,14 @@ def upload_evidence(*, member_id: int, session_id: int, content: bytes, content_
     _member_authorized(member_id, row)
     if row["status"] != "DRAFT":
         raise StudyMeetingError("仅能上传或替换草稿学习会的合影")
+    storage: EvidenceStorage | None = None
+    key: str | None = None
+    put_attempted = False
+    evidence_id: int | None = None
     try:
         clean, media_type, extension = normalize_image(content, content_type)
         storage = EvidenceStorage()
-        key = f"study-evidence/{get_settings().app_env}/{session_id}/{uuid4().hex}.{extension}"
+        key = storage.make_key(session_id=session_id, extension=extension)
         # Reserve metadata BEFORE the external write. Failed/abandoned uploads
         # remain discoverable for cleanup, rather than becoming orphan objects.
         with transaction() as connection:
@@ -65,6 +69,9 @@ def upload_evidence(*, member_id: int, session_id: int, content: bytes, content_
                  hashlib.sha256(clean).hexdigest(), member_id, now, expiry, now, now))
             evidence_id = int(cursor.lastrowid)
         try:
+            # A put can time out after the remote service accepted the object;
+            # treat every attempted key as a compensation candidate.
+            put_attempted = True
             storage.put(key, clean, media_type)
             with transaction() as connection:
                 row = _lock_session(connection, session_id)
@@ -88,10 +95,31 @@ def upload_evidence(*, member_id: int, session_id: int, content: bytes, content_
                             after={"evidence": result, "uploaded_by_member_id": member_id})
                 return result
         except Exception:
-            with transaction() as connection:
-                now = _db_timestamp(connection)
-                execute(connection, "UPDATE study_meeting_evidence SET deleted_at=?, updated_at=? WHERE id=? AND active_slot IS NULL",
-                        (now, now, evidence_id))
+            try:
+                with transaction() as connection:
+                    now = _db_timestamp(connection)
+                    execute(connection, "UPDATE study_meeting_evidence SET deleted_at=?, updated_at=? WHERE id=? AND active_slot IS NULL",
+                            (now, now, evidence_id))
+                    write_audit(
+                        connection,
+                        actor_user_id=None,
+                        action="study_meeting.evidence_upload_failed",
+                        resource_type="study_meeting_session",
+                        resource_id=str(session_id),
+                        org_unit_id=row["class_org_unit_id"],
+                        after={"evidence_id": evidence_id, "storage_key": key, "compensation": "pending"},
+                        result="FAILED",
+                    )
+            except Exception:
+                # Compensation must still be attempted if the failure-marking
+                # transaction itself encounters a transient database problem.
+                pass
+            if put_attempted and storage is not None and key is not None:
+                try:
+                    storage.delete(key)
+                except EvidenceStorageError:
+                    # The row remains eligible for the bounded cleanup retry.
+                    pass
             raise
     except EvidenceStorageError as exc:
         raise StudyMeetingError(str(exc)) from exc
@@ -129,16 +157,33 @@ def read_evidence(*, session_id: int, member_id: int | None = None,
 
 
 def cleanup_evidence(*, apply: bool = False, limit: int = 500) -> dict:
-    """Dry run by default. This release authorizes only isolated dev/test cleanup."""
+    """Bounded, idempotent physical cleanup with an explicit production gate.
+
+    Production/staging only process rows whose business expiry has passed.  A
+    short grace period avoids racing a late object write after a worker timeout;
+    API access still stops exactly at ``expires_at``.  The legacy dev/test rule
+    also cleans abandoned replacement reservations so existing isolated tests
+    and local cleanup workflows remain compatible.
+    """
     settings = get_settings()
+    backend = os.getenv("STUDY_EVIDENCE_STORAGE_BACKEND", "local").strip().lower()
     if settings.app_env not in {"dev", "test"}:
-        raise StudyMeetingPermissionError("本版本合影清理脚本仅允许独立 dev/test 环境")
+        if not settings.study_evidence_cleanup_enabled:
+            raise StudyMeetingPermissionError("生产/预发布合影清理未显式开启")
+        if backend != "cloudbase" or settings.study_evidence_cleanup_prefix != "study-meetings/":
+            raise StudyMeetingPermissionError("合影清理仅允许 CloudBase 内置存储的 study-meetings/ 前缀")
     if apply:
         _require_write()
-    # Expired in-flight reservations are safe to remove too. Activation checks expiry.
+    cutoff = datetime.now(UTC) - timedelta(seconds=settings.study_evidence_cleanup_grace_seconds)
+    if settings.app_env in {"dev", "test"}:
+        expiry_clause = "(deleted_at IS NOT NULL OR expires_at<=?)"
+    else:
+        # Production must never remove a freshly failed/non-expired reservation
+        # merely because it is logically inactive.
+        expiry_clause = "expires_at<=?"
     candidates = fetch_all("SELECT id, study_meeting_session_id FROM study_meeting_evidence "
-                           "WHERE storage_deleted_at IS NULL AND (deleted_at IS NOT NULL OR expires_at<=?) "
-                           "ORDER BY id LIMIT ?", (datetime.now(UTC).isoformat(), min(max(limit, 1), 1000)))
+                           f"WHERE storage_deleted_at IS NULL AND {expiry_clause} "
+                           "ORDER BY id LIMIT ?", (cutoff.isoformat(), min(max(limit, 1), 500)))
     report = {"candidates": len(candidates), "deleted": 0, "errors": 0, "apply": apply}
     if not apply:
         return report
@@ -149,7 +194,7 @@ def cleanup_evidence(*, apply: bool = False, limit: int = 500) -> dict:
                 session = _lock_session(connection, candidate["study_meeting_session_id"])
                 now = _db_timestamp(connection)
                 row = execute(connection, "SELECT * FROM study_meeting_evidence WHERE id=? AND storage_deleted_at IS NULL "
-                              "AND (deleted_at IS NOT NULL OR expires_at<=?)", (candidate["id"], now)).fetchone()
+                              f"AND {expiry_clause}", (candidate["id"], _db_timestamp(connection, cutoff))).fetchone()
                 if not row:
                     continue
                 row = dict(row)
@@ -161,6 +206,9 @@ def cleanup_evidence(*, apply: bool = False, limit: int = 500) -> dict:
                             resource_type="study_meeting_session", resource_id=str(candidate["study_meeting_session_id"]),
                             org_unit_id=session["class_org_unit_id"], after={"evidence_id": row["id"], "storage_deleted": True})
             report["deleted"] += 1
-        except EvidenceStorageError:
-            report["errors"] += 1  # Metadata stays retryable; no raw cloud exceptions/credentials in logs.
+        except Exception:
+            # One broken object, stale row, or transient DB error must not stop
+            # the rest of a bounded batch.  The metadata remains retryable and
+            # no raw SDK error or credential value enters the report.
+            report["errors"] += 1
     return report

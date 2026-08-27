@@ -53,6 +53,9 @@ class Settings:
     study_meeting_course_edit_enabled: bool = False
     study_meeting_attendee_edit_enabled: bool = False
     study_evidence_retention_hours: int = 168
+    study_evidence_cleanup_enabled: bool = False
+    study_evidence_cleanup_grace_seconds: int = 900
+    study_evidence_cleanup_prefix: str = "study-meetings/"
     learning_credit_settlement_enabled: bool = False
     agent_client_id: str = ""
     agent_client_secret: str = ""
@@ -92,9 +95,21 @@ class Settings:
             raise RuntimeError("WECHAT_LOCAL_TEST_MODE 仅允许 dev/test 环境")
         if self.study_evidence_retention_hours < 1:
             raise RuntimeError("STUDY_EVIDENCE_RETENTION_HOURS 必须大于0")
+        if self.study_evidence_cleanup_grace_seconds < 0:
+            raise RuntimeError("STUDY_EVIDENCE_CLEANUP_GRACE_SECONDS 不能小于0")
         if self.study_meeting_evidence_enabled and self.app_env not in {"dev", "test"}:
-            if os.getenv("STUDY_EVIDENCE_STORAGE_BACKEND", "local") != "cos":
-                raise RuntimeError("部署环境学习合影必须使用独立私有 COS 存储")
+            if os.getenv("STUDY_EVIDENCE_STORAGE_BACKEND", "local").strip().lower() not in {
+                "cos", "cloudbase"
+            }:
+                raise RuntimeError("部署环境学习合影必须使用私有 CloudBase/COS 存储")
+        if self.study_evidence_cleanup_enabled:
+            backend = os.getenv("STUDY_EVIDENCE_STORAGE_BACKEND", "local").strip().lower()
+            if backend != "cloudbase":
+                raise RuntimeError("合影生产清理必须使用 CloudBase 内置存储")
+            if self.study_evidence_cleanup_prefix != "study-meetings/":
+                raise RuntimeError("合影清理前缀必须固定为 study-meetings/")
+            if self.is_production and not self.allow_production_mutations:
+                raise RuntimeError("生产合影清理未获批准")
         if self.app_env in {"dev", "test"} and "production" in self.database_url.lower():
             raise RuntimeError("开发/测试环境禁止使用疑似生产数据库地址")
         if self.app_env in {"staging", "production"} and len(self.jwt_secret) < 32:
@@ -185,6 +200,13 @@ def get_settings() -> Settings:
         study_meeting_course_edit_enabled=_bool("STUDY_MEETING_COURSE_EDIT_ENABLED"),
         study_meeting_attendee_edit_enabled=_bool("STUDY_MEETING_ATTENDEE_EDIT_ENABLED"),
         study_evidence_retention_hours=int(os.getenv("STUDY_EVIDENCE_RETENTION_HOURS", "168")),
+        study_evidence_cleanup_enabled=_bool("STUDY_EVIDENCE_CLEANUP_ENABLED"),
+        study_evidence_cleanup_grace_seconds=int(
+            os.getenv("STUDY_EVIDENCE_CLEANUP_GRACE_SECONDS", "900")
+        ),
+        study_evidence_cleanup_prefix=os.getenv(
+            "STUDY_EVIDENCE_CLEANUP_PREFIX", "study-meetings/"
+        ).strip(),
         learning_credit_settlement_enabled=_bool(
             "LEARNING_CREDIT_SETTLEMENT_ENABLED"
         ),
