@@ -4,12 +4,13 @@
   <block wx:if="{{!loading && context}}">
     <view class="hero-card">
       <view class="eyebrow">小组学习会登记</view>
-      <view class="hero-title">{{context.member.name_masked}}</view>
-      <view class="hero-copy">系统已根据当前任职自动带出可登记的小组和学习周期。</view>
+      <view class="hero-title">{{context.assignment ? context.assignment.group_name : '开始本次登记'}}</view>
+      <view wx:if="{{context.assignment}}" class="role-copy">{{context.assignment.position_name || (context.assignment.role_key === 'CLASS_COUNSELOR' ? '班级志工' : '小组志工')}} · {{context.assignment.class_name}} · 第 {{context.assignment.current_cycle.learning_cycle_index}} 学习周期</view>
+      <view wx:else class="hero-copy">请选择你本次要登记的学习小组。</view>
     </view>
 
-    <view class="section-card">
-      <view class="section-title">选择本次学习会小组</view>
+    <view wx:if="{{context.selection_required}}" class="section-card">
+      <view class="section-title">请选择本次学习会小组</view>
       <view wx:for="{{context.assignments}}" wx:key="group_org_unit_id" data-group-id="{{item.group_org_unit_id}}" bindtap="chooseGroup" class="assignment {{selectedGroupId === item.group_org_unit_id ? 'selected' : ''}}">
         <view class="assignment-name">{{item.class_name}} · {{item.group_name}}</view>
         <view class="assignment-copy">
@@ -21,11 +22,11 @@
     </view>
 
     <view wx:if="{{context.assignment && context.assignment.current_cycle}}" class="section-card">
-      <view class="section-title">本次登记</view>
-      <view class="summary-line">当前周期：第 {{context.assignment.current_cycle.learning_cycle_index}} 周期</view>
-      <view class="summary-line">本组学员：{{context.assignment.member_count}} 人</view>
-      <view class="summary-line">小组会规则：{{context.assignment.current_cycle.group_meeting_policy === 'REQUIRED' ? '正常要求' : '本周期暂停/豁免，仍可登记事实'}}</view>
-      <button class="primary-button" bindtap="openMembers">选择参加人员</button>
+      <view class="section-title">{{context.assignment.class_name}} · {{context.assignment.group_name}}</view>
+      <view class="summary-line">今天 · 第 {{context.assignment.current_cycle.learning_cycle_index}} 学习周期</view>
+      <view class="summary-line">本组学长 {{context.assignment.member_count}} 人</view>
+      <view wx:if="{{context.assignment.current_cycle.group_meeting_policy !== 'REQUIRED'}}" class="policy-copy">本周期小组会暂停或豁免，仍可登记实际参加情况。</view>
+      <button class="primary-button" bindtap="openMembers">开始登记</button>
     </view>
     <view wx:if="{{context.assignment && !context.assignment.current_cycle}}" class="state-card error">
       {{context.assignment.cycle_error || '当前学习周期暂不可用，请联系运营人员。'}}

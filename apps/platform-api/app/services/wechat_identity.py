@@ -487,23 +487,41 @@ def authorized_group_targets(member_id: int) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for row in groups:
         role: str | None = None
-        if any(
-            item["role_key"] == "CLASS_COUNSELOR"
-            and (
+        matched_scope: dict[str, Any] | None = None
+        for item in scopes:
+            if item["role_key"] != "CLASS_COUNSELOR":
+                continue
+            in_scope = (
                 scope_contains(item, row["class_org_unit_id"])
                 if item.get("scope_level") == "CLASS"
                 else scope_contains(item, row["class_org_unit_id"])
                 or scope_contains(item, row["group_org_unit_id"])
             )
-            for item in scopes
-        ):
-            role = "CLASS_COUNSELOR"
-        elif any(
-            item["role_key"] == "GROUP_LEADER"
-            and scope_contains(item, row["group_org_unit_id"])
-            for item in scopes
-        ):
-            role = "GROUP_LEADER"
+            if in_scope:
+                role = "CLASS_COUNSELOR"
+                matched_scope = item
+                break
+        if role is None:
+            for item in scopes:
+                if item["role_key"] == "GROUP_LEADER" and scope_contains(
+                    item, row["group_org_unit_id"]
+                ):
+                    role = "GROUP_LEADER"
+                    matched_scope = item
+                    break
         if role:
-            result.append({**dict(row), "role_key": role})
+            result.append(
+                {
+                    **dict(row),
+                    "role_key": role,
+                    # This is a display-only label for the mini-program; the
+                    # capability and scope checks above remain authoritative.
+                    "position_name": (
+                        matched_scope.get("position_name")
+                        if matched_scope
+                        else None
+                    )
+                    or ("班主任" if role == "CLASS_COUNSELOR" else "组长"),
+                }
+            )
     return result

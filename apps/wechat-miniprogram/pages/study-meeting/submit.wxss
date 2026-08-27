@@ -1,4 +1,4 @@
-.page-shell { min-height: 100vh; box-sizing: border-box; padding: 28rpx; background: #f8f2ef; color: #3d2a2a; }
+.page-shell { min-height: 100vh; box-sizing: border-box; padding: 28rpx; background: #fbf7f3; color: #3d2a2a; }
 .hero-card { padding: 42rpx 34rpx; border-radius: 28rpx; background: linear-gradient(135deg, #741f2b, #a84c52); color: #fff; box-shadow: 0 16rpx 34rpx rgba(116, 31, 43, .18); }
 .eyebrow { font-size: 24rpx; opacity: .82; letter-spacing: 2rpx; }
 .hero-title { margin-top: 16rpx; font-size: 46rpx; font-weight: 700; }

@@ -3,10 +3,11 @@ const { request } = require("../../utils/request");
 
 Page({
   data: {
-    environment: app.globalData.environment,
     loading: true,
     portal: null,
     member: null,
+    displayRole: "",
+    displayScope: "",
     errorMessage: ""
   },
 
@@ -16,7 +17,7 @@ Page({
 
   async loadHome() {
     this.setData({ loading: true, errorMessage: "" });
-    const next = { portal: null, member: null };
+    const next = { portal: null, member: null, displayRole: "", displayScope: "" };
     try {
       const portal = await request("/api/v1/public/portal");
       next.portal = portal.data || {};
@@ -27,6 +28,25 @@ Page({
       try {
         const me = await request("/api/v1/wechat/me", { auth: true });
         next.member = me.data && me.data.member;
+        next.displayScope = `${(next.member && next.member.class_name) || "暂未关联班级"} · ${(next.member && next.member.study_group_name) || "暂未关联小组"}`;
+        // Keep the home page human-readable while still resolving the current
+        // position from the server's capability/org-scope result.  The
+        // technical role keys never reach the UI.
+        try {
+          const contextResponse = await request("/api/v1/study-meetings/context", { auth: true });
+          const assignments = (contextResponse.data && contextResponse.data.assignments) || [];
+          const roles = [...new Set(assignments.map(item => item.position_name || (item.role_key === "CLASS_COUNSELOR" ? "班级志工" : "小组志工")).filter(Boolean))];
+          next.displayRole = roles.join("、");
+          if (assignments.length === 1) {
+            const assignment = assignments[0];
+            next.displayScope = `${assignment.class_name || ""} · ${assignment.group_name || ""}`.replace(/^ · | · $/g, "");
+          } else if (assignments.length > 1) {
+            next.displayScope = `可登记 ${assignments.length} 个小组`;
+          }
+        } catch (error) {
+          // The home page remains usable when the study-meeting feature is
+          // closed or the member has no current registration appointment.
+        }
       } catch (error) {
         // A revoked or expired binding is cleared locally.  The user can
         // still enter the public enrollment flow from this page.

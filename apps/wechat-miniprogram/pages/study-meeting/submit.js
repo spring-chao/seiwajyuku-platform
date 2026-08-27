@@ -15,9 +15,15 @@ Page({
     submitting: false,
     assignment: null,
     courses: [],
+    courseOptions: [],
     hasCourse: false,
     courseIndex: -1,
     courseName: "",
+    courseLabel: "",
+    homeCount: 0,
+    crossCount: 0,
+    totalCount: 0,
+    crossSummary: "",
     errorMessage: ""
   },
 
@@ -34,9 +40,17 @@ Page({
     try {
       const response = await request(`/api/v1/study-meetings/context?group_org_unit_id=${encodeURIComponent(draft.group_org_unit_id)}`, { auth: true });
       const context = response.data || {};
+      const homeCount = (draft.member_ids || []).length;
+      const crossCount = (draft.cross_group_member_ids || []).length;
+      const courses = context.courses || [];
       this.setData({
         assignment: context.assignment,
-        courses: context.courses || [],
+        courses,
+        courseOptions: courses.map(course => `${course.course_name}${course.status === "CONFIGURED" ? ` · ${course.credit_points}分` : " · 学分待配置"}`),
+        homeCount,
+        crossCount,
+        totalCount: homeCount + crossCount,
+        crossSummary: crossCount ? `，其他小组 ${crossCount} 人` : "",
         loading: false
       });
     } catch (error) {
@@ -52,7 +66,11 @@ Page({
   handleCourseChange(event) {
     const index = Number(event.detail.value);
     const course = this.data.courses[index];
-    this.setData({ courseIndex: index, courseName: course ? course.course_name : "" });
+    this.setData({
+      courseIndex: index,
+      courseName: course ? course.course_name : "",
+      courseLabel: course ? this.data.courseOptions[index] : ""
+    });
   },
 
   async submit() {

@@ -1,14 +1,16 @@
-.page-shell { min-height: 100vh; box-sizing: border-box; padding: 28rpx; background: #f8f2ef; color: #3d2a2a; }
+.page-shell { min-height: 100vh; box-sizing: border-box; padding: 28rpx; background: #fbf7f3; color: #3d2a2a; }
 .hero-card { padding: 42rpx 34rpx; border-radius: 28rpx; background: linear-gradient(135deg, #741f2b, #a84c52); color: #fff; box-shadow: 0 16rpx 34rpx rgba(116, 31, 43, .18); }
 .eyebrow { font-size: 24rpx; opacity: .82; letter-spacing: 2rpx; }
 .hero-title { margin-top: 16rpx; font-size: 46rpx; font-weight: 700; }
 .hero-copy { margin-top: 16rpx; line-height: 1.65; font-size: 27rpx; opacity: .92; }
+.role-copy { margin-top: 16rpx; line-height: 1.6; font-size: 27rpx; opacity: .92; }
 .section-card, .state-card { margin-top: 24rpx; padding: 28rpx; border-radius: 24rpx; background: #fff; box-shadow: 0 8rpx 24rpx rgba(80, 35, 35, .06); }
 .section-title { font-size: 34rpx; font-weight: 700; }
 .assignment { position: relative; margin-top: 18rpx; padding: 22rpx 64rpx 22rpx 22rpx; border: 1rpx solid #e2d2ce; border-radius: 16rpx; background: #fffaf7; }
 .assignment.selected { border-color: #741f2b; background: #fff1eb; }
 .assignment-name { color: #741f2b; font-size: 30rpx; font-weight: 700; }
 .assignment-copy, .summary-line { margin-top: 8rpx; color: #806f6f; font-size: 25rpx; }
+.policy-copy { margin-top: 12rpx; color: #9a6b3b; line-height: 1.55; font-size: 24rpx; }
 .checkmark { position: absolute; top: 24rpx; right: 22rpx; color: #741f2b; font-size: 32rpx; }
 .primary-button { margin-top: 24rpx; border-radius: 12rpx; background: #741f2b; color: #fff; font-size: 29rpx; }
 .error { color: #b33b44; }

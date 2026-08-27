@@ -211,7 +211,9 @@ def test_study_meeting_same_class_cross_group_does_not_change_relations() -> Non
                 headers=headers,
             )
             assert context.status_code == 200, context.text
-            assert context.json()["data"]["assignment"]["current_cycle"]["learning_cycle_index"] == 1
+            assignment = context.json()["data"]["assignment"]
+            assert assignment["current_cycle"]["learning_cycle_index"] == 1
+            assert assignment["position_name"] == "组长"
             created = client.post(
                 "/api/v1/study-meetings",
                 headers=headers,

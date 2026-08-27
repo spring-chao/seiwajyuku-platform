@@ -1,4 +1,4 @@
-.page-shell { min-height: 100vh; box-sizing: border-box; padding: 28rpx; background: #f8f2ef; color: #3d2a2a; }
+.page-shell { min-height: 100vh; box-sizing: border-box; padding: 28rpx; background: #fbf7f3; color: #3d2a2a; }
 .hero-card { padding: 42rpx 34rpx; border-radius: 28rpx; background: linear-gradient(135deg, #741f2b, #a84c52); color: #fff; box-shadow: 0 16rpx 34rpx rgba(116, 31, 43, .18); }
 .eyebrow { font-size: 24rpx; opacity: .82; letter-spacing: 2rpx; }
 .hero-title { margin-top: 16rpx; font-size: 50rpx; font-weight: 700; }
@@ -8,7 +8,9 @@
 .section-hint, .identity-copy, .footer-copy { margin-top: 14rpx; color: #806f6f; line-height: 1.6; font-size: 25rpx; }
 .identity-card { margin-top: 20rpx; padding: 24rpx; border-radius: 18rpx; background: #fff7f2; }
 .identity-name { font-size: 34rpx; font-weight: 700; color: #741f2b; }
+.identity-role { margin-top: 10rpx; color: #9a6b3b; font-size: 27rpx; font-weight: 600; }
 .primary-button { margin-top: 22rpx; border-radius: 12rpx; background: #741f2b; color: #fff; font-size: 29rpx; }
+.secondary-button { margin-top: 22rpx; border: 1rpx solid #c89579; border-radius: 12rpx; background: #fffaf7; color: #741f2b; font-size: 29rpx; }
 .plain-button { margin-top: 12rpx; border: 1rpx solid #d9c7c3; border-radius: 12rpx; color: #741f2b; background: #fff; font-size: 27rpx; }
 .error { color: #b33b44; }
 .footer-copy { padding: 22rpx 8rpx 40rpx; text-align: center; }

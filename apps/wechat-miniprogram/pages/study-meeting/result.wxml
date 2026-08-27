@@ -1,13 +1,14 @@
 <view class="page-shell">
   <view class="success-card">
     <view class="success-mark">✓</view>
-    <view class="success-title">学习会已提交</view>
-    <view class="success-copy">本次学习事实已经保存，后续如有审核或结算规则会由运营平台统一处理。</view>
+    <view class="success-title">提交成功</view>
+    <view class="success-copy">本次学习会登记已保存。</view>
   </view>
   <view wx:if="{{session}}" class="section-card">
     <view class="summary-line">登记编号：{{session.session_code}}</view>
     <view class="summary-line">{{session.class_name}} · {{session.group_name}}</view>
-    <view class="summary-line">第 {{session.cycle_index}} 学习周期 · {{session.attendees.length}} 人参加</view>
+    <view class="summary-line">第 {{session.cycle_index}} 学习周期 · 参加 {{summary.totalCount}} 人</view>
+    <view wx:if="{{summary.crossCount}}" class="summary-line">本组 {{summary.homeCount}} 人 · 其他小组 {{summary.crossCount}} 人</view>
     <view wx:if="{{session.course_name_snapshot}}" class="summary-line">课程：{{session.course_name_snapshot}}（{{session.course_credit_snapshot === null ? '学分待配置' : session.course_credit_snapshot + '分'}}）</view>
   </view>
   <button class="primary-button" bindtap="backHome">返回首页</button>

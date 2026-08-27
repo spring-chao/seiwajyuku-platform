@@ -1,4 +1,4 @@
-.page-shell { min-height: 100vh; box-sizing: border-box; padding: 28rpx; background: #f8f2ef; color: #3d2a2a; }
+.page-shell { min-height: 100vh; box-sizing: border-box; padding: 28rpx; background: #fbf7f3; color: #3d2a2a; }
 .success-card { padding: 48rpx 32rpx; border-radius: 28rpx; background: linear-gradient(135deg, #741f2b, #a84c52); color: #fff; text-align: center; }
 .success-mark { display: inline-flex; align-items: center; justify-content: center; width: 86rpx; height: 86rpx; border: 4rpx solid #fff; border-radius: 50%; font-size: 58rpx; }
 .success-title { margin-top: 20rpx; font-size: 44rpx; font-weight: 700; }

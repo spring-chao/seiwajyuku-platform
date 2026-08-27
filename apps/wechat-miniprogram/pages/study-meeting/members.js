@@ -21,6 +21,7 @@ Page({
     searching: false,
     selectedCount: 0,
     crossSelectedCount: 0,
+    showCrossSearch: false,
     errorMessage: ""
   },
 
@@ -68,11 +69,19 @@ Page({
     this.setData({ selected: {}, selectedCount: 0 });
   },
 
+  toggleCrossSearch() {
+    this.setData({ showCrossSearch: !this.data.showCrossSearch });
+  },
+
   handleSearch(event) {
     this.setData({ searchText: event.detail.value });
   },
 
   async searchCross() {
+    if (!this.data.searchText.trim()) {
+      wx.showToast({ title: "请输入学长姓名", icon: "none" });
+      return;
+    }
     this.setData({ searching: true });
     try {
       const q = encodeURIComponent(this.data.searchText || "");
