@@ -335,8 +335,8 @@ onMounted(loadRecords);
           </div>
           <section v-if="editingAttendees && attendeeOptions" class="attendee-editor">
             <div class="detail-title">已选择 {{ selectedMemberCount.total }} 人 · 本组 {{ selectedMemberCount.home }} · 跨组 {{ selectedMemberCount.cross }}</div>
+            <div class="detail-title">本组学长</div>
             <el-checkbox-group v-model="selectedMemberIds" :disabled="savingAttendees" class="roster-options" aria-label="本组学长">
-              <div class="detail-title">本组学长</div>
               <el-checkbox v-for="item in attendeeOptions.home_members" :key="item.member_id" :value="item.member_id">
                 {{ item.name }}
               </el-checkbox>
