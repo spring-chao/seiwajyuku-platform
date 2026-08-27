@@ -107,7 +107,22 @@ jobs:
           python -m pytest apps/platform-api/tests/test_study_meeting_evidence.py
           apps/platform-api/tests/test_v12_mvp.py
           apps/platform-api/tests/test_volunteer_position_model.py
+          apps/platform-api/tests/test_study_meeting_attendees.py
           -q --junitxml=b21-mysql.xml
+      - name: Verify 0042 guarded rollback on disposable test data
+        run: |
+          if docker exec -i "${{ job.services.mysql.id }}" mysql -uroot -pci-b21-root seiwajyuku_b21_test < migrations/rollback/mysql/0042_study_meeting_attendee_correction.down.sql; then
+            echo "ERROR: downgrade must refuse existing operator-added facts"
+            exit 1
+          fi
+          originals="$(docker exec "${{ job.services.mysql.id }}" mysql -N -uroot -pci-b21-root seiwajyuku_b21_test -e "SELECT COUNT(*) FROM study_meeting_attendances WHERE added_by_user_id IS NULL;")"
+          # Test-owned disposable CI database only: remove generated operator fixtures to test safe downgrade.
+          docker exec "${{ job.services.mysql.id }}" mysql -uroot -pci-b21-root seiwajyuku_b21_test -e "DELETE FROM study_meeting_attendances WHERE added_by_user_id IS NOT NULL;"
+          docker exec -i "${{ job.services.mysql.id }}" mysql -uroot -pci-b21-root seiwajyuku_b21_test < migrations/rollback/mysql/0042_study_meeting_attendee_correction.down.sql
+          remaining="$(docker exec "${{ job.services.mysql.id }}" mysql -N -uroot -pci-b21-root seiwajyuku_b21_test -e "SELECT COUNT(*) FROM study_meeting_attendances;")"
+          test "$originals" = "$remaining"
+          removed="$(docker exec "${{ job.services.mysql.id }}" mysql -N -uroot -pci-b21-root seiwajyuku_b21_test -e "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='study_meeting_attendances' AND column_name='added_by_user_id';")"
+          test "$removed" = "0"
       - name: Verify 0041 rollback on disposable test data
         run: |
           docker exec -i "${{ job.services.mysql.id }}" mysql -uroot -pci-b21-root seiwajyuku_b21_test < migrations/rollback/mysql/0041_study_meeting_courses_evidence.down.sql

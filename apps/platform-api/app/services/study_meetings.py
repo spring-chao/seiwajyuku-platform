@@ -243,7 +243,7 @@ def _session_payload(connection, session_id: int) -> dict[str, Any] | None:
     attendees = execute(
         connection,
         "SELECT a.id, a.member_id, a.home_study_group_org_unit_id, "
-        "a.attended_study_group_org_unit_id, a.attendance_type, a.added_by_member_id, "
+        "a.attended_study_group_org_unit_id, a.attendance_type, a.added_by_member_id, a.added_by_user_id, "
         "m.name, m.phone_masked, home.name AS home_group_name, attended.name AS attended_group_name "
         "FROM study_meeting_attendances a JOIN members m ON m.id=a.member_id "
         "JOIN org_units home ON home.id=a.home_study_group_org_unit_id "
@@ -262,7 +262,8 @@ def _session_payload(connection, session_id: int) -> dict[str, Any] | None:
             "home_group_name": item["home_group_name"],
             "attended_group_name": item["attended_group_name"],
             "attendance_type": item["attendance_type"],
-            "added_by_member_id": int(item["added_by_member_id"]),
+            "added_by_member_id": int(item["added_by_member_id"]) if item["added_by_member_id"] is not None else None,
+            "added_by_user_id": int(item["added_by_user_id"]) if item["added_by_user_id"] is not None else None,
         }
         for item in attendees
     ]
@@ -835,6 +836,8 @@ def get_study_meeting_record_for_operations(
     if not result:
         raise StudyMeetingError("学习会记录不存在")
     result["can_edit_courses"] = can_edit_meeting_courses(actor_user_id) and result["status"] == "SUBMITTED"
+    from app.services.study_meeting_attendees import can_edit_attendees
+    result["can_edit_attendees"] = can_edit_attendees(actor_user_id) and result["status"] == "SUBMITTED"
     result["course_options"] = list(_course_rules().values()) if result["can_edit_courses"] else []
     return result
 

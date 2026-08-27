@@ -51,6 +51,7 @@ class Settings:
     study_meeting_review_enabled: bool = False
     study_meeting_evidence_enabled: bool = False
     study_meeting_course_edit_enabled: bool = False
+    study_meeting_attendee_edit_enabled: bool = False
     study_evidence_retention_hours: int = 168
     learning_credit_settlement_enabled: bool = False
     agent_client_id: str = ""
@@ -182,6 +183,7 @@ def get_settings() -> Settings:
         study_meeting_review_enabled=_bool("STUDY_MEETING_REVIEW_ENABLED"),
         study_meeting_evidence_enabled=_bool("STUDY_MEETING_EVIDENCE_ENABLED"),
         study_meeting_course_edit_enabled=_bool("STUDY_MEETING_COURSE_EDIT_ENABLED"),
+        study_meeting_attendee_edit_enabled=_bool("STUDY_MEETING_ATTENDEE_EDIT_ENABLED"),
         study_evidence_retention_hours=int(os.getenv("STUDY_EVIDENCE_RETENTION_HOURS", "168")),
         learning_credit_settlement_enabled=_bool(
             "LEARNING_CREDIT_SETTLEMENT_ENABLED"

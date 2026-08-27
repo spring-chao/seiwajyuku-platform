@@ -23,6 +23,7 @@ PERMISSIONS = {
     "plans:read": ("查看年度MP", "INTERNAL"),
     "plans:credit_rules_manage": ("维护学习计划课程积分标准", "SENSITIVE"),
     "study_meetings:courses_edit": ("修正已提交学习会课程", "SENSITIVE"),
+    "study_meetings:attendees_edit": ("修正已提交学习会参加人员", "SENSITIVE"),
     "plans:period_write": ("维护本区域年度MP", "SENSITIVE"),
     "plans:import_global": ("全局导入年度MP", "RESTRICTED"),
     "plans:publish": ("发布年度方案", "SENSITIVE"),
@@ -54,6 +55,7 @@ ROLE_PERMISSIONS = {
     "data_security_admin": {"org:read", "members:read", "exports:sensitive", "audit:read"},
     "operations_admin": {
         "study_meetings:courses_edit",
+        "study_meetings:attendees_edit",
         "org:read", "org:manage", "plans:read", "plans:credit_rules_manage", "plans:period_write", "plans:import_global", "plans:publish",
         "members:read", "members:manage", "members:detail_view", "members:enterprise_view",
         "followups:manage", "exports:normal", "audit:read",

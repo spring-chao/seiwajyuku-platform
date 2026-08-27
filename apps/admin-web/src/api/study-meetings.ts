@@ -50,8 +50,31 @@ export type StudyMeetingRecordDetail = StudyMeetingRecord & {
   cross_group_attendees: StudyMeetingAttendee[];
   evidence: { id: number; expires_at: string } | null;
   can_edit_courses: boolean;
+  can_edit_attendees: boolean;
   course_options: { course_key: string; course_name: string; credit_points: number; status: string }[];
 };
+
+export type MeetingMemberOption = {
+  member_id: number;
+  name: string;
+  group_org_unit_id: string;
+  group_name: string;
+  attendance_type: "HOME_GROUP" | "CROSS_GROUP";
+};
+export type MeetingAttendeeOptions = {
+  home_members: MeetingMemberOption[];
+  cross_group_members: MeetingMemberOption[];
+  unavailable_attendees: Pick<MeetingMemberOption, "member_id" | "name" | "attendance_type">[];
+};
+export const getStudyMeetingAttendeeOptions = (sessionId: number) =>
+  http.request<{ success: boolean; data: MeetingAttendeeOptions }>(
+    "get", `/api/v1/study-meetings/records/${sessionId}/attendee-options`
+  );
+export const correctStudyMeetingAttendees = (sessionId: number, data: {
+  member_ids: number[]; expected_member_ids: number[]; note?: string;
+}) => http.request<{ success: boolean; data: StudyMeetingRecordDetail }>(
+  "patch", `/api/v1/study-meetings/records/${sessionId}/attendees`, { data }
+);
 
 export const getStudyMeetingPhoto = (sessionId: number) =>
   http.request<Blob>("get", `/api/v1/study-meetings/records/${sessionId}/evidence`, { responseType: "blob" });

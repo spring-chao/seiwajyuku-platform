@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, reactive, ref, watch } from "vue";
+import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { studyMeetingErrorMessage } from "@/utils/studyMeetingError";
 import {
@@ -7,6 +7,9 @@ import {
   getStudyMeetingRecords,
   getStudyMeetingPhoto,
   correctStudyMeetingCourses,
+  getStudyMeetingAttendeeOptions,
+  correctStudyMeetingAttendees,
+  type MeetingAttendeeOptions,
   type StudyMeetingRecord,
   type StudyMeetingRecordDetail
 } from "@/api/study-meetings";
@@ -27,6 +30,37 @@ const editingCourses = ref(false);
 const savingCourses = ref(false);
 const selectedCourses = ref<string[]>([]);
 const correctionNote = ref("");
+const editingAttendees = ref(false);
+const attendeeLoading = ref(false);
+const savingAttendees = ref(false);
+const attendeeOptions = ref<MeetingAttendeeOptions>();
+const selectedMemberIds = ref<number[]>([]);
+const expectedMemberIds = ref<number[]>([]);
+const attendeeNote = ref("");
+const crossMemberSearch = ref("");
+const showCrossMembers = ref(false);
+const selectedMemberCount = computed(() => {
+  const options = [
+    ...(attendeeOptions.value?.home_members || []),
+    ...(attendeeOptions.value?.cross_group_members || []),
+    ...(attendeeOptions.value?.unavailable_attendees || [])
+  ];
+  const selected = new Set(selectedMemberIds.value);
+  return {
+    total: selected.size,
+    home: options.filter(item => selected.has(item.member_id) && item.attendance_type === "HOME_GROUP").length,
+    cross: options.filter(item => selected.has(item.member_id) && item.attendance_type === "CROSS_GROUP").length
+  };
+});
+const filteredCrossMembers = computed(() => {
+  const query = crossMemberSearch.value.trim().toLocaleLowerCase();
+  return (attendeeOptions.value?.cross_group_members || []).filter(item =>
+    !query || `${item.name} ${item.group_name}`.toLocaleLowerCase().includes(query)
+  );
+});
+const removeSelectedMember = (memberId: number) => {
+  selectedMemberIds.value = selectedMemberIds.value.filter(id => id !== memberId);
+};
 const releasePhoto = () => {
   if (photoUrl.value) URL.revokeObjectURL(photoUrl.value);
   photoUrl.value = "";
@@ -92,6 +126,8 @@ const loadRecords = async () => {
 const openDetail = async (record: any) => {
   releasePhoto();
   editingCourses.value = false;
+  editingAttendees.value = false;
+  attendeeOptions.value = undefined;
   detailVisible.value = true;
   detailLoading.value = true;
   detail.value = undefined;
@@ -144,6 +180,48 @@ const saveCourses = async () => {
   } finally { savingCourses.value = false; }
 };
 
+const editAttendees = async () => {
+  if (!detail.value || attendeeLoading.value) return;
+  const sessionId = detail.value.id;
+  attendeeLoading.value = true;
+  try {
+    const response = await getStudyMeetingAttendeeOptions(sessionId);
+    if (!detailVisible.value || detail.value?.id !== sessionId) return;
+    attendeeOptions.value = response.data;
+    selectedMemberIds.value = detail.value.attendees.map(item => item.member_id);
+    expectedMemberIds.value = [...selectedMemberIds.value];
+    attendeeNote.value = "";
+    crossMemberSearch.value = "";
+    showCrossMembers.value = detail.value.cross_group_attendees.length > 0;
+    editingAttendees.value = true;
+  } catch (requestError) {
+    ElMessage.error(studyMeetingErrorMessage(requestError, "可选参加人员加载"));
+  } finally { attendeeLoading.value = false; }
+};
+
+const saveAttendees = async () => {
+  if (!detail.value || savingAttendees.value) return;
+  if (!selectedMemberIds.value.length) { ElMessage.warning("至少保留一名实际参加学长"); return; }
+  const sessionId = detail.value.id;
+  savingAttendees.value = true;
+  try {
+    const response = await correctStudyMeetingAttendees(sessionId, {
+      member_ids: selectedMemberIds.value,
+      expected_member_ids: expectedMemberIds.value,
+      note: attendeeNote.value || undefined
+    });
+    // A late save must not replace another record opened while it was pending.
+    if (detailVisible.value && detail.value?.id === sessionId) {
+      detail.value = response.data;
+      editingAttendees.value = false;
+    }
+    ElMessage.success("参加人员已修正，操作已记录；未改变正式归属或积分");
+    await loadRecords();
+  } catch (requestError) {
+    ElMessage.error(studyMeetingErrorMessage(requestError, "参加人员修正"));
+  } finally { savingAttendees.value = false; }
+};
+
 onMounted(loadRecords);
 </script>
 
@@ -155,7 +233,7 @@ onMounted(loadRecords);
           <div>
             <div class="records-title">小组学习会记录</div>
             <div class="records-subtitle">
-              查看学习记录与合影，按权限修正课程；不做审核、积分结算或组织关系修改。
+              查看学习记录与合影，按权限修正课程和参加人员；不做审核、积分结算或组织关系修改。
             </div>
             <div v-if="localApiLabel" class="muted">{{ localApiLabel }}</div>
           </div>
@@ -250,6 +328,47 @@ onMounted(loadRecords);
           </el-descriptions>
 
           <div class="attendee-section">
+            <div class="detail-title">参加人员 {{ detail.attendees.length }} 人</div>
+            <div class="muted">本组 {{ detail.home_attendees.length }} 人 · 跨组 {{ detail.cross_group_attendees.length }} 人</div>
+            <el-button v-if="detail.can_edit_attendees && !editingAttendees" :loading="attendeeLoading"
+              :disabled="editingCourses || savingCourses" @click="editAttendees">修正参加人员</el-button>
+          </div>
+          <section v-if="editingAttendees && attendeeOptions" class="attendee-editor">
+            <div class="detail-title">已选择 {{ selectedMemberCount.total }} 人 · 本组 {{ selectedMemberCount.home }} · 跨组 {{ selectedMemberCount.cross }}</div>
+            <el-checkbox-group v-model="selectedMemberIds" :disabled="savingAttendees" class="roster-options" aria-label="本组学长">
+              <div class="detail-title">本组学长</div>
+              <el-checkbox v-for="item in attendeeOptions.home_members" :key="item.member_id" :value="item.member_id">
+                {{ item.name }}
+              </el-checkbox>
+            </el-checkbox-group>
+            <el-button v-if="!showCrossMembers" link type="primary" @click="showCrossMembers = true">+ 添加同班其他小组学长</el-button>
+            <template v-if="showCrossMembers">
+              <div class="detail-title">其他小组参加学长</div>
+              <el-input v-model="crossMemberSearch" placeholder="搜索同班学长姓名或小组" clearable />
+              <div class="attendee-list">
+                <el-tag v-for="item in attendeeOptions.cross_group_members.filter(item => selectedMemberIds.includes(item.member_id))"
+                  :key="item.member_id" :closable="!savingAttendees" @close="removeSelectedMember(item.member_id)">
+                  {{ item.name }} · {{ item.group_name }}
+                </el-tag>
+              </div>
+              <el-checkbox-group v-model="selectedMemberIds" :disabled="savingAttendees" class="roster-options" aria-label="其他小组学长">
+                <el-checkbox v-for="item in filteredCrossMembers" :key="item.member_id" :value="item.member_id">
+                  {{ item.name }} · {{ item.group_name }}
+                </el-checkbox>
+              </el-checkbox-group>
+              <div v-if="!filteredCrossMembers.length" class="muted">没有匹配的同班其他小组学长</div>
+            </template>
+            <div v-if="attendeeOptions.unavailable_attendees.some(item => selectedMemberIds.includes(item.member_id))" class="records-alert">
+              <div class="muted">以下原参加人员已离册或当前归属不明确，请先核对；系统不会自动移除。</div>
+              <el-tag v-for="item in attendeeOptions.unavailable_attendees.filter(item => selectedMemberIds.includes(item.member_id))"
+                :key="item.member_id" type="warning" :closable="!savingAttendees" @close="removeSelectedMember(item.member_id)">{{ item.name }}</el-tag>
+            </div>
+            <el-input v-model="attendeeNote" placeholder="人员修正备注（选填）" maxlength="1000" class="correction-note" :disabled="savingAttendees" />
+            <el-button type="primary" :loading="savingAttendees" @click="saveAttendees">保存参加人员</el-button>
+            <el-button :disabled="savingAttendees" @click="editingAttendees = false">取消人员修正</el-button>
+            <div class="muted">仅修正本场名单，不转组、不替换合影、不改课程或积分。</div>
+          </section>
+          <div class="attendee-section">
             <div class="detail-title">本组参加（{{ detail.home_attendees.length }}人）</div>
             <div class="attendee-list">
               <el-tag v-for="item in detail.home_attendees" :key="item.id" effect="plain">
@@ -277,7 +396,7 @@ onMounted(loadRecords);
             <span v-else class="muted">未上传或已到期清理</span>
           </section>
           <section v-if="detail.can_edit_courses" class="attendee-section">
-            <el-button v-if="!editingCourses" @click="editCourses">修正课程</el-button>
+            <el-button v-if="!editingCourses" :disabled="editingAttendees || savingAttendees || attendeeLoading" @click="editCourses">修正课程</el-button>
             <template v-else>
               <div class="detail-title">本次观看的课程（可多选，留空表示无课程）</div>
               <el-select v-model="selectedCourses" multiple filterable placeholder="选择课程" style="width: 100%">
@@ -315,4 +434,7 @@ onMounted(loadRecords);
 .attendee-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .study-photo { width: 100%; max-height: 420px; object-fit: contain; margin-top: 16px; }
 .correction-note { margin: 14px 0; }
+.attendee-editor { border: 1px solid #ddc7bd; border-radius: 10px; padding: 16px; background: #fffaf7; }
+.roster-options { display: flex; flex-direction: column; margin: 12px 0; max-height: 300px; overflow: auto; }
+.roster-options :deep(.el-checkbox) { min-height: 40px; margin: 0; white-space: normal; }
 </style>

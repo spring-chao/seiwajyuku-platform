@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app.api.auth import require_permission
 from app.core.settings import get_settings
@@ -23,6 +23,7 @@ from app.services.study_meetings import (
 )
 from app.services.study_meeting_evidence import upload_evidence, read_evidence
 from app.services.study_evidence_storage import MAX_BYTES
+from app.services.study_meeting_attendees import attendee_options, correct_attendees
 
 
 router = APIRouter(prefix="/api/v1/study-meetings", tags=["study-meetings"])
@@ -42,6 +43,13 @@ class StudyMeetingCreatePayload(BaseModel):
 class CourseCorrectionPayload(BaseModel):
     course_keys: list[str] = Field(max_length=500)
     expected_course_keys: list[str] = Field(max_length=500)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class AttendeeCorrectionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    member_ids: list[StrictInt] = Field(min_length=1, max_length=500)
+    expected_member_ids: list[StrictInt] = Field(max_length=500)
     note: str | None = Field(default=None, max_length=1000)
 
 
@@ -157,6 +165,25 @@ def correct_courses(session_id: int, payload: CourseCorrectionPayload,
         data = correct_meeting_courses(actor_user_id=user["id"], session_id=session_id,
                                        **payload.model_dump())
         return {"success": True, "data": data}
+    except (StudyMeetingError, StudyMeetingPermissionError) as exc:
+        raise _business_error(exc) from exc
+
+
+@router.get("/records/{session_id}/attendee-options")
+def operation_attendee_options(session_id: int,
+                              user: dict = Depends(require_permission("study_meetings:attendees_edit"))) -> dict:
+    try:
+        return {"success": True, "data": attendee_options(actor_user_id=user["id"], session_id=session_id)}
+    except (StudyMeetingError, StudyMeetingPermissionError) as exc:
+        raise _business_error(exc) from exc
+
+
+@router.patch("/records/{session_id}/attendees")
+def correct_record_attendees(session_id: int, payload: AttendeeCorrectionPayload,
+                             user: dict = Depends(require_permission("study_meetings:attendees_edit"))) -> dict:
+    try:
+        return {"success": True, "data": correct_attendees(actor_user_id=user["id"], session_id=session_id,
+                                                           **payload.model_dump())}
     except (StudyMeetingError, StudyMeetingPermissionError) as exc:
         raise _business_error(exc) from exc
 
