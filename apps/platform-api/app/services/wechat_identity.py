@@ -19,6 +19,7 @@ from app.core.security import create_token, decode_token
 from app.core.settings import get_settings
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
+from app.services.volunteer_positions import STUDY_MEETING_MANAGE
 
 
 WECHAT_SESSION_TOKEN_TYPE = "wechat_member_access"
@@ -320,26 +321,75 @@ def revoke_member_binding(token: str) -> dict[str, Any]:
 
 
 def get_member_role_scopes(member_id: int) -> list[dict[str, Any]]:
-    """Return only currently effective MVP roles and their explicit scopes."""
+    """Resolve current capabilities from formal appointments and legacy roles.
+
+    The returned ``role_key`` values intentionally remain the internal
+    GROUP_LEADER/CLASS_COUNSELOR values used by the V1.2 storage contract.
+    ``position_key``/``scope_level`` preserve the configured volunteer position
+    that produced the capability for audit and UI explanations.
+    """
 
     settings = get_settings()
     if not settings.identity_authorization_enabled:
         return []
     now = _now()
     scopes: list[dict[str, Any]] = []
-    canonical = fetch_all(
-        "SELECT va.appointment_key, va.org_unit_id, va.scope_type "
-        "FROM member_identities mi JOIN person_profiles pp ON pp.id=mi.person_id "
-        "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
-        "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
-        "AND va.appointment_key IN ('volunteer_group_leader','volunteer_class_counselor') "
-        "AND va.status IN ('PLANNED','ACTIVE') AND va.starts_at<=? AND va.ends_at>=?",
-        (member_id, now, now),
-    )
+    try:
+        canonical = fetch_all(
+            "SELECT va.appointment_key, va.org_unit_id, va.scope_type, "
+            "c.position_name, c.scope_level, pc.capability_key "
+            "FROM member_identities mi JOIN person_profiles pp ON pp.id=mi.person_id "
+            "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
+            "JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
+            "JOIN volunteer_position_capabilities pc ON pc.position_key=c.position_key "
+            "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
+            "AND c.is_active=1 AND pc.capability_key=? "
+            "AND va.status IN ('PLANNED','ACTIVE') AND va.starts_at<=? AND va.ends_at>=?",
+            (member_id, STUDY_MEETING_MANAGE, now, now),
+        )
+    except Exception as exc:
+        # During a rolling migration, keep the old two-role resolver available
+        # until 0039 is present.  Other database failures must still surface.
+        message = str(exc).lower()
+        if "no such table" not in message and "doesn't exist" not in message:
+            raise
+        canonical = fetch_all(
+            "SELECT va.appointment_key, va.org_unit_id, va.scope_type "
+            "FROM member_identities mi JOIN person_profiles pp ON pp.id=mi.person_id "
+            "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
+            "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
+            "AND va.appointment_key IN ('volunteer_group_leader','volunteer_class_counselor') "
+            "AND va.status IN ('PLANNED','ACTIVE') AND va.starts_at<=? AND va.ends_at>=?",
+            (member_id, now, now),
+        )
     for row in canonical:
-        role_key = WECHAT_BINDING_ROLES.get(row["appointment_key"])
+        scope_level = row.get("scope_level")
+        if not scope_level:
+            scope_level = (
+                "CLASS" if row["appointment_key"] == "volunteer_class_counselor"
+                else "GROUP" if row["appointment_key"] == "volunteer_group_leader"
+                else None
+            )
+        role_key = (
+            "CLASS_COUNSELOR" if scope_level == "CLASS"
+            else "GROUP_LEADER" if scope_level == "GROUP"
+            else None
+        )
         if role_key:
-            scopes.append({"role_key": role_key, "scope_type": row["scope_type"], "org_unit_id": row["org_unit_id"]})
+            scopes.append(
+                {
+                    "role_key": role_key,
+                    "position_key": row["appointment_key"],
+                    "position_name": row.get("position_name")
+                    or (
+                        "班主任" if scope_level == "CLASS" else "组长"
+                    ),
+                    "scope_level": scope_level,
+                    "capability_key": row.get("capability_key"),
+                    "scope_type": row["scope_type"],
+                    "org_unit_id": row["org_unit_id"],
+                }
+            )
 
     # Legacy account roles are accepted only when the account is explicitly
     # linked to this member and has an explicit UNIT/SUBTREE data scope.
@@ -359,10 +409,23 @@ def get_member_role_scopes(member_id: int) -> list[dict[str, Any]]:
     for row in legacy:
         role_key = WECHAT_BINDING_ROLES.get(row["role_key"])
         if role_key and row.get("org_unit_id"):
-            scopes.append({"role_key": role_key, "scope_type": row["scope_type"], "org_unit_id": row["org_unit_id"]})
+            scopes.append(
+                {
+                    "role_key": role_key,
+                    "scope_type": row["scope_type"],
+                    "org_unit_id": row["org_unit_id"],
+                }
+            )
     unique: dict[tuple[Any, ...], dict[str, Any]] = {}
     for item in scopes:
-        unique[(item["role_key"], item["scope_type"], item["org_unit_id"])] = item
+        unique[
+            (
+                item["role_key"],
+                item.get("position_key"),
+                item["scope_type"],
+                item["org_unit_id"],
+            )
+        ] = item
     return list(unique.values())
 
 
@@ -387,7 +450,12 @@ def role_for_target(member_id: int, class_org_unit_id: str, group_org_unit_id: s
     scopes = get_member_role_scopes(member_id)
     if any(
         item["role_key"] == "CLASS_COUNSELOR"
-        and (scope_contains(item, class_org_unit_id) or scope_contains(item, group_org_unit_id))
+        and (
+            scope_contains(item, class_org_unit_id)
+            if item.get("scope_level") == "CLASS"
+            else scope_contains(item, class_org_unit_id)
+            or scope_contains(item, group_org_unit_id)
+        )
         for item in scopes
     ):
         return "CLASS_COUNSELOR"
@@ -419,7 +487,12 @@ def authorized_group_targets(member_id: int) -> list[dict[str, Any]]:
         role: str | None = None
         if any(
             item["role_key"] == "CLASS_COUNSELOR"
-            and (scope_contains(item, row["class_org_unit_id"]) or scope_contains(item, row["group_org_unit_id"]))
+            and (
+                scope_contains(item, row["class_org_unit_id"])
+                if item.get("scope_level") == "CLASS"
+                else scope_contains(item, row["class_org_unit_id"])
+                or scope_contains(item, row["group_org_unit_id"])
+            )
             for item in scopes
         ):
             role = "CLASS_COUNSELOR"

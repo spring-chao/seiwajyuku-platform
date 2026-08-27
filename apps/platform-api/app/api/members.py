@@ -28,6 +28,12 @@ from app.services.birthday_greetings import (
 )
 from app.services.iam import accessible_org_ids
 from app.db import fetch_all, fetch_one
+from app.services.volunteer_positions import (
+    change_member_volunteer_appointment_status,
+    create_member_volunteer_appointment,
+    list_member_volunteer_appointments,
+    list_volunteer_positions,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["members-privacy"])
@@ -128,6 +134,20 @@ class BirthdayGreetingDraftPayload(BaseModel):
     tone: Literal["standard", "warm", "concise"] = "warm"
 
 
+class MemberVolunteerAppointmentPayload(BaseModel):
+    position_key: str = Field(min_length=3, max_length=64)
+    org_unit_id: str = Field(min_length=1, max_length=64)
+    starts_at: str
+    ends_at: str
+    source_reference: str = Field(min_length=4, max_length=500)
+    confirmation_note: str = Field(min_length=8, max_length=1000)
+
+
+class MemberVolunteerAppointmentStatusPayload(BaseModel):
+    status: Literal["SUSPENDED", "ENDED", "REVOKED"]
+    reason: str = Field(min_length=6, max_length=1000)
+
+
 @router.post("/members")
 def add_member(
     payload: MemberCreatePayload,
@@ -192,6 +212,66 @@ def members(
     user: dict = Depends(require_permission("members:read")),
 ) -> dict:
     return {"success": True, "data": list_members(user["id"], org_unit_id)}
+
+
+@router.get("/volunteer-position-catalog")
+def volunteer_position_catalog(
+    user: dict = Depends(require_permission("members:detail_view")),
+) -> dict:
+    try:
+        data = list_volunteer_positions(active_only=True)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/members/{member_id}/volunteer-appointments")
+def member_volunteer_appointments(
+    member_id: int,
+    user: dict = Depends(require_permission("members:detail_view")),
+) -> dict:
+    try:
+        data = list_member_volunteer_appointments(user["id"], member_id)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/members/{member_id}/volunteer-appointments")
+def add_member_volunteer_appointment(
+    member_id: int,
+    payload: MemberVolunteerAppointmentPayload,
+    user: dict = Depends(require_permission("members:manage")),
+) -> dict:
+    try:
+        data = create_member_volunteer_appointment(
+            user["id"], member_id, **payload.model_dump()
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/members/{member_id}/volunteer-appointments/{appointment_id}/status")
+def update_member_volunteer_appointment_status(
+    member_id: int,
+    appointment_id: int,
+    payload: MemberVolunteerAppointmentStatusPayload,
+    user: dict = Depends(require_permission("members:manage")),
+) -> dict:
+    try:
+        data = change_member_volunteer_appointment_status(
+            user["id"], member_id, appointment_id, **payload.model_dump()
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.post("/members/{member_id}/contact-access")

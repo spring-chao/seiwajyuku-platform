@@ -3,6 +3,15 @@ import { http } from "@/utils/http";
 export type IdentityCatalog = {
   position_keys: string[];
   appointment_keys: string[];
+  volunteer_positions?: Array<{
+    position_key: string;
+    position_name: string;
+    scope_level: "REGIONAL_CENTER" | "CLASS" | "GROUP" | "ANY";
+    is_active: boolean;
+    sort_order: number;
+    capabilities: string[];
+    capability_names: string[];
+  }>;
   scope_types: Array<"UNIT" | "SUBTREE">;
   terminal_statuses: Array<"SUSPENDED" | "ENDED" | "REVOKED">;
   writes_enabled: boolean;
@@ -60,6 +69,8 @@ export type Employment = {
 export type VolunteerAppointment = {
   id: number;
   appointment_key: string;
+  position_name?: string;
+  scope_level?: string;
   org_unit_id: string;
   org_name: string;
   scope_type: string;

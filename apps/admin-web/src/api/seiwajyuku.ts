@@ -544,6 +544,40 @@ export type Member = {
   sensitivity_level: string;
 };
 
+export type VolunteerPosition = {
+  position_key: string;
+  position_name: string;
+  scope_level: "REGIONAL_CENTER" | "CLASS" | "GROUP" | "ANY";
+  is_active: boolean;
+  sort_order: number;
+  capabilities: string[];
+  capability_names: string[];
+};
+
+export type MemberVolunteerAppointment = {
+  id: number;
+  appointment_key: string;
+  position_name?: string | null;
+  scope_level?: VolunteerPosition["scope_level"] | null;
+  org_unit_id: string;
+  org_name: string;
+  org_unit_type: string;
+  scope_type: "UNIT" | "SUBTREE";
+  starts_at: string;
+  ends_at: string;
+  status: string;
+  source_reference: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type MemberVolunteerAppointments = {
+  member_id: number;
+  person_id?: string | null;
+  identity_status?: string | null;
+  appointments: MemberVolunteerAppointment[];
+};
+
 export type MemberChangeHistory = {
   id: number;
   change_type: string;
@@ -1815,6 +1849,54 @@ export const getMemberEditProfile = (memberId: number) =>
     success: boolean;
     data: MemberEditProfile;
   }>("get", `/api/v1/members/${memberId}/edit-profile`);
+
+export const getVolunteerPositionCatalog = () =>
+  http.request<{ success: boolean; data: VolunteerPosition[] }>(
+    "get",
+    "/api/v1/volunteer-position-catalog"
+  );
+
+export const getMemberVolunteerAppointments = (memberId: number) =>
+  http.request<{ success: boolean; data: MemberVolunteerAppointments }>(
+    "get",
+    `/api/v1/members/${memberId}/volunteer-appointments`
+  );
+
+export const createMemberVolunteerAppointment = (
+  memberId: number,
+  data: {
+    position_key: string;
+    org_unit_id: string;
+    starts_at: string;
+    ends_at: string;
+    source_reference: string;
+    confirmation_note: string;
+  }
+) =>
+  http.request<{
+    success: boolean;
+    data: {
+      id: number;
+      member_id: number;
+      person_id: string;
+      position_key: string;
+      org_unit_id: string;
+    };
+  }>("post", `/api/v1/members/${memberId}/volunteer-appointments`, { data });
+
+export const changeMemberVolunteerAppointmentStatus = (
+  memberId: number,
+  appointmentId: number,
+  data: { status: "SUSPENDED" | "ENDED" | "REVOKED"; reason: string }
+) =>
+  http.request<{
+    success: boolean;
+    data: { id: number; member_id: number; status: string };
+  }>(
+    "post",
+    `/api/v1/members/${memberId}/volunteer-appointments/${appointmentId}/status`,
+    { data }
+  );
 
 export const createFollowupRecord = (
   taskId: number,

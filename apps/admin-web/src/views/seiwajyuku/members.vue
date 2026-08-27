@@ -21,6 +21,10 @@ import {
   applyFullClassRosterRelations,
   getMemberChangeHistory,
   getMemberTimeline,
+  getMemberVolunteerAppointments,
+  getVolunteerPositionCatalog,
+  createMemberVolunteerAppointment,
+  changeMemberVolunteerAppointmentStatus,
   submitMemberServiceSignalFeedback,
   updateMember,
   previewDirectClassWorkbook,
@@ -34,6 +38,9 @@ import {
   type MemberServiceSignal,
   type MemberServiceSignalFeedbackStatus,
   type MemberTimeline,
+  type MemberVolunteerAppointment,
+  type MemberVolunteerAppointments,
+  type VolunteerPosition,
   type OrgUnit
 } from "@/api/seiwajyuku";
 
@@ -58,6 +65,19 @@ const originalClassOrgUnitId = ref("");
 const originalGroupOrgUnitId = ref("");
 const financialFieldsEditable = ref(false);
 const editingMemberId = ref<number>();
+const volunteerPositions = ref<VolunteerPosition[]>([]);
+const memberVolunteerAppointments = ref<MemberVolunteerAppointments>();
+const volunteerAppointmentsLoading = ref(false);
+const volunteerAppointmentDialogVisible = ref(false);
+const volunteerAppointmentSaving = ref(false);
+const volunteerAppointmentForm = reactive({
+  position_key: "",
+  org_unit_id: "",
+  starts_at: "",
+  ends_at: "",
+  source_reference: "",
+  confirmation_note: ""
+});
 const preflightVisible = ref(false);
 const preflightLoading = ref(false);
 const preflightFiles = ref<UploadUserFile[]>([]);
@@ -158,6 +178,23 @@ const canReadRenewals = computed(() =>
 const canViewHistory = computed(() =>
   useUserStoreHook().permissions.includes("members:detail_view")
 );
+const canManageVolunteer = computed(() => canManage.value);
+const selectedVolunteerPosition = computed(() =>
+  volunteerPositions.value.find(
+    item => item.position_key === volunteerAppointmentForm.position_key
+  )
+);
+const volunteerOrgOptions = computed(() => {
+  const level = selectedVolunteerPosition.value?.scope_level;
+  if (level === "CLASS") return orgs.value.filter(item => item.unit_type === "CLASS");
+  if (level === "GROUP") return orgs.value.filter(item => item.unit_type === "GROUP");
+  if (level === "REGIONAL_CENTER") {
+    return orgs.value.filter(item =>
+      ["REGIONAL_CENTER", "ROOT", "CITY_CENTER", "DIVISION"].includes(item.unit_type)
+    );
+  }
+  return orgs.value;
+});
 const centerOrgs = computed(() =>
   orgs.value.filter(item => item.unit_type === "REGIONAL_CENTER")
 );
@@ -512,6 +549,7 @@ async function openEdit(row: any) {
     originalClassOrgUnitId.value = data.class_org_unit_id || "";
     originalGroupOrgUnitId.value = data.group_org_unit_id || "";
     editPhoneReady.value = true;
+    void loadMemberVolunteerAppointments(row.id);
   } catch (error) {
     ElMessage.error(errorText(error));
   } finally {
@@ -601,7 +639,7 @@ function historyLabel(key: string) {
     status: "状态",
     phone_masked: "手机号（脱敏）",
     company_name: "公司名称",
-    class_committee_name: "班组委名称",
+    class_committee_name: "志工岗位",
     notes: "备注",
     class_name: "班级",
     group_name: "小组"
@@ -985,6 +1023,137 @@ async function runMemberRosterPreflight() {
     ElMessage.error(errorText(error));
   } finally {
     memberRosterImportLoading.value = false;
+  }
+}
+
+function volunteerAppointmentStatusLabel(status: string) {
+  return (
+    {
+      PLANNED: "待生效",
+      ACTIVE: "任职中",
+      SUSPENDED: "已暂停",
+      ENDED: "已结束",
+      REVOKED: "已撤销"
+    } as Record<string, string>
+  )[status] ?? status;
+}
+
+function volunteerScopeHint(scopeLevel?: string) {
+  return (
+    {
+      CLASS: "请选择一个班级",
+      GROUP: "请选择一个小组",
+      REGIONAL_CENTER: "请选择服务分中心",
+      ANY: "请选择服务范围"
+    } as Record<string, string>
+  )[scopeLevel || "ANY"];
+}
+
+async function loadVolunteerPositionCatalog() {
+  if (volunteerPositions.value.length) return;
+  try {
+    volunteerPositions.value = (await getVolunteerPositionCatalog()).data;
+  } catch (error) {
+    // Identity feature gates may be closed for a read-only deployment.  The
+    // member profile remains usable; operators can retry after the gate opens.
+    if (canManageVolunteer.value) ElMessage.warning(errorText(error));
+  }
+}
+
+async function loadMemberVolunteerAppointments(memberId: number) {
+  volunteerAppointmentsLoading.value = true;
+  try {
+    memberVolunteerAppointments.value = (
+      await getMemberVolunteerAppointments(memberId)
+    ).data;
+  } catch (error) {
+    memberVolunteerAppointments.value = undefined;
+    if (canManageVolunteer.value) ElMessage.warning(errorText(error));
+  } finally {
+    volunteerAppointmentsLoading.value = false;
+  }
+}
+
+function resetVolunteerAppointmentForm() {
+  const start = new Date();
+  const end = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+  Object.assign(volunteerAppointmentForm, {
+    position_key: "",
+    org_unit_id: "",
+    starts_at: start.toISOString(),
+    ends_at: end.toISOString(),
+    source_reference: "",
+    confirmation_note: ""
+  });
+}
+
+async function openVolunteerAppointmentDialog() {
+  if (!editingMemberId.value) {
+    ElMessage.info("请先保存学员档案，再添加正式志工任职");
+    return;
+  }
+  await loadVolunteerPositionCatalog();
+  resetVolunteerAppointmentForm();
+  volunteerAppointmentDialogVisible.value = true;
+}
+
+async function saveVolunteerAppointment() {
+  if (!editingMemberId.value) return;
+  const position = selectedVolunteerPosition.value;
+  if (!position) {
+    ElMessage.error("请选择志工岗位");
+    return;
+  }
+  if (!volunteerAppointmentForm.org_unit_id) {
+    ElMessage.error(volunteerScopeHint(position.scope_level));
+    return;
+  }
+  if (!volunteerAppointmentForm.source_reference.trim()) {
+    ElMessage.error("请填写任职依据");
+    return;
+  }
+  if (volunteerAppointmentForm.confirmation_note.trim().length < 8) {
+    ElMessage.error("业务说明至少填写8个字符");
+    return;
+  }
+  volunteerAppointmentSaving.value = true;
+  try {
+    await createMemberVolunteerAppointment(editingMemberId.value, {
+      ...volunteerAppointmentForm,
+      source_reference: volunteerAppointmentForm.source_reference.trim(),
+      confirmation_note: volunteerAppointmentForm.confirmation_note.trim()
+    });
+    await loadMemberVolunteerAppointments(editingMemberId.value);
+    volunteerAppointmentDialogVisible.value = false;
+    ElMessage.success("正式志工任职已保存，历史记录已保留");
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    volunteerAppointmentSaving.value = false;
+  }
+}
+
+async function endVolunteerAppointment(appointment: MemberVolunteerAppointment) {
+  if (!editingMemberId.value || ["ENDED", "REVOKED"].includes(appointment.status)) return;
+  try {
+    await ElMessageBox.confirm(
+      `确认结束“${appointment.position_name || appointment.appointment_key} · ${appointment.org_name}”的任职？历史记录会保留。`,
+      "结束志工任职",
+      { type: "warning", confirmButtonText: "确认结束", cancelButtonText: "取消" }
+    );
+  } catch {
+    return;
+  }
+  try {
+    await changeMemberVolunteerAppointmentStatus(
+      editingMemberId.value,
+      appointment.id,
+      { status: "ENDED", reason: "运营人员在学员管理中确认结束该志工任职" }
+    );
+    await loadMemberVolunteerAppointments(editingMemberId.value);
+    ElMessage.success("志工任职已结束");
+  } catch (error) {
+    ElMessage.error(errorText(error));
   }
 }
 
@@ -1423,6 +1592,95 @@ onMounted(async () => {
     </el-dialog>
 
     <el-dialog
+      v-model="volunteerAppointmentDialogVisible"
+      title="添加正式志工任职"
+      width="620px"
+      destroy-on-close
+    >
+      <el-alert
+        title="只需选择岗位和服务范围"
+        description="系统会按岗位定义自动校验班级/小组层级；同一学员可以同时保留多个有效任职。"
+        type="info"
+        :closable="false"
+        show-icon
+      />
+      <el-form label-position="top" class="volunteer-appointment-form">
+        <el-form-item label="志工岗位" required>
+          <el-select
+            v-model="volunteerAppointmentForm.position_key"
+            filterable
+            clearable
+            placeholder="请选择岗位"
+            @change="volunteerAppointmentForm.org_unit_id = ''"
+          >
+            <el-option
+              v-for="position in volunteerPositions"
+              :key="position.position_key"
+              :label="position.position_name"
+              :value="position.position_key"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="`服务范围 · ${volunteerScopeHint(selectedVolunteerPosition?.scope_level)}`" required>
+          <el-select
+            v-model="volunteerAppointmentForm.org_unit_id"
+            filterable
+            clearable
+            :disabled="!selectedVolunteerPosition"
+            placeholder="请选择服务范围"
+          >
+            <el-option
+              v-for="org in volunteerOrgOptions"
+              :key="org.id"
+              :label="org.name"
+              :value="org.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="任职开始时间" required>
+          <el-date-picker
+            v-model="volunteerAppointmentForm.starts_at"
+            type="datetime"
+            value-format="YYYY-MM-DDTHH:mm:ssZ"
+            placeholder="请选择开始时间"
+          />
+        </el-form-item>
+        <el-form-item label="任职结束时间" required>
+          <el-date-picker
+            v-model="volunteerAppointmentForm.ends_at"
+            type="datetime"
+            value-format="YYYY-MM-DDTHH:mm:ssZ"
+            placeholder="请选择结束时间"
+          />
+        </el-form-item>
+        <el-form-item label="任职依据" required>
+          <el-input
+            v-model="volunteerAppointmentForm.source_reference"
+            placeholder="如：2026年秋季班委确认表"
+          />
+        </el-form-item>
+        <el-form-item label="业务说明" required>
+          <el-input
+            v-model="volunteerAppointmentForm.confirmation_note"
+            type="textarea"
+            :rows="3"
+            placeholder="请说明本次任职已由谁确认"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="volunteerAppointmentDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="volunteerAppointmentSaving"
+          @click="saveVolunteerAppointment"
+        >
+          保存任职
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
       v-model="preflightVisible"
       title="直属四班生产前只读预检"
       width="860px"
@@ -1783,8 +2041,59 @@ onMounted(async () => {
             />
             </el-select>
           </el-form-item>
-          <el-form-item label="班组委名称">
-            <el-input v-model="form.class_committee_name" placeholder="如：班组委/委员名称" />
+          <el-form-item label="志工岗位（正式任职）" class="full">
+            <div class="volunteer-appointments-editor">
+              <template v-if="editingMemberId">
+                <div v-loading="volunteerAppointmentsLoading" class="volunteer-appointments-list">
+                  <el-empty
+                    v-if="!memberVolunteerAppointments?.appointments.length"
+                    description="尚未建立正式志工任职"
+                    :image-size="48"
+                  />
+                  <div
+                    v-for="appointment in memberVolunteerAppointments?.appointments || []"
+                    :key="appointment.id"
+                    class="volunteer-appointment-card"
+                  >
+                    <div>
+                      <strong>{{ appointment.position_name || appointment.appointment_key }}</strong>
+                      <span>{{ appointment.org_name }}</span>
+                      <small>
+                        {{ volunteerAppointmentStatusLabel(appointment.status) }} ·
+                        {{ appointment.starts_at }} 至 {{ appointment.ends_at }}
+                      </small>
+                    </div>
+                    <el-button
+                      v-if="canManageVolunteer && !['ENDED', 'REVOKED'].includes(appointment.status)"
+                      link
+                      type="danger"
+                      @click="endVolunteerAppointment(appointment)"
+                    >
+                      结束任职
+                    </el-button>
+                  </div>
+                </div>
+                <el-button
+                  v-if="canManageVolunteer"
+                  type="primary"
+                  plain
+                  @click="openVolunteerAppointmentDialog"
+                >
+                  添加正式志工任职
+                </el-button>
+                <p v-if="form.class_committee_name" class="form-hint volunteer-legacy-hint">
+                  历史导入岗位（仅兼容，不参与权限判断）：{{ form.class_committee_name }}
+                </p>
+              </template>
+              <el-alert
+                v-else
+                title="请先保存学员档案，再添加正式志工任职"
+                description="正式任职会保留开始/结束时间和历史记录；不会把旧的自由文本岗位自动转换。"
+                type="info"
+                :closable="false"
+                show-icon
+              />
+            </div>
           </el-form-item>
           <el-form-item label="行业分类">
             <el-input v-model="form.industry_category" />
@@ -2195,6 +2504,39 @@ onMounted(async () => {
 }
 .form-grid :deep(.el-date-editor),
 .form-grid :deep(.el-input-number) {
+  width: 100%;
+}
+
+.volunteer-appointments-editor {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+.volunteer-appointments-list {
+  display: grid;
+  gap: 8px;
+}
+.volunteer-appointment-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+.volunteer-appointment-card > div {
+  display: grid;
+  gap: 3px;
+}
+.volunteer-appointment-card span,
+.volunteer-appointment-card small,
+.volunteer-legacy-hint {
+  color: var(--el-text-color-secondary);
+}
+.volunteer-appointment-form :deep(.el-select),
+.volunteer-appointment-form :deep(.el-date-editor) {
   width: 100%;
 }
 

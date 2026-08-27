@@ -10,6 +10,11 @@ from app.core.settings import get_settings
 from app.db import execute, fetch_all, transaction
 from app.services.audit import write_audit
 from app.services.iam import PERMISSIONS, ROLE_NAMES, ROLE_PERMISSIONS
+from app.services.volunteer_positions import (
+    get_volunteer_position,
+    list_volunteer_positions,
+    validate_position_target,
+)
 
 
 POSITION_KEYS = {
@@ -31,6 +36,9 @@ APPOINTMENT_KEYS = {
     "volunteer_regional_lead",
     "volunteer_regional_service",
     "volunteer_class_counselor",
+    "volunteer_deputy_class_teacher",
+    "volunteer_class_monitor",
+    "volunteer_group_counselor",
     "volunteer_class_committee",
     "volunteer_group_leader",
     "volunteer_group_committee",
@@ -112,6 +120,7 @@ def catalogs() -> dict[str, Any]:
     return {
         "position_keys": sorted(POSITION_KEYS),
         "appointment_keys": sorted(APPOINTMENT_KEYS),
+        "volunteer_positions": list_volunteer_positions(active_only=False),
         "scope_types": ["UNIT", "SUBTREE"],
         "terminal_statuses": sorted(TERMINAL_STATUSES),
         "writes_enabled": settings.identity_admin_writes_enabled,
@@ -192,9 +201,12 @@ def list_identity_accounts() -> list[dict[str, Any]]:
                 )
             item["employments"] = employments
             item["volunteer_appointments"] = fetch_all(
-                "SELECT va.id, va.appointment_key, va.org_unit_id, o.name AS org_name, "
+                "SELECT va.id, va.appointment_key, c.position_name, c.scope_level, "
+                "va.org_unit_id, o.name AS org_name, "
                 "va.scope_type, va.starts_at, va.ends_at, va.status, va.source_reference "
-                "FROM volunteer_appointments va JOIN org_units o ON o.id=va.org_unit_id "
+                "FROM volunteer_appointments va "
+                "LEFT JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
+                "JOIN org_units o ON o.id=va.org_unit_id "
                 "WHERE va.person_id=? ORDER BY va.id DESC",
                 (person_id,),
             )
@@ -694,7 +706,8 @@ def create_volunteer_appointment(
 ) -> int:
     _feature_gate(write=True)
     source, note = _validate_confirmation(source_reference, confirmation_note)
-    if appointment_key not in APPOINTMENT_KEYS:
+    appointment_key = appointment_key.strip()
+    if not get_volunteer_position(appointment_key):
         raise ValueError("未知志工任职")
     scope_type = scope_type.upper()
     if scope_type not in {"UNIT", "SUBTREE"}:
@@ -704,12 +717,12 @@ def create_volunteer_appointment(
     now = datetime.now(UTC).isoformat()
     with transaction() as connection:
         person_id = _person_for_user(connection, user_id)
-        if not execute(
+        target = validate_position_target(
             connection,
-            "SELECT id FROM org_units WHERE id=? AND is_active=1",
-            (org_unit_id,),
-        ).fetchone():
-            raise ValueError("任职组织不存在或已停用")
+            position_key=appointment_key,
+            org_unit_id=org_unit_id,
+            scope_type=scope_type,
+        )
         if execute(
             connection,
             "SELECT id FROM volunteer_appointments WHERE person_id=? "
@@ -750,6 +763,8 @@ def create_volunteer_appointment(
             after={
                 "user_id": user_id,
                 "appointment_key": appointment_key,
+                "position_name": target["position_name"],
+                "scope_level": target["scope_level"],
                 "scope_type": scope_type,
                 "starts_at": starts_at,
                 "ends_at": ends_at,
