@@ -1,5 +1,5 @@
 <view class="page-shell">
-  <view wx:if="{{loading}}" class="state-card">正在加载本组 ACTIVE 学员…</view>
+  <view wx:if="{{loading}}" class="state-card">正在加载本组学员…</view>
   <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
   <block wx:if="{{!loading && assignment && assignment.current_cycle}}">
     <view class="hero-card">

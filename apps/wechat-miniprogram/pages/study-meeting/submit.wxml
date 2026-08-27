@@ -17,7 +17,7 @@
         <view class="picker-value {{courseName ? '' : 'placeholder'}}">{{courseLabel || '请选择一门在线课程'}}</view>
       </picker>
       <view wx:if="{{hasCourse && !courses.length}}" class="course-hint">当前没有可选在线课程，请先选择“没有”。</view>
-      <view wx:if="{{hasCourse && courseIndex >= 0}}" class="course-hint">{{courses[courseIndex].status === 'CONFIGURED' ? courses[courseIndex].credit_points + ' 分 · 已配置' : '课程学分待配置，本次只记录学习事实'}}</view>
+      <view wx:if="{{hasCourse && courseIndex >= 0}}" class="course-hint">{{courses[courseIndex].status === 'CONFIGURED' ? courses[courseIndex].credit_points + ' 分 · 已配置' : '课程已记录 · 学分待配置'}}</view>
     </view>
     <view class="section-card notice-card">
       <view class="section-title">本次登记</view>
