@@ -11,6 +11,7 @@ from app.core.privacy import protected_phone
 from app.db import execute, fetch_one, transaction
 from app.main import app
 from app.services.enrollment import create_enrollment_link, rotate_enrollment_link
+from app.services.wechat_identity import exchange_wechat_code
 
 
 def _stamp() -> str:
@@ -318,3 +319,19 @@ def test_v12_write_flags_are_closed_by_default() -> None:
                 "/api/v1/wechat/member-bindings/verify",
                 json={"code": "code", "name": "x", "phone": "13800000000"},
             ).status_code == 404
+
+
+def test_local_wechat_provider_stub_is_deterministic_and_dev_only() -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "APP_ENV": "test",
+            "WECHAT_LOCAL_TEST_MODE": "true",
+            "WECHAT_MINIPROGRAM_APP_ID": "v12-local-test-app",
+            "WECHAT_MINIPROGRAM_APP_SECRET": "",
+        },
+    ):
+        assert exchange_wechat_code("developer-tool-code") == {
+            "appid": "v12-local-test-app",
+            "openid": "local-test-openid",
+        }

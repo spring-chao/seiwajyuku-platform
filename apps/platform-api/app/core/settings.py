@@ -43,6 +43,9 @@ class Settings:
     # V1.2 unified mini-program capabilities remain explicitly closed by
     # default.  Each capability is opened independently after local/staging
     # validation and a bounded release approval.
+    # This provider stub is only for isolated dev/test UX acceptance. Startup
+    # safety rejects it in every deployable environment.
+    wechat_local_test_mode: bool = False
     wechat_member_binding_enabled: bool = False
     study_meeting_submission_enabled: bool = False
     study_meeting_review_enabled: bool = False
@@ -81,6 +84,8 @@ class Settings:
             )
         if self.app_env not in SAFE_ENVIRONMENTS | {"production"}:
             raise RuntimeError(f"未知 APP_ENV: {self.app_env}")
+        if self.wechat_local_test_mode and self.app_env not in {"dev", "test"}:
+            raise RuntimeError("WECHAT_LOCAL_TEST_MODE 仅允许 dev/test 环境")
         if self.app_env in {"dev", "test"} and "production" in self.database_url.lower():
             raise RuntimeError("开发/测试环境禁止使用疑似生产数据库地址")
         if self.app_env in {"staging", "production"} and len(self.jwt_secret) < 32:
@@ -163,6 +168,7 @@ def get_settings() -> Settings:
             "MEMBER_SERVICE_SIGNAL_FEEDBACK_ENABLED"
         ),
         agent_api_enabled=_bool("AGENT_API_ENABLED"),
+        wechat_local_test_mode=_bool("WECHAT_LOCAL_TEST_MODE"),
         wechat_member_binding_enabled=_bool("WECHAT_MEMBER_BINDING_ENABLED"),
         study_meeting_submission_enabled=_bool("STUDY_MEETING_SUBMISSION_ENABLED"),
         study_meeting_review_enabled=_bool("STUDY_MEETING_REVIEW_ENABLED"),

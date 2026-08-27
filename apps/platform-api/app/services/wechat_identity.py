@@ -133,11 +133,19 @@ def exchange_wechat_code(code: str) -> dict[str, str]:
     """Exchange a wx.login code without logging the code or returned openid."""
 
     settings = get_settings()
-    if not settings.wechat_miniprogram_app_id or not settings.wechat_miniprogram_app_secret:
-        raise WeChatProviderError("微信小程序身份服务尚未配置")
     cleaned = (code or "").strip()
     if not cleaned or len(cleaned) > 512:
         raise WeChatProviderError("微信登录凭证无效")
+    # The local UX acceptance flow cannot call the production WeChat provider
+    # from an isolated localhost API. Keep a deterministic, dev/test-only
+    # stub; startup safety rejects this flag in every deployable environment.
+    if settings.wechat_local_test_mode and settings.app_env in {"dev", "test"}:
+        return {
+            "appid": settings.wechat_miniprogram_app_id or "local-test-app",
+            "openid": "local-test-openid",
+        }
+    if not settings.wechat_miniprogram_app_id or not settings.wechat_miniprogram_app_secret:
+        raise WeChatProviderError("微信小程序身份服务尚未配置")
     try:
         with httpx.Client(timeout=10.0) as client:
             response = client.get(

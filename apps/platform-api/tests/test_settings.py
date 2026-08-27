@@ -161,6 +161,29 @@ class SettingsTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "服务提示反馈写入未获批准"):
             settings.assert_safe_startup()
 
+    def test_local_wechat_provider_mode_is_rejected_outside_dev_and_test(self) -> None:
+        settings = Settings(
+            app_env="staging",
+            app_name="test",
+            database_url="mysql+pymysql://example",
+            cors_origins=(),
+            allow_production_mutations=False,
+            jwt_secret="x" * 32,
+            access_token_minutes=30,
+            refresh_token_days=7,
+            bootstrap_admin_username="admin",
+            bootstrap_admin_password="",
+            field_encryption_key="configured-outside-source-control",
+            integration_api_key="test-integration-key",
+            deployment_read_only=True,
+            run_bootstrap_on_startup=False,
+            signin_api_base_url="",
+            signin_service_api_key="",
+            wechat_local_test_mode=True,
+        )
+        with self.assertRaisesRegex(RuntimeError, "WECHAT_LOCAL_TEST_MODE"):
+            settings.assert_safe_startup()
+
 
 if __name__ == "__main__":
     unittest.main()
