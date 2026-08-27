@@ -219,6 +219,11 @@ def test_legacy_single_course_read_and_clear_never_resurrects():
                 (rule["course_key"], rule["course_name"], session["id"]))
     before = get_study_meeting_record_for_operations(actor_user_id=admin_id(), session_id=session["id"])
     assert before["courses"][0]["legacy"]
+    retained = correct_meeting_courses(actor_user_id=admin_id(), session_id=session["id"],
+                                       course_keys=[rule["course_key"]], expected_course_keys=[rule["course_key"]])
+    assert retained["courses"][0]["course_credit_snapshot"] == 20
+    audit = fetch_one("SELECT before_json FROM audit_logs WHERE action='study_meeting.courses_correct' AND resource_id=? ORDER BY id DESC", (str(session["id"]),))
+    assert json.loads(audit["before_json"])["courses"][0]["rule_reference_json"] is None
     corrected = correct_meeting_courses(actor_user_id=admin_id(), session_id=session["id"],
                                         course_keys=[], expected_course_keys=[rule["course_key"]])
     assert corrected["courses"] == [] and not corrected["has_course"]

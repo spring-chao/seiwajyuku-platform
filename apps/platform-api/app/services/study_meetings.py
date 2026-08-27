@@ -867,7 +867,7 @@ def correct_meeting_courses(*, actor_user_id: int, session_id: int,
             raise StudyMeetingError("课程已被其他人修改，请刷新后重试")
         snapshots = _course_snapshots(course_keys)
         # A correction adds/removes courses, not a hidden re-pricing of retained facts.
-        old = {item["course_key"]: item for item in before}
+        old = {item["course_key"]: dict(item) for item in before}
         for previous in old.values():
             if not previous.get("rule_reference_json"):
                 previous["rule_reference_json"] = json.dumps({
