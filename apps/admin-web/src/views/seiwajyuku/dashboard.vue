@@ -1132,7 +1132,7 @@ function changePlan() {
     <section class="hero">
       <div>
         <p class="eyebrow">月度实况 · 组织盘面 · 服务节奏</p>
-        <h1>运营驾驶舱</h1>
+        <h1>今日行动</h1>
         <p class="subtitle">
           先看当月续费、新增、在册、生日与活动排期，再下钻年度 MP
           目标差距；所有数字来自统一平台数据库。

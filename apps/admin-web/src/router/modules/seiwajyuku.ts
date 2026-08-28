@@ -8,8 +8,8 @@ export default [
     redirect: "/operations/dashboard",
     meta: {
       icon: "ep/data-analysis",
-      title: "运营驾驶舱",
-      rank: 1
+      title: "今日行动",
+      rank: 2
     },
     children: [
       {
@@ -17,109 +17,8 @@ export default [
         name: "MpDashboard",
         component: () => import("@/views/seiwajyuku/dashboard.vue"),
         meta: {
-          title: "运营总览",
+          title: "行动总览",
           icon: "ep/trend-charts"
-        }
-      },
-      {
-        path: "/operations/mp-entry",
-        name: "MpEntry",
-        component: () => import("@/views/seiwajyuku/mp-entry.vue"),
-        meta: {
-          title: "月度填报",
-          icon: "ep/edit-pen",
-          roles: [
-            "system_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_operations",
-            "ops_center_management",
-            "volunteer_regional_lead"
-          ]
-        }
-      },
-      {
-        path: "/operations/learning-plan-review",
-        name: "LearningPlanReview",
-        component: () => import("@/views/seiwajyuku/learning-plan-review.vue"),
-        meta: {
-          title: "学习计划审核",
-          icon: "ep/list-check",
-          roles: [
-            "system_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_operations",
-            "ops_center_learning",
-            "ops_center_management",
-            "ops_center_data",
-            "regional_manager",
-            "read_only"
-          ]
-        }
-      }
-    ]
-  },
-  {
-    path: "/member-operations",
-    name: "MemberOperations",
-    component: Layout,
-    redirect: "/operations/members",
-    meta: {
-      icon: "ep/user-filled",
-      title: "学员运营",
-      rank: 2
-    },
-    children: [
-      {
-        path: "/operations/members",
-        name: "MemberManagement",
-        component: () => import("@/views/seiwajyuku/members.vue"),
-        meta: {
-          title: "学员管理",
-          icon: "ep/user",
-          roles: [
-            "system_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_operations",
-            "ops_center_learning",
-            "ops_center_development",
-            "ops_center_management",
-            "ops_center_data",
-            "ops_center_administration",
-            "regional_manager",
-            "class_counselor",
-            "group_leader",
-            "volunteer_director",
-            "volunteer_regional_lead",
-            "volunteer_regional_service",
-            "volunteer_class_counselor",
-            "volunteer_class_committee",
-            "volunteer_group_leader",
-            "volunteer_group_committee",
-            "volunteer_activity",
-            "read_only"
-          ]
-        }
-      },
-      {
-        path: "/operations/enrollment-applications",
-        name: "EnrollmentApplications",
-        component: () =>
-          import("@/views/seiwajyuku/enrollment-applications.vue"),
-        meta: {
-          title: "新学长入塾申请",
-          icon: "ep/document-checked",
-          roles: [
-            "system_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_operations",
-            "ops_center_development",
-            "ops_center_finance",
-            "regional_manager"
-          ]
         }
       },
       {
@@ -177,22 +76,37 @@ export default [
             "read_only"
           ]
         }
-      },
+      }
+    ]
+  },
+  {
+    path: "/member-operations",
+    name: "MemberOperations",
+    component: Layout,
+    redirect: "/operations/members",
+    meta: {
+      icon: "ep/user-filled",
+      title: "学员",
+      rank: 1
+    },
+    children: [
       {
-        path: "/operations/study-meetings",
-        name: "StudyMeetings",
-        component: () => import("@/views/seiwajyuku/study-meetings.vue"),
+        path: "/operations/members",
+        name: "MemberManagement",
+        component: () => import("@/views/seiwajyuku/members.vue"),
         meta: {
-          title: "小组学习会记录",
-          icon: "ep/notebook",
+          title: "学员管理",
+          icon: "ep/user",
           roles: [
             "system_admin",
             "operations_admin",
             "ops_center_director",
             "ops_center_operations",
             "ops_center_learning",
+            "ops_center_development",
             "ops_center_management",
             "ops_center_data",
+            "ops_center_administration",
             "regional_manager",
             "class_counselor",
             "group_leader",
@@ -200,8 +114,30 @@ export default [
             "volunteer_regional_lead",
             "volunteer_regional_service",
             "volunteer_class_counselor",
+            "volunteer_class_committee",
             "volunteer_group_leader",
+            "volunteer_group_committee",
+            "volunteer_activity",
             "read_only"
+          ]
+        }
+      },
+      {
+        path: "/operations/enrollment-applications",
+        name: "EnrollmentApplications",
+        component: () =>
+          import("@/views/seiwajyuku/enrollment-applications.vue"),
+        meta: {
+          title: "待入塾申请",
+          icon: "ep/document-checked",
+          roles: [
+            "system_admin",
+            "operations_admin",
+            "ops_center_director",
+            "ops_center_operations",
+            "ops_center_development",
+            "ops_center_finance",
+            "regional_manager"
           ]
         }
       }
@@ -214,7 +150,7 @@ export default [
     redirect: "/operations/activities",
     meta: {
       icon: "ep/calendar",
-      title: "活动管理",
+      title: "活动与学习",
       rank: 3
     },
     children: [
@@ -246,6 +182,103 @@ export default [
             "read_only"
           ]
         }
+      },
+      {
+        path: "/operations/study-meetings",
+        name: "StudyMeetings",
+        component: () => import("@/views/seiwajyuku/study-meetings.vue"),
+        meta: {
+          title: "小组学习会",
+          icon: "ep/notebook",
+          roles: [
+            "system_admin",
+            "operations_admin",
+            "ops_center_director",
+            "ops_center_operations",
+            "ops_center_learning",
+            "ops_center_management",
+            "ops_center_data",
+            "regional_manager",
+            "class_counselor",
+            "group_leader",
+            "volunteer_director",
+            "volunteer_regional_lead",
+            "volunteer_regional_service",
+            "volunteer_class_counselor",
+            "volunteer_group_leader",
+            "read_only"
+          ]
+        }
+      },
+      {
+        path: "/operations/learning-plan-review",
+        name: "LearningPlanReview",
+        component: () => import("@/views/seiwajyuku/learning-plan-review.vue"),
+        meta: {
+          title: "学习计划审核",
+          icon: "ep/list-check",
+          roles: [
+            "system_admin",
+            "operations_admin",
+            "ops_center_director",
+            "ops_center_operations",
+            "ops_center_learning",
+            "ops_center_management",
+            "ops_center_data",
+            "regional_manager",
+            "read_only"
+          ]
+        }
+      },
+      {
+        path: "/operations/learning-plan-group-meetings",
+        name: "LearningPlanGroupMeetings",
+        component: () =>
+          import("@/views/seiwajyuku/learning-plan-group-meetings.vue"),
+        meta: {
+          title: "学习计划配置",
+          icon: "ep/reading",
+          roles: [
+            "system_admin",
+            "technical_admin",
+            "operations_admin",
+            "ops_center_director",
+            "ops_center_learning",
+            "ops_center_management",
+            "ops_center_data"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    path: "/data-management",
+    name: "DataManagement",
+    component: Layout,
+    redirect: "/operations/mp-entry",
+    meta: {
+      icon: "ep/pie-chart",
+      title: "数据",
+      rank: 4
+    },
+    children: [
+      {
+        path: "/operations/mp-entry",
+        name: "MpEntry",
+        component: () => import("@/views/seiwajyuku/mp-entry.vue"),
+        meta: {
+          title: "经营数据",
+          icon: "ep/edit-pen",
+          showParent: true,
+          roles: [
+            "system_admin",
+            "operations_admin",
+            "ops_center_director",
+            "ops_center_operations",
+            "ops_center_management",
+            "volunteer_regional_lead"
+          ]
+        }
       }
     ]
   },
@@ -256,8 +289,8 @@ export default [
     redirect: "/operations/identity-admin",
     meta: {
       icon: "ep/setting",
-      title: "系统设置",
-      rank: 4
+      title: "管理员设置",
+      rank: 5
     },
     children: [
       {
@@ -294,25 +327,6 @@ export default [
             "technical_admin",
             "operations_admin",
             "ops_center_director",
-            "ops_center_data"
-          ]
-        }
-      },
-      {
-        path: "/operations/learning-plan-group-meetings",
-        name: "LearningPlanGroupMeetings",
-        component: () =>
-          import("@/views/seiwajyuku/learning-plan-group-meetings.vue"),
-        meta: {
-          title: "学习计划配置",
-          icon: "ep/reading",
-          roles: [
-            "system_admin",
-            "technical_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_learning",
-            "ops_center_management",
             "ops_center_data"
           ]
         }
