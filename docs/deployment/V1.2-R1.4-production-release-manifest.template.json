@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "release_commit": "<40-char SHA>",
+  "source_tree_sha": "<40-char tree SHA>",
+  "version": "V1.2-R1.4",
+  "environment": "production",
+  "generated_at_utc": "<RFC3339>",
+  "github_ci_run": "<run id>",
+  "github_ci_workflow": "CI",
+  "ci_conclusion": "success",
+  "build_id": "<BuildId>",
+  "image_tag": "<immutable image tag>",
+  "image_digest": "sha256:<64 hex>",
+  "cloudrun_revision": "<new revision>",
+  "deployment_time_utc": "<RFC3339>",
+  "traffic_ratio": 100,
+  "backup_id": "<PRE_R1_4_BACKUP_ID>",
+  "feature_flags": {
+    "v12": false,
+    "wechat_member_binding": false,
+    "study_meeting_submission": false,
+    "study_meeting_evidence": false,
+    "study_meeting_review": false,
+    "learning_credit_settlement": false,
+    "identity_admin_writes": false
+  },
+  "migration_state": {
+    "status": "unchanged",
+    "manifest_path": "docs/V1.2-R1.1-migration-manifest-20260828.json",
+    "manifest_sha256": "<computed at release window>",
+    "production_schema_snapshot": "<read-only evidence path>"
+  }
+}
