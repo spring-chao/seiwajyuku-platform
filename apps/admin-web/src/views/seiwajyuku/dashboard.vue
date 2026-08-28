@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onActivated, onMounted, ref } from "vue";
 import dayjs from "dayjs";
 import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
@@ -35,6 +35,7 @@ import {
   type OperationsSnapshot
 } from "@/api/seiwajyuku";
 import { useUserStoreHook } from "@/store/modules/user";
+import MemberDetailDrawer from "@/components/seiwajyuku/MemberDetailDrawer.vue";
 
 defineOptions({ name: "MpDashboard" });
 
@@ -59,9 +60,10 @@ const operations = ref<OperationsSnapshot>();
 const rhythm = ref<OperationRhythmSnapshot>();
 const memberCare = ref<MemberCareActions>();
 const memberCareError = ref(false);
-const memberCareDialogVisible = ref(false);
+const memberDetailVisible = ref(false);
 const careAllDialogVisible = ref(false);
 const careFilter = ref<CareListFilter>("all");
+const selectedMemberId = ref<number>();
 const selectedCarePerson = ref<MemberCarePerson>();
 const memberCareManagement = ref<MemberCareManagementOverview>();
 const memberCareManagementError = ref(false);
@@ -610,11 +612,20 @@ const managementFilterOptions = computed(() =>
 function openCarePerson(person: unknown) {
   careAllDialogVisible.value = false;
   selectedCarePerson.value = person as MemberCarePerson;
-  memberCareDialogVisible.value = true;
+  selectedMemberId.value = selectedCarePerson.value.member_id;
+  memberDetailVisible.value = true;
+}
+
+function openMemberProfile(memberId: number | null | undefined) {
+  if (!memberId) return;
+  managementAllDialogVisible.value = false;
+  selectedCarePerson.value = undefined;
+  selectedMemberId.value = memberId;
+  memberDetailVisible.value = true;
 }
 
 async function navigateCareAction(action: MemberCareAction) {
-  memberCareDialogVisible.value = false;
+  memberDetailVisible.value = false;
   if (action.navigation_type === "BIRTHDAY") {
     await openBirthdayGreeting({
       member_id: action.navigation_id,
@@ -625,13 +636,19 @@ async function navigateCareAction(action: MemberCareAction) {
   if (action.navigation_type === "RENEWAL") {
     await router.push({
       path: "/operations/renewals",
-      query: { cycle_id: String(action.navigation_id) }
+      query: {
+        cycle_id: String(action.navigation_id),
+        return_to: "/operations/dashboard"
+      }
     });
     return;
   }
   await router.push({
     path: "/operations/followups",
-    query: { task_id: String(action.navigation_id) }
+    query: {
+      task_id: String(action.navigation_id),
+      return_to: "/operations/dashboard"
+    }
   });
 }
 
@@ -681,13 +698,19 @@ async function navigateManagementException(item: unknown) {
   if (exception.navigation_type === "RENEWAL") {
     await router.push({
       path: "/operations/renewals",
-      query: { cycle_id: String(exception.navigation_id) }
+      query: {
+        cycle_id: String(exception.navigation_id),
+        return_to: "/operations/dashboard"
+      }
     });
     return;
   }
   await router.push({
     path: "/operations/followups",
-    query: { task_id: String(exception.navigation_id) }
+    query: {
+      task_id: String(exception.navigation_id),
+      return_to: "/operations/dashboard"
+    }
   });
 }
 
@@ -1111,6 +1134,8 @@ async function load() {
   }
 }
 
+let dashboardInitialized = false;
+
 onMounted(async () => {
   try {
     const response = await getAnnualPlans();
@@ -1120,6 +1145,11 @@ onMounted(async () => {
     ElMessage.warning("年度方案暂时加载失败，本月运营数据仍可查看");
   }
   await load();
+  dashboardInitialized = true;
+});
+
+onActivated(() => {
+  if (dashboardInitialized) void load();
 });
 
 function changePlan() {
@@ -1266,7 +1296,13 @@ function changePlan() {
           "
           class="care-center-table"
         >
-          <el-table-column prop="member_name" label="学长" min-width="130" />
+          <el-table-column label="学长" min-width="130">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openCarePerson(row)">
+                {{ row.member_name }}
+              </el-button>
+            </template>
+          </el-table-column>
           <el-table-column label="归属" min-width="190">
             <template #default="{ row }">
               {{ row.org_name }}
@@ -1573,7 +1609,17 @@ function changePlan() {
           </el-table-column>
           <el-table-column prop="org_name" label="分中心" min-width="140" />
           <el-table-column label="学长" min-width="120">
-            <template #default="{ row }">{{ row.member_name || "—" }}</template>
+            <template #default="{ row }">
+              <el-button
+                v-if="row.member_id"
+                link
+                type="primary"
+                @click="openMemberProfile(row.member_id)"
+              >
+                {{ row.member_name || "—" }}
+              </el-button>
+              <span v-else>—</span>
+            </template>
           </el-table-column>
           <el-table-column label="来源" width="105">
             <template #default="{ row }">{{
@@ -2293,7 +2339,13 @@ function changePlan() {
         stripe
         empty-text="今天暂无确定性学长关爱行动"
       >
-        <el-table-column prop="member_name" label="学长" min-width="130" />
+        <el-table-column label="学长" min-width="130">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openCarePerson(row)">
+              {{ row.member_name }}
+            </el-button>
+          </template>
+        </el-table-column>
         <el-table-column label="归属" min-width="190">
           <template #default="{ row }">
             {{ row.org_name }}
@@ -2369,7 +2421,17 @@ function changePlan() {
         </el-table-column>
         <el-table-column prop="org_name" label="分中心" min-width="140" />
         <el-table-column label="学长" min-width="120">
-          <template #default="{ row }">{{ row.member_name || "—" }}</template>
+          <template #default="{ row }">
+            <el-button
+              v-if="row.member_id"
+              link
+              type="primary"
+              @click="openMemberProfile(row.member_id)"
+            >
+              {{ row.member_name || "—" }}
+            </el-button>
+            <span v-else>—</span>
+          </template>
         </el-table-column>
         <el-table-column label="来源" width="105">
           <template #default="{ row }">{{
@@ -2405,53 +2467,12 @@ function changePlan() {
       </el-table>
     </el-dialog>
 
-    <el-dialog
-      v-model="memberCareDialogVisible"
-      :title="
-        selectedCarePerson
-          ? `${selectedCarePerson.member_name}学长 · 今日关爱`
-          : '今日关爱'
-      "
-      width="760px"
-    >
-      <template v-if="selectedCarePerson">
-        <section class="care-person-profile">
-          <strong>{{ selectedCarePerson.member_name }}学长</strong>
-          <span>
-            {{ selectedCarePerson.org_name }} ·
-            {{ selectedCarePerson.class_name || "未分班" }}
-            <template v-if="selectedCarePerson.group_name">
-              · {{ selectedCarePerson.group_name }}
-            </template>
-          </span>
-          <small>今天有 {{ selectedCarePerson.action_count }} 项值得关注</small>
-        </section>
-        <div class="care-person-actions">
-          <article
-            v-for="action in selectedCarePerson.actions"
-            :key="`${action.source}-${action.source_id}`"
-            class="care-person-action"
-          >
-            <div>
-              <div class="care-person-action-head">
-                <el-tag :type="careUrgencyType(action.urgency)">
-                  {{ careUrgencyLabel(action.urgency) }}
-                </el-tag>
-                <strong>{{ action.label }}</strong>
-              </div>
-              <p>{{ action.reason }}</p>
-              <small>
-                {{ action.assigned_user_name || "按现有流程" }} ·
-                {{ careDueDate(action.due_date) }}
-              </small>
-            </div>
-            <el-button type="primary" plain @click="navigateCareAction(action)">
-              {{ careNavigationLabel(action.navigation_type) }}
-            </el-button>
-          </article>
-        </div>
-      </template>
-    </el-dialog>
+    <MemberDetailDrawer
+      v-model="memberDetailVisible"
+      :member-id="selectedMemberId"
+      :care-person="selectedCarePerson"
+      @action="navigateCareAction"
+    />
 
     <el-drawer
       v-model="birthdayGreetingVisible"

@@ -2,7 +2,7 @@
 import { computed, h, onMounted, reactive, ref, watch } from "vue";
 import dayjs from "dayjs";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import {
   acceptFollowupInvitation,
   closeFollowupTask,
@@ -50,6 +50,7 @@ const dialogVisible = ref(false);
 const dialogMode = ref<DialogMode>("create");
 const activeTask = ref<FollowupTask>();
 const route = useRoute();
+const router = useRouter();
 const companionDialogVisible = ref(false);
 const companionInvitation = ref<FollowupInvitation>();
 
@@ -74,6 +75,13 @@ const dialogTitle = computed(() => {
     return `记录跟进 · ${activeTask.value?.member_name}`;
   return `记录企业走访 · ${activeTask.value?.member_name}`;
 });
+
+async function returnToDashboardIfRequested() {
+  if (String(route.query.return_to || "") !== "/operations/dashboard") {
+    return;
+  }
+  await router.push({ path: "/operations/dashboard" });
+}
 
 const statusText = computed<Record<string, string>>(() => ({
   OPEN: copy.value.open,
@@ -385,6 +393,7 @@ async function submit() {
     }
     dialogVisible.value = false;
     await load();
+    await returnToDashboardIfRequested();
   } catch (error) {
     ElMessage.error(errorText(error, "保存失败，请稍后重试"));
   } finally {
@@ -488,6 +497,7 @@ async function closeTask(task: any) {
     await closeFollowupTask(task.id, value.trim());
     ElMessage.success(copy.value.closeSuccess);
     await load();
+    await returnToDashboardIfRequested();
   } catch (error: any) {
     if (error === "cancel" || error === "close") return;
     ElMessage.error(errorText(error));

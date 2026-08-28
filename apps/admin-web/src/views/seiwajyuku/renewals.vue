@@ -109,6 +109,12 @@ const followupForm = reactive({
 });
 const router = useRouter();
 const route = useRoute();
+async function returnToDashboardIfRequested() {
+  if (String(route.query.return_to || "") !== "/operations/dashboard") {
+    return;
+  }
+  await router.push({ path: "/operations/dashboard" });
+}
 const canManageMembers = computed(() =>
   useUserStoreHook().permissions.includes("members:manage")
 );
@@ -640,7 +646,8 @@ async function saveCycleDetail() {
     const sync = response.data.member_status_sync;
     if (sync?.code === "MEMBER_STATUS_CONFLICT") {
       ElMessage.warning(
-        sync.message || "学员已续费，但主档当前为暂停状态，请人工确认是否恢复在册"
+        sync.message ||
+          "学员已续费，但主档当前为暂停状态，请人工确认是否恢复在册"
       );
     } else if (sync?.code === "REACTIVATED") {
       ElMessage.success("续费周期已更新，学员主档已同步恢复在册");
@@ -661,6 +668,7 @@ async function saveCycleDetail() {
         assignee?.display_name ?? currentCycle.assigned_user_name
     };
     await loadActionCard(currentCycle.id).catch(() => undefined);
+    await returnToDashboardIfRequested();
   } catch (error: any) {
     ElMessage.error(errorText(error, "续费周期更新失败"));
   } finally {
@@ -703,6 +711,7 @@ async function submitFollowup() {
       ElMessage.error(errorText(followupResult.reason, "加载跟进记录失败"));
     }
     await loadTodayActions();
+    await returnToDashboardIfRequested();
   } catch (error: any) {
     ElMessage.error(errorText(error, "跟进记录保存失败"));
   } finally {
