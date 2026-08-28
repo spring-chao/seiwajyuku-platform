@@ -56,6 +56,10 @@ class Settings:
     study_evidence_cleanup_enabled: bool = False
     study_evidence_cleanup_grace_seconds: int = 900
     study_evidence_cleanup_prefix: str = "study-meetings/"
+    # Server-to-server authentication for the bounded cleanup endpoint.  The
+    # value is injected only into the API/function runtimes and is never
+    # returned by an API or written to audit payloads.
+    study_evidence_cleanup_token: str = ""
     learning_credit_settlement_enabled: bool = False
     agent_client_id: str = ""
     agent_client_secret: str = ""
@@ -103,6 +107,10 @@ class Settings:
             }:
                 raise RuntimeError("部署环境学习合影必须使用私有 CloudBase/COS 存储")
         if self.study_evidence_cleanup_enabled:
+            if len(self.study_evidence_cleanup_token) < 32:
+                raise RuntimeError(
+                    "合影清理已启用：STUDY_EVIDENCE_CLEANUP_TOKEN 至少需要32个字符"
+                )
             backend = os.getenv("STUDY_EVIDENCE_STORAGE_BACKEND", "local").strip().lower()
             if backend != "cloudbase":
                 raise RuntimeError("合影生产清理必须使用 CloudBase 内置存储")
@@ -206,6 +214,9 @@ def get_settings() -> Settings:
         ),
         study_evidence_cleanup_prefix=os.getenv(
             "STUDY_EVIDENCE_CLEANUP_PREFIX", "study-meetings/"
+        ).strip(),
+        study_evidence_cleanup_token=os.getenv(
+            "STUDY_EVIDENCE_CLEANUP_TOKEN", ""
         ).strip(),
         learning_credit_settlement_enabled=_bool(
             "LEARNING_CREDIT_SETTLEMENT_ENABLED"

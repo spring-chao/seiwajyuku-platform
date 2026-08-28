@@ -184,6 +184,30 @@ class SettingsTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "WECHAT_LOCAL_TEST_MODE"):
             settings.assert_safe_startup()
 
+    def test_enabled_cleanup_requires_a_server_side_token(self) -> None:
+        settings = Settings(
+            app_env="staging",
+            app_name="test",
+            database_url="mysql+pymysql://example",
+            cors_origins=(),
+            allow_production_mutations=False,
+            jwt_secret="x" * 32,
+            access_token_minutes=30,
+            refresh_token_days=7,
+            bootstrap_admin_username="admin",
+            bootstrap_admin_password="",
+            field_encryption_key="configured-outside-source-control",
+            integration_api_key="test-integration-key",
+            deployment_read_only=False,
+            run_bootstrap_on_startup=False,
+            signin_api_base_url="",
+            signin_service_api_key="",
+            study_evidence_cleanup_enabled=True,
+            study_evidence_cleanup_token="too-short",
+        )
+        with self.assertRaisesRegex(RuntimeError, "CLEANUP_TOKEN.*32"):
+            settings.assert_safe_startup()
+
 
 if __name__ == "__main__":
     unittest.main()

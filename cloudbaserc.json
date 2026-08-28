@@ -1,7 +1,27 @@
 {
   "$schema": "https://static.cloudbase.net/cli/cloudbaserc.schema.json",
-  "version": "2.0",
+  "version": "2.1",
   "envId": "shengheshu-d2g2zyyl99f6c6fc2",
+  "functionRoot": "./cloudfunctions",
+  "functions": [
+    {
+      "name": "studyEvidenceCleanup",
+      "dir": "cloudfunctions/study-evidence-cleanup",
+      "runtime": "Nodejs18.15",
+      "handler": "index.main",
+      "timeout": 60,
+      "memorySize": 128,
+      "installDependency": false,
+      "description": "受保护地触发 platform-api 合影到期清理；不复制业务逻辑",
+      "triggers": [
+        {
+          "name": "studyEvidenceCleanupDaily",
+          "type": "timer",
+          "config": "0 0 2 * * * *"
+        }
+      ]
+    }
+  ],
   "cloudrun": {
     "name": "seiwajyuku-platform-api"
   }

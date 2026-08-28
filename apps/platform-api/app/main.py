@@ -27,6 +27,7 @@ from app.api.enrollment import router as enrollment_router
 from app.api.portal import router as portal_router
 from app.api.wechat import router as wechat_router
 from app.api.study_meetings import router as study_meetings_router
+from app.api.study_evidence_cleanup import router as study_evidence_cleanup_router
 from app.api.learning_plans import router as learning_plans_router
 from app.api.member_roster_import import router as member_roster_import_router
 from app.api.plans import router as plans_router
@@ -126,6 +127,7 @@ app.add_middleware(
         "X-Agent-Client-Secret",
         "X-Agent-Channel",
         "X-Agent-Session-ID",
+        "X-Study-Evidence-Cleanup-Token",
         "X-Requested-With",
     ],
     expose_headers=["Mcp-Session-Id"],
@@ -189,6 +191,7 @@ app.include_router(enrollment_router)
 app.include_router(portal_router)
 app.include_router(wechat_router)
 app.include_router(study_meetings_router)
+app.include_router(study_evidence_cleanup_router)
 app.include_router(learning_plans_router)
 app.include_router(member_roster_import_router)
 app.include_router(plans_router)
