@@ -9,6 +9,7 @@ job.  It never reads or prints secrets.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -47,11 +48,60 @@ def _non_empty(value: str | None) -> str | None:
     return value or None
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def validate_migration_manifest(path: Path, repo_root: Path) -> dict[str, Any]:
+    """Validate the checked-in migration traceability manifest and file hashes."""
+
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"无法读取 migration manifest：{path}") from exc
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("migrations"), list):
+        raise RuntimeError("migration manifest 必须包含 migrations 数组")
+
+    seen: set[str] = set()
+    for item in manifest["migrations"]:
+        if not isinstance(item, dict):
+            raise RuntimeError("migration manifest 包含无效条目")
+        version = str(item.get("version") or "")
+        if not re.fullmatch(r"\d{4}", version) or version in seen:
+            raise RuntimeError(f"migration manifest 版本无效或重复：{version}")
+        seen.add(version)
+        for section_name in ("forward", "rollback"):
+            section = item.get(section_name)
+            if not isinstance(section, dict):
+                raise RuntimeError(f"migration {version} 缺少 {section_name}")
+            for engine in ("mysql", "sqlite"):
+                entry = section.get(engine)
+                if not isinstance(entry, dict):
+                    raise RuntimeError(f"migration {version} 缺少 {section_name}.{engine}")
+                relative_path = _non_empty(str(entry.get("path") or ""))
+                expected_hash = _non_empty(str(entry.get("sha256") or ""))
+                if not relative_path or not expected_hash or not re.fullmatch(r"[0-9a-f]{64}", expected_hash.lower()):
+                    raise RuntimeError(f"migration {version} 的 {section_name}.{engine} 路径或 SHA 无效")
+                file_path = (repo_root / relative_path).resolve()
+                if repo_root.resolve() not in file_path.parents or not file_path.is_file():
+                    raise RuntimeError(f"migration manifest 引用文件不存在：{relative_path}")
+                if _sha256_file(file_path) != expected_hash.lower():
+                    raise RuntimeError(f"migration manifest 文件 SHA 不一致：{relative_path}")
+    if not seen:
+        raise RuntimeError("migration manifest 不能是空清单")
+    return manifest
+
+
 def verify_checkout(
     repo_root: Path,
     *,
     expected_commit: str | None = None,
     require_origin_main: bool = False,
+    migration_manifest: Path | None = None,
 ) -> dict[str, str]:
     """Require a clean checkout and return its immutable HEAD/tree identity."""
 
@@ -81,6 +131,16 @@ def verify_checkout(
         if remote != head:
             raise RuntimeError(f"HEAD {head} 尚未与 origin/main {remote} 对齐")
 
+    if migration_manifest:
+        manifest_path = (
+            migration_manifest
+            if migration_manifest.is_absolute()
+            else repo_root / migration_manifest
+        ).resolve()
+        if repo_root.resolve() not in manifest_path.parents:
+            raise RuntimeError("migration manifest 必须位于仓库根目录内")
+        validate_migration_manifest(manifest_path, repo_root)
+
     return {"release_commit": head, "source_tree_sha": _git(repo_root, "rev-parse", "HEAD^{tree}")}
 
 
@@ -102,9 +162,22 @@ def create_manifest(args: argparse.Namespace) -> dict[str, Any]:
         repo_root,
         expected_commit=args.expected_commit,
         require_origin_main=args.require_origin_main,
+        migration_manifest=args.migration_manifest,
     )
     build_id = _non_empty(args.build_id) or _non_empty(os.getenv("GITHUB_RUN_ID"))
     ci_run = _non_empty(args.ci_run) or _non_empty(os.getenv("GITHUB_RUN_ID"))
+    migration_state = _json_object(args.migration_state, field_name="migration_state")
+    if args.migration_manifest:
+        migration_manifest = (
+            args.migration_manifest
+            if args.migration_manifest.is_absolute()
+            else repo_root / args.migration_manifest
+        ).resolve()
+        migration_state = {
+            **migration_state,
+            "manifest_path": str(migration_manifest.relative_to(repo_root)).replace("\\", "/"),
+            "manifest_sha256": _sha256_file(migration_manifest),
+        }
     manifest: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         **identity,
@@ -125,7 +198,7 @@ def create_manifest(args: argparse.Namespace) -> dict[str, Any]:
         "traffic_ratio": args.traffic_ratio,
         "backup_id": _non_empty(args.backup_id),
         "feature_flags": _json_object(args.feature_flags, field_name="feature_flags"),
-        "migration_state": _json_object(args.migration_state, field_name="migration_state"),
+        "migration_state": migration_state,
     }
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -182,18 +255,23 @@ def _parser() -> argparse.ArgumentParser:
     verify.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     verify.add_argument("--expected-commit")
     verify.add_argument("--require-origin-main", action="store_true")
+    verify.add_argument("--migration-manifest", type=Path)
 
     manifest = subparsers.add_parser("manifest", help="生成不可变 release manifest")
     manifest.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     manifest.add_argument("--output", type=Path, required=True)
     manifest.add_argument("--expected-commit")
     manifest.add_argument("--require-origin-main", action="store_true")
+    manifest.add_argument("--migration-manifest", type=Path)
     manifest.add_argument("--version")
     manifest.add_argument("--environment")
     manifest.add_argument("--generated-at-utc")
     manifest.add_argument("--ci-run")
     manifest.add_argument("--ci-workflow")
-    manifest.add_argument("--ci-conclusion", default="success")
+    manifest.add_argument(
+        "--ci-conclusion",
+        help="CI 结论；未显式提供时保持 pending，避免误标记为可发布",
+    )
     manifest.add_argument("--build-id")
     manifest.add_argument("--image-tag")
     manifest.add_argument("--image-digest")
@@ -219,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.repo_root.resolve(),
                 expected_commit=args.expected_commit,
                 require_origin_main=args.require_origin_main,
+                migration_manifest=args.migration_manifest,
             )
         elif args.command == "manifest":
             result = create_manifest(args)

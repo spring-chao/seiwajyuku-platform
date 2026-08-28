@@ -84,7 +84,9 @@ jobs:
       - uses: actions/checkout@v7
       - name: Verify clean source checkout
         run: |
-          python scripts/build_provenance.py verify --expected-commit "$GITHUB_SHA"
+          python scripts/build_provenance.py verify \
+            --expected-commit "$GITHUB_SHA" \
+            --migration-manifest docs/V1.2-R1.1-migration-manifest-20260828.json
           echo "APP_BUILD_TIME_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
       - name: Build production API image (root Dockerfile with migrations)
         run: |
@@ -300,7 +302,8 @@ jobs:
           set -euo pipefail
           python scripts/build_provenance.py verify \
             --expected-commit "$GITHUB_SHA" \
-            --require-origin-main
+            --require-origin-main \
+            --migration-manifest docs/V1.2-R1.1-migration-manifest-20260828.json
           mkdir -p artifacts
           python scripts/build_provenance.py manifest \
             --output artifacts/release-manifest.json \
@@ -312,6 +315,7 @@ jobs:
             --ci-run "$GITHUB_RUN_ID" \
             --ci-conclusion success \
             --image-tag "seiwajyuku-platform-api:ci" \
+            --migration-manifest docs/V1.2-R1.1-migration-manifest-20260828.json \
             --migration-state '{"status":"ci-validated"}' \
             --feature-flags '{"production":false,"v12":false}'
           python scripts/build_provenance.py validate artifacts/release-manifest.json
