@@ -88,13 +88,13 @@
           "path": "migrations/mysql/0037_member_profile_business_fields.sql",
           "sha256": "94139c210cffd269c37fa94e5d814811b4b38e86486fb704928cc7632c18db9f",
           "source_git_commit": null,
-          "repository_state": "recovered-untracked-before-closure"
+          "repository_state": "tracked-in-8bc214bd38147b556b380799e18e483ab783e132"
         },
         "sqlite": {
           "path": "migrations/sqlite/0037_member_profile_business_fields.sql",
           "sha256": "efa0879b81e53cce7e5b90d81e0c639d4571802d3c3c1381f4feeedc34f22a7c",
           "source_git_commit": null,
-          "repository_state": "recovered-untracked-before-closure"
+          "repository_state": "tracked-in-8bc214bd38147b556b380799e18e483ab783e132"
         }
       },
       "rollback": {
@@ -129,13 +129,13 @@
           "path": "migrations/mysql/0038_member_social_role.sql",
           "sha256": "ea4dc3a6ed31d7d87b80f8c5878b6fa002ffe17fbdd7dbd0b125bf29643785b8",
           "source_git_commit": null,
-          "repository_state": "recovered-untracked-before-closure"
+          "repository_state": "tracked-in-8bc214bd38147b556b380799e18e483ab783e132"
         },
         "sqlite": {
           "path": "migrations/sqlite/0038_member_social_role.sql",
           "sha256": "3e4f1457b2a914516f445846630840ffcb529ce87f5f9c35f4d65f587735688b",
           "source_git_commit": null,
-          "repository_state": "recovered-untracked-before-closure"
+          "repository_state": "tracked-in-8bc214bd38147b556b380799e18e483ab783e132"
         }
       },
       "rollback": {
@@ -276,8 +276,8 @@
     }
   ],
   "closure": {
-    "status": "CONTENT_RECOVERED_GIT_CLOSURE_PENDING",
-    "restored_original_files_commit": null,
+    "status": "PASS_WITH_PROVENANCE_CAVEAT",
+    "restored_original_files_commit": "8bc214bd38147b556b380799e18e483ab783e132",
     "historical_git_sha_for_0037_0038": null,
     "rule": "Do not rerun 0037/0038 in production; future production migration runner must skip their existing schema_migrations rows"
   }
