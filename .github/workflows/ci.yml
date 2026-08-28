@@ -82,8 +82,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Verify clean source checkout
+        run: |
+          python scripts/build_provenance.py verify --expected-commit "$GITHUB_SHA"
+          echo "APP_BUILD_TIME_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
       - name: Build production API image (root Dockerfile with migrations)
-        run: docker build -t seiwajyuku-platform-api:ci .
+        run: |
+          docker build \
+            --build-arg APP_GIT_SHA="$GITHUB_SHA" \
+            --build-arg APP_BUILD_TIME_UTC="$APP_BUILD_TIME_UTC" \
+            --build-arg APP_VERSION="ci-${GITHUB_SHA:0:12}" \
+            --build-arg APP_BUILD_ID="$GITHUB_RUN_ID" \
+            --build-arg APP_IMAGE_DIGEST="unknown" \
+            -t seiwajyuku-platform-api:ci .
+      - name: Verify OCI labels and runtime build info
+        run: |
+          set -euo pipefail
+          test "$(docker image inspect seiwajyuku-platform-api:ci --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$GITHUB_SHA"
+          test "$(docker image inspect seiwajyuku-platform-api:ci --format '{{ index .Config.Labels "org.opencontainers.image.created" }}')" = "$APP_BUILD_TIME_UTC"
+          test "$(docker image inspect seiwajyuku-platform-api:ci --format '{{ index .Config.Labels "com.seiwajyuku.build.id" }}')" = "$GITHUB_RUN_ID"
+          trap 'docker rm -f api-provenance >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name api-provenance --publish 18000:8000 \
+            --env APP_ENV=test \
+            --env DATABASE_URL=sqlite:////app/data/provenance-test.db \
+            --env DEPLOYMENT_READ_ONLY=true \
+            --env RUN_BOOTSTRAP_ON_STARTUP=false \
+            seiwajyuku-platform-api:ci >/dev/null
+          for attempt in $(seq 1 30); do
+            if body="$(curl --silent --show-error --fail http://127.0.0.1:18000/api/v1/system/build-info)"; then
+              BUILD_SHA="$GITHUB_SHA" BUILD_ID="$GITHUB_RUN_ID" BUILD_VERSION="ci-${GITHUB_SHA:0:12}" BUILD_TIME="$APP_BUILD_TIME_UTC" BODY="$body" \
+                python -c 'import json, os; p=json.loads(os.environ["BODY"]); assert p["commit_sha"] == os.environ["BUILD_SHA"]; assert p["build_id"] == os.environ["BUILD_ID"]; assert p["version"] == os.environ["BUILD_VERSION"]; assert p["build_time_utc"] == os.environ["BUILD_TIME"]; assert p["environment"] == "test"; assert set(p) == {"version", "commit_sha", "build_time_utc", "build_id", "image_digest", "environment"}'
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs api-provenance
+          exit 1
 
   study-meeting-mysql:
     # Disposable, isolated CI database. No production credentials or deployment.
@@ -244,3 +278,44 @@ jobs:
           test "$renewal_columns" = "0"
           test "$phone_index" = "0"
           test "$legacy_counts" = "4:3"
+
+  build-provenance:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - api
+      - admin-web
+      - wechat-miniprogram
+      - cloud-function-cleanup
+      - api-container
+      - study-meeting-mysql
+      - mysql-staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Verify pushed main and create release manifest
+        run: |
+          set -euo pipefail
+          python scripts/build_provenance.py verify \
+            --expected-commit "$GITHUB_SHA" \
+            --require-origin-main
+          mkdir -p artifacts
+          python scripts/build_provenance.py manifest \
+            --output artifacts/release-manifest.json \
+            --expected-commit "$GITHUB_SHA" \
+            --require-origin-main \
+            --version "ci-${GITHUB_SHA:0:12}" \
+            --environment ci \
+            --build-id "$GITHUB_RUN_ID" \
+            --ci-run "$GITHUB_RUN_ID" \
+            --ci-conclusion success \
+            --image-tag "seiwajyuku-platform-api:ci" \
+            --migration-state '{"status":"ci-validated"}' \
+            --feature-flags '{"production":false,"v12":false}'
+          python scripts/build_provenance.py validate artifacts/release-manifest.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-provenance-${{ github.run_id }}
+          path: artifacts/release-manifest.json

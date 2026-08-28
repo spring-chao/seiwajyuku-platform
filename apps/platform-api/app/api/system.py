@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.core.build_info import get_build_info
 from app.db import fetch_one
 
 
@@ -41,3 +42,12 @@ def environment() -> dict[str, str | bool]:
             settings.member_service_signal_feedback_enabled
         ),
     }
+
+
+@router.get("/api/v1/system/build-info")
+@router.get("/build-info.json")
+@router.get("/api/version")
+def build_info() -> dict[str, str]:
+    """Expose only the immutable, non-sensitive API build provenance."""
+
+    return get_build_info()

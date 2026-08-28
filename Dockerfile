@@ -1,5 +1,11 @@
 FROM python:3.12-slim
 
+ARG APP_GIT_SHA=unknown
+ARG APP_BUILD_TIME_UTC=unknown
+ARG APP_VERSION=unknown
+ARG APP_BUILD_ID=unknown
+ARG APP_IMAGE_DIGEST=unknown
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -12,6 +18,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MEMBER_SERVICE_SIGNAL_FEEDBACK_ENABLED=false \
     RUN_BOOTSTRAP_ON_STARTUP=false \
     MCP_ALLOWED_HOSTS=seiwajyuku-platform-api-287369-8-1453587887.sh.run.tcloudbase.com
+
+ENV APP_GIT_SHA=${APP_GIT_SHA} \
+    APP_BUILD_TIME_UTC=${APP_BUILD_TIME_UTC} \
+    APP_VERSION=${APP_VERSION} \
+    APP_BUILD_ID=${APP_BUILD_ID} \
+    APP_IMAGE_DIGEST=${APP_IMAGE_DIGEST}
+
+LABEL org.opencontainers.image.revision="${APP_GIT_SHA}" \
+      org.opencontainers.image.created="${APP_BUILD_TIME_UTC}" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.source="https://github.com/spring-chao/seiwajyuku-platform" \
+      org.opencontainers.image.digest="${APP_IMAGE_DIGEST}" \
+      com.seiwajyuku.build.id="${APP_BUILD_ID}"
 
 WORKDIR /app
 COPY apps/platform-api/requirements.txt .
