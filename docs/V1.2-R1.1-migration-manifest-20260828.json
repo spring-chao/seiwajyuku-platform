@@ -1,0 +1,284 @@
+{
+  "manifest_id": "v1.2-r1.1-migrations-20260828",
+  "generated_at": "2026-08-28T00:00:00+08:00",
+  "repository": "seiwajyuku-platform",
+  "baseline": {
+    "code_review_commit": "f3a041d6b032621a29590603c3f24f0dd4af834c",
+    "current_docs_commit": "5da5428dc11c3e280cddeb4ef2d85f576971b2cc"
+  },
+  "hash_format": "SHA-256 of the exact UTF-8 file bytes in this checkout; all listed files use LF line endings",
+  "production_observation": {
+    "observed_at": "2026-08-28",
+    "migration_rows": 36,
+    "applied_versions": [
+      "0037_member_profile_business_fields.sql",
+      "0038_member_social_role.sql"
+    ],
+    "missing_versions": [
+      "0035_wechat_member_bindings.sql",
+      "0036_study_meetings.sql",
+      "0039_volunteer_position_catalog.sql",
+      "0040_volunteer_appointment_open_ended.sql",
+      "0041_study_meeting_courses_evidence.sql",
+      "0042_study_meeting_attendee_correction.sql"
+    ],
+    "read_only_verification": "tcb db execute --read-only; no production write was performed during R1.1"
+  },
+  "migrations": [
+    {
+      "version": "0035",
+      "forward": {
+        "mysql": {
+          "path": "migrations/mysql/0035_wechat_member_bindings.sql",
+          "sha256": "48b8446f00f19d63bea93c72c0072f54be055b6399216bb921a7f705dcd8e78c",
+          "source_git_commit": "f455400b7d9ea907e77068817d28fb660e686ed1",
+          "repository_state": "tracked"
+        },
+        "sqlite": {
+          "path": "migrations/sqlite/0035_wechat_member_bindings.sql",
+          "sha256": "f96b6958eb499f8a1c7d4c4adec85626f51c2ac7272fc39c8fddbe17a7af8d9a",
+          "source_git_commit": "f455400b7d9ea907e77068817d28fb660e686ed1",
+          "repository_state": "tracked"
+        }
+      },
+      "rollback": {
+        "mysql": {
+          "path": "migrations/rollback/mysql/0035_wechat_member_bindings.down.sql",
+          "sha256": "6843be64d409f8f5f2670408f698e7c3f71a904ce0d428ff44f81c2e52dac305"
+        },
+        "sqlite": {
+          "path": "migrations/rollback/sqlite/0035_wechat_member_bindings.down.sql",
+          "sha256": "6843be64d409f8f5f2670408f698e7c3f71a904ce0d428ff44f81c2e52dac305"
+        }
+      },
+      "production": {"status": "MISSING", "applied_at": null}
+    },
+    {
+      "version": "0036",
+      "forward": {
+        "mysql": {
+          "path": "migrations/mysql/0036_study_meetings.sql",
+          "sha256": "eb57a6625c87561a184cca0d48f20f3063c92f534822f98c1e813f9cd90f6743",
+          "source_git_commit": "f455400b7d9ea907e77068817d28fb660e686ed1",
+          "repository_state": "tracked"
+        },
+        "sqlite": {
+          "path": "migrations/sqlite/0036_study_meetings.sql",
+          "sha256": "f308120973296eb717656e2edaa1cae0fb435881eaccf5afd13428cd3fa8bf4c",
+          "source_git_commit": "f455400b7d9ea907e77068817d28fb660e686ed1",
+          "repository_state": "tracked"
+        }
+      },
+      "rollback": {
+        "mysql": {
+          "path": "migrations/rollback/mysql/0036_study_meetings.down.sql",
+          "sha256": "ea80d3925a47b704d198169292d33847112890b1d8afa8f849b2e7fa82e9d4f6"
+        },
+        "sqlite": {
+          "path": "migrations/rollback/sqlite/0036_study_meetings.down.sql",
+          "sha256": "ea80d3925a47b704d198169292d33847112890b1d8afa8f849b2e7fa82e9d4f6"
+        }
+      },
+      "production": {"status": "MISSING", "applied_at": null}
+    },
+    {
+      "version": "0037",
+      "forward": {
+        "mysql": {
+          "path": "migrations/mysql/0037_member_profile_business_fields.sql",
+          "sha256": "94139c210cffd269c37fa94e5d814811b4b38e86486fb704928cc7632c18db9f",
+          "source_git_commit": null,
+          "repository_state": "recovered-untracked-before-closure"
+        },
+        "sqlite": {
+          "path": "migrations/sqlite/0037_member_profile_business_fields.sql",
+          "sha256": "efa0879b81e53cce7e5b90d81e0c639d4571802d3c3c1381f4feeedc34f22a7c",
+          "source_git_commit": null,
+          "repository_state": "recovered-untracked-before-closure"
+        }
+      },
+      "rollback": {
+        "mysql": {
+          "path": "migrations/rollback/mysql/0037_member_profile_business_fields.down.sql",
+          "sha256": "f35e38978cc8457d33f38809cd2f6ecbfe447be5e328bf22d1f8af10c3cad38e"
+        },
+        "sqlite": {
+          "path": "migrations/rollback/sqlite/0037_member_profile_business_fields.down.sql",
+          "sha256": "f35e38978cc8457d33f38809cd2f6ecbfe447be5e328bf22d1f8af10c3cad38e"
+        }
+      },
+      "production": {
+        "status": "APPLIED",
+        "applied_at": "2026-08-27 08:22:27",
+        "evidence": "R1.1 read-only schema_migrations query; member columns verified nullable"
+      },
+      "recovery": {
+        "classification": "recovered-original",
+        "evidence": [
+          "member-profile-release-20260827/migrations/mysql/0037_member_profile_business_fields.sql (byte-identical SHA-256)",
+          "Codex session JSONL 2026-08-18...01a013c2-5881-73e1-be9f-e3d1f92cc623.jsonl lines 7660-7661 (creation patch)",
+          "same session lines 8105-8123 (production migration and read-only verification)"
+        ],
+        "historical_git_sha": null
+      }
+    },
+    {
+      "version": "0038",
+      "forward": {
+        "mysql": {
+          "path": "migrations/mysql/0038_member_social_role.sql",
+          "sha256": "ea4dc3a6ed31d7d87b80f8c5878b6fa002ffe17fbdd7dbd0b125bf29643785b8",
+          "source_git_commit": null,
+          "repository_state": "recovered-untracked-before-closure"
+        },
+        "sqlite": {
+          "path": "migrations/sqlite/0038_member_social_role.sql",
+          "sha256": "3e4f1457b2a914516f445846630840ffcb529ce87f5f9c35f4d65f587735688b",
+          "source_git_commit": null,
+          "repository_state": "recovered-untracked-before-closure"
+        }
+      },
+      "rollback": {
+        "mysql": {
+          "path": "migrations/rollback/mysql/0038_member_social_role.down.sql",
+          "sha256": "b8f63d06797fb35c2fd9d8071d90721465c3e1c54f96b60ef394212ba98e96e8"
+        },
+        "sqlite": {
+          "path": "migrations/rollback/sqlite/0038_member_social_role.down.sql",
+          "sha256": "b8f63d06797fb35c2fd9d8071d90721465c3e1c54f96b60ef394212ba98e96e8"
+        }
+      },
+      "production": {
+        "status": "APPLIED",
+        "applied_at": "2026-08-27 09:14:22",
+        "evidence": "R1.1 read-only schema_migrations query; social_role column verified nullable"
+      },
+      "recovery": {
+        "classification": "recovered-original",
+        "evidence": [
+          "Codex session JSONL 2026-08-18...01a013c2-5881-73e1-be9f-e3d1f92cc623.jsonl lines 8388-8389 (creation patch)",
+          "same session lines 8514-8515 (production migration and read-only verification)"
+        ],
+        "historical_git_sha": null
+      }
+    },
+    {
+      "version": "0039",
+      "forward": {
+        "mysql": {
+          "path": "migrations/mysql/0039_volunteer_position_catalog.sql",
+          "sha256": "64ddd032bcb0c8c393119e1c34bbd7e6e85dc55a6357148f8cb1b31b96abb923",
+          "source_git_commit": "004d15818feb76f27f35354bf9a80522295e19c6",
+          "repository_state": "tracked"
+        },
+        "sqlite": {
+          "path": "migrations/sqlite/0039_volunteer_position_catalog.sql",
+          "sha256": "76bdd1813eacc3135471e6f1e261f32806eeea0d3460f0f17ef40801b8e2c089",
+          "source_git_commit": "004d15818feb76f27f35354bf9a80522295e19c6",
+          "repository_state": "tracked"
+        }
+      },
+      "rollback": {
+        "mysql": {
+          "path": "migrations/rollback/mysql/0039_volunteer_position_catalog.down.sql",
+          "sha256": "2405ea102f2d9baba568292f7f90f071cfbc75fd3220c019e5e1af02f117eedc"
+        },
+        "sqlite": {
+          "path": "migrations/rollback/sqlite/0039_volunteer_position_catalog.down.sql",
+          "sha256": "22626de11fb8d69f8f30bb0007d5bcda2c62ddbc10085322ec9d0e140822c5e9"
+        }
+      },
+      "production": {"status": "MISSING", "applied_at": null}
+    },
+    {
+      "version": "0040",
+      "forward": {
+        "mysql": {
+          "path": "migrations/mysql/0040_volunteer_appointment_open_ended.sql",
+          "sha256": "0361afbd98debe7a01f219cbad90489ce3e206825f50111d46e48570d04733e7",
+          "source_git_commit": "3acc91a018c35ab7294f5e268a00f35b10536b88",
+          "repository_state": "tracked"
+        },
+        "sqlite": {
+          "path": "migrations/sqlite/0040_volunteer_appointment_open_ended.sql",
+          "sha256": "184abf4c31eefb45e2ea9febeeffefc65242d029b648a52fdc4d9ae97cd5808e",
+          "source_git_commit": "3acc91a018c35ab7294f5e268a00f35b10536b88",
+          "repository_state": "tracked"
+        }
+      },
+      "rollback": {
+        "mysql": {
+          "path": "migrations/rollback/mysql/0040_volunteer_appointment_open_ended.down.sql",
+          "sha256": "bea67ace01657d26da781da9f4b4ea1af80d3c6bda0ece8af072c1bb90a98545"
+        },
+        "sqlite": {
+          "path": "migrations/rollback/sqlite/0040_volunteer_appointment_open_ended.down.sql",
+          "sha256": "10dc99895e9e1f9baebcaf70fd4c86e3ff98324b36af3e2eeb7769c807c48d7a"
+        }
+      },
+      "production": {"status": "MISSING", "applied_at": null}
+    },
+    {
+      "version": "0041",
+      "forward": {
+        "mysql": {
+          "path": "migrations/mysql/0041_study_meeting_courses_evidence.sql",
+          "sha256": "0ac0328b082f329852e10c900df6a59cc23da72b612fd2f80f7c9844c705b531",
+          "source_git_commit": "49bb376ca6f75b283361807ca4d6ce219a40d27a",
+          "repository_state": "tracked"
+        },
+        "sqlite": {
+          "path": "migrations/sqlite/0041_study_meeting_courses_evidence.sql",
+          "sha256": "a6b6539641fcdfdd1657cd016824a166902be3de9773aa82807fc88722f129ee",
+          "source_git_commit": "49bb376ca6f75b283361807ca4d6ce219a40d27a",
+          "repository_state": "tracked"
+        }
+      },
+      "rollback": {
+        "mysql": {
+          "path": "migrations/rollback/mysql/0041_study_meeting_courses_evidence.down.sql",
+          "sha256": "2f867bbf0813363fd5bea71ff5c24a486e2b6a5c955fd22fcfdc22dfe245cfd2"
+        },
+        "sqlite": {
+          "path": "migrations/rollback/sqlite/0041_study_meeting_courses_evidence.down.sql",
+          "sha256": "2f867bbf0813363fd5bea71ff5c24a486e2b6a5c955fd22fcfdc22dfe245cfd2"
+        }
+      },
+      "production": {"status": "MISSING", "applied_at": null}
+    },
+    {
+      "version": "0042",
+      "forward": {
+        "mysql": {
+          "path": "migrations/mysql/0042_study_meeting_attendee_correction.sql",
+          "sha256": "9ccf5cef6a8b2290369fdcb9c88bcc65e8620bbb4d549c5437c1b8c6a4d387af",
+          "source_git_commit": "79fb09c2115c7ed8c78a0a4c34eb9990d0c1e10b",
+          "repository_state": "tracked"
+        },
+        "sqlite": {
+          "path": "migrations/sqlite/0042_study_meeting_attendee_correction.sql",
+          "sha256": "e601fc3803d58fb22ec124c176ffea1a99963d4914055cf0c1278c3595e141f5",
+          "source_git_commit": "79fb09c2115c7ed8c78a0a4c34eb9990d0c1e10b",
+          "repository_state": "tracked"
+        }
+      },
+      "rollback": {
+        "mysql": {
+          "path": "migrations/rollback/mysql/0042_study_meeting_attendee_correction.down.sql",
+          "sha256": "04c9bece370ceb970464f7241ec7d6c6b9f822b12bb344525570dd3ebd5d0b23"
+        },
+        "sqlite": {
+          "path": "migrations/rollback/sqlite/0042_study_meeting_attendee_correction.down.sql",
+          "sha256": "1fa0d2220ebe0235056c44d7b46ba6a8e89f276ba241c19cc79fbcbff201368f"
+        }
+      },
+      "production": {"status": "MISSING", "applied_at": null}
+    }
+  ],
+  "closure": {
+    "status": "CONTENT_RECOVERED_GIT_CLOSURE_PENDING",
+    "restored_original_files_commit": null,
+    "historical_git_sha_for_0037_0038": null,
+    "rule": "Do not rerun 0037/0038 in production; future production migration runner must skip their existing schema_migrations rows"
+  }
+}
