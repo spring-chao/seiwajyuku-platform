@@ -1,6 +1,10 @@
 {
   "pages": [
     "pages/home/index",
+    "pages/learning/index",
+    "pages/scan/index",
+    "pages/profile/index",
+    "pages/services/index",
     "pages/identity/bind",
     "pages/study-meeting/index",
     "pages/study-meeting/members",

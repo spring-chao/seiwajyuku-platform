@@ -1,0 +1,35 @@
+<view class="page-shell">
+  <view class="hero-card">
+    <view class="eyebrow">盛和塾 · 学长服务</view>
+    <view class="hero-title">我的服务</view>
+    <view wx:if="{{member}}" class="hero-copy">{{member.name_masked}}，这里显示当前可用的服务。</view>
+    <view wx:else class="hero-copy">绑定正式学员身份后，可以查看可用服务。</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="state-card">正在加载，请稍候…</view>
+  <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <button wx:if="{{!loading && errorMessage}}" class="plain-button" bindtap="loadServices">重新加载</button>
+
+  <view wx:if="{{!loading && !member}}" class="section-card empty-card">
+    <view class="section-title">先绑定身份</view>
+    <view class="section-copy">绑定后，系统会根据你的身份显示服务。</view>
+    <button class="primary-button" bindtap="openBinding">绑定我的学员身份</button>
+  </view>
+
+  <block wx:if="{{!loading && member}}">
+    <view wx:if="{{canManageStudyMeeting}}" class="service-card" bindtap="openStudyMeeting">
+      <view class="service-title">小组学习会登记</view>
+      <view class="service-copy">登记本次学习会参加人员和课程</view>
+      <view wx:if="{{serviceAssignments.length}}" class="service-scope">
+        <view wx:for="{{serviceAssignments}}" wx:key="key">{{item.positionName}} · {{item.scopeName}}</view>
+      </view>
+      <view class="service-arrow">进入服务 ›</view>
+    </view>
+    <view wx:else class="section-card empty-card">
+      <view class="section-title">当前暂无开放服务</view>
+      <view class="empty-copy">有新的服务开放时，会在这里显示。</view>
+    </view>
+  </block>
+
+  <button class="plain-button home-button" bindtap="backHome">返回首页</button>
+</view>

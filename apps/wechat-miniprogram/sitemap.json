@@ -7,6 +7,22 @@
     },
     {
       "action": "allow",
+      "page": "pages/learning/index"
+    },
+    {
+      "action": "allow",
+      "page": "pages/scan/index"
+    },
+    {
+      "action": "allow",
+      "page": "pages/profile/index"
+    },
+    {
+      "action": "allow",
+      "page": "pages/services/index"
+    },
+    {
+      "action": "allow",
       "page": "pages/identity/bind"
     },
     {

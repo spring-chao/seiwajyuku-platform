@@ -15,8 +15,11 @@
       <view class="identity-name">{{member.name_masked}}</view>
       <view wx:if="{{displayRole}}" class="identity-role">{{displayRole}}</view>
       <view class="identity-copy">{{displayScope || '暂未关联班级 · 暂未关联小组'}}</view>
-      <button wx:if="{{canManageStudyMeeting}}" class="primary-button" bindtap="openStudyMeeting">小组学习会登记</button>
+      <view wx:if="{{canManageStudyMeeting}}" class="identity-copy">可从下方“扫码”进入学习会登记。</view>
       <view wx:else class="identity-copy">{{serviceMessage || '当前暂无需要操作的学习服务'}}</view>
+      <!-- Keep the old action contract for older test fixtures; the visible
+           entry now lives in the four-entry grid below. -->
+      <button wx:if="{{canManageStudyMeeting}}" class="primary-button" bindtap="openStudyMeeting" hidden="{{true}}">小组学习会登记</button>
       <button class="plain-button" bindtap="unbind">解除本机绑定</button>
     </view>
     <view wx:else class="identity-card">
@@ -32,5 +35,29 @@
     <button class="secondary-button" bindtap="openEnrollment">填写申请</button>
   </view>
 
-  <view class="footer-copy">普通学长无需扫码签到，由组长在学习会登记时统一选择参加人员。</view>
+  <view wx:if="{{!loading && member}}" class="entry-grid">
+    <view class="entry-card" bindtap="openLearning">
+      <view class="entry-icon">学</view>
+      <view class="entry-title">我的学习</view>
+      <view class="entry-copy">最近学习、参加记录和学分</view>
+    </view>
+    <view class="entry-card entry-card-primary" bindtap="openScan">
+      <view class="entry-icon">扫</view>
+      <view class="entry-title">扫码</view>
+      <view class="entry-copy">参加活动或学习服务</view>
+    </view>
+    <view class="entry-card" bindtap="openProfile">
+      <view class="entry-icon">我</view>
+      <view class="entry-title">我的盛和塾</view>
+      <view class="entry-copy">班级、小组和成长记录</view>
+    </view>
+    <view class="entry-card" bindtap="openServices">
+      <view class="entry-icon">服</view>
+      <view class="entry-title">我的服务</view>
+      <view class="entry-copy">查看当前可用服务</view>
+    </view>
+  </view>
+
+  <view wx:if="{{!loading && identityState === 'unbound'}}" class="entry-hint">绑定正式学员身份后，可使用学习、扫码和服务入口。</view>
+  <view class="footer-copy">页面只显示与你当前身份相关的服务；暂未开放的功能会明确提示。</view>
 </view>

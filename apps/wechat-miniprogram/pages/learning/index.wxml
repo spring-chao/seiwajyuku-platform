@@ -1,0 +1,44 @@
+<view class="page-shell">
+  <view class="hero-card">
+    <view class="eyebrow">盛和塾 · 学习记录</view>
+    <view class="hero-title">我的学习</view>
+    <view wx:if="{{member}}" class="hero-copy">{{member.name_masked}}，这里记录你的学习服务与成长轨迹。</view>
+    <view wx:else class="hero-copy">绑定正式学员身份后，可以查看与你相关的学习内容。</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="state-card">正在加载，请稍候…</view>
+  <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <button wx:if="{{!loading && errorMessage}}" class="plain-button" bindtap="loadLearning">重新加载</button>
+
+  <view wx:if="{{!loading && !member}}" class="section-card empty-card">
+    <view class="section-title">先绑定身份</view>
+    <view class="section-copy">绑定后才能看到属于自己的学习服务。</view>
+    <button class="primary-button" bindtap="openBinding">绑定我的学员身份</button>
+  </view>
+
+  <block wx:if="{{!loading && member}}">
+    <view class="section-card">
+      <view class="section-title">当前学习服务</view>
+      <view wx:if="{{currentLearning.length}}">
+        <view wx:for="{{currentLearning}}" wx:key="groupId" class="learning-row">
+          <view class="learning-name">{{item.className}} · {{item.groupName}}</view>
+          <view class="learning-copy">{{item.positionName}} · 第 {{item.cycleIndex}} 学习周期 · 本组 {{item.memberCount}} 人</view>
+        </view>
+        <button wx:if="{{canManageStudyMeeting}}" class="primary-button" bindtap="openStudyMeeting">进入学习会登记</button>
+      </view>
+      <view wx:else class="empty-copy">暂无当前学习服务</view>
+    </view>
+
+    <view class="section-card">
+      <view class="section-title">最近学习</view>
+      <view class="empty-copy">暂无学习记录</view>
+    </view>
+
+    <view class="section-card">
+      <view class="section-title">我的学分</view>
+      <view class="empty-copy">暂无学分记录</view>
+    </view>
+  </block>
+
+  <button class="plain-button home-button" bindtap="backHome">返回首页</button>
+</view>

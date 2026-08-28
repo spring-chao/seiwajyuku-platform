@@ -1,0 +1,53 @@
+<view class="page-shell">
+  <view class="hero-card">
+    <view class="eyebrow">盛和塾 · 我的成长档案</view>
+    <view class="hero-title">我的盛和塾</view>
+    <view wx:if="{{member}}" class="hero-copy">{{member.name_masked}}，这里是你的盛和塾经历。</view>
+    <view wx:else class="hero-copy">绑定正式学员身份后，可以查看自己的资料。</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="state-card">正在加载，请稍候…</view>
+  <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <button wx:if="{{!loading && errorMessage}}" class="plain-button" bindtap="loadProfile">重新加载</button>
+
+  <view wx:if="{{!loading && !member}}" class="section-card empty-card">
+    <view class="section-title">先绑定身份</view>
+    <view class="section-copy">绑定后才能查看你的班级和学习经历。</view>
+    <button class="primary-button" bindtap="openBinding">绑定我的学员身份</button>
+  </view>
+
+  <block wx:if="{{!loading && member}}">
+    <view class="section-card">
+      <view class="section-title">我的资料</view>
+      <view class="profile-row"><text class="profile-label">姓名</text><text>{{member.name_masked}}</text></view>
+      <view class="profile-row"><text class="profile-label">班级</text><text>{{member.class_name || '暂未记录'}}</text></view>
+      <view class="profile-row"><text class="profile-label">小组</text><text>{{member.study_group_name || '暂未记录'}}</text></view>
+      <view class="profile-row"><text class="profile-label">入塾时间</text><text>{{joinDateLabel}}</text></view>
+    </view>
+
+    <view class="section-card">
+      <view class="section-title">学习记录</view>
+      <view class="empty-copy">暂无学习记录</view>
+    </view>
+
+    <view class="section-card">
+      <view class="section-title">我的学分</view>
+      <view class="empty-copy">暂无学分记录</view>
+    </view>
+
+    <view class="section-card">
+      <view class="section-title">活动记录</view>
+      <view class="empty-copy">暂无活动记录</view>
+    </view>
+
+    <view class="section-card">
+      <view class="section-title">志工经历</view>
+      <view wx:if="{{volunteerAppointments.length}}">
+        <view wx:for="{{volunteerAppointments}}" wx:key="key" class="volunteer-row">{{item.positionName}} · {{item.scopeName}}</view>
+      </view>
+      <view wx:else class="empty-copy">暂无志工服务记录</view>
+    </view>
+  </block>
+
+  <button class="plain-button home-button" bindtap="backHome">返回首页</button>
+</view>

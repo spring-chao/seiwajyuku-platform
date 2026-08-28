@@ -99,6 +99,26 @@ Page({
     wx.navigateTo({ url: "/pages/identity/bind" });
   },
 
+  openLearning() {
+    if (this.data.identityState !== "bound") return;
+    wx.navigateTo({ url: "/pages/learning/index" });
+  },
+
+  openScan() {
+    if (this.data.identityState !== "bound") return;
+    wx.navigateTo({ url: "/pages/scan/index" });
+  },
+
+  openProfile() {
+    if (this.data.identityState !== "bound") return;
+    wx.navigateTo({ url: "/pages/profile/index" });
+  },
+
+  openServices() {
+    if (this.data.identityState !== "bound") return;
+    wx.navigateTo({ url: "/pages/services/index" });
+  },
+
   openStudyMeeting() {
     if (this.data.loading || !this.data.member || !this.data.canManageStudyMeeting) return;
     wx.navigateTo({ url: "/pages/study-meeting/index" });
