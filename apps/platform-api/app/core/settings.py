@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 SAFE_ENVIRONMENTS = {"dev", "test", "staging"}
@@ -59,7 +59,7 @@ class Settings:
     # Server-to-server authentication for the bounded cleanup endpoint.  The
     # value is injected only into the API/function runtimes and is never
     # returned by an API or written to audit payloads.
-    study_evidence_cleanup_token: str = ""
+    study_evidence_cleanup_token: str = field(default="", repr=False)
     learning_credit_settlement_enabled: bool = False
     agent_client_id: str = ""
     agent_client_secret: str = ""
