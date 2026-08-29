@@ -578,6 +578,73 @@ export type MemberVolunteerAppointments = {
   appointments: MemberVolunteerAppointment[];
 };
 
+export type LegacyVolunteerAdoptionItem = {
+  member_id: number;
+  member_code?: string | null;
+  name: string;
+  member_status: string;
+  historical_position_name: string;
+  position_key?: string | null;
+  position_name?: string | null;
+  scope_level?: VolunteerPosition["scope_level"] | null;
+  scope?: {
+    scope_type: "UNIT";
+    scope_org_unit_id: string;
+    scope_name?: string | null;
+    org_unit_type?: string | null;
+  } | null;
+  current_appointment?:
+    | {
+        appointment_id: number;
+        position_key?: string | null;
+        position_name?: string | null;
+        scope_org_unit_id?: string | null;
+        scope_name?: string | null;
+        source_reference?: string | null;
+      }
+    | Array<{
+        appointment_id: number;
+        position_key?: string | null;
+        position_name?: string | null;
+        scope_org_unit_id?: string | null;
+        scope_name?: string | null;
+        source_reference?: string | null;
+      }>
+    | null;
+  auto_adoptable: boolean;
+  reason_code?: string | null;
+  reason?: string | null;
+};
+
+export type LegacyVolunteerAdoptionPreview = {
+  mode: "READ_ONLY_PREVIEW";
+  no_write: true;
+  environment: string;
+  source_field: "members.class_committee_name";
+  source_reference: string;
+  generated_at: string;
+  preview_total: number;
+  auto_adoptable_count: number;
+  manual_review_count: number;
+  adoptable_member_ids: number[];
+  by_position: Array<{
+    historical_position_name: string;
+    position_key?: string | null;
+    position_name?: string | null;
+    total_count: number;
+    auto_adoptable_count: number;
+    manual_review_count: number;
+  }>;
+  reason_counts: Array<{
+    reason_code: string;
+    reason: string;
+    count: number;
+  }>;
+  auto_adoptable_items: LegacyVolunteerAdoptionItem[];
+  manual_review_items: LegacyVolunteerAdoptionItem[];
+  preview_fingerprint: string;
+};
+
 export type MemberChangeHistory = {
   id: number;
   change_type: string;
@@ -1863,6 +1930,12 @@ export const getVolunteerPositionCatalog = () =>
     "get",
     "/api/v1/volunteer-position-catalog"
   );
+
+export const previewLegacyVolunteerAdoption = () =>
+  http.request<{
+    success: boolean;
+    data: LegacyVolunteerAdoptionPreview;
+  }>("get", "/api/v1/volunteer-legacy-adoption/preview");
 
 export const getMemberVolunteerAppointments = (memberId: number) =>
   http.request<{ success: boolean; data: MemberVolunteerAppointments }>(

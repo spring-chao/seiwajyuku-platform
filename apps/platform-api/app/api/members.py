@@ -34,6 +34,11 @@ from app.services.volunteer_positions import (
     list_member_volunteer_appointments,
     list_volunteer_positions,
 )
+from app.services.legacy_volunteer_adoption import (
+    LEGACY_POSITION_AUTO_ADOPT_CONFIRMATION,
+    apply_legacy_volunteer_adoption,
+    preview_legacy_volunteer_adoption,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["members-privacy"])
@@ -150,6 +155,14 @@ class MemberVolunteerAppointmentStatusPayload(BaseModel):
     reason: str | None = Field(default=None, max_length=1000)
 
 
+class LegacyVolunteerAdoptionApplyPayload(BaseModel):
+    preview_fingerprint: str = Field(min_length=64, max_length=64)
+    member_ids: list[int] = Field(default_factory=list, max_length=10000)
+    confirmation: str = Field(
+        min_length=len(LEGACY_POSITION_AUTO_ADOPT_CONFIRMATION), max_length=128
+    )
+
+
 @router.post("/members")
 def add_member(
     payload: MemberCreatePayload,
@@ -224,6 +237,38 @@ def volunteer_position_catalog(
         data = list_volunteer_positions(active_only=True)
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/volunteer-legacy-adoption/preview")
+def volunteer_legacy_adoption_preview(
+    user: dict = Depends(require_permission("members:manage")),
+) -> dict:
+    """Build a scoped, read-only legacy volunteer adoption preview."""
+    try:
+        data = preview_legacy_volunteer_adoption(user["id"])
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/volunteer-legacy-adoption/apply")
+def volunteer_legacy_adoption_apply(
+    payload: LegacyVolunteerAdoptionApplyPayload,
+    user: dict = Depends(require_permission("members:manage")),
+) -> dict:
+    """Apply only the explicitly previewed IDs after the write gate and confirmation."""
+    try:
+        data = apply_legacy_volunteer_adoption(
+            user["id"],
+            preview_fingerprint=payload.preview_fingerprint,
+            member_ids=payload.member_ids,
+            confirmation=payload.confirmation,
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": data}
 
 
