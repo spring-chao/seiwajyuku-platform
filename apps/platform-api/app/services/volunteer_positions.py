@@ -4,7 +4,8 @@ The appointment row remains the historical source of truth.  This module only
 adds a catalog that explains a position to the application (display name,
 scope level and capabilities) and provides the explicit member-management
 entry point for creating/listing appointments.  Legacy free-text member
-fields are intentionally never converted automatically.
+fields are never converted while a profile is opened or edited; the separate
+legacy-adoption service owns any explicitly confirmed batch conversion.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ MEMBER_APPOINTMENT_DEFAULT_PURPOSE = "学员管理手工添加正式志工任职
 _MEMBER_ADMIN_MANAGED_SOURCES = {
     MEMBER_ADMIN_MANUAL_SOURCE,
     MEMBER_ADMIN_CURRENT_SERVICE_SOURCE,
+    "LEGACY_POSITION_AUTO_ADOPT",
 }
 CAPABILITY_NAMES = {
     STUDY_MEETING_MANAGE: "登记小组学习会",
@@ -565,7 +567,14 @@ def _ensure_member_scope(actor_user_id: int, member: dict[str, Any]) -> None:
         raise PermissionError("学员不在当前组织授权范围内")
 
 
-def _member_person(connection, member_id: int, *, actor_user_id: int, source: str) -> str:
+def _member_person(
+    connection,
+    member_id: int,
+    *,
+    actor_user_id: int,
+    source: str,
+    audit_purpose: str = "学员管理中明确添加正式志工任职",
+) -> str:
     identity = execute(
         connection,
         "SELECT mi.person_id, mi.status FROM member_identities mi WHERE mi.member_id=?",
@@ -603,7 +612,7 @@ def _member_person(connection, member_id: int, *, actor_user_id: int, source: st
         resource_type="member_identity",
         resource_id=str(member_id),
         org_unit_id=member["org_unit_id"],
-        purpose="学员管理中明确添加正式志工任职",
+        purpose=audit_purpose,
         after={"member_id": member_id, "person_id": person_id, "source_reference": source},
     )
     return person_id

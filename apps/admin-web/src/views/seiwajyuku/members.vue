@@ -23,6 +23,7 @@ import {
   getMemberTimeline,
   getMemberVolunteerAppointments,
   getVolunteerPositionCatalog,
+  previewLegacyVolunteerAdoption,
   createMemberVolunteerAppointment,
   changeMemberVolunteerAppointmentStatus,
   submitMemberServiceSignalFeedback,
@@ -40,6 +41,7 @@ import {
   type MemberTimeline,
   type MemberVolunteerAppointment,
   type MemberVolunteerAppointments,
+  type LegacyVolunteerAdoptionPreview,
   type VolunteerPosition,
   type OrgUnit
 } from "@/api/seiwajyuku";
@@ -93,6 +95,9 @@ const memberRosterImportVisible = ref(false);
 const memberRosterImportLoading = ref(false);
 const memberRosterFiles = ref<UploadUserFile[]>([]);
 const memberRosterImportResult = ref<MemberRosterImportPreview>();
+const legacyVolunteerPreviewVisible = ref(false);
+const legacyVolunteerPreviewLoading = ref(false);
+const legacyVolunteerPreviewResult = ref<LegacyVolunteerAdoptionPreview>();
 const selectedOrg = ref("");
 const keyword = ref("");
 const classFilter = ref("");
@@ -428,6 +433,11 @@ const currentVolunteerScopeLabel = computed(() =>
     ANY: "默认分中心"
   })[selectedCurrentVolunteerPosition.value?.scope_level || ""] || "服务范围"
 );
+const showLegacyVolunteerHint = computed(() => {
+  const historicalName = form.class_committee_name.trim();
+  if (!historicalName) return false;
+  return historicalName !== form.current_volunteer_position_name.trim();
+});
 const memberStatusLabel = (status: string) =>
   ({ ACTIVE: "在册", INACTIVE: "流失", SUSPENDED: "暂停" })[status] ?? status;
 const rules = computed<FormRules>(() => ({
@@ -1270,6 +1280,21 @@ async function applyMemberRosterImport() {
   }
 }
 
+async function runLegacyVolunteerPreview() {
+  legacyVolunteerPreviewLoading.value = true;
+  try {
+    legacyVolunteerPreviewResult.value = (
+      await previewLegacyVolunteerAdoption()
+    ).data;
+    legacyVolunteerPreviewVisible.value = true;
+    ElMessage.success("历史岗位承接只读预览已完成，未写入任何数据");
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    legacyVolunteerPreviewLoading.value = false;
+  }
+}
+
 async function runFullClassPreflight() {
   const workbook = fullPreflightFiles.value[0]?.raw;
   if (!workbook) {
@@ -1436,6 +1461,13 @@ onMounted(async () => {
         <el-button size="large" @click="preflightVisible = true">
           直属四班预检
         </el-button>
+        <el-button
+          size="large"
+          :loading="legacyVolunteerPreviewLoading"
+          @click="runLegacyVolunteerPreview"
+        >
+          历史岗位承接预览
+        </el-button>
         <el-button type="primary" size="large" @click="openCreate">
           新增学员
         </el-button>
@@ -1533,6 +1565,92 @@ onMounted(async () => {
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-dialog
+      v-model="legacyVolunteerPreviewVisible"
+      title="历史岗位自动承接预览"
+      width="1120px"
+      class="preflight-dialog"
+    >
+      <template v-if="legacyVolunteerPreviewResult">
+        <el-alert
+          title="这是只读预览，不会创建身份、志工任职或审计写入。"
+          description="只有岗位目录唯一匹配、学员在册、组织关系唯一且没有当前任职的记录，才会进入可自动承接清单。批量承接须另行确认。"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+        <el-descriptions :column="4" border class="preview-summary">
+          <el-descriptions-item label="扫描历史岗位">
+            {{ legacyVolunteerPreviewResult.preview_total }} 人
+          </el-descriptions-item>
+          <el-descriptions-item label="可自动承接">
+            <el-tag type="success">
+              {{ legacyVolunteerPreviewResult.auto_adoptable_count }} 人
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="需人工复核">
+            <el-tag
+              :type="legacyVolunteerPreviewResult.manual_review_count ? 'warning' : 'success'"
+            >
+              {{ legacyVolunteerPreviewResult.manual_review_count }} 人
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="环境">
+            {{ legacyVolunteerPreviewResult.environment }}
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <h3 class="preview-section-title">按历史岗位统计</h3>
+        <el-table
+          :data="legacyVolunteerPreviewResult.by_position"
+          size="small"
+          max-height="240"
+        >
+          <el-table-column prop="historical_position_name" label="历史岗位" min-width="150" />
+          <el-table-column prop="position_key" label="目标岗位键" min-width="220" />
+          <el-table-column prop="total_count" label="合计" width="90" />
+          <el-table-column prop="auto_adoptable_count" label="可承接" width="90" />
+          <el-table-column prop="manual_review_count" label="需复核" width="90" />
+        </el-table>
+
+        <h3 class="preview-section-title">
+          可自动承接清单（{{ legacyVolunteerPreviewResult.auto_adoptable_count }} 人）
+        </h3>
+        <el-table
+          :data="legacyVolunteerPreviewResult.auto_adoptable_items"
+          size="small"
+          max-height="300"
+          empty-text="暂无可自动承接记录"
+        >
+          <el-table-column prop="name" label="姓名" min-width="100" />
+          <el-table-column prop="historical_position_name" label="历史岗位" min-width="120" />
+          <el-table-column prop="position_name" label="当前岗位" min-width="120" />
+          <el-table-column prop="scope.scope_name" label="自动服务范围" min-width="150" />
+          <el-table-column prop="scope.scope_org_unit_id" label="组织ID" min-width="180" />
+        </el-table>
+
+        <h3 class="preview-section-title">
+          人工复核清单（{{ legacyVolunteerPreviewResult.manual_review_count }} 人）
+        </h3>
+        <el-table
+          :data="legacyVolunteerPreviewResult.manual_review_items"
+          size="small"
+          max-height="300"
+          empty-text="暂无人工复核记录"
+        >
+          <el-table-column prop="name" label="姓名" min-width="100" />
+          <el-table-column prop="historical_position_name" label="历史岗位" min-width="140" />
+          <el-table-column prop="reason" label="复核原因" min-width="300" />
+        </el-table>
+        <p class="form-hint">
+          预览指纹：{{ legacyVolunteerPreviewResult.preview_fingerprint }}。请在确认前重新生成预览；本页面不提供生产批量写入按钮。
+        </p>
+      </template>
+      <template #footer>
+        <el-button @click="legacyVolunteerPreviewVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="memberRosterImportVisible"
@@ -2159,7 +2277,7 @@ onMounted(async () => {
               :closable="false"
               show-icon
             />
-            <p v-if="form.class_committee_name" class="form-hint volunteer-legacy-hint">
+            <p v-if="showLegacyVolunteerHint" class="form-hint volunteer-legacy-hint">
               历史岗位参考（只读，不参与权限判断）：{{ form.class_committee_name }}
             </p>
           </el-form-item>
@@ -2207,7 +2325,7 @@ onMounted(async () => {
               <el-alert
                 v-else
                 title="请先保存学员档案，再添加正式志工任职"
-                description="正式任职会保留开始/结束时间和历史记录；不会把旧的自由文本岗位自动转换。"
+                description="正式任职会保留内部审计记录；历史岗位承接必须先完成只读预览并经确认，不会在打开档案时静默写入。"
                 type="info"
                 :closable="false"
                 show-icon
