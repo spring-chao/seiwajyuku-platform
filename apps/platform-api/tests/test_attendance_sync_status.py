@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 from app.api.attendance import _attendance_sync_health
@@ -40,10 +41,51 @@ def test_sync_health_resets_failure_count_after_success():
         _run(1, "ERROR", error_summary="older detail"),
     ]
     with patch("app.api.attendance.fetch_all", return_value=rows):
-        result = _attendance_sync_health()
+        result = _attendance_sync_health(
+            now=datetime(2026, 7, 30, 1, 0, tzinfo=UTC)
+        )
 
     assert result["state"] == "HEALTHY"
     assert result["consecutive_failure_count"] == 0
+
+
+def test_sync_health_warns_when_one_weekday_is_missed():
+    rows = [_run(3, "SUCCESS")]
+    rows[0]["finished_at"] = "2026-08-17T16:00:00+00:00"
+    with patch("app.api.attendance.fetch_all", return_value=rows):
+        result = _attendance_sync_health(
+            now=datetime(2026, 8, 19, 1, 0, tzinfo=UTC)
+        )
+
+    assert result["state"] == "WARNING"
+    assert result["missed_scheduled_runs"] == 1
+    assert result["last_success"]["finished_at"] == "2026-08-17T16:00:00+00:00"
+    assert result["last_attempt"]["status"] == "SUCCESS"
+
+
+def test_sync_health_is_critical_when_two_weekdays_are_missed():
+    rows = [_run(3, "SUCCESS")]
+    rows[0]["finished_at"] = "2026-08-13T16:00:00+00:00"
+    with patch("app.api.attendance.fetch_all", return_value=rows):
+        result = _attendance_sync_health(
+            now=datetime(2026, 8, 19, 1, 0, tzinfo=UTC)
+        )
+
+    assert result["state"] == "CRITICAL"
+    assert result["missed_scheduled_runs"] == 3
+    assert result["failure_reason"] == "定时任务未运行"
+
+
+def test_sync_health_does_not_count_weekend_as_missed():
+    rows = [_run(3, "SUCCESS")]
+    rows[0]["finished_at"] = "2026-08-13T16:00:00+00:00"
+    with patch("app.api.attendance.fetch_all", return_value=rows):
+        result = _attendance_sync_health(
+            now=datetime(2026, 8, 16, 1, 0, tzinfo=UTC)
+        )
+
+    assert result["state"] == "HEALTHY"
+    assert result["missed_scheduled_runs"] == 0
 
 
 def test_sync_health_reports_no_runs():

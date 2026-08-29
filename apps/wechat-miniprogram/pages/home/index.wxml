@@ -7,7 +7,7 @@
 
   <view wx:if="{{loading}}" class="state-card">正在加载，请稍候…</view>
   <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
-  <button wx:if="{{!loading && (errorMessage || serviceMessage)}}" class="plain-button" bindtap="loadHome">重新加载</button>
+  <button wx:if="{{!loading && (errorMessage || (isVolunteer && serviceMessage))}}" class="plain-button" bindtap="loadHome">重新加载</button>
 
   <view wx:if="{{!loading && identityState !== 'unknown'}}" class="section-card">
     <view class="section-title">我的入口</view>
@@ -16,7 +16,7 @@
       <view wx:if="{{displayRole}}" class="identity-role">{{displayRole}}</view>
       <view class="identity-copy">{{displayScope || '暂未关联班级 · 暂未关联小组'}}</view>
       <view wx:if="{{canManageStudyMeeting}}" class="identity-copy">可从下方“扫码”进入学习会登记。</view>
-      <view wx:else class="identity-copy">{{serviceMessage || '当前暂无需要操作的学习服务'}}</view>
+      <view wx:elif="{{isVolunteer}}" class="identity-copy">{{serviceMessage}}</view>
       <!-- Keep the old action contract for older test fixtures; the visible
            entry now lives in the four-entry grid below. -->
       <button wx:if="{{canManageStudyMeeting}}" class="primary-button" bindtap="openStudyMeeting" hidden="{{true}}">小组学习会登记</button>
@@ -46,18 +46,18 @@
       <view class="entry-title">扫码</view>
       <view class="entry-copy">参加活动或学习服务</view>
     </view>
-    <view class="entry-card" bindtap="openProfile">
+    <view class="entry-card {{isVolunteer ? '' : 'entry-card-wide'}}" bindtap="openProfile">
       <view class="entry-icon">我</view>
       <view class="entry-title">我的盛和塾</view>
       <view class="entry-copy">班级、小组和成长记录</view>
     </view>
-    <view class="entry-card" bindtap="openServices">
-      <view class="entry-icon">服</view>
-      <view class="entry-title">我的服务</view>
-      <view class="entry-copy">查看当前可用服务</view>
+    <view wx:if="{{isVolunteer}}" class="entry-card" bindtap="openServices">
+      <view class="entry-icon">志</view>
+      <view class="entry-title">志工服务</view>
+      <view class="entry-copy">查看我当前承担的服务</view>
     </view>
   </view>
 
-  <view wx:if="{{!loading && identityState === 'unbound'}}" class="entry-hint">绑定正式学员身份后，可使用学习、扫码和服务入口。</view>
+  <view wx:if="{{!loading && identityState === 'unbound'}}" class="entry-hint">绑定正式学员身份后，可使用学习、扫码和“我的盛和塾”入口。</view>
   <view class="footer-copy">页面只显示与你当前身份相关的服务；暂未开放的功能会明确提示。</view>
 </view>

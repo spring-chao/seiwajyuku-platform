@@ -47,6 +47,12 @@ class MemberCreatePayload(BaseModel):
     phone: str | None = None
     company_name: str | None = None
     gender: str | None = Field(default=None, max_length=32)
+    political_status: str | None = Field(default=None, max_length=32)
+    social_role: str | None = Field(default=None, max_length=255)
+    email: str | None = Field(default=None, max_length=255)
+    invoice_type: str | None = Field(default=None, pattern="^(NONE|NORMAL|SPECIAL)$")
+    invoice_title: str | None = Field(default=None, max_length=500)
+    invoice_tax_id: str | None = Field(default=None, max_length=255)
     district: str | None = Field(default=None, max_length=255)
     company_address: str | None = Field(default=None, max_length=1000)
     class_name: str | None = Field(default=None, max_length=255)
@@ -66,6 +72,9 @@ class MemberCreatePayload(BaseModel):
     referrer_center: str | None = Field(default=None, max_length=255)
     industry_category: str | None = Field(default=None, max_length=255)
     industry: str | None = Field(default=None, max_length=255)
+    goal_years: str | None = Field(default=None, max_length=64)
+    revenue_growth_target: str | None = Field(default=None, max_length=255)
+    profit_growth_target: str | None = Field(default=None, max_length=255)
     company_products: str | None = Field(default=None, max_length=4000)
     annual_sales: str | None = Field(default=None, max_length=255)
     employee_count: int | None = Field(default=None, ge=0, le=10000000)
@@ -86,9 +95,14 @@ class MemberUpdatePayload(BaseModel):
     phone: str | None = Field(default=None, pattern=r"^$|^1\d{10}$")
     company_name: str | None = Field(default=None, max_length=500)
     gender: str | None = Field(default=None, max_length=32)
+    political_status: str | None = Field(default=None, max_length=32)
+    social_role: str | None = Field(default=None, max_length=255)
+    email: str | None = Field(default=None, max_length=255)
+    invoice_type: str | None = Field(default=None, pattern="^$|^(NONE|NORMAL|SPECIAL)$")
+    invoice_title: str | None = Field(default=None, max_length=500)
+    invoice_tax_id: str | None = Field(default=None, max_length=255)
     district: str | None = Field(default=None, max_length=255)
     company_address: str | None = Field(default=None, max_length=1000)
-    class_committee_name: str | None = Field(default=None, max_length=255)
     birthday: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
     join_date: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
     study_start_date: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
@@ -100,6 +114,9 @@ class MemberUpdatePayload(BaseModel):
     referrer_center: str | None = Field(default=None, max_length=255)
     industry_category: str | None = Field(default=None, max_length=255)
     industry: str | None = Field(default=None, max_length=255)
+    goal_years: str | None = Field(default=None, max_length=64)
+    revenue_growth_target: str | None = Field(default=None, max_length=255)
+    profit_growth_target: str | None = Field(default=None, max_length=255)
     company_products: str | None = Field(default=None, max_length=4000)
     annual_sales: str | None = Field(default=None, max_length=255)
     employee_count: int | None = Field(default=None, ge=0, le=10000000)
@@ -110,6 +127,7 @@ class MemberUpdatePayload(BaseModel):
     development_org_unit_id: str | None = None
     class_org_unit_id: str | None = None
     group_org_unit_id: str | None = None
+    current_volunteer_position_key: str | None = Field(default=None, max_length=64)
 
 
 class MemberMergePayload(BaseModel):

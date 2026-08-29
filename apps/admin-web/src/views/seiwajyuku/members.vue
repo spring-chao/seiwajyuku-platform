@@ -21,10 +21,7 @@ import {
   applyFullClassRosterRelations,
   getMemberChangeHistory,
   getMemberTimeline,
-  getMemberVolunteerAppointments,
   getVolunteerPositionCatalog,
-  createMemberVolunteerAppointment,
-  changeMemberVolunteerAppointmentStatus,
   submitMemberServiceSignalFeedback,
   updateMember,
   previewDirectClassWorkbook,
@@ -38,8 +35,6 @@ import {
   type MemberServiceSignal,
   type MemberServiceSignalFeedbackStatus,
   type MemberTimeline,
-  type MemberVolunteerAppointment,
-  type MemberVolunteerAppointments,
   type VolunteerPosition,
   type OrgUnit
 } from "@/api/seiwajyuku";
@@ -66,18 +61,6 @@ const originalGroupOrgUnitId = ref("");
 const financialFieldsEditable = ref(false);
 const editingMemberId = ref<number>();
 const volunteerPositions = ref<VolunteerPosition[]>([]);
-const memberVolunteerAppointments = ref<MemberVolunteerAppointments>();
-const volunteerAppointmentsLoading = ref(false);
-const volunteerAppointmentDialogVisible = ref(false);
-const volunteerAppointmentSaving = ref(false);
-const volunteerAppointmentAdvanced = ref(false);
-const volunteerAppointmentForm = reactive({
-  position_key: "",
-  org_unit_id: "",
-  starts_at: "",
-  ends_at: "",
-  confirmation_note: ""
-});
 const preflightVisible = ref(false);
 const preflightLoading = ref(false);
 const preflightFiles = ref<UploadUserFile[]>([]);
@@ -178,23 +161,43 @@ const canReadRenewals = computed(() =>
 const canViewHistory = computed(() =>
   useUserStoreHook().permissions.includes("members:detail_view")
 );
-const canManageVolunteer = computed(() => canManage.value);
 const selectedVolunteerPosition = computed(() =>
   volunteerPositions.value.find(
-    item => item.position_key === volunteerAppointmentForm.position_key
+    item => item.position_key === form.current_volunteer_position_key
   )
 );
-const volunteerOrgOptions = computed(() => {
+const currentVolunteerScopeName = computed(() => {
   const level = selectedVolunteerPosition.value?.scope_level;
-  if (level === "CLASS") return orgs.value.filter(item => item.unit_type === "CLASS");
-  if (level === "GROUP") return orgs.value.filter(item => item.unit_type === "GROUP");
-  if (level === "REGIONAL_CENTER") {
-    return orgs.value.filter(item =>
-      ["REGIONAL_CENTER", "ROOT", "CITY_CENTER", "DIVISION"].includes(item.unit_type)
+  if (level === "GROUP") {
+    return (
+      orgs.value.find(item => item.id === form.group_org_unit_id)?.name ||
+      editGroupOrgName.value ||
+      form.current_volunteer_scope_name
     );
   }
-  return orgs.value;
+  if (level === "CLASS") {
+    return (
+      orgs.value.find(item => item.id === form.class_org_unit_id)?.name ||
+      editClassOrgName.value ||
+      form.current_volunteer_scope_name
+    );
+  }
+  if (level === "REGIONAL_CENTER" || level === "ANY") {
+    return (
+      orgs.value.find(item => item.id === form.org_unit_id)?.name ||
+      form.current_volunteer_scope_name
+    );
+  }
+  return "";
 });
+const currentVolunteerScopeLabel = computed(() =>
+  ({
+    CLASS: "班级",
+    GROUP: "小组",
+    REGIONAL_CENTER: "分中心",
+    ANY: "默认分中心"
+  })[selectedVolunteerPosition.value?.scope_level || ""] || "服务范围"
+);
 const centerOrgs = computed(() =>
   orgs.value.filter(item => item.unit_type === "REGIONAL_CENTER")
 );
@@ -357,6 +360,12 @@ const form = reactive({
   phone: "",
   company_name: "",
   gender: "",
+  political_status: "",
+  social_role: "",
+  email: "",
+  invoice_type: "",
+  invoice_title: "",
+  invoice_tax_id: "",
   district: "",
   company_address: "",
   class_name: "",
@@ -364,6 +373,13 @@ const form = reactive({
   group_name: "",
   class_org_unit_id: "",
   group_org_unit_id: "",
+  current_volunteer_position_key: null as string | null,
+  current_volunteer_position_name: "",
+  current_volunteer_scope_level: "",
+  current_volunteer_scope_org_unit_id: "",
+  current_volunteer_scope_name: "",
+  current_volunteer_needs_manual_review: false,
+  current_volunteer_review_message: "",
   birthday: "",
   join_date: "",
   study_start_date: "",
@@ -377,6 +393,9 @@ const form = reactive({
   referrer_center: "",
   industry_category: "",
   industry: "",
+  goal_years: "",
+  revenue_growth_target: "",
+  profit_growth_target: "",
   company_products: "",
   annual_sales: "",
   employee_count: undefined as number | undefined,
@@ -395,6 +414,13 @@ const rules = computed<FormRules>(() => ({
     {
       pattern: /^$|^1\d{10}$/,
       message: "请输入 11 位手机号",
+      trigger: "blur"
+    }
+  ],
+  email: [
+    {
+      pattern: /^$|^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+      message: "请输入正确的邮箱地址",
       trigger: "blur"
     }
   ]
@@ -436,6 +462,12 @@ function openCreate() {
     phone: "",
     company_name: "",
     gender: "",
+    political_status: "",
+    social_role: "",
+    email: "",
+    invoice_type: "",
+    invoice_title: "",
+    invoice_tax_id: "",
     district: "",
     company_address: "",
     class_name: "",
@@ -443,6 +475,13 @@ function openCreate() {
     group_name: "",
     class_org_unit_id: "",
     group_org_unit_id: "",
+    current_volunteer_position_key: null,
+    current_volunteer_position_name: "",
+    current_volunteer_scope_level: "",
+    current_volunteer_scope_org_unit_id: "",
+    current_volunteer_scope_name: "",
+    current_volunteer_needs_manual_review: false,
+    current_volunteer_review_message: "",
     birthday: "",
     join_date: "",
     study_start_date: "",
@@ -456,6 +495,9 @@ function openCreate() {
     referrer_center: "",
     industry_category: "",
     industry: "",
+    goal_years: "",
+    revenue_growth_target: "",
+    profit_growth_target: "",
     company_products: "",
     annual_sales: "",
     employee_count: undefined,
@@ -476,6 +518,12 @@ async function openEdit(row: any) {
     phone: "",
     company_name: "",
     gender: "",
+    political_status: "",
+    social_role: "",
+    email: "",
+    invoice_type: "",
+    invoice_title: "",
+    invoice_tax_id: "",
     district: "",
     company_address: "",
     class_name: "",
@@ -483,6 +531,13 @@ async function openEdit(row: any) {
     group_name: "",
     class_org_unit_id: "",
     group_org_unit_id: "",
+    current_volunteer_position_key: null,
+    current_volunteer_position_name: "",
+    current_volunteer_scope_level: "",
+    current_volunteer_scope_org_unit_id: "",
+    current_volunteer_scope_name: "",
+    current_volunteer_needs_manual_review: false,
+    current_volunteer_review_message: "",
     birthday: "",
     join_date: "",
     study_start_date: "",
@@ -496,6 +551,9 @@ async function openEdit(row: any) {
     referrer_center: "",
     industry_category: "",
     industry: "",
+    goal_years: "",
+    revenue_growth_target: "",
+    profit_growth_target: "",
     company_products: "",
     annual_sales: "",
     employee_count: undefined,
@@ -516,11 +574,31 @@ async function openEdit(row: any) {
       phone: data.phone || "",
       company_name: data.company_name || "",
       gender: data.gender || "",
+      political_status: data.political_status || "",
+      social_role: data.social_role || "",
+      email: data.email || "",
+      invoice_type: data.invoice_type || "",
+      invoice_title: data.invoice_title || "",
+      invoice_tax_id: data.invoice_tax_id || "",
       district: data.district || "",
       company_address: data.company_address || "",
       class_committee_name: data.class_committee_name || "",
       class_org_unit_id: data.class_org_unit_id || "",
       group_org_unit_id: data.group_org_unit_id || "",
+      current_volunteer_position_key:
+        data.current_volunteer_needs_manual_review
+          ? null
+          : data.current_volunteer_position_key || null,
+      current_volunteer_position_name: data.current_volunteer_position_name || "",
+      current_volunteer_scope_level: data.current_volunteer_scope_level || "",
+      current_volunteer_scope_org_unit_id:
+        data.current_volunteer_scope_org_unit_id || "",
+      current_volunteer_scope_name: data.current_volunteer_scope_name || "",
+      current_volunteer_needs_manual_review: Boolean(
+        data.current_volunteer_needs_manual_review
+      ),
+      current_volunteer_review_message:
+        data.current_volunteer_review_message || "",
       birthday: data.birthday || "",
       join_date: data.join_date || "",
       study_start_date: data.study_start_date || "",
@@ -538,6 +616,9 @@ async function openEdit(row: any) {
       referrer_center: data.referrer_center || "",
       industry_category: data.industry_category || "",
       industry: data.industry || "",
+      goal_years: data.goal_years || "",
+      revenue_growth_target: data.revenue_growth_target || "",
+      profit_growth_target: data.profit_growth_target || "",
       company_products: data.company_products || "",
       annual_sales: normalizeAnnualSales(data.annual_sales),
       employee_count: data.employee_count ?? undefined,
@@ -549,7 +630,7 @@ async function openEdit(row: any) {
     originalClassOrgUnitId.value = data.class_org_unit_id || "";
     originalGroupOrgUnitId.value = data.group_org_unit_id || "";
     editPhoneReady.value = true;
-    void loadMemberVolunteerAppointments(row.id);
+    await loadVolunteerPositionCatalog();
   } catch (error) {
     ElMessage.error(errorText(error));
   } finally {
@@ -856,9 +937,18 @@ async function submit() {
         phone: form.phone.trim() || null,
         company_name: form.company_name.trim() || null,
         gender: form.gender || null,
+        political_status: form.political_status.trim() || null,
+        social_role:
+          form.political_status === "党员"
+            ? form.social_role.trim() || null
+            : null,
+        email: form.email.trim() || null,
+        invoice_type: form.invoice_type || null,
+        invoice_title: form.invoice_title.trim() || null,
+        invoice_tax_id: form.invoice_tax_id.trim() || null,
         district: form.district.trim() || null,
         company_address: form.company_address.trim() || null,
-        class_committee_name: form.class_committee_name.trim() || null,
+        current_volunteer_position_key: form.current_volunteer_position_key,
         birthday: form.birthday || null,
         join_date: form.join_date || null,
         study_start_date: form.study_start_date || null,
@@ -872,6 +962,9 @@ async function submit() {
         referrer_center: form.referrer_center.trim() || null,
         industry_category: form.industry_category.trim() || null,
         industry: form.industry.trim() || null,
+        goal_years: form.goal_years.trim() || null,
+        revenue_growth_target: form.revenue_growth_target.trim() || null,
+        profit_growth_target: form.profit_growth_target.trim() || null,
         company_products: form.company_products.trim() || null,
         employee_count: form.employee_count ?? null,
         notes: form.notes.trim() || null,
@@ -896,9 +989,17 @@ async function submit() {
         phone: form.phone.trim(),
         company_name: form.company_name.trim() || undefined,
         gender: form.gender || undefined,
+        political_status: form.political_status.trim() || undefined,
+        social_role:
+          form.political_status === "党员"
+            ? form.social_role.trim() || undefined
+            : undefined,
+        email: form.email.trim() || undefined,
+        invoice_type: form.invoice_type || undefined,
+        invoice_title: form.invoice_title.trim() || undefined,
+        invoice_tax_id: form.invoice_tax_id.trim() || undefined,
         district: form.district.trim() || undefined,
         company_address: form.company_address.trim() || undefined,
-        class_committee_name: form.class_committee_name.trim() || undefined,
         class_org_unit_id: form.class_org_unit_id || undefined,
         group_org_unit_id: form.group_org_unit_id || undefined,
         birthday: form.birthday || undefined,
@@ -915,6 +1016,9 @@ async function submit() {
         referrer_center: form.referrer_center.trim() || undefined,
         industry_category: form.industry_category.trim() || undefined,
         industry: form.industry.trim() || undefined,
+        goal_years: form.goal_years.trim() || undefined,
+        revenue_growth_target: form.revenue_growth_target.trim() || undefined,
+        profit_growth_target: form.profit_growth_target.trim() || undefined,
         company_products: form.company_products.trim() || undefined,
         annual_sales: form.annual_sales.trim() || undefined,
         employee_count: form.employee_count,
@@ -1026,29 +1130,6 @@ async function runMemberRosterPreflight() {
   }
 }
 
-function volunteerAppointmentStatusLabel(status: string) {
-  return (
-    {
-      PLANNED: "待生效",
-      ACTIVE: "任职中",
-      SUSPENDED: "已暂停",
-      ENDED: "已结束",
-      REVOKED: "已撤销"
-    } as Record<string, string>
-  )[status] ?? status;
-}
-
-function volunteerScopeHint(scopeLevel?: string) {
-  return (
-    {
-      CLASS: "请选择一个班级",
-      GROUP: "请选择一个小组",
-      REGIONAL_CENTER: "请选择服务分中心",
-      ANY: "请选择服务范围"
-    } as Record<string, string>
-  )[scopeLevel || "ANY"];
-}
-
 async function loadVolunteerPositionCatalog() {
   if (volunteerPositions.value.length) return;
   try {
@@ -1056,97 +1137,7 @@ async function loadVolunteerPositionCatalog() {
   } catch (error) {
     // Identity feature gates may be closed for a read-only deployment.  The
     // member profile remains usable; operators can retry after the gate opens.
-    if (canManageVolunteer.value) ElMessage.warning(errorText(error));
-  }
-}
-
-async function loadMemberVolunteerAppointments(memberId: number) {
-  volunteerAppointmentsLoading.value = true;
-  try {
-    memberVolunteerAppointments.value = (
-      await getMemberVolunteerAppointments(memberId)
-    ).data;
-  } catch (error) {
-    memberVolunteerAppointments.value = undefined;
-    if (canManageVolunteer.value) ElMessage.warning(errorText(error));
-  } finally {
-    volunteerAppointmentsLoading.value = false;
-  }
-}
-
-function resetVolunteerAppointmentForm() {
-  const start = new Date();
-  Object.assign(volunteerAppointmentForm, {
-    position_key: "",
-    org_unit_id: "",
-    starts_at: start.toISOString(),
-    ends_at: "",
-    confirmation_note: ""
-  });
-  volunteerAppointmentAdvanced.value = false;
-}
-
-async function openVolunteerAppointmentDialog() {
-  if (!editingMemberId.value) {
-    ElMessage.info("请先保存学员档案，再添加正式志工任职");
-    return;
-  }
-  await loadVolunteerPositionCatalog();
-  resetVolunteerAppointmentForm();
-  volunteerAppointmentDialogVisible.value = true;
-}
-
-async function saveVolunteerAppointment() {
-  if (!editingMemberId.value) return;
-  const position = selectedVolunteerPosition.value;
-  if (!position) {
-    ElMessage.error("请选择志工岗位");
-    return;
-  }
-  if (!volunteerAppointmentForm.org_unit_id) {
-    ElMessage.error(volunteerScopeHint(position.scope_level));
-    return;
-  }
-  volunteerAppointmentSaving.value = true;
-  try {
-    await createMemberVolunteerAppointment(editingMemberId.value, {
-      position_key: volunteerAppointmentForm.position_key,
-      org_unit_id: volunteerAppointmentForm.org_unit_id,
-      starts_at: volunteerAppointmentForm.starts_at || undefined,
-      ends_at: volunteerAppointmentForm.ends_at || undefined,
-      confirmation_note: volunteerAppointmentForm.confirmation_note.trim() || undefined
-    });
-    await loadMemberVolunteerAppointments(editingMemberId.value);
-    volunteerAppointmentDialogVisible.value = false;
-    ElMessage.success("正式志工任职已保存，历史记录已保留");
-  } catch (error) {
-    ElMessage.error(errorText(error));
-  } finally {
-    volunteerAppointmentSaving.value = false;
-  }
-}
-
-async function endVolunteerAppointment(appointment: MemberVolunteerAppointment) {
-  if (!editingMemberId.value || ["ENDED", "REVOKED"].includes(appointment.status)) return;
-  try {
-    await ElMessageBox.confirm(
-      `确认结束“${appointment.position_name || appointment.appointment_key} · ${appointment.org_name}”的任职？历史记录会保留。`,
-      "结束志工任职",
-      { type: "warning", confirmButtonText: "确认结束", cancelButtonText: "取消" }
-    );
-  } catch {
-    return;
-  }
-  try {
-    await changeMemberVolunteerAppointmentStatus(
-      editingMemberId.value,
-      appointment.id,
-      { status: "ENDED" }
-    );
-    await loadMemberVolunteerAppointments(editingMemberId.value);
-    ElMessage.success("志工任职已结束");
-  } catch (error) {
-    ElMessage.error(errorText(error));
+    if (canManage.value) ElMessage.warning(errorText(error));
   }
 }
 
@@ -1321,6 +1312,7 @@ async function handleMemberDialogClosed() {
 
 onMounted(async () => {
   await load();
+  await loadVolunteerPositionCatalog();
   if (route.query.open !== "edit") return;
   const memberId = Number(route.query.member_id);
   if (!Number.isInteger(memberId) || memberId <= 0) return;
@@ -1581,99 +1573,6 @@ onMounted(async () => {
       </div>
       <template #footer>
         <el-button @click="memberRosterImportVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog
-      v-model="volunteerAppointmentDialogVisible"
-      title="添加正式志工任职"
-      width="620px"
-      destroy-on-close
-    >
-      <el-alert
-        title="只需选择岗位和服务范围"
-        description="系统会按岗位定义自动校验班级/小组层级；开始时间默认今天，结束时间不填即为长期有效。"
-        type="info"
-        :closable="false"
-        show-icon
-      />
-      <el-form label-position="top" class="volunteer-appointment-form">
-        <el-form-item label="志工岗位" required>
-          <el-select
-            v-model="volunteerAppointmentForm.position_key"
-            filterable
-            clearable
-            placeholder="请选择岗位"
-            @change="volunteerAppointmentForm.org_unit_id = ''"
-          >
-            <el-option
-              v-for="position in volunteerPositions"
-              :key="position.position_key"
-              :label="position.position_name"
-              :value="position.position_key"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="`服务范围 · ${volunteerScopeHint(selectedVolunteerPosition?.scope_level)}`" required>
-          <el-select
-            v-model="volunteerAppointmentForm.org_unit_id"
-            filterable
-            clearable
-            :disabled="!selectedVolunteerPosition"
-            placeholder="请选择服务范围"
-          >
-            <el-option
-              v-for="org in volunteerOrgOptions"
-              :key="org.id"
-              :label="org.name"
-              :value="org.id"
-            />
-          </el-select>
-        </el-form-item>
-        <div class="volunteer-appointment-advanced-toggle">
-          <el-button link type="primary" @click="volunteerAppointmentAdvanced = !volunteerAppointmentAdvanced">
-            {{ volunteerAppointmentAdvanced ? "收起更多设置" : "更多设置（可选）" }}
-          </el-button>
-        </div>
-        <template v-if="volunteerAppointmentAdvanced">
-          <el-form-item label="任职开始时间">
-            <el-date-picker
-              v-model="volunteerAppointmentForm.starts_at"
-              type="datetime"
-              value-format="YYYY-MM-DDTHH:mm:ssZ"
-              placeholder="默认今天"
-            />
-          </el-form-item>
-          <el-form-item label="任职结束时间">
-            <el-date-picker
-              v-model="volunteerAppointmentForm.ends_at"
-              type="datetime"
-              value-format="YYYY-MM-DDTHH:mm:ssZ"
-              placeholder="长期有效，可不填"
-              clearable
-            />
-          </el-form-item>
-          <el-form-item label="备注（选填）" class="full">
-            <el-input
-              v-model="volunteerAppointmentForm.confirmation_note"
-              type="textarea"
-              :rows="2"
-              maxlength="1000"
-              show-word-limit
-              placeholder="如有特殊情况，可补充说明"
-            />
-          </el-form-item>
-        </template>
-      </el-form>
-      <template #footer>
-        <el-button @click="volunteerAppointmentDialogVisible = false">取消</el-button>
-        <el-button
-          type="primary"
-          :loading="volunteerAppointmentSaving"
-          @click="saveVolunteerAppointment"
-        >
-          保存任职
-        </el-button>
       </template>
     </el-dialog>
 
@@ -2022,6 +1921,23 @@ onMounted(async () => {
               <el-option label="其他/未说明" value="UNSPECIFIED" />
             </el-select>
           </el-form-item>
+          <el-form-item label="政治面貌">
+            <el-select v-model="form.political_status" clearable placeholder="请选择">
+              <el-option label="群众" value="群众" />
+              <el-option label="党员" value="党员" />
+            </el-select>
+          </el-form-item>
+          <el-form-item
+            v-if="form.political_status === '党员'"
+            label="党员承担的社会角色"
+          >
+            <el-input
+              v-model="form.social_role"
+              maxlength="255"
+              show-word-limit
+              placeholder="如：人大代表、政协委员、党组织负责人"
+            />
+          </el-form-item>
           <el-form-item label="班级组织">
             <el-select
               v-model="form.class_org_unit_id"
@@ -2038,59 +1954,40 @@ onMounted(async () => {
             />
             </el-select>
           </el-form-item>
-          <el-form-item label="志工岗位（正式任职）" class="full">
-            <div class="volunteer-appointments-editor">
-              <template v-if="editingMemberId">
-                <div v-loading="volunteerAppointmentsLoading" class="volunteer-appointments-list">
-                  <el-empty
-                    v-if="!memberVolunteerAppointments?.appointments.length"
-                    description="尚未建立正式志工任职"
-                    :image-size="48"
-                  />
-                  <div
-                    v-for="appointment in memberVolunteerAppointments?.appointments || []"
-                    :key="appointment.id"
-                    class="volunteer-appointment-card"
-                  >
-                    <div>
-                      <strong>{{ appointment.position_name || appointment.appointment_key }}</strong>
-                      <span>{{ appointment.org_name }}</span>
-                      <small>
-                        {{ volunteerAppointmentStatusLabel(appointment.status) }} ·
-                        {{ appointment.starts_at }} 至 {{ appointment.ends_at || "长期有效" }}
-                      </small>
-                    </div>
-                    <el-button
-                      v-if="canManageVolunteer && !['ENDED', 'REVOKED'].includes(appointment.status)"
-                      link
-                      type="danger"
-                      @click="endVolunteerAppointment(appointment)"
-                    >
-                      结束任职
-                    </el-button>
-                  </div>
-                </div>
-                <el-button
-                  v-if="canManageVolunteer"
-                  type="primary"
-                  plain
-                  @click="openVolunteerAppointmentDialog"
-                >
-                  添加正式志工任职
-                </el-button>
-                <p v-if="form.class_committee_name" class="form-hint volunteer-legacy-hint">
-                  历史导入岗位（仅兼容，不参与权限判断）：{{ form.class_committee_name }}
-                </p>
-              </template>
-              <el-alert
-                v-else
-                title="请先保存学员档案，再添加正式志工任职"
-                description="正式任职会保留开始/结束时间和历史记录；不会把旧的自由文本岗位自动转换。"
-                type="info"
-                :closable="false"
-                show-icon
+          <el-form-item label="当前志工岗位" class="full">
+            <el-select
+              v-model="form.current_volunteer_position_key"
+              clearable
+              filterable
+              :disabled="!editingMemberId || !canManage || Boolean(form.current_volunteer_needs_manual_review)"
+              placeholder="普通学长（暂无志工服务）"
+            >
+              <el-option label="普通学长（暂无志工服务）" :value="null" />
+              <el-option
+                v-for="position in volunteerPositions"
+                :key="position.position_key"
+                :label="position.position_name"
+                :value="position.position_key"
               />
-            </div>
+            </el-select>
+            <p v-if="!editingMemberId" class="form-hint">
+              请先保存学员档案，再维护当前志工岗位。
+            </p>
+            <p v-if="selectedVolunteerPosition" class="form-hint">
+              服务范围：{{ currentVolunteerScopeLabel }} ·
+              {{ currentVolunteerScopeName || "请先维护正式班级/小组/分中心" }}（自动匹配当前正式组织关系）
+            </p>
+            <el-alert
+              v-if="form.current_volunteer_needs_manual_review"
+              class="form-alert"
+              :title="form.current_volunteer_review_message || '当前存在多个有效志工岗位，请先人工确认主要岗位。'"
+              type="warning"
+              :closable="false"
+              show-icon
+            />
+            <p v-if="form.class_committee_name" class="form-hint volunteer-legacy-hint">
+              历史岗位参考（只读，不参与权限判断）：{{ form.class_committee_name }}
+            </p>
           </el-form-item>
           <el-form-item label="行业分类">
             <el-input v-model="form.industry_category" />
@@ -2120,8 +2017,24 @@ onMounted(async () => {
             </el-select>
             <p class="form-hint">班级或小组不存在时，请先到“系统设置 → 班级与小组管理”新增，再返回选择。</p>
           </el-form-item>
-          <el-form-item label="行业">
+          <el-form-item label="所属行业">
             <el-input v-model="form.industry" />
+          </el-form-item>
+          <el-form-item label="邮箱" prop="email">
+            <el-input v-model="form.email" placeholder="用于联系或接收电子发票（可选）" />
+          </el-form-item>
+          <el-form-item label="发票类型">
+            <el-select v-model="form.invoice_type" clearable placeholder="请选择">
+              <el-option label="无需开票" value="NONE" />
+              <el-option label="普通发票" value="NORMAL" />
+              <el-option label="增值税专用发票" value="SPECIAL" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="发票抬头">
+            <el-input v-model="form.invoice_title" placeholder="可选填写" />
+          </el-form-item>
+          <el-form-item label="发票税号">
+            <el-input v-model="form.invoice_tax_id" placeholder="可选填写" />
           </el-form-item>
           <el-form-item label="状态">
             <el-select v-model="form.status">
@@ -2236,6 +2149,15 @@ onMounted(async () => {
           </el-form-item>
           <el-form-item label="推荐人所属分中心">
             <el-input v-model="form.referrer_center" />
+          </el-form-item>
+          <el-form-item label="计划学习年限">
+            <el-input v-model="form.goal_years" placeholder="如：3年" />
+          </el-form-item>
+          <el-form-item label="业绩提升目标">
+            <el-input v-model="form.revenue_growth_target" placeholder="如：3倍、暂不设定" />
+          </el-form-item>
+          <el-form-item label="利润提升目标">
+            <el-input v-model="form.profit_growth_target" placeholder="如：3倍、暂不设定" />
           </el-form-item>
           <el-form-item label="利润率">
             <el-input
@@ -2504,40 +2426,11 @@ onMounted(async () => {
   width: 100%;
 }
 
-.volunteer-appointments-editor {
-  display: grid;
-  gap: 10px;
-  width: 100%;
-}
-.volunteer-appointments-list {
-  display: grid;
-  gap: 8px;
-}
-.volunteer-appointment-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  background: var(--el-fill-color-lighter);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-}
-.volunteer-appointment-card > div {
-  display: grid;
-  gap: 3px;
-}
-.volunteer-appointment-card span,
-.volunteer-appointment-card small,
 .volunteer-legacy-hint {
   color: var(--el-text-color-secondary);
 }
-.volunteer-appointment-form :deep(.el-select),
-.volunteer-appointment-form :deep(.el-date-editor) {
-  width: 100%;
-}
-.volunteer-appointment-advanced-toggle {
-  margin: -4px 0 4px;
+.form-alert {
+  margin-top: 8px;
 }
 
 .tenure-field {

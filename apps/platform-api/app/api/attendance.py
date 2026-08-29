@@ -13,7 +13,7 @@ from __future__ import annotations
 import hmac
 import re
 from io import BytesIO
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Literal
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -38,6 +38,10 @@ from app.services.iam import accessible_org_ids
 
 router = APIRouter(prefix="/api/v1/attendance", tags=["attendance"])
 
+# China uses UTC+08:00 year-round, so this does not require an external tzdata
+# package in the Windows/local runtime or the production container.
+ATTENDANCE_SCHEDULE_TZ = timezone(timedelta(hours=8), name="Asia/Shanghai")
+
 CURRENT_CLASS_NAME_SQL = (
     "COALESCE((SELECT ou.name FROM member_org_relations mor "
     "JOIN org_units ou ON ou.id=mor.org_unit_id "
@@ -53,19 +57,94 @@ class AdjudicationPayload(BaseModel):
     member_id: int | None = None
 
 
-def _attendance_sync_health() -> dict:
+def _parse_sync_datetime(value: object) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        try:
+            parsed = datetime.fromisoformat(
+                f"{text[:-1]}+00:00" if text.endswith(("Z", "z")) else text
+            )
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _missed_weekday_runs(
+    last_success_at: datetime | None, now_utc: datetime
+) -> int | None:
+    if last_success_at is None:
+        return None
+    last_success_date = last_success_at.astimezone(ATTENDANCE_SCHEDULE_TZ).date()
+    current_date = now_utc.astimezone(ATTENDANCE_SCHEDULE_TZ).date()
+    missed = 0
+    cursor = last_success_date
+    while cursor < current_date:
+        cursor += timedelta(days=1)
+        if cursor.weekday() < 5:
+            missed += 1
+    return missed
+
+
+def _sync_failure_reason(row: dict | None) -> str | None:
+    if not row:
+        return "定时任务未运行"
+    status = str(row["status"]).upper()
+    if status == "SUCCESS":
+        return None
+    if status == "RUNNING":
+        return "同步正在执行"
+    summary = str(row["error_summary"] or "").lower()
+    if any(token in summary for token in ("api key", "401", "403", "密钥", "鉴权")):
+        return "鉴权失败"
+    if any(token in summary for token in ("404", "not found", "url", "地址")):
+        return "接口地址异常"
+    if any(
+        token in summary
+        for token in ("timeout", "timed out", "502", "503", "连接", "上游")
+    ):
+        return "上游接口异常"
+    return "同步处理异常"
+
+
+def _sync_run_public_summary(row: dict | None) -> dict | None:
+    if not row:
+        return None
+    status = str(row["status"]).upper()
+    return {
+        "status": status,
+        "started_at": row["started_at"],
+        "finished_at": row["finished_at"],
+        "received_sessions": row["received_sessions"] or 0,
+        "received_records": row["received_records"] or 0,
+        "error_count": row["error_count"] or 0,
+        "has_error_summary": bool(row["error_summary"]),
+    }
+
+
+def _attendance_sync_health(*, now: datetime | None = None) -> dict:
     rows = fetch_all(
         "SELECT id, status, started_at, finished_at, received_sessions, "
         "received_records, error_count, error_summary "
         "FROM attendance_sync_runs WHERE source_key=? "
-        "ORDER BY id DESC LIMIT 20",
+        "ORDER BY id DESC LIMIT 100",
         ("signin",),
     )
+    now_utc = (now or datetime.now(UTC)).astimezone(UTC)
     if not rows:
         return {
             "state": "NO_RUNS",
             "alert_threshold": 3,
             "consecutive_failure_count": 0,
+            "missed_scheduled_runs": 0,
+            "failure_reason": "定时任务未运行",
+            "last_success": None,
+            "last_attempt": None,
             "last_run": None,
         }
 
@@ -81,27 +160,43 @@ def _attendance_sync_health() -> dict:
             consecutive_failures += 1
 
     latest_status = str(latest["status"]).upper()
-    if consecutive_failures >= 3:
+    last_success_row = next(
+        (row for row in rows if str(row["status"]).upper() == "SUCCESS"),
+        None,
+    )
+    last_success_at = _parse_sync_datetime(
+        (last_success_row["finished_at"] or last_success_row["started_at"])
+        if last_success_row
+        else None
+    )
+    missed_scheduled_runs = _missed_weekday_runs(last_success_at, now_utc)
+    if consecutive_failures >= 3 or (
+        missed_scheduled_runs is not None and missed_scheduled_runs >= 2
+    ):
         state = "CRITICAL"
-    elif consecutive_failures:
+    elif consecutive_failures or (
+        missed_scheduled_runs is not None and missed_scheduled_runs >= 1
+    ):
         state = "WARNING"
     elif latest_status == "RUNNING":
         state = "RUNNING"
     else:
         state = "HEALTHY"
+    last_attempt = _sync_run_public_summary(latest)
+    last_success = _sync_run_public_summary(last_success_row)
+    failure_reason = _sync_failure_reason(latest)
+    if missed_scheduled_runs and latest_status == "SUCCESS":
+        failure_reason = "定时任务未运行"
     return {
         "state": state,
         "alert_threshold": 3,
         "consecutive_failure_count": consecutive_failures,
-        "last_run": {
-            "status": latest_status,
-            "started_at": latest["started_at"],
-            "finished_at": latest["finished_at"],
-            "received_sessions": latest["received_sessions"] or 0,
-            "received_records": latest["received_records"] or 0,
-            "error_count": latest["error_count"] or 0,
-            "has_error_summary": bool(latest["error_summary"]),
-        },
+        "missed_scheduled_runs": missed_scheduled_runs,
+        "failure_reason": failure_reason,
+        "last_success": last_success,
+        "last_attempt": last_attempt,
+        # Keep the old field for clients that have not yet migrated.
+        "last_run": last_attempt,
     }
 
 

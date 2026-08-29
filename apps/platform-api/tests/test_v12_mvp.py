@@ -211,6 +211,12 @@ def test_home_identity_is_independent_of_study_meeting_capability(position, monk
         me = client.get("/api/v1/wechat/me", headers=headers)
         assert me.status_code == 200
         assert me.json()["data"]["member"]["member_id"] == fixture["member_id"]
+        services = client.get("/api/v1/wechat/volunteer-services", headers=headers)
+        assert services.status_code == 200, services.text
+        service_data = services.json()["data"]
+        assert service_data["is_volunteer"] is bool(position)
+        if position:
+            assert service_data["roles"][0]["position_key"] == position
         context = client.get("/api/v1/study-meetings/context", headers=headers)
         if position:
             assert context.status_code == 200, context.text

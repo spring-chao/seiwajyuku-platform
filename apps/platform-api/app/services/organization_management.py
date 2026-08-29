@@ -7,6 +7,7 @@ from uuid import uuid4
 from app.db import execute, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids
+from app.services.volunteer_positions import sync_member_current_volunteer_scope
 
 
 LEARNING_UNIT_TYPES = {"CLASS", "GROUP"}
@@ -169,6 +170,7 @@ def transfer_group_member_relation(
             "UPDATE members SET group_name=?, updated_at=? WHERE id=?",
             (target["name"], now, member_id),
         )
+        sync_member_current_volunteer_scope(connection, actor_user_id, member_id)
         write_audit(
             connection,
             actor_user_id=actor_user_id,
@@ -189,7 +191,7 @@ def transfer_group_member_relation(
 
 
 def _sync_members_after_class_move(
-    connection, *, class_id: str, target_center_id: str, now: str
+    connection, *, actor_user_id: int, class_id: str, target_center_id: str, now: str
 ) -> int:
     """Keep current member hierarchy aligned with the organization master.
 
@@ -275,6 +277,7 @@ def _sync_members_after_class_move(
                     "VALUES (?, ?, 'PRIMARY_REGION', 1, 'ORG_MASTER_SYNC', ?, ?)",
                     (member_id, target_center_id, now, now),
                 )
+        sync_member_current_volunteer_scope(connection, actor_user_id, member_id)
     return len(impacted)
 
 
@@ -544,6 +547,7 @@ def move_learning_org_unit(
         )
         synced_member_count = _sync_members_after_class_move(
             connection,
+            actor_user_id=actor_user_id,
             class_id=unit_id,
             target_center_id=target_parent_id,
             now=now,

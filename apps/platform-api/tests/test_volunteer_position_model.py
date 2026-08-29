@@ -95,6 +95,25 @@ def test_catalog_seeds_five_positions_and_only_their_capability() -> None:
     assert by_name["专项活动志工"]["capabilities"] == []
 
 
+def test_current_service_catalog_hides_umbrella_labels_but_keeps_full_catalog() -> None:
+    hidden_keys = {
+        "volunteer_regional_service",
+        "volunteer_class_committee",
+        "volunteer_group_committee",
+    }
+
+    current_keys = {item["position_key"] for item in list_volunteer_positions()}
+    full_catalog = {
+        item["position_key"]: item
+        for item in list_volunteer_positions(active_only=False)
+    }
+
+    assert hidden_keys.isdisjoint(current_keys)
+    assert hidden_keys <= full_catalog.keys()
+    assert all(full_catalog[key]["is_active"] for key in hidden_keys)
+    assert "volunteer_group_counselor" in current_keys
+
+
 def test_member_entry_validates_scope_and_preserves_multiple_appointments() -> None:
     data = _fixture()
     actor = _admin_id()

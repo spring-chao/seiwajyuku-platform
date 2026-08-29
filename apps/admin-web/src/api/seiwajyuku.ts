@@ -520,6 +520,12 @@ export type Member = {
   phone_last4?: string;
   company_name?: string;
   gender?: string;
+  political_status?: string;
+  social_role?: string;
+  email?: string;
+  invoice_type?: string;
+  invoice_title?: string;
+  invoice_tax_id?: string;
   district?: string;
   company_address?: string;
   class_name?: string;
@@ -537,6 +543,9 @@ export type Member = {
   referrer_center?: string;
   industry_category?: string;
   industry?: string;
+  goal_years?: string;
+  revenue_growth_target?: string;
+  profit_growth_target?: string;
   company_products?: string;
   company_size?: string;
   notes?: string;
@@ -702,6 +711,12 @@ export type MemberEditProfile = {
   phone: string | null;
   company_name?: string | null;
   gender?: string | null;
+  political_status?: string | null;
+  social_role?: string | null;
+  email?: string | null;
+  invoice_type?: string | null;
+  invoice_title?: string | null;
+  invoice_tax_id?: string | null;
   district?: string | null;
   company_address?: string | null;
   class_committee_name?: string | null;
@@ -716,6 +731,9 @@ export type MemberEditProfile = {
   referrer_center?: string | null;
   industry_category?: string | null;
   industry?: string | null;
+  goal_years?: string | null;
+  revenue_growth_target?: string | null;
+  profit_growth_target?: string | null;
   company_products?: string | null;
   company_size?: string | null;
   notes?: string | null;
@@ -723,6 +741,14 @@ export type MemberEditProfile = {
   class_org_name?: string | null;
   group_org_unit_id?: string | null;
   group_org_name?: string | null;
+  current_volunteer_position_key?: string | null;
+  current_volunteer_position_name?: string | null;
+  current_volunteer_scope_level?: VolunteerPosition["scope_level"] | null;
+  current_volunteer_scope_org_unit_id?: string | null;
+  current_volunteer_scope_name?: string | null;
+  current_volunteer_is_volunteer?: boolean;
+  current_volunteer_needs_manual_review?: boolean;
+  current_volunteer_review_message?: string | null;
   annual_sales?: string | null;
   employee_count?: number | null;
   profit_margin?: string | null;
@@ -1028,19 +1054,25 @@ export type AttendanceRecord = {
   is_early_leave?: number | null;
 };
 
+export type AttendanceSyncRunSummary = {
+  status: string;
+  started_at: string;
+  finished_at?: string;
+  received_sessions: number;
+  received_records: number;
+  error_count: number;
+  has_error_summary: boolean;
+};
+
 export type AttendanceSyncStatus = {
   state: "NO_RUNS" | "RUNNING" | "HEALTHY" | "WARNING" | "CRITICAL";
   alert_threshold: number;
   consecutive_failure_count: number;
-  last_run: {
-    status: string;
-    started_at: string;
-    finished_at?: string;
-    received_sessions: number;
-    received_records: number;
-    error_count: number;
-    has_error_summary: boolean;
-  } | null;
+  missed_scheduled_runs: number | null;
+  failure_reason?: string | null;
+  last_success: AttendanceSyncRunSummary | null;
+  last_attempt: AttendanceSyncRunSummary | null;
+  last_run?: AttendanceSyncRunSummary | null;
 };
 
 export type RenewalOverviewRow = {
@@ -1474,6 +1506,12 @@ export const createMember = (data: {
   phone: string;
   company_name?: string;
   gender?: string;
+  political_status?: string;
+  social_role?: string;
+  email?: string;
+  invoice_type?: string;
+  invoice_title?: string;
+  invoice_tax_id?: string;
   district?: string;
   company_address?: string;
   class_committee_name?: string;
@@ -1493,6 +1531,9 @@ export const createMember = (data: {
   referrer_center?: string;
   industry_category?: string;
   industry?: string;
+  goal_years?: string;
+  revenue_growth_target?: string;
+  profit_growth_target?: string;
   company_products?: string;
   annual_sales?: string;
   employee_count?: number;
@@ -1995,9 +2036,14 @@ export const updateMember = (
     phone?: string | null;
     company_name?: string | null;
     gender?: string | null;
+    political_status?: string | null;
+    social_role?: string | null;
+    email?: string | null;
+    invoice_type?: string | null;
+    invoice_title?: string | null;
+    invoice_tax_id?: string | null;
     district?: string | null;
     company_address?: string | null;
-    class_committee_name?: string | null;
     birthday?: string | null;
     join_date?: string | null;
     study_start_date?: string | null;
@@ -2009,6 +2055,9 @@ export const updateMember = (
     referrer_center?: string | null;
     industry_category?: string | null;
     industry?: string | null;
+    goal_years?: string | null;
+    revenue_growth_target?: string | null;
+    profit_growth_target?: string | null;
     company_products?: string | null;
     annual_sales?: string | null;
     employee_count?: number | null;
@@ -2019,6 +2068,7 @@ export const updateMember = (
     development_org_unit_id?: string | null;
     class_org_unit_id?: string | null;
     group_org_unit_id?: string | null;
+    current_volunteer_position_key?: string | null;
   }
 ) =>
   http.request<{ success: boolean; data: { id: number } }>(

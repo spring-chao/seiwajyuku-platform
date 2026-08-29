@@ -45,8 +45,8 @@ const detailDisplayTitle = ref("");
 const downloadingRecords = ref(false);
 const detail = ref<AttendanceEventGroupDetail | null>(null);
 const detailRecords = ref<AttendanceRecord[]>([]);
-const detailClassBreakdown = computed<AttendanceClassParticipation[]>(() =>
-  detail.value?.class_breakdown || []
+const detailClassBreakdown = computed<AttendanceClassParticipation[]>(
+  () => detail.value?.class_breakdown || []
 );
 const detailSummary = computed<any>(() => {
   if (!detail.value) return null;
@@ -104,7 +104,7 @@ function detailParticipationPresent(session: any) {
 
 const visibleRows = computed(() =>
   rows.value.filter(
-    (row) =>
+    row =>
       participationFilter.value === "AUTO" ||
       participationScope(row) === participationFilter.value
   )
@@ -116,13 +116,13 @@ const totalCompleted = computed(() =>
   visibleRows.value.reduce((sum, item) => sum + item.present_count, 0)
 );
 const classRows = computed(() =>
-  visibleRows.value.filter((item) => participationScope(item) === "CLASS")
+  visibleRows.value.filter(item => participationScope(item) === "CLASS")
 );
 const regionRows = computed(() =>
-  visibleRows.value.filter((item) => participationScope(item) === "REGION")
+  visibleRows.value.filter(item => participationScope(item) === "REGION")
 );
 const participationRows = computed(() =>
-  visibleRows.value.filter((item) => participationRateValue(item) !== null)
+  visibleRows.value.filter(item => participationRateValue(item) !== null)
 );
 const totalParticipationPresent = computed(() =>
   visibleRows.value.reduce((sum, item) => sum + item.present_count, 0)
@@ -138,33 +138,55 @@ const averageParticipationRate = computed(() => {
 });
 const syncAlert = computed(() => {
   const status = syncStatus.value;
+  const formatRunTime = (value?: string) =>
+    value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "无";
+  const lastSuccess =
+    status?.last_success?.finished_at || status?.last_success?.started_at;
+  const lastAttempt =
+    status?.last_attempt?.finished_at || status?.last_attempt?.started_at;
+  const description = status
+    ? `上次成功：${formatRunTime(lastSuccess)}；上次尝试：${formatRunTime(lastAttempt)}`
+    : undefined;
   if (!status || status.state === "NO_RUNS") {
-    return { type: "info" as const, title: "签到自动同步尚无运行记录" };
+    return {
+      type: "info" as const,
+      title: "签到自动同步尚无运行记录",
+      description: "建议检查签到云函数定时任务"
+    };
   }
   if (status.state === "CRITICAL") {
     return {
       type: "error" as const,
-      title: `签到自动同步已连续异常 ${status.consecutive_failure_count} 次，请技术管理员检查`
+      title:
+        status.missed_scheduled_runs && status.missed_scheduled_runs > 0
+          ? `签到自动同步已中断，已错过 ${status.missed_scheduled_runs} 个工作日同步`
+          : `签到自动同步已连续异常 ${status.consecutive_failure_count} 次`,
+      description: `${description}；原因：${status.failure_reason || "请技术管理员检查"}`
     };
   }
   if (status.state === "WARNING") {
     return {
       type: "warning" as const,
-      title: `最近一次签到自动同步异常（连续 ${status.consecutive_failure_count} 次）`
+      title:
+        status.missed_scheduled_runs && status.missed_scheduled_runs > 0
+          ? `签到自动同步延迟，已错过 ${status.missed_scheduled_runs} 个工作日同步`
+          : `最近一次签到自动同步异常（连续 ${status.consecutive_failure_count} 次）`,
+      description: `${description}；原因：${status.failure_reason || "请技术管理员检查"}`
     };
   }
   if (status.state === "RUNNING") {
-    return { type: "info" as const, title: "签到数据正在同步" };
+    return { type: "info" as const, title: "签到数据正在同步", description };
   }
-  const finishedAt = status.last_run?.finished_at
-    ? dayjs(status.last_run.finished_at).format("YYYY-MM-DD HH:mm")
-    : "最近";
   return {
     type: "success" as const,
-    title: `签到自动同步正常，最近完成于 ${finishedAt}`
+    title: "签到自动同步正常",
+    description
   };
 });
-const reconciliationLabels: Record<AttendanceReconciliationItem["key"], string> = {
+const reconciliationLabels: Record<
+  AttendanceReconciliationItem["key"],
+  string
+> = {
   unmatched_attendance_records: "待人工匹配签到",
   active_members_missing_phone_hash: "在册学员缺少手机号摘要",
   active_members_missing_primary_region: "在册学员缺少发展归属",
@@ -230,13 +252,18 @@ function formatDateTime(value?: string | null) {
   return value ? dayjs(value).format("MM-DD HH:mm") : "—";
 }
 
-function checkedAtLabel(row: Pick<AttendanceRecord, "checked_at" | "checked_at_review_status">) {
+function checkedAtLabel(
+  row: Pick<AttendanceRecord, "checked_at" | "checked_at_review_status">
+) {
   return row.checked_at_review_status === "TIME_BEFORE_CHECKIN_START"
     ? "待核对"
     : formatDateTime(row.checked_at);
 }
 
-function attendanceFlagLabel(value?: number | null, finalPoints?: number | string | null) {
+function attendanceFlagLabel(
+  value?: number | null,
+  finalPoints?: number | string | null
+) {
   if (finalPoints === null || finalPoints === undefined) return "—";
   return Number(value) ? "是" : "否";
 }
@@ -256,11 +283,12 @@ function reconciliationTagType(item: AttendanceReconciliationItem) {
 async function load() {
   loading.value = true;
   try {
-    const [eventResponse, syncResponse, reconciliationResponse] = await Promise.all([
-      getAttendanceActivityRows(month.value),
-      getAttendanceSyncStatus(),
-      getAttendanceReconciliationSummary(month.value)
-    ]);
+    const [eventResponse, syncResponse, reconciliationResponse] =
+      await Promise.all([
+        getAttendanceActivityRows(month.value),
+        getAttendanceSyncStatus(),
+        getAttendanceReconciliationSummary(month.value)
+      ]);
     rows.value = eventResponse.data;
     syncStatus.value = syncResponse.data;
     reconciliationItems.value = reconciliationResponse.data.items;
@@ -325,11 +353,12 @@ async function downloadDetailRecords() {
       detail.value.group.id,
       detailSessionId.value || undefined
     );
-    const blob = response instanceof Blob
-      ? response
-      : new Blob([response], {
-          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        });
+    const blob =
+      response instanceof Blob
+        ? response
+        : new Blob([response], {
+            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -361,7 +390,11 @@ async function downloadDetailRecords() {
           format="YYYY年MM月"
           @change="load"
         />
-        <el-select v-model="participationFilter" aria-label="参会率查询口径" style="width: 190px">
+        <el-select
+          v-model="participationFilter"
+          aria-label="参会率查询口径"
+          style="width: 190px"
+        >
           <el-option label="全部活动（按活动自动）" value="AUTO" />
           <el-option label="只看班级参会率" value="CLASS" />
           <el-option label="只看分中心参会率" value="REGION" />
@@ -371,6 +404,7 @@ async function downloadDetailRecords() {
 
     <el-alert
       :title="syncAlert.title"
+      :description="syncAlert.description"
       :type="syncAlert.type"
       :closable="false"
       show-icon
@@ -401,7 +435,9 @@ async function downloadDetailRecords() {
       <template #header>
         <div class="card-heading">
           <strong>数据复核待办</strong>
-          <span>仅显示汇总数量，不显示个人资料；本页不提供写入或自动修正。</span>
+          <span
+            >仅显示汇总数量，不显示个人资料；本页不提供写入或自动修正。</span
+          >
         </div>
       </template>
       <div class="reconciliation-grid">
@@ -416,7 +452,10 @@ async function downloadDetailRecords() {
             <strong>{{ item.count }}</strong>
           </div>
           <el-button
-            v-if="item.count && item.key !== 'active_members_expected_no_study_group'"
+            v-if="
+              item.count &&
+              item.key !== 'active_members_expected_no_study_group'
+            "
             class="review-button"
             type="warning"
             link
@@ -424,19 +463,27 @@ async function downloadDetailRecords() {
           >
             查看明细
           </el-button>
-          <span v-else class="reconciliation-item__hint">按规则保留，不需处理</span>
+          <span v-else class="reconciliation-item__hint"
+            >按规则保留，不需处理</span
+          >
         </div>
       </div>
     </el-card>
 
     <el-card shadow="never">
       <div class="rate-definition">
-        每一行对应一个签到场次。报名人数 = 该场次签到报名记录数；参会人数 = 该场次正常签到人数（含人工确认和非塾生）；应参会人数 = 对应班级或分中心在册人数。签到率 = 参会人数 ÷ 报名人数；班级活动参会率 = 参会人数 ÷ 本班应参会人数，报告会等大型活动参会率 = 参会人数 ÷ 分中心应参会人数。
+        每一行对应一个签到场次。报名人数 = 该场次签到报名记录数；参会人数 =
+        该场次正常签到人数（含人工确认和非塾生）；应参会人数 =
+        对应班级或分中心在册人数。签到率 = 参会人数 ÷ 报名人数；班级活动参会率 =
+        参会人数 ÷ 本班应参会人数，报告会等大型活动参会率 = 参会人数 ÷
+        分中心应参会人数。
       </div>
       <el-table :data="visibleRows" stripe class="activity-table">
         <el-table-column prop="event_date" label="活动日期" min-width="130" />
         <el-table-column label="活动" min-width="220">
-          <template #default="{ row }">{{ row.display_title || row.title || "未命名活动" }}</template>
+          <template #default="{ row }">{{
+            row.display_title || row.title || "未命名活动"
+          }}</template>
         </el-table-column>
         <el-table-column prop="class_name" label="所属班级" min-width="130">
           <template #default="{ row }">{{ row.class_name || "—" }}</template>
@@ -448,16 +495,22 @@ async function downloadDetailRecords() {
           </template>
         </el-table-column>
         <el-table-column label="场次" min-width="110">
-          <template #default="{ row }">{{ row.session_name || row.session_code }}</template>
+          <template #default="{ row }">{{
+            row.session_name || row.session_code
+          }}</template>
         </el-table-column>
         <el-table-column label="参会口径" width="100">
-          <template #default="{ row }">{{ participationScopeLabel(row) }}</template>
+          <template #default="{ row }">{{
+            participationScopeLabel(row)
+          }}</template>
         </el-table-column>
         <el-table-column label="报名人数" width="100" align="right">
           <template #default="{ row }">{{ row.record_count }}</template>
         </el-table-column>
         <el-table-column label="应参会人数" width="110" align="right">
-          <template #default="{ row }">{{ participationRosterCount(row) || "—" }}</template>
+          <template #default="{ row }">{{
+            participationRosterCount(row) || "—"
+          }}</template>
         </el-table-column>
         <el-table-column label="参会人数" width="100" align="right">
           <template #default="{ row }">{{ row.present_count }}</template>
@@ -469,8 +522,21 @@ async function downloadDetailRecords() {
         </el-table-column>
         <el-table-column label="参会率" width="100" align="right">
           <template #default="{ row }">
-            <span :class="{ 'rate-low': participationRateValue(row) !== null && (participationRateValue(row) || 0) < 50 }">
-              {{ participationRateValue(row) === null ? "—" : participationRate(participationPresentCount(row), participationRosterCount(row)) }}
+            <span
+              :class="{
+                'rate-low':
+                  participationRateValue(row) !== null &&
+                  (participationRateValue(row) || 0) < 50
+              }"
+            >
+              {{
+                participationRateValue(row) === null
+                  ? "—"
+                  : participationRate(
+                      participationPresentCount(row),
+                      participationRosterCount(row)
+                    )
+              }}
             </span>
           </template>
         </el-table-column>
@@ -500,7 +566,12 @@ async function downloadDetailRecords() {
         :closable="false"
         show-icon
       />
-      <el-table :data="reviewBreakdownRows" size="small" stripe class="review-breakdown">
+      <el-table
+        :data="reviewBreakdownRows"
+        size="small"
+        stripe
+        class="review-breakdown"
+      >
         <el-table-column prop="org_name" label="分布组织" min-width="220" />
         <el-table-column prop="count" label="数量" width="100" align="right" />
       </el-table>
@@ -515,9 +586,17 @@ async function downloadDetailRecords() {
           <template #default="{ row }">{{ row.session_name || "—" }}</template>
         </el-table-column>
         <el-table-column prop="name_snapshot" label="姓名" width="110" />
-        <el-table-column prop="member_code_snapshot" label="学员编号" width="140" />
+        <el-table-column
+          prop="member_code_snapshot"
+          label="学员编号"
+          width="140"
+        />
         <el-table-column label="状态" width="100">
-          <template #default>{{ reviewIssue === "unmatched_attendance_records" ? "待人工匹配" : "待人工核对" }}</template>
+          <template #default>{{
+            reviewIssue === "unmatched_attendance_records"
+              ? "待人工匹配"
+              : "待人工核对"
+          }}</template>
         </el-table-column>
       </el-table>
       <el-pagination
@@ -532,7 +611,11 @@ async function downloadDetailRecords() {
 
     <el-dialog
       v-model="detailVisible"
-      :title="detail ? `活动明细 · ${detailDisplayTitle || detail.group.title || '未命名活动'}` : '活动明细'"
+      :title="
+        detail
+          ? `活动明细 · ${detailDisplayTitle || detail.group.title || '未命名活动'}`
+          : '活动明细'
+      "
       width="1120px"
       top="5vh"
       class="activity-detail-dialog"
@@ -554,7 +637,9 @@ async function downloadDetailRecords() {
             </div>
             <div>
               <span>活动类型</span>
-              <strong>{{ activityTypeLabel(detail.group.activity_type) }}</strong>
+              <strong>{{
+                activityTypeLabel(detail.group.activity_type)
+              }}</strong>
             </div>
             <div>
               <span>参会口径</span>
@@ -566,7 +651,9 @@ async function downloadDetailRecords() {
             </div>
             <div>
               <span>应参会人数</span>
-              <strong>{{ participationRosterCount(detailSummary) || "—" }}</strong>
+              <strong>{{
+                participationRosterCount(detailSummary) || "—"
+              }}</strong>
             </div>
             <div>
               <span>参会人数</span>
@@ -574,30 +661,58 @@ async function downloadDetailRecords() {
             </div>
             <div>
               <span>签到率</span>
-              <strong>{{ recordAttendanceRate(detailSummary.present_count, detailSummary.record_count) }}</strong>
+              <strong>{{
+                recordAttendanceRate(
+                  detailSummary.present_count,
+                  detailSummary.record_count
+                )
+              }}</strong>
             </div>
             <div>
               <span>参会率</span>
-              <strong class="detail-rate">{{ participationRateValue(detailSummary) === null ? "—" : participationRate(participationPresentCount(detailSummary), participationRosterCount(detailSummary)) }}</strong>
+              <strong class="detail-rate">{{
+                participationRateValue(detailSummary) === null
+                  ? "—"
+                  : participationRate(
+                      participationPresentCount(detailSummary),
+                      participationRosterCount(detailSummary)
+                    )
+              }}</strong>
             </div>
           </div>
 
           <section v-if="detailClassBreakdown.length" class="detail-section">
             <div class="detail-section__heading">
               <h3>班级参会率明细</h3>
-              <span>报告会按分中心汇总；此处可继续查看分中心内各班级的在册学员参会情况</span>
+              <span
+                >报告会按分中心汇总；此处可继续查看分中心内各班级的在册学员参会情况</span
+              >
             </div>
-            <el-table :data="detailClassBreakdown" size="small" stripe class="activity-table">
+            <el-table
+              :data="detailClassBreakdown"
+              size="small"
+              stripe
+              class="activity-table"
+            >
               <el-table-column prop="class_name" label="班级" min-width="220" />
               <el-table-column label="应参会人数" width="120" align="right">
-                <template #default="{ row }">{{ row.class_member_count }}</template>
+                <template #default="{ row }">{{
+                  row.class_member_count
+                }}</template>
               </el-table-column>
               <el-table-column label="已签到学员" width="120" align="right">
-                <template #default="{ row }">{{ row.class_present_count }}</template>
+                <template #default="{ row }">{{
+                  row.class_present_count
+                }}</template>
               </el-table-column>
               <el-table-column label="班级参会率" width="130" align="right">
                 <template #default="{ row }">
-                  {{ participationRate(row.class_present_count, row.class_member_count) }}
+                  {{
+                    participationRate(
+                      row.class_present_count,
+                      row.class_member_count
+                    )
+                  }}
                 </template>
               </el-table-column>
             </el-table>
@@ -606,32 +721,55 @@ async function downloadDetailRecords() {
           <section class="detail-section">
             <div class="detail-section__heading">
               <h3>场次汇总</h3>
-              <span>报名、应参会、参会人数及两种比例统一展示；班级活动按班级组织 ID，报告会等大型活动按分中心组织 ID 统计</span>
+              <span
+                >报名、应参会、参会人数及两种比例统一展示；班级活动按班级组织
+                ID，报告会等大型活动按分中心组织 ID 统计</span
+              >
             </div>
-            <el-table :data="detail.sessions" size="small" stripe class="activity-table">
+            <el-table
+              :data="detail.sessions"
+              size="small"
+              stripe
+              class="activity-table"
+            >
               <el-table-column prop="session_name" label="场次" min-width="180">
-                <template #default="{ row }">{{ row.session_name || row.session_code }}</template>
+                <template #default="{ row }">{{
+                  row.session_name || row.session_code
+                }}</template>
               </el-table-column>
               <el-table-column label="计划时间" width="150">
-                <template #default="{ row }">{{ formatDateTime(row.scheduled_start_at) }}</template>
+                <template #default="{ row }">{{
+                  formatDateTime(row.scheduled_start_at)
+                }}</template>
               </el-table-column>
               <el-table-column label="报名人数" width="100" align="right">
                 <template #default="{ row }">{{ row.record_count }}</template>
               </el-table-column>
               <el-table-column label="应参会人数" width="110" align="right">
-                <template #default="{ row }">{{ detailParticipationRoster(row) || "—" }}</template>
+                <template #default="{ row }">{{
+                  detailParticipationRoster(row) || "—"
+                }}</template>
               </el-table-column>
               <el-table-column label="参会人数" width="100" align="right">
                 <template #default="{ row }">{{ row.present_count }}</template>
               </el-table-column>
               <el-table-column label="签到率" width="100" align="right">
-                <template #default="{ row }">{{ recordAttendanceRate(row.present_count, row.record_count) }}</template>
+                <template #default="{ row }">{{
+                  recordAttendanceRate(row.present_count, row.record_count)
+                }}</template>
               </el-table-column>
               <el-table-column label="参会率" width="100" align="right">
-                <template #default="{ row }">{{ participationRate(detailParticipationPresent(row), detailParticipationRoster(row)) }}</template>
+                <template #default="{ row }">{{
+                  participationRate(
+                    detailParticipationPresent(row),
+                    detailParticipationRoster(row)
+                  )
+                }}</template>
               </el-table-column>
               <el-table-column label="积分" width="90" align="right">
-                <template #default="{ row }">{{ row.total_points ?? "—" }}</template>
+                <template #default="{ row }">{{
+                  row.total_points ?? "—"
+                }}</template>
               </el-table-column>
             </el-table>
           </section>
@@ -640,7 +778,9 @@ async function downloadDetailRecords() {
             <div class="detail-section__heading">
               <h3>签到明细</h3>
               <div class="detail-section__actions">
-                <span>只读展示签到状态、时间、迟到、早退和积分，不提供修改入口</span>
+                <span
+                  >只读展示签到状态、时间、迟到、早退和积分，不提供修改入口</span
+                >
                 <el-button
                   type="primary"
                   plain
@@ -652,33 +792,66 @@ async function downloadDetailRecords() {
                 </el-button>
               </div>
             </div>
-            <el-table :data="detailRecords" size="small" stripe max-height="380">
-              <el-table-column prop="name_snapshot" label="姓名" min-width="120" />
-              <el-table-column prop="member_code_snapshot" label="学员编号" min-width="150" />
+            <el-table
+              :data="detailRecords"
+              size="small"
+              stripe
+              max-height="380"
+            >
+              <el-table-column
+                prop="name_snapshot"
+                label="姓名"
+                min-width="120"
+              />
+              <el-table-column
+                prop="member_code_snapshot"
+                label="学员编号"
+                min-width="150"
+              />
               <el-table-column label="场次" min-width="140">
-                <template #default="{ row }">{{ row.session_name || row.session_code }}</template>
+                <template #default="{ row }">{{
+                  row.session_name || row.session_code
+                }}</template>
               </el-table-column>
               <el-table-column label="参与类型" width="100">
-                <template #default="{ row }">{{ participantTypeLabel(row.participant_type) }}</template>
+                <template #default="{ row }">{{
+                  participantTypeLabel(row.participant_type)
+                }}</template>
               </el-table-column>
               <el-table-column label="状态" width="110">
                 <template #default="{ row }">
-                  <el-tag :type="row.attendance_status === 'PRESENT' || row.attendance_status === 'MANUAL_PRESENT' ? 'success' : 'info'" size="small">
+                  <el-tag
+                    :type="
+                      row.attendance_status === 'PRESENT' ||
+                      row.attendance_status === 'MANUAL_PRESENT'
+                        ? 'success'
+                        : 'info'
+                    "
+                    size="small"
+                  >
                     {{ attendanceStatusLabel(row.attendance_status) }}
                   </el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="签到时间" width="150">
-                <template #default="{ row }">{{ checkedAtLabel(row) }}</template>
+                <template #default="{ row }">{{
+                  checkedAtLabel(row)
+                }}</template>
               </el-table-column>
               <el-table-column label="迟到" width="80">
-                <template #default="{ row }">{{ attendanceFlagLabel(row.is_late, row.final_points) }}</template>
+                <template #default="{ row }">{{
+                  attendanceFlagLabel(row.is_late, row.final_points)
+                }}</template>
               </el-table-column>
               <el-table-column label="早退" width="80">
-                <template #default="{ row }">{{ attendanceFlagLabel(row.is_early_leave, row.final_points) }}</template>
+                <template #default="{ row }">{{
+                  attendanceFlagLabel(row.is_early_leave, row.final_points)
+                }}</template>
               </el-table-column>
               <el-table-column label="积分" width="80">
-                <template #default="{ row }">{{ attendancePointsLabel(row.final_points) }}</template>
+                <template #default="{ row }">{{
+                  attendancePointsLabel(row.final_points)
+                }}</template>
               </el-table-column>
             </el-table>
           </section>
