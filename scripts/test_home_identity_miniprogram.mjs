@@ -1,30 +1,51 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import test from 'node:test';
 
+const nodeRequire = createRequire(import.meta.url);
+const { resolveVolunteerServices } = nodeRequire('../apps/wechat-miniprogram/utils/volunteer-services.js');
 const template = readFileSync(new URL('../apps/wechat-miniprogram/pages/home/index.wxml', import.meta.url), 'utf8');
 const enrollmentCondition = template.match(/wx:if="{{([^}]+)}}" class="section-card enrollment-card"/)[1];
 const studyCondition = template.match(/wx:if="{{([^}]+)}}" class="primary-button" bindtap="openStudyMeeting"/)[1];
 const visible = (condition, data) => vm.runInNewContext(condition, data);
 const failure = statusCode => Object.assign(new Error('test failure'), { statusCode });
 const member = { member_id: 42, name_masked: '测*长', class_name: '测试班', study_group_name: '第一小组' };
-const assignment = position_name => ({ group_org_unit_id: 'group-one', group_name: '第一小组', class_name: '测试班', position_name });
+const assignment = position_name => ({
+  position_key: `test-${position_name}`,
+  position_name,
+  scope_level: 'GROUP',
+  scope_type: 'UNIT',
+  scope_org_unit_id: 'group-one',
+  scope_name: '第一小组',
+  capabilities: ['STUDY_MEETING_MANAGE']
+});
 
-function harness({ bound = false, assignments = [], meError, contextError, meResponse, contextResponse } = {}) {
+function harness({ bound = false, assignments = [], meError, serviceError, meResponse, serviceResponse } = {}) {
   const calls = [];
   const app = { globalData: { memberSessionToken: bound ? 'synthetic-session' : '' }, clearMemberSession() { this.globalData.memberSessionToken = ''; } };
   const request = async path => {
     calls.push(path);
     if (path.endsWith('/me')) { if (meError) throw meError; return meResponse ? meResponse() : { data: { member } }; }
-    if (path.endsWith('/context')) { if (contextError) throw contextError; return contextResponse ? contextResponse() : { data: { assignments } }; }
+    if (path.endsWith('/volunteer-services')) {
+      if (serviceError) throw serviceError;
+      return serviceResponse
+        ? serviceResponse()
+        : { data: { is_volunteer: assignments.length > 0, roles: assignments } };
+    }
     if (path.endsWith('/revoke')) return { success: true };
     return { data: { enrollment_entry: { handoff_token: 'synthetic-handoff' } } };
   };
   let page;
   const wx = { navigateTo: data => calls.push(data.url), showToast() {}, showModal: options => { page.modal = options; } };
   vm.runInNewContext(readFileSync(new URL('../apps/wechat-miniprogram/pages/home/index.js', import.meta.url), 'utf8'), {
-    Page: definition => { page = definition; }, getApp: () => app, require: () => ({ request }), wx
+    Page: definition => { page = definition; },
+    getApp: () => app,
+    require: modulePath => modulePath.includes('volunteer-services')
+      ? { resolveVolunteerServices }
+      : { request },
+    wx
   });
   page.setData = values => Object.assign(page.data, values);
   return { page, app, calls };
@@ -57,9 +78,9 @@ for (const label of ['组长', '辅导员']) {
   });
 }
 
-for (const contextError of [undefined, failure(403), failure(404), failure(500)]) {
-  test(`ordinary member or unavailable context ${contextError?.statusCode || 'empty'} stays bound with neither action`, async () => {
-    const { page, app, calls } = harness({ bound: true, contextError });
+for (const serviceError of [undefined, failure(403), failure(404), failure(500)]) {
+  test(`ordinary member or unavailable volunteer service ${serviceError?.statusCode || 'empty'} stays bound with neither action`, async () => {
+    const { page, app, calls } = harness({ bound: true, serviceError });
     await page.loadHome();
     assert.equal(page.data.identityState, 'bound');
     assert.equal(page.data.member.member_id, 42);
@@ -93,18 +114,18 @@ test('401 clears revoked/expired session, network and server errors do not misid
 });
 
 test('identity resolves before context and slow old responses cannot resurrect revoked identity', async () => {
-  let releaseContext;
-  let reachedContext;
-  const reached = new Promise(resolve => { reachedContext = resolve; });
-  const context = new Promise(resolve => { releaseContext = resolve; });
-  const { page } = harness({ bound: true, contextResponse: () => { reachedContext(); return context; } });
+  let releaseService;
+  let reachedService;
+  const reached = new Promise(resolve => { reachedService = resolve; });
+  const service = new Promise(resolve => { releaseService = resolve; });
+  const { page } = harness({ bound: true, serviceResponse: () => { reachedService(); return service; } });
   const loading = page.loadHome();
   await reached;
   assert.equal(page.data.identityState, 'bound');
   assert.equal(visible(enrollmentCondition, page.data), false);
   page.unbind();
   await page.modal.success({ confirm: true });
-  releaseContext({ data: { assignments: [assignment('组长')] } });
+  releaseService({ data: { is_volunteer: true, roles: [assignment('组长')] } });
   await loading;
   assert.equal(page.data.identityState, 'unbound');
   assert.equal(visible(studyCondition, page.data), false);
