@@ -10,6 +10,7 @@ fields are intentionally never converted automatically.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -22,7 +23,12 @@ from app.services.iam import accessible_org_ids
 
 STUDY_MEETING_MANAGE = "STUDY_MEETING_MANAGE"
 MEMBER_ADMIN_MANUAL_SOURCE = "MEMBER_ADMIN_MANUAL"
+MEMBER_ADMIN_CURRENT_SERVICE_SOURCE = "MEMBER_ADMIN_CURRENT_SERVICE"
 MEMBER_APPOINTMENT_DEFAULT_PURPOSE = "学员管理手工添加正式志工任职"
+_MEMBER_ADMIN_MANAGED_SOURCES = {
+    MEMBER_ADMIN_MANUAL_SOURCE,
+    MEMBER_ADMIN_CURRENT_SERVICE_SOURCE,
+}
 CAPABILITY_NAMES = {
     STUDY_MEETING_MANAGE: "登记小组学习会",
 }
@@ -98,6 +104,17 @@ POSITION_DEFAULTS: dict[str, dict[str, Any]] = {
     },
 }
 
+# These umbrella labels are retained for legacy identity/appointment reads,
+# but they are not actionable choices in the learner editor's current-service
+# selector.  Concrete positions such as "辅导员" remain available.
+CURRENT_VOLUNTEER_HIDDEN_POSITION_KEYS = frozenset(
+    {
+        "volunteer_regional_service",
+        "volunteer_class_committee",
+        "volunteer_group_committee",
+    }
+)
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
@@ -108,6 +125,21 @@ def _db_timestamp(connection) -> str:
     if isinstance(connection, sqlite3.Connection):
         return current.isoformat()
     return current.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _appointment_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+    return (
+        parsed.replace(tzinfo=UTC)
+        if parsed.tzinfo is None
+        else parsed.astimezone(UTC)
+    )
 
 
 def _write_gate(*, write: bool = False) -> None:
@@ -149,6 +181,263 @@ def _fallback_position(position_key: str) -> dict[str, Any] | None:
     }
 
 
+def _empty_current_volunteer_position(
+    member_id: int,
+    *,
+    needs_manual_review: bool = False,
+    review_message: str | None = None,
+) -> dict[str, Any]:
+    """Return the privacy-safe, explicit ordinary-learner representation."""
+
+    return {
+        "member_id": member_id,
+        "is_volunteer": False,
+        "position_key": None,
+        "position_name": None,
+        "scope_level": None,
+        "scope_type": None,
+        "scope_org_unit_id": None,
+        "org_unit_id": None,
+        "scope_name": None,
+        "capabilities": [],
+        "capability_names": [],
+        "source_reference": None,
+        "appointment_id": None,
+        "starts_at": None,
+        "ends_at": None,
+        "needs_manual_review": needs_manual_review,
+        "review_message": review_message,
+    }
+
+
+def _position_summary(
+    row: dict[str, Any], position: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Map an appointment to the current-service vocabulary used by API/UI."""
+
+    position = position or get_volunteer_position(row["appointment_key"])
+    position_active = bool(position and position.get("is_active", True))
+    position_name = (
+        row.get("position_name")
+        or (position or {}).get("position_name")
+        or row["appointment_key"]
+    )
+    scope_level = row.get("scope_level") or (position or {}).get("scope_level")
+    capabilities = (
+        list((position or {}).get("capabilities", [])) if position_active else []
+    )
+    return {
+        "appointment_id": int(row["id"]),
+        "member_id": row.get("member_id"),
+        "is_volunteer": True,
+        "position_key": row["appointment_key"],
+        "position_name": position_name,
+        "scope_level": scope_level,
+        "scope_type": row.get("scope_type"),
+        "scope_org_unit_id": row.get("org_unit_id"),
+        "org_unit_id": row.get("org_unit_id"),
+        "scope_name": row.get("scope_name"),
+        "capabilities": capabilities,
+        "capability_names": [CAPABILITY_NAMES.get(key, key) for key in capabilities],
+        "source_reference": row.get("source_reference"),
+        "starts_at": row.get("starts_at"),
+        "ends_at": row.get("ends_at"),
+        "status": row.get("status"),
+    }
+
+
+def _effective_current_appointments(
+    connection, member_id: int
+) -> list[dict[str, Any]]:
+    """Read ACTIVE, currently effective appointments without using old text fields."""
+
+    now_value = datetime.now(UTC)
+    try:
+        rows = [
+            dict(row)
+            for row in execute(
+                connection,
+                "SELECT va.id, va.person_id, mi.member_id, va.appointment_key, "
+                "va.org_unit_id, va.scope_type, va.starts_at, va.ends_at, va.status, "
+                "va.source_reference, va.created_at, va.updated_at, "
+                "c.position_name, c.scope_level, o.name AS scope_name, "
+                "o.unit_type AS scope_org_unit_type "
+                "FROM member_identities mi "
+                "JOIN person_profiles pp ON pp.id=mi.person_id "
+                "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
+                "LEFT JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
+                "LEFT JOIN org_units o ON o.id=va.org_unit_id "
+                "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
+                "AND va.status='ACTIVE' "
+                "ORDER BY va.starts_at DESC, va.id DESC",
+                (member_id,),
+            ).fetchall()
+        ]
+    except Exception as exc:
+        # The catalog was introduced after the appointment table. Keep the
+        # current-service reader safe during a rolling schema deployment.
+        message = str(exc).lower()
+        if "volunteer_position_catalog" not in message and "no such table" not in message and "doesn't exist" not in message:
+            raise
+        rows = [
+            dict(row)
+            for row in execute(
+                connection,
+                "SELECT va.id, va.person_id, mi.member_id, va.appointment_key, "
+                "va.org_unit_id, va.scope_type, va.starts_at, va.ends_at, va.status, "
+                "va.source_reference, va.created_at, va.updated_at, "
+                "o.name AS scope_name, o.unit_type AS scope_org_unit_type "
+                "FROM member_identities mi "
+                "JOIN person_profiles pp ON pp.id=mi.person_id "
+                "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
+                "LEFT JOIN org_units o ON o.id=va.org_unit_id "
+                "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
+                "AND va.status='ACTIVE' "
+                "ORDER BY va.starts_at DESC, va.id DESC",
+                (member_id,),
+            ).fetchall()
+        ]
+    rows = [
+        row
+        for row in rows
+        if (start := _appointment_datetime(row.get("starts_at"))) is not None
+        and start <= now_value
+        and (
+            row.get("ends_at") is None
+            or (
+                (end := _appointment_datetime(row.get("ends_at"))) is not None
+                and end >= now_value
+            )
+        )
+    ]
+    for row in rows:
+        position = get_volunteer_position(row["appointment_key"], connection)
+        if position:
+            row["position_name"] = row.get("position_name") or position["position_name"]
+            row["scope_level"] = row.get("scope_level") or position["scope_level"]
+        row["current_summary"] = _position_summary(row, position)
+    return rows
+
+
+def _manual_review_payload(
+    member_id: int, appointments: list[dict[str, Any]]
+) -> dict[str, Any]:
+    payload = _empty_current_volunteer_position(
+        member_id,
+        needs_manual_review=True,
+        review_message="当前存在多个有效志工岗位，请先人工确认主要岗位。",
+    )
+    payload["is_volunteer"] = bool(appointments)
+    payload["active_appointments"] = [
+        {
+            "appointment_id": item["id"],
+            "position_key": item["appointment_key"],
+            "position_name": item["current_summary"]["position_name"],
+            "scope_org_unit_id": item.get("org_unit_id"),
+            "scope_name": item.get("scope_name"),
+            "source_reference": item.get("source_reference"),
+        }
+        for item in appointments
+    ]
+    return payload
+
+
+def read_member_current_volunteer_position(
+    member_id: int, connection=None
+) -> dict[str, Any]:
+    """Resolve the one current service position for member edit/profile views."""
+
+    if not get_settings().identity_authorization_enabled:
+        return _empty_current_volunteer_position(member_id)
+    context = nullcontext(connection) if connection is not None else transaction()
+    try:
+        with context as current_connection:
+            appointments = _effective_current_appointments(current_connection, member_id)
+            if len(appointments) > 1:
+                return _manual_review_payload(member_id, appointments)
+            if not appointments:
+                return _empty_current_volunteer_position(member_id)
+            result = dict(appointments[0]["current_summary"])
+            result["member_id"] = member_id
+            result["needs_manual_review"] = False
+            result["review_message"] = None
+            return result
+    except Exception as exc:
+        message = str(exc).lower()
+        if "no such table" not in message and "doesn't exist" not in message:
+            raise
+        return _empty_current_volunteer_position(member_id)
+
+
+def get_member_volunteer_services(member_id: int) -> dict[str, Any]:
+    """Return current volunteer roles and capabilities independently of study meetings."""
+
+    if not get_settings().identity_authorization_enabled:
+        return {
+            "member_id": member_id,
+            "is_volunteer": False,
+            "roles": [],
+            "needs_manual_review": False,
+            "review_message": None,
+        }
+    with transaction() as connection:
+        appointments = _effective_current_appointments(connection, member_id)
+    if len(appointments) > 1:
+        review = _manual_review_payload(member_id, appointments)
+        roles = [
+            {
+                key: value
+                for key, value in item["current_summary"].items()
+                if key
+                in {
+                    "position_key",
+                    "position_name",
+                    "scope_level",
+                    "scope_type",
+                    "scope_org_unit_id",
+                    "org_unit_id",
+                    "scope_name",
+                    "capabilities",
+                    "capability_names",
+                }
+            }
+            for item in appointments
+        ]
+        return {
+            "member_id": member_id,
+            "is_volunteer": True,
+            "roles": roles,
+            "needs_manual_review": True,
+            "review_message": review["review_message"],
+        }
+    roles = [
+        {
+            key: value
+            for key, value in item["current_summary"].items()
+            if key
+            in {
+                "position_key",
+                "position_name",
+                "scope_level",
+                "scope_type",
+                "scope_org_unit_id",
+                "org_unit_id",
+                "scope_name",
+                "capabilities",
+                "capability_names",
+            }
+        }
+        for item in appointments
+    ]
+    return {
+        "member_id": member_id,
+        "is_volunteer": bool(roles),
+        "roles": roles,
+        "needs_manual_review": False,
+        "review_message": None,
+    }
+
+
 def _catalog_rows(connection=None, *, active_only: bool = True) -> list[dict[str, Any]]:
     try:
         if connection is None:
@@ -184,21 +473,34 @@ def _catalog_rows(connection=None, *, active_only: bool = True) -> list[dict[str
         # hide arbitrary database failures once the table is present.
         if "no such table" not in str(exc).lower() and "doesn't exist" not in str(exc).lower():
             raise
-        return [
-            _fallback_position(key)
-            for key in POSITION_DEFAULTS
-            if not active_only or _fallback_position(key)
-        ]
+        fallback_rows = []
+        for key in POSITION_DEFAULTS:
+            if active_only and key in CURRENT_VOLUNTEER_HIDDEN_POSITION_KEYS:
+                continue
+            position = _fallback_position(key)
+            if position is not None:
+                fallback_rows.append(position)
+        return fallback_rows
     by_key: dict[str, list[str]] = {}
     for capability in capabilities:
         by_key.setdefault(capability["position_key"], []).append(
             capability["capability_key"]
         )
+    if active_only:
+        rows = [
+            row
+            for row in rows
+            if row["position_key"] not in CURRENT_VOLUNTEER_HIDDEN_POSITION_KEYS
+        ]
     return [_row_to_position(row, by_key.get(row["position_key"], [])) for row in rows]
 
 
 def list_volunteer_positions(*, active_only: bool = True) -> list[dict[str, Any]]:
-    """Return operator-facing position definitions without technical IAM roles."""
+    """Return operator-facing positions, hiding non-actionable umbrella labels.
+
+    ``active_only=False`` is intentionally retained for identity and historical
+    reads, so hiding a selector option does not delete or rewrite old records.
+    """
 
     _write_gate()
     return _catalog_rows(active_only=active_only)
@@ -240,7 +542,8 @@ def validate_position_target(
     unit_type = str(unit["unit_type"] or "").upper()
     level = position["scope_level"]
     if level in {"CLASS", "GROUP"}:
-        if unit_type != level:
+        class_like = level == "CLASS" and unit_type in {"CLASS", "SPECIAL_COHORT"}
+        if not (class_like or unit_type == level):
             label = "班级" if level == "CLASS" else "小组"
             raise ValueError(f"{position['position_name']}只能服务{label}")
         if normalized_scope != "UNIT":
@@ -432,6 +735,326 @@ def _parse_term(
     return start, end
 
 
+def _member_current_scope(
+    connection, member_id: int, position: dict[str, Any]
+) -> dict[str, Any]:
+    """Derive a current service target only from formal member relations."""
+
+    now = _db_timestamp(connection)
+    level = position["scope_level"]
+    if level == "GROUP":
+        row = execute(
+            connection,
+            "SELECT r.org_unit_id, o.name AS org_name, o.unit_type "
+            "FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id "
+            "WHERE r.member_id=? AND r.relation_type='STUDY_GROUP' "
+            "AND o.unit_type='GROUP' AND o.is_active=1 "
+            "AND (r.valid_from IS NULL OR r.valid_from<=?) "
+            "AND (r.valid_until IS NULL OR r.valid_until>=?) "
+            "ORDER BY r.is_primary DESC, r.id DESC LIMIT 1",
+            (member_id, now, now),
+        ).fetchone()
+        if not row:
+            raise ValueError(
+                f"无法设置“{position['position_name']}”：该学长尚未关联正式小组，请先维护班级/小组。"
+            )
+    elif level == "CLASS":
+        row = execute(
+            connection,
+            "SELECT r.org_unit_id, o.name AS org_name, o.unit_type "
+            "FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id "
+            "WHERE r.member_id=? AND r.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
+            "AND o.unit_type IN ('CLASS','SPECIAL_COHORT') AND o.is_active=1 "
+            "AND (r.valid_from IS NULL OR r.valid_from<=?) "
+            "AND (r.valid_until IS NULL OR r.valid_until>=?) "
+            "ORDER BY r.is_primary DESC, r.id DESC LIMIT 1",
+            (member_id, now, now),
+        ).fetchone()
+        if not row:
+            raise ValueError(
+                f"无法设置“{position['position_name']}”：该学长尚未关联正式班级，请先维护班级/小组。"
+            )
+    else:
+        row = execute(
+            connection,
+            "SELECT r.org_unit_id, o.name AS org_name, o.unit_type "
+            "FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id "
+            "WHERE r.member_id=? AND r.relation_type='PRIMARY_REGION' "
+            "AND o.unit_type='REGIONAL_CENTER' AND o.is_active=1 "
+            "AND (r.valid_from IS NULL OR r.valid_from<=?) "
+            "AND (r.valid_until IS NULL OR r.valid_until>=?) "
+            "ORDER BY r.is_primary DESC, r.id DESC LIMIT 1",
+            (member_id, now, now),
+        ).fetchone()
+        if not row:
+            row = execute(
+                connection,
+                "SELECT m.org_unit_id, o.name AS org_name, o.unit_type "
+                "FROM members m JOIN org_units o ON o.id=m.org_unit_id "
+                "WHERE m.id=? AND o.unit_type='REGIONAL_CENTER' AND o.is_active=1",
+                (member_id,),
+            ).fetchone()
+        if not row:
+            raise ValueError(
+                f"无法设置“{position['position_name']}”：该学长尚未关联正式分中心，请先维护分中心。"
+            )
+    target = validate_position_target(
+        connection,
+        position_key=position["position_key"],
+        org_unit_id=row["org_unit_id"],
+        scope_type="UNIT",
+    )
+    return {
+        "org_unit_id": row["org_unit_id"],
+        "org_name": row["org_name"],
+        "unit_type": row["unit_type"],
+        "scope_type": target["scope_type"],
+    }
+
+
+def _end_current_appointment(
+    connection,
+    appointment: dict[str, Any],
+    *,
+    actor_user_id: int,
+    member_id: int,
+    reason: str,
+) -> str:
+    now = _db_timestamp(connection)
+    execute(
+        connection,
+        "UPDATE volunteer_appointments SET status='ENDED', ends_at=?, updated_at=? WHERE id=?",
+        (now, now, appointment["id"]),
+    )
+    write_audit(
+        connection,
+        actor_user_id=actor_user_id,
+        action="identity.volunteer_appointment.status_change",
+        resource_type="volunteer_appointment",
+        resource_id=str(appointment["id"]),
+        org_unit_id=appointment.get("org_unit_id"),
+        purpose=reason,
+        before={
+            "status": appointment.get("status"),
+            "ends_at": appointment.get("ends_at"),
+        },
+        after={
+            "status": "ENDED",
+            "ends_at": now,
+            "member_id": member_id,
+            "position_key": appointment.get("appointment_key"),
+        },
+    )
+    return now
+
+
+def set_member_current_volunteer_position(
+    actor_user_id: int,
+    member_id: int,
+    position_key: str | None,
+    *,
+    connection=None,
+) -> dict[str, Any]:
+    """Set the single operator-managed current volunteer position.
+
+    The appointment history remains the source of truth.  A null position
+    explicitly ends the operator-managed current appointment and never creates
+    an ordinary-learner placeholder or converts the legacy free-text field.
+    """
+
+    _write_gate(write=True)
+    normalized_key = (position_key or "").strip() or None
+    context = nullcontext(connection) if connection is not None else transaction()
+    with context as current_connection:
+        member_row = execute(
+            current_connection,
+            "SELECT id, name, org_unit_id, status FROM members WHERE id=?",
+            (member_id,),
+        ).fetchone()
+        if not member_row:
+            raise ValueError("学员不存在")
+        member = dict(member_row)
+        if member["status"] != "ACTIVE":
+            raise ValueError("仅可为在册学员维护当前志工岗位")
+        _ensure_member_scope(actor_user_id, member)
+        appointments = _effective_current_appointments(current_connection, member_id)
+        if len(appointments) > 1:
+            raise ValueError("当前存在多个有效志工岗位，请先人工确认主要岗位")
+        existing = appointments[0] if appointments else None
+        if existing and existing.get("source_reference") not in _MEMBER_ADMIN_MANAGED_SOURCES:
+            raise ValueError("当前志工岗位来自其他来源，请先人工核对后再维护")
+
+        before = (
+            dict(existing["current_summary"])
+            if existing
+            else _empty_current_volunteer_position(member_id)
+        )
+        if not normalized_key:
+            if existing:
+                _end_current_appointment(
+                    current_connection,
+                    existing,
+                    actor_user_id=actor_user_id,
+                    member_id=member_id,
+                    reason="学员管理明确取消当前志工岗位",
+                )
+                cleared = _empty_current_volunteer_position(member_id)
+                cleared["source"] = MEMBER_ADMIN_CURRENT_SERVICE_SOURCE
+                write_audit(
+                    current_connection,
+                    actor_user_id=actor_user_id,
+                    action="members.current_volunteer_position.update",
+                    resource_type="member",
+                    resource_id=str(member_id),
+                    org_unit_id=member["org_unit_id"],
+                    purpose="学员管理维护当前志工岗位",
+                    before=before,
+                    after=cleared,
+                )
+            return _empty_current_volunteer_position(member_id)
+
+        position = get_volunteer_position(normalized_key, current_connection)
+        if not position or not position["is_active"]:
+            raise ValueError("未知或已停用的志工岗位")
+        target = _member_current_scope(current_connection, member_id, position)
+        if (
+            existing
+            and existing["appointment_key"] == normalized_key
+            and existing["org_unit_id"] == target["org_unit_id"]
+            and existing.get("scope_type") == target["scope_type"]
+            and existing.get("source_reference") == MEMBER_ADMIN_CURRENT_SERVICE_SOURCE
+        ):
+            result = dict(existing["current_summary"])
+            result["member_id"] = member_id
+            result["needs_manual_review"] = False
+            result["review_message"] = None
+            return result
+
+        person_id = (
+            existing["person_id"]
+            if existing
+            else _member_person(
+                current_connection,
+                member_id,
+                actor_user_id=actor_user_id,
+                source=MEMBER_ADMIN_CURRENT_SERVICE_SOURCE,
+            )
+        )
+        if existing:
+            _end_current_appointment(
+                current_connection,
+                existing,
+                actor_user_id=actor_user_id,
+                member_id=member_id,
+                reason="学员管理更新当前志工岗位",
+            )
+        starts_at = _db_timestamp(current_connection)
+        appointment_id = _insert_appointment(
+            current_connection,
+            person_id=person_id,
+            member_id=member_id,
+            actor_user_id=actor_user_id,
+            position_key=normalized_key,
+            org_unit_id=target["org_unit_id"],
+            scope_type=target["scope_type"],
+            starts_at=starts_at,
+            ends_at=None,
+            source_reference=MEMBER_ADMIN_CURRENT_SERVICE_SOURCE,
+            confirmation_note="学员管理维护当前志工岗位",
+        )
+        after = {
+            "appointment_id": appointment_id,
+            "member_id": member_id,
+            "is_volunteer": True,
+            "position_key": normalized_key,
+            "position_name": position["position_name"],
+            "scope_level": position["scope_level"],
+            "scope_type": target["scope_type"],
+            "scope_org_unit_id": target["org_unit_id"],
+            "org_unit_id": target["org_unit_id"],
+            "scope_name": target["org_name"],
+            "capabilities": list(position.get("capabilities", [])),
+            "capability_names": list(position.get("capability_names", [])),
+            "source_reference": MEMBER_ADMIN_CURRENT_SERVICE_SOURCE,
+            "source": MEMBER_ADMIN_CURRENT_SERVICE_SOURCE,
+            "starts_at": starts_at,
+            "ends_at": None,
+            "status": "ACTIVE",
+            "needs_manual_review": False,
+            "review_message": None,
+        }
+        write_audit(
+            current_connection,
+            actor_user_id=actor_user_id,
+            action="members.current_volunteer_position.update",
+            resource_type="member",
+            resource_id=str(member_id),
+            org_unit_id=target["org_unit_id"],
+            purpose="学员管理维护当前志工岗位",
+            before=before,
+            after=after,
+        )
+        return after
+
+
+def sync_member_current_volunteer_scope(
+    connection, actor_user_id: int, member_id: int
+) -> dict[str, Any] | None:
+    """Follow a current-service appointment when formal org relations move."""
+
+    settings = get_settings()
+    if (
+        not settings.identity_authorization_enabled
+        or not settings.identity_admin_writes_enabled
+        or (settings.is_production and not settings.allow_production_mutations)
+    ):
+        return None
+    appointments = _effective_current_appointments(connection, member_id)
+    if len(appointments) != 1:
+        if len(appointments) > 1:
+            raise ValueError("当前存在多个有效志工岗位，请先人工确认主要岗位")
+        return None
+    existing = appointments[0]
+    if existing.get("source_reference") not in _MEMBER_ADMIN_MANAGED_SOURCES:
+        return _position_summary(existing)
+    position = get_volunteer_position(existing["appointment_key"], connection)
+    if not position or not position["is_active"]:
+        return _position_summary(existing)
+    target = _member_current_scope(connection, member_id, position)
+    before = dict(existing["current_summary"])
+    if (
+        existing["org_unit_id"] == target["org_unit_id"]
+        and existing.get("scope_type") == target["scope_type"]
+    ):
+        return before
+    now = _db_timestamp(connection)
+    execute(
+        connection,
+        "UPDATE volunteer_appointments SET org_unit_id=?, scope_type=?, updated_at=? WHERE id=?",
+        (target["org_unit_id"], target["scope_type"], now, existing["id"]),
+    )
+    after = {
+        **before,
+        "scope_org_unit_id": target["org_unit_id"],
+        "org_unit_id": target["org_unit_id"],
+        "scope_name": target["org_name"],
+        "scope_type": target["scope_type"],
+        "source": existing.get("source_reference"),
+    }
+    write_audit(
+        connection,
+        actor_user_id=actor_user_id,
+        action="members.current_volunteer_scope.sync",
+        resource_type="volunteer_appointment",
+        resource_id=str(existing["id"]),
+        org_unit_id=target["org_unit_id"],
+        purpose="正式班级/小组/分中心关系变更后自动同步当前志工服务范围",
+        before=before,
+        after=after,
+    )
+    return after
+
+
 def create_member_volunteer_appointment(
     actor_user_id: int,
     member_id: int,
@@ -580,11 +1203,18 @@ def change_member_volunteer_appointment_status(
         if appointment["status"] in {"ENDED", "REVOKED"}:
             raise ValueError("该任职已经结束，不能再次变更")
         now = _db_timestamp(connection)
-        execute(
-            connection,
-            "UPDATE volunteer_appointments SET status=?, updated_at=? WHERE id=?",
-            (normalized_status, now, appointment_id),
-        )
+        if normalized_status in {"ENDED", "REVOKED"}:
+            execute(
+                connection,
+                "UPDATE volunteer_appointments SET status=?, ends_at=?, updated_at=? WHERE id=?",
+                (normalized_status, now, now, appointment_id),
+            )
+        else:
+            execute(
+                connection,
+                "UPDATE volunteer_appointments SET status=?, updated_at=? WHERE id=?",
+                (normalized_status, now, appointment_id),
+            )
         write_audit(
             connection,
             actor_user_id=actor_user_id,
@@ -599,6 +1229,7 @@ def change_member_volunteer_appointment_status(
                 "member_id": member_id,
                 "position_key": appointment["appointment_key"],
                 "position_name": appointment["position_name"],
+                "ends_at": now if normalized_status in {"ENDED", "REVOKED"} else appointment.get("ends_at"),
             },
         )
     return {"id": appointment_id, "member_id": member_id, "status": normalized_status}

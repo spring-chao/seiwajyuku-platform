@@ -10,11 +10,18 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.core.privacy import decrypt_text, encrypt_text, normalize_phone, phone_hash, protected_phone
+from app.core.settings import get_settings
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
 from app.services.organization_policy import is_valid_member_class_parent
 from app.services.renewals import maybe_create_historical_cycle
+from app.services.volunteer_positions import (
+    MEMBER_ADMIN_CURRENT_SERVICE_SOURCE,
+    read_member_current_volunteer_position,
+    set_member_current_volunteer_position,
+    sync_member_current_volunteer_scope,
+)
 
 
 # Class and group names are presentation fields derived from the organization
@@ -429,12 +436,13 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         raise ValueError("至少提供一项需要修改的字段")
     allowed_fields = {
         "name", "status", "phone", "company_name", "notes",
-        "gender", "district", "company_address", "class_committee_name", "birthday", "join_date",
+        "gender", "district", "company_address", "birthday", "join_date",
         "study_start_date", "membership_years", "renewal_month", "renewal_month_overridden", "position",
         "referrer", "referrer_center", "industry_category", "industry",
         "company_products", "annual_sales", "employee_count", "company_size", "profit_margin",
         "org_unit_id", "development_org_unit_id", "class_org_unit_id",
         "group_org_unit_id",
+        "current_volunteer_position_key",
     }
     unknown = set(updates) - allowed_fields
     if unknown:
@@ -487,6 +495,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     relation_by_type = {row["relation_type"]: row["org_unit_id"] for row in relations}
     class_key_changed = "class_org_unit_id" in updates
     group_key_changed = "group_org_unit_id" in updates
+    current_volunteer_update_requested = "current_volunteer_position_key" in updates
     target_class = (
         updates.get("class_org_unit_id")
         if class_key_changed
@@ -644,6 +653,10 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     if financial_update_requested:
         column_values["enterprise_financial_ciphertext"] = financial_ciphertext
     column_values["updated_at"] = now
+    relation_scope_changed = bool(
+        {"org_unit_id", "class_org_unit_id", "group_org_unit_id"}.intersection(updates)
+    )
+    current_volunteer_service: dict[str, Any] | None = None
     with transaction() as connection:
         assignments = ", ".join(f"{key}=?" for key in column_values)
         execute(
@@ -694,6 +707,35 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
                     "source_type='MEMBER_UPDATE', updated_at=? WHERE id=?",
                     (now, now, existing["id"]),
                 )
+        settings = get_settings()
+        if current_volunteer_update_requested:
+            requested_position_key = updates.get("current_volunteer_position_key")
+            if not settings.identity_authorization_enabled:
+                if requested_position_key:
+                    raise PermissionError("身份与任职功能尚未启用")
+            else:
+                current_volunteer_service = read_member_current_volunteer_position(
+                    member_id, connection=connection
+                )
+                current_position_key = current_volunteer_service.get("position_key")
+                requested_key = (requested_position_key or "").strip() or None
+                if (
+                    requested_key != current_position_key
+                    or current_volunteer_service.get("needs_manual_review")
+                    or relation_scope_changed
+                    or current_volunteer_service.get("source_reference")
+                    != MEMBER_ADMIN_CURRENT_SERVICE_SOURCE
+                ):
+                    current_volunteer_service = set_member_current_volunteer_position(
+                        actor_user_id,
+                        member_id,
+                        requested_position_key,
+                        connection=connection,
+                    )
+        elif relation_scope_changed:
+            current_volunteer_service = sync_member_current_volunteer_scope(
+                connection, actor_user_id, member_id
+            )
         protected_columns = {
             "phone_ciphertext", "phone_hash", "phone_last4",
             "enterprise_financial_ciphertext",
@@ -710,6 +752,8 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
             "class_org_unit_id": target_class,
             "group_org_unit_id": target_group,
         }
+        if current_volunteer_service is not None:
+            after["current_volunteer_position"] = current_volunteer_service
         execute(
             connection,
             "INSERT INTO member_change_history(member_id, change_type, before_json, after_json, changed_by, changed_at) "
@@ -735,6 +779,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
                 "phone_masked": after["phone_masked"],
                 "changed_fields": sorted(updates),
                 "financial_fields_changed": financial_update_requested,
+                "current_volunteer_position": current_volunteer_service,
             },
         )
         if renewal_fields_touched:
@@ -1195,6 +1240,7 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
         if group_org_id
         else None
     )
+    current_volunteer = read_member_current_volunteer_position(member_id)
     with transaction() as connection:
         write_audit(
             connection,
@@ -1218,6 +1264,18 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
             "class_org_name": class_org["name"] if class_org else None,
             "group_org_unit_id": group_org_id,
             "group_org_name": group_org["name"] if group_org else None,
+            "current_volunteer_position_key": current_volunteer.get("position_key"),
+            "current_volunteer_position_name": current_volunteer.get("position_name"),
+            "current_volunteer_scope_level": current_volunteer.get("scope_level"),
+            "current_volunteer_scope_org_unit_id": current_volunteer.get(
+                "scope_org_unit_id"
+            ),
+            "current_volunteer_scope_name": current_volunteer.get("scope_name"),
+            "current_volunteer_is_volunteer": current_volunteer.get("is_volunteer", False),
+            "current_volunteer_needs_manual_review": current_volunteer.get(
+                "needs_manual_review", False
+            ),
+            "current_volunteer_review_message": current_volunteer.get("review_message"),
             "annual_sales": financial_data.get("annual_sales"),
             "profit_margin": financial_data.get("profit_margin"),
             "financial_fields_editable": financial_fields_editable,

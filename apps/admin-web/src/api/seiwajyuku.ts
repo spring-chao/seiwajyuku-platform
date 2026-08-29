@@ -723,6 +723,14 @@ export type MemberEditProfile = {
   class_org_name?: string | null;
   group_org_unit_id?: string | null;
   group_org_name?: string | null;
+  current_volunteer_position_key?: string | null;
+  current_volunteer_position_name?: string | null;
+  current_volunteer_scope_level?: VolunteerPosition["scope_level"] | null;
+  current_volunteer_scope_org_unit_id?: string | null;
+  current_volunteer_scope_name?: string | null;
+  current_volunteer_is_volunteer?: boolean;
+  current_volunteer_needs_manual_review?: boolean;
+  current_volunteer_review_message?: string | null;
   annual_sales?: string | null;
   employee_count?: number | null;
   profit_margin?: string | null;
@@ -1997,7 +2005,6 @@ export const updateMember = (
     gender?: string | null;
     district?: string | null;
     company_address?: string | null;
-    class_committee_name?: string | null;
     birthday?: string | null;
     join_date?: string | null;
     study_start_date?: string | null;
@@ -2019,6 +2026,7 @@ export const updateMember = (
     development_org_unit_id?: string | null;
     class_org_unit_id?: string | null;
     group_org_unit_id?: string | null;
+    current_volunteer_position_key?: string | null;
   }
 ) =>
   http.request<{ success: boolean; data: { id: number } }>(
