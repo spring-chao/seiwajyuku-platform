@@ -1,9 +1,9 @@
 <view class="page-shell">
   <view class="hero-card">
     <view class="eyebrow">盛和塾 · 学长服务</view>
-    <view class="hero-title">我的服务</view>
-    <view wx:if="{{member}}" class="hero-copy">{{member.name_masked}}，这里显示当前可用的服务。</view>
-    <view wx:else class="hero-copy">绑定正式学员身份后，可以查看可用服务。</view>
+    <view class="hero-title">志工服务</view>
+    <view wx:if="{{member}}" class="hero-copy">{{member.name_masked}}，这里显示你当前承担的志工服务。</view>
+    <view wx:else class="hero-copy">绑定正式学员身份后，可以查看当前志工服务。</view>
   </view>
 
   <view wx:if="{{loading}}" class="state-card">正在加载，请稍候…</view>
@@ -17,7 +17,7 @@
   </view>
 
   <block wx:if="{{!loading && member}}">
-    <view wx:if="{{canManageStudyMeeting}}" class="service-card" bindtap="openStudyMeeting">
+    <view wx:if="{{isVolunteer && canManageStudyMeeting}}" class="service-card" bindtap="openStudyMeeting">
       <view class="service-title">小组学习会登记</view>
       <view class="service-copy">登记本次学习会参加人员和课程</view>
       <view wx:if="{{serviceAssignments.length}}" class="service-scope">
@@ -25,9 +25,14 @@
       </view>
       <view class="service-arrow">进入服务 ›</view>
     </view>
+    <view wx:elif="{{isVolunteer}}" class="section-card empty-card">
+      <view class="section-title">当前志工岗位</view>
+      <view wx:for="{{serviceAssignments}}" wx:key="key" class="service-scope">{{item.positionName}} · {{item.scopeName}}</view>
+      <view class="empty-copy">当前暂无需要操作的线上服务。</view>
+    </view>
     <view wx:else class="section-card empty-card">
-      <view class="section-title">当前暂无开放服务</view>
-      <view class="empty-copy">有新的服务开放时，会在这里显示。</view>
+      <view class="section-title">当前暂无志工服务</view>
+      <view class="empty-copy">如承担新的志工岗位，服务会显示在这里。</view>
     </view>
   </block>
 

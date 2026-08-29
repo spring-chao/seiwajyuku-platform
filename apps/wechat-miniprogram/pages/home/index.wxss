@@ -14,6 +14,7 @@
 .plain-button { margin-top: 12rpx; border: 1rpx solid #d9c7c3; border-radius: 12rpx; color: #741f2b; background: #fff; font-size: 27rpx; }
 .entry-grid { display: flex; flex-wrap: wrap; justify-content: space-between; margin-top: 24rpx; }
 .entry-card { width: calc(50% - 10rpx); min-height: 178rpx; box-sizing: border-box; margin-bottom: 20rpx; padding: 24rpx 22rpx; border: 1rpx solid #eadbd5; border-radius: 22rpx; background: #fff; box-shadow: 0 8rpx 24rpx rgba(80, 35, 35, .06); }
+.entry-card-wide { width: 100%; }
 .entry-card-primary { border-color: #c7837b; background: linear-gradient(145deg, #fff8f4, #fff0ec); }
 .entry-icon { display: flex; align-items: center; justify-content: center; width: 58rpx; height: 58rpx; border-radius: 18rpx; background: #f7e7df; color: #741f2b; font-size: 30rpx; font-weight: 700; }
 .entry-card-primary .entry-icon { background: #741f2b; color: #fff; }

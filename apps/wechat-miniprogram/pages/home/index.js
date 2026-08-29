@@ -1,5 +1,6 @@
 const app = getApp();
 const { request } = require("../../utils/request");
+const { resolveVolunteerServices } = require("../../utils/volunteer-services");
 
 Page({
   data: {
@@ -8,6 +9,8 @@ Page({
     member: null,
     identityState: "checking",
     canManageStudyMeeting: false,
+    isVolunteer: false,
+    volunteerRoles: [],
     serviceMessage: "",
     displayRole: "",
     displayScope: "",
@@ -25,7 +28,8 @@ Page({
     this.setData({ loading: true, errorMessage: "", canManageStudyMeeting: false });
     const next = {
       portal: null, member: null, identityState: token ? "unknown" : "unbound",
-      canManageStudyMeeting: false, serviceMessage: "", displayRole: "", displayScope: ""
+      canManageStudyMeeting: false, isVolunteer: false, volunteerRoles: [],
+      serviceMessage: "", displayRole: "", displayScope: ""
     };
     if (token) {
       try {
@@ -38,24 +42,26 @@ Page({
         // again just because context is unavailable or the appointment ended.
         this.setData({ member: next.member, identityState: "bound", portal: null });
         next.displayScope = `${(next.member && next.member.class_name) || "暂未关联班级"} · ${(next.member && next.member.study_group_name) || "暂未关联小组"}`;
-        // Keep the home page human-readable while still resolving the current
-        // position from the server's capability/org-scope result.  The
-        // technical role keys never reach the UI.
+        // Volunteer identity is resolved independently from study-meeting
+        // context. The backend returns capabilities; technical role keys never
+        // reach the UI and study-meeting pages still enforce their own checks.
         try {
-          const contextResponse = await request("/api/v1/study-meetings/context", { auth: true });
-          const assignments = (contextResponse.data && contextResponse.data.assignments) || [];
-          next.canManageStudyMeeting = assignments.some(item => Boolean(item.group_org_unit_id));
-          const roles = [...new Set(assignments.map(item => item.position_name || "志工").filter(Boolean))];
-          next.displayRole = roles.join("、");
-          if (assignments.length === 1) {
-            const assignment = assignments[0];
-            next.displayScope = `${assignment.class_name || ""} · ${assignment.group_name || ""}`.replace(/^ · | · $/g, "");
-          } else if (assignments.length > 1) {
-            next.displayScope = `可登记 ${assignments.length} 个小组`;
+          const servicesResponse = await request("/api/v1/wechat/volunteer-services", { auth: true });
+          const serviceState = resolveVolunteerServices(servicesResponse.data);
+          next.volunteerRoles = serviceState.roles;
+          next.isVolunteer = serviceState.isVolunteer;
+          next.canManageStudyMeeting = serviceState.canManageStudyMeeting;
+          next.displayRole = [...new Set(serviceState.roles.map(item => item.position_name || "志工").filter(Boolean))].join("、");
+          if (next.isVolunteer && !next.canManageStudyMeeting) {
+            next.serviceMessage = "当前暂无需要操作的线上服务。";
           }
         } catch (error) {
-          if (error.statusCode !== 403 && error.statusCode !== 404) {
-            next.serviceMessage = "学习服务暂时无法加载，请重试。";
+          if (error.statusCode === 401) {
+            app.clearMemberSession();
+            next.identityState = "unbound";
+            next.member = null;
+          } else if (error.statusCode !== 403 && error.statusCode !== 404) {
+            next.errorMessage = "志工服务暂时无法加载，请重试。";
           }
         }
       } catch (error) {
@@ -115,7 +121,7 @@ Page({
   },
 
   openServices() {
-    if (this.data.identityState !== "bound") return;
+    if (this.data.identityState !== "bound" || !this.data.isVolunteer) return;
     wx.navigateTo({ url: "/pages/services/index" });
   },
 
@@ -135,7 +141,7 @@ Page({
           this._homeLoadVersion = (this._homeLoadVersion || 0) + 1;
           app.clearMemberSession();
           this.setData({ member: null, identityState: "unbound", canManageStudyMeeting: false,
-            displayRole: "", displayScope: "", serviceMessage: "" });
+            isVolunteer: false, volunteerRoles: [], displayRole: "", displayScope: "", serviceMessage: "" });
           wx.showToast({ title: "已解除绑定", icon: "success" });
           await this.loadHome();
         } catch (error) {
