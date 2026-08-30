@@ -23,6 +23,7 @@ import {
   getMemberTimeline,
   getMemberVolunteerAppointments,
   getVolunteerPositionCatalog,
+  applyLegacyVolunteerAdoption,
   previewLegacyVolunteerAdoption,
   createMemberVolunteerAppointment,
   changeMemberVolunteerAppointmentStatus,
@@ -97,6 +98,7 @@ const memberRosterFiles = ref<UploadUserFile[]>([]);
 const memberRosterImportResult = ref<MemberRosterImportPreview>();
 const legacyVolunteerPreviewVisible = ref(false);
 const legacyVolunteerPreviewLoading = ref(false);
+const legacyVolunteerApplyLoading = ref(false);
 const legacyVolunteerPreviewResult = ref<LegacyVolunteerAdoptionPreview>();
 const selectedOrg = ref("");
 const keyword = ref("");
@@ -109,6 +111,7 @@ const suppressEditDialogReturn = ref(false);
 const unassignedFilterValue = "__UNASSIGNED__";
 const fullOrgConfirmationText = "确认创建20个普通班和112个普通班小组";
 const memberRosterConfirmationText = "确认补充导入学员主档";
+const legacyVolunteerAdoptionConfirmationText = "确认批量承接历史志工岗位";
 const memberRosterReviewReasonLabels: Record<string, string> = {
   CENTER_NOT_UNIQUE: "分中心无法唯一匹配",
   DUPLICATE_PRODUCTION_PHONE: "生产档案手机号重复",
@@ -1295,6 +1298,52 @@ async function runLegacyVolunteerPreview() {
   }
 }
 
+async function applyLegacyVolunteerPreview() {
+  const preview = legacyVolunteerPreviewResult.value;
+  if (!preview || preview.auto_adoptable_count === 0) {
+    ElMessage.warning("当前预览没有可自动承接的记录");
+    return;
+  }
+  let confirmation = "";
+  try {
+    const prompt = await ElMessageBox.prompt(
+      `将仅承接当前预览中的 ${preview.auto_adoptable_count} 人，${preview.manual_review_count} 人仍保留在人工复核清单。执行前会重新校验预览指纹与每名学员状态。请输入：${legacyVolunteerAdoptionConfirmationText}`,
+      "确认批量承接历史志工岗位",
+      {
+        confirmButtonText: "执行批量承接",
+        cancelButtonText: "取消",
+        type: "warning",
+        inputValidator: value =>
+          value === legacyVolunteerAdoptionConfirmationText ||
+          "确认文字不完整，已禁止写入"
+      }
+    );
+    confirmation = prompt.value;
+  } catch {
+    return;
+  }
+
+  legacyVolunteerApplyLoading.value = true;
+  try {
+    const result = await applyLegacyVolunteerAdoption({
+      preview_fingerprint: preview.preview_fingerprint,
+      member_ids: preview.adoptable_member_ids,
+      confirmation
+    });
+    ElMessage.success(
+      `历史岗位承接完成：成功 ${result.data.adopted_count} 人，幂等或安全跳过 ${result.data.skipped_count} 人`
+    );
+    legacyVolunteerPreviewResult.value = (
+      await previewLegacyVolunteerAdoption()
+    ).data;
+    await load();
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    legacyVolunteerApplyLoading.value = false;
+  }
+}
+
 async function runFullClassPreflight() {
   const workbook = fullPreflightFiles.value[0]?.raw;
   if (!workbook) {
@@ -1644,11 +1693,19 @@ onMounted(async () => {
           <el-table-column prop="reason" label="复核原因" min-width="300" />
         </el-table>
         <p class="form-hint">
-          预览指纹：{{ legacyVolunteerPreviewResult.preview_fingerprint }}。请在确认前重新生成预览；本页面不提供生产批量写入按钮。
+          预览指纹：{{ legacyVolunteerPreviewResult.preview_fingerprint }}。执行时会重新校验指纹；人工复核记录不会写入。
         </p>
       </template>
       <template #footer>
         <el-button @click="legacyVolunteerPreviewVisible = false">关闭</el-button>
+        <el-button
+          type="danger"
+          :disabled="!legacyVolunteerPreviewResult?.auto_adoptable_count"
+          :loading="legacyVolunteerApplyLoading"
+          @click="applyLegacyVolunteerPreview"
+        >
+          承接当前预览中的明确记录
+        </el-button>
       </template>
     </el-dialog>
 

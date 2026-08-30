@@ -1937,6 +1937,21 @@ export const previewLegacyVolunteerAdoption = () =>
     data: LegacyVolunteerAdoptionPreview;
   }>("get", "/api/v1/volunteer-legacy-adoption/preview");
 
+export const applyLegacyVolunteerAdoption = (data: {
+  preview_fingerprint: string;
+  member_ids: number[];
+  confirmation: string;
+}) =>
+  http.request<{
+    success: boolean;
+    data: {
+      mode: "APPLIED";
+      requested_count: number;
+      adopted_count: number;
+      skipped_count: number;
+    };
+  }>("post", "/api/v1/volunteer-legacy-adoption/apply", { data });
+
 export const getMemberVolunteerAppointments = (memberId: number) =>
   http.request<{ success: boolean; data: MemberVolunteerAppointments }>(
     "get",
