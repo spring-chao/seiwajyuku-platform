@@ -25,8 +25,6 @@ import {
   getVolunteerPositionCatalog,
   applyLegacyVolunteerAdoption,
   previewLegacyVolunteerAdoption,
-  createMemberVolunteerAppointment,
-  changeMemberVolunteerAppointmentStatus,
   submitMemberServiceSignalFeedback,
   updateMember,
   previewDirectClassWorkbook,
@@ -46,6 +44,12 @@ import {
   type VolunteerPosition,
   type OrgUnit
 } from "@/api/seiwajyuku";
+import {
+  buildCurrentVolunteerPositionOptions,
+  shouldShowLegacyVolunteerHint,
+  volunteerAppointmentStatusLabel,
+  volunteerPositionLabel
+} from "@/utils/memberVolunteerDisplay";
 
 defineOptions({ name: "MemberManagement" });
 
@@ -72,16 +76,7 @@ const editingMemberId = ref<number>();
 const volunteerPositions = ref<VolunteerPosition[]>([]);
 const memberVolunteerAppointments = ref<MemberVolunteerAppointments>();
 const volunteerAppointmentsLoading = ref(false);
-const volunteerAppointmentDialogVisible = ref(false);
-const volunteerAppointmentSaving = ref(false);
-const volunteerAppointmentAdvanced = ref(false);
-const volunteerAppointmentForm = reactive({
-  position_key: "",
-  org_unit_id: "",
-  starts_at: "",
-  ends_at: "",
-  confirmation_note: ""
-});
+const volunteerHistoryExpanded = ref<string[]>([]);
 const preflightVisible = ref(false);
 const preflightLoading = ref(false);
 const preflightFiles = ref<UploadUserFile[]>([]);
@@ -187,23 +182,9 @@ const canReadRenewals = computed(() =>
 const canViewHistory = computed(() =>
   useUserStoreHook().permissions.includes("members:detail_view")
 );
-const canManageVolunteer = computed(() => canManage.value);
-const selectedVolunteerPosition = computed(() =>
-  volunteerPositions.value.find(
-    item => item.position_key === volunteerAppointmentForm.position_key
-  )
+const volunteerAppointmentCount = computed(
+  () => memberVolunteerAppointments.value?.appointments.length ?? 0
 );
-const volunteerOrgOptions = computed(() => {
-  const level = selectedVolunteerPosition.value?.scope_level;
-  if (level === "CLASS") return orgs.value.filter(item => item.unit_type === "CLASS");
-  if (level === "GROUP") return orgs.value.filter(item => item.unit_type === "GROUP");
-  if (level === "REGIONAL_CENTER") {
-    return orgs.value.filter(item =>
-      ["REGIONAL_CENTER", "ROOT", "CITY_CENTER", "DIVISION"].includes(item.unit_type)
-    );
-  }
-  return orgs.value;
-});
 const centerOrgs = computed(() =>
   orgs.value.filter(item => item.unit_type === "REGIONAL_CENTER")
 );
@@ -399,10 +380,25 @@ const form = reactive({
   current_volunteer_needs_manual_review: false,
   current_volunteer_review_message: ""
 });
+const currentVolunteerSelectOptions = computed(() =>
+  buildCurrentVolunteerPositionOptions(
+    volunteerPositions.value,
+    form.current_volunteer_position_key,
+    form.current_volunteer_position_name,
+    form.current_volunteer_scope_level
+  )
+);
 const selectedCurrentVolunteerPosition = computed(() =>
-  volunteerPositions.value.find(
+  currentVolunteerSelectOptions.value.find(
     item => item.position_key === form.current_volunteer_position_key
   )
+);
+const currentVolunteerPositionName = computed(
+  () =>
+    selectedCurrentVolunteerPosition.value?.position_name ||
+    (form.current_volunteer_position_key
+      ? form.current_volunteer_position_name
+      : "")
 );
 const currentVolunteerScopeName = computed(() => {
   const level = selectedCurrentVolunteerPosition.value?.scope_level;
@@ -428,18 +424,11 @@ const currentVolunteerScopeName = computed(() => {
   }
   return "";
 });
-const currentVolunteerScopeLabel = computed(() =>
-  ({
-    CLASS: "班级",
-    GROUP: "小组",
-    REGIONAL_CENTER: "分中心",
-    ANY: "默认分中心"
-  })[selectedCurrentVolunteerPosition.value?.scope_level || ""] || "服务范围"
-);
 const showLegacyVolunteerHint = computed(() => {
-  const historicalName = form.class_committee_name.trim();
-  if (!historicalName) return false;
-  return historicalName !== form.current_volunteer_position_name.trim();
+  return shouldShowLegacyVolunteerHint(
+    form.class_committee_name,
+    currentVolunteerPositionName.value
+  );
 });
 const memberStatusLabel = (status: string) =>
   ({ ACTIVE: "在册", INACTIVE: "流失", SUSPENDED: "暂停" })[status] ?? status;
@@ -462,6 +451,14 @@ function errorText(error: any) {
   return error?.response?.data?.detail || error?.message || "操作失败";
 }
 
+function volunteerPreviewEnvironmentLabel(environment?: string) {
+  return environment === "production"
+    ? "生产环境"
+    : environment === "staging"
+      ? "测试环境"
+      : "当前环境";
+}
+
 async function load() {
   loading.value = true;
   try {
@@ -480,6 +477,8 @@ async function load() {
 
 function openCreate() {
   editingMemberId.value = undefined;
+  memberVolunteerAppointments.value = undefined;
+  volunteerHistoryExpanded.value = [];
   editPhoneReady.value = true;
   financialFieldsEditable.value = useUserStoreHook().permissions.includes(
     "members:enterprise_view"
@@ -533,6 +532,8 @@ function openCreate() {
 
 async function openEdit(row: any) {
   editingMemberId.value = row.id;
+  memberVolunteerAppointments.value = undefined;
+  volunteerHistoryExpanded.value = [];
   editPhoneReady.value = false;
   editClassOrgName.value = "";
   editGroupOrgName.value = "";
@@ -581,6 +582,7 @@ async function openEdit(row: any) {
   dialogVisible.value = true;
   editProfileLoading.value = true;
   try {
+    const catalogLoading = loadVolunteerPositionCatalog();
     const profile = await getMemberEditProfile(row.id);
     const data = profile.data;
     financialFieldsEditable.value = data.financial_fields_editable;
@@ -640,6 +642,7 @@ async function openEdit(row: any) {
         : data.current_volunteer_position_key || null;
     editPhoneReady.value = true;
     void loadMemberVolunteerAppointments(row.id);
+    await catalogLoading;
   } catch (error) {
     ElMessage.error(errorText(error));
   } finally {
@@ -1122,37 +1125,14 @@ async function runMemberRosterPreflight() {
   }
 }
 
-function volunteerAppointmentStatusLabel(status: string) {
-  return (
-    {
-      PLANNED: "待生效",
-      ACTIVE: "任职中",
-      SUSPENDED: "已暂停",
-      ENDED: "已结束",
-      REVOKED: "已撤销"
-    } as Record<string, string>
-  )[status] ?? status;
-}
-
-function volunteerScopeHint(scopeLevel?: string) {
-  return (
-    {
-      CLASS: "请选择一个班级",
-      GROUP: "请选择一个小组",
-      REGIONAL_CENTER: "请选择服务分中心",
-      ANY: "请选择服务范围"
-    } as Record<string, string>
-  )[scopeLevel || "ANY"];
-}
-
 async function loadVolunteerPositionCatalog() {
   if (volunteerPositions.value.length) return;
   try {
     volunteerPositions.value = (await getVolunteerPositionCatalog()).data;
   } catch (error) {
-    // Identity feature gates may be closed for a read-only deployment.  The
-    // member profile remains usable; operators can retry after the gate opens.
-    if (canManageVolunteer.value) ElMessage.warning(errorText(error));
+    // Keep the profile usable when the catalog is temporarily unavailable;
+    // currentVolunteerSelectOptions supplies a safe display-only fallback.
+    if (canManage.value) ElMessage.warning(errorText(error));
   }
 }
 
@@ -1164,86 +1144,20 @@ async function loadMemberVolunteerAppointments(memberId: number) {
     ).data;
   } catch (error) {
     memberVolunteerAppointments.value = undefined;
-    if (canManageVolunteer.value) ElMessage.warning(errorText(error));
+    if (canManage.value || canViewHistory.value) ElMessage.warning(errorText(error));
   } finally {
     volunteerAppointmentsLoading.value = false;
   }
 }
 
-function resetVolunteerAppointmentForm() {
-  const start = new Date();
-  Object.assign(volunteerAppointmentForm, {
-    position_key: "",
-    org_unit_id: "",
-    starts_at: start.toISOString(),
-    ends_at: "",
-    confirmation_note: ""
-  });
-  volunteerAppointmentAdvanced.value = false;
-}
-
-async function openVolunteerAppointmentDialog() {
-  if (!editingMemberId.value) {
-    ElMessage.info("请先保存学员档案，再添加正式志工任职");
-    return;
-  }
-  await loadVolunteerPositionCatalog();
-  resetVolunteerAppointmentForm();
-  volunteerAppointmentDialogVisible.value = true;
-}
-
-async function saveVolunteerAppointment() {
-  if (!editingMemberId.value) return;
-  const position = selectedVolunteerPosition.value;
-  if (!position) {
-    ElMessage.error("请选择志工岗位");
-    return;
-  }
-  if (!volunteerAppointmentForm.org_unit_id) {
-    ElMessage.error(volunteerScopeHint(position.scope_level));
-    return;
-  }
-  volunteerAppointmentSaving.value = true;
-  try {
-    await createMemberVolunteerAppointment(editingMemberId.value, {
-      position_key: volunteerAppointmentForm.position_key,
-      org_unit_id: volunteerAppointmentForm.org_unit_id,
-      starts_at: volunteerAppointmentForm.starts_at || undefined,
-      ends_at: volunteerAppointmentForm.ends_at || undefined,
-      confirmation_note: volunteerAppointmentForm.confirmation_note.trim() || undefined
-    });
-    await loadMemberVolunteerAppointments(editingMemberId.value);
-    volunteerAppointmentDialogVisible.value = false;
-    ElMessage.success("正式志工任职已保存，历史记录已保留");
-  } catch (error) {
-    ElMessage.error(errorText(error));
-  } finally {
-    volunteerAppointmentSaving.value = false;
-  }
-}
-
-async function endVolunteerAppointment(appointment: MemberVolunteerAppointment) {
-  if (!editingMemberId.value || ["ENDED", "REVOKED"].includes(appointment.status)) return;
-  try {
-    await ElMessageBox.confirm(
-      `确认结束“${appointment.position_name || appointment.appointment_key} · ${appointment.org_name}”的任职？历史记录会保留。`,
-      "结束志工任职",
-      { type: "warning", confirmButtonText: "确认结束", cancelButtonText: "取消" }
-    );
-  } catch {
-    return;
-  }
-  try {
-    await changeMemberVolunteerAppointmentStatus(
-      editingMemberId.value,
-      appointment.id,
-      { status: "ENDED" }
-    );
-    await loadMemberVolunteerAppointments(editingMemberId.value);
-    ElMessage.success("志工任职已结束");
-  } catch (error) {
-    ElMessage.error(errorText(error));
-  }
+function volunteerAppointmentPositionLabel(
+  appointment: MemberVolunteerAppointment
+) {
+  return volunteerPositionLabel(
+    appointment.appointment_key,
+    appointment.position_name,
+    volunteerPositions.value
+  );
 }
 
 async function applyMemberRosterImport() {
@@ -1646,7 +1560,7 @@ onMounted(async () => {
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="环境">
-            {{ legacyVolunteerPreviewResult.environment }}
+            {{ volunteerPreviewEnvironmentLabel(legacyVolunteerPreviewResult.environment) }}
           </el-descriptions-item>
         </el-descriptions>
 
@@ -1657,7 +1571,9 @@ onMounted(async () => {
           max-height="240"
         >
           <el-table-column prop="historical_position_name" label="历史岗位" min-width="150" />
-          <el-table-column prop="position_key" label="目标岗位键" min-width="220" />
+          <el-table-column label="目标岗位" min-width="150">
+            <template #default="{ row }">{{ row.position_name || "需人工复核" }}</template>
+          </el-table-column>
           <el-table-column prop="total_count" label="合计" width="90" />
           <el-table-column prop="auto_adoptable_count" label="可承接" width="90" />
           <el-table-column prop="manual_review_count" label="需复核" width="90" />
@@ -1676,7 +1592,6 @@ onMounted(async () => {
           <el-table-column prop="historical_position_name" label="历史岗位" min-width="120" />
           <el-table-column prop="position_name" label="当前岗位" min-width="120" />
           <el-table-column prop="scope.scope_name" label="自动服务范围" min-width="150" />
-          <el-table-column prop="scope.scope_org_unit_id" label="组织ID" min-width="180" />
         </el-table>
 
         <h3 class="preview-section-title">
@@ -1693,7 +1608,7 @@ onMounted(async () => {
           <el-table-column prop="reason" label="复核原因" min-width="300" />
         </el-table>
         <p class="form-hint">
-          预览指纹：{{ legacyVolunteerPreviewResult.preview_fingerprint }}。执行时会重新校验指纹；人工复核记录不会写入。
+          执行时系统会重新校验预览有效性；人工复核记录不会写入。
         </p>
       </template>
       <template #footer>
@@ -1839,99 +1754,6 @@ onMounted(async () => {
       </div>
       <template #footer>
         <el-button @click="memberRosterImportVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog
-      v-model="volunteerAppointmentDialogVisible"
-      title="添加正式志工任职"
-      width="620px"
-      destroy-on-close
-    >
-      <el-alert
-        title="只需选择岗位和服务范围"
-        description="系统会按岗位定义自动校验班级/小组层级；开始时间默认今天，结束时间不填即为长期有效。"
-        type="info"
-        :closable="false"
-        show-icon
-      />
-      <el-form label-position="top" class="volunteer-appointment-form">
-        <el-form-item label="志工岗位" required>
-          <el-select
-            v-model="volunteerAppointmentForm.position_key"
-            filterable
-            clearable
-            placeholder="请选择岗位"
-            @change="volunteerAppointmentForm.org_unit_id = ''"
-          >
-            <el-option
-              v-for="position in volunteerPositions"
-              :key="position.position_key"
-              :label="position.position_name"
-              :value="position.position_key"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="`服务范围 · ${volunteerScopeHint(selectedVolunteerPosition?.scope_level)}`" required>
-          <el-select
-            v-model="volunteerAppointmentForm.org_unit_id"
-            filterable
-            clearable
-            :disabled="!selectedVolunteerPosition"
-            placeholder="请选择服务范围"
-          >
-            <el-option
-              v-for="org in volunteerOrgOptions"
-              :key="org.id"
-              :label="org.name"
-              :value="org.id"
-            />
-          </el-select>
-        </el-form-item>
-        <div class="volunteer-appointment-advanced-toggle">
-          <el-button link type="primary" @click="volunteerAppointmentAdvanced = !volunteerAppointmentAdvanced">
-            {{ volunteerAppointmentAdvanced ? "收起更多设置" : "更多设置（可选）" }}
-          </el-button>
-        </div>
-        <template v-if="volunteerAppointmentAdvanced">
-          <el-form-item label="任职开始时间">
-            <el-date-picker
-              v-model="volunteerAppointmentForm.starts_at"
-              type="datetime"
-              value-format="YYYY-MM-DDTHH:mm:ssZ"
-              placeholder="默认今天"
-            />
-          </el-form-item>
-          <el-form-item label="任职结束时间">
-            <el-date-picker
-              v-model="volunteerAppointmentForm.ends_at"
-              type="datetime"
-              value-format="YYYY-MM-DDTHH:mm:ssZ"
-              placeholder="长期有效，可不填"
-              clearable
-            />
-          </el-form-item>
-          <el-form-item label="备注（选填）" class="full">
-            <el-input
-              v-model="volunteerAppointmentForm.confirmation_note"
-              type="textarea"
-              :rows="2"
-              maxlength="1000"
-              show-word-limit
-              placeholder="如有特殊情况，可补充说明"
-            />
-          </el-form-item>
-        </template>
-      </el-form>
-      <template #footer>
-        <el-button @click="volunteerAppointmentDialogVisible = false">取消</el-button>
-        <el-button
-          type="primary"
-          :loading="volunteerAppointmentSaving"
-          @click="saveVolunteerAppointment"
-        >
-          保存任职
-        </el-button>
       </template>
     </el-dialog>
 
@@ -2296,110 +2118,6 @@ onMounted(async () => {
             />
             </el-select>
           </el-form-item>
-          <el-form-item label="当前志工岗位" class="full">
-            <el-select
-              v-model="form.current_volunteer_position_key"
-              clearable
-              filterable
-              :disabled="
-                !editingMemberId ||
-                !canManage ||
-                Boolean(form.current_volunteer_needs_manual_review)
-              "
-              placeholder="普通学长（暂无志工服务）"
-            >
-              <el-option label="普通学长（暂无志工服务）" :value="null" />
-              <el-option
-                v-for="position in volunteerPositions"
-                :key="position.position_key"
-                :label="position.position_name"
-                :value="position.position_key"
-              />
-            </el-select>
-            <p v-if="!editingMemberId" class="form-hint">
-              请先保存学员档案，再维护当前志工岗位。
-            </p>
-            <p v-if="selectedCurrentVolunteerPosition" class="form-hint">
-              服务范围：{{ currentVolunteerScopeLabel }} ·
-              {{ currentVolunteerScopeName || "请先维护正式班级/小组/分中心" }}（自动匹配当前正式组织关系）
-            </p>
-            <el-alert
-              v-if="form.current_volunteer_needs_manual_review"
-              class="form-alert"
-              :title="
-                form.current_volunteer_review_message ||
-                '当前存在多个有效志工岗位，请先人工确认主要岗位。'
-              "
-              type="warning"
-              :closable="false"
-              show-icon
-            />
-            <p v-if="showLegacyVolunteerHint" class="form-hint volunteer-legacy-hint">
-              历史岗位参考（只读，不参与权限判断）：{{ form.class_committee_name }}
-            </p>
-          </el-form-item>
-          <el-form-item label="志工岗位（正式任职）" class="full">
-            <div class="volunteer-appointments-editor">
-              <template v-if="editingMemberId">
-                <div v-loading="volunteerAppointmentsLoading" class="volunteer-appointments-list">
-                  <el-empty
-                    v-if="!memberVolunteerAppointments?.appointments.length"
-                    description="尚未建立正式志工任职"
-                    :image-size="48"
-                  />
-                  <div
-                    v-for="appointment in memberVolunteerAppointments?.appointments || []"
-                    :key="appointment.id"
-                    class="volunteer-appointment-card"
-                  >
-                    <div>
-                      <strong>{{ appointment.position_name || appointment.appointment_key }}</strong>
-                      <span>{{ appointment.org_name }}</span>
-                      <small>
-                        {{ volunteerAppointmentStatusLabel(appointment.status) }} ·
-                        {{ appointment.starts_at }} 至 {{ appointment.ends_at || "长期有效" }}
-                      </small>
-                    </div>
-                    <el-button
-                      v-if="canManageVolunteer && !['ENDED', 'REVOKED'].includes(appointment.status)"
-                      link
-                      type="danger"
-                      @click="endVolunteerAppointment(appointment)"
-                    >
-                      结束任职
-                    </el-button>
-                  </div>
-                </div>
-                <el-button
-                  v-if="canManageVolunteer"
-                  type="primary"
-                  plain
-                  @click="openVolunteerAppointmentDialog"
-                >
-                  添加正式志工任职
-                </el-button>
-              </template>
-              <el-alert
-                v-else
-                title="请先保存学员档案，再添加正式志工任职"
-                description="正式任职会保留内部审计记录；历史岗位承接必须先完成只读预览并经确认，不会在打开档案时静默写入。"
-                type="info"
-                :closable="false"
-                show-icon
-              />
-            </div>
-          </el-form-item>
-          <el-form-item label="行业分类">
-            <el-input v-model="form.industry_category" />
-          </el-form-item>
-          <el-form-item label="生日">
-            <el-date-picker
-              v-model="form.birthday"
-              type="date"
-              value-format="YYYY-MM-DD"
-              placeholder="YYYY-MM-DD"
-            />
-          </el-form-item>
           <el-form-item label="小组组织">
             <el-select
               v-model="form.group_org_unit_id"
@@ -2416,6 +2134,58 @@ onMounted(async () => {
               />
             </el-select>
             <p class="form-hint">班级或小组不存在时，请先到“系统设置 → 班级与小组管理”新增，再返回选择。</p>
+          </el-form-item>
+          <el-form-item label="当前志工岗位" class="current-volunteer-field">
+            <el-select
+              v-model="form.current_volunteer_position_key"
+              clearable
+              filterable
+              :disabled="
+                !editingMemberId ||
+                !canManage ||
+                Boolean(form.current_volunteer_needs_manual_review)
+              "
+              placeholder="普通学长（暂无志工服务）"
+            >
+              <el-option label="普通学长（暂无志工服务）" :value="null" />
+              <el-option
+                v-for="position in currentVolunteerSelectOptions"
+                :key="position.position_key"
+                :label="position.position_name"
+                :value="position.position_key"
+              />
+            </el-select>
+            <p v-if="!editingMemberId" class="form-hint">
+              请先保存学员档案，再维护当前志工岗位。
+            </p>
+            <p v-if="selectedCurrentVolunteerPosition" class="form-hint current-volunteer-scope-hint">
+              服务范围：{{ currentVolunteerScopeName || "请先维护正式班级/小组/分中心" }}（自动匹配当前正式组织关系）
+            </p>
+            <el-alert
+              v-if="form.current_volunteer_needs_manual_review"
+              class="form-alert"
+              :title="
+                form.current_volunteer_review_message ||
+                '当前存在多个有效志工岗位，请先人工确认主要岗位。'
+              "
+              type="warning"
+              :closable="false"
+              show-icon
+            />
+            <p v-if="showLegacyVolunteerHint" class="form-hint volunteer-legacy-hint">
+              历史岗位参考（只读，不参与权限判断）：{{ form.class_committee_name }}
+            </p>
+          </el-form-item>
+          <el-form-item label="行业分类">
+            <el-input v-model="form.industry_category" />
+          </el-form-item>
+          <el-form-item label="生日">
+            <el-date-picker
+              v-model="form.birthday"
+              type="date"
+              value-format="YYYY-MM-DD"
+              placeholder="YYYY-MM-DD"
+            />
           </el-form-item>
           <el-form-item label="行业">
             <el-input v-model="form.industry" />
@@ -2546,6 +2316,46 @@ onMounted(async () => {
           </el-form-item>
         </div>
       </el-form>
+      <section v-if="editingMemberId" class="volunteer-history">
+        <el-collapse v-model="volunteerHistoryExpanded">
+          <el-collapse-item name="volunteer-history">
+            <template #title>
+              <span class="volunteer-history__title">
+                志工服务记录（{{ volunteerAppointmentCount }}）
+              </span>
+            </template>
+            <div
+              v-loading="volunteerAppointmentsLoading"
+              class="volunteer-history__content"
+            >
+              <el-empty
+                v-if="
+                  !volunteerAppointmentsLoading && volunteerAppointmentCount === 0
+                "
+                description="暂无志工服务记录"
+                :image-size="48"
+              />
+              <div
+                v-for="appointment in memberVolunteerAppointments?.appointments || []"
+                :key="appointment.id"
+                class="volunteer-history__record"
+              >
+                <strong>
+                  {{ volunteerAppointmentPositionLabel(appointment) }} ·
+                  {{ appointment.org_name || "服务范围待核对" }}
+                </strong>
+                <span>状态：{{ volunteerAppointmentStatusLabel(appointment.status) }}</span>
+                <small>
+                  系统确认：{{ appointment.created_at ? formatTimelineTime(appointment.created_at) : "待补充" }}
+                </small>
+              </div>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+        <p class="form-hint volunteer-history__hint">
+          当前岗位在上方维护；这里仅查看系统保留的志工服务记录。
+        </p>
+      </section>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button
@@ -2801,40 +2611,39 @@ onMounted(async () => {
   width: 100%;
 }
 
-.volunteer-appointments-editor {
-  display: grid;
-  gap: 10px;
+.current-volunteer-field :deep(.el-select) {
   width: 100%;
 }
-.volunteer-appointments-list {
+.current-volunteer-scope-hint {
+  margin-bottom: 8px;
+}
+.volunteer-history {
+  margin-top: 8px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+.volunteer-history__title {
+  font-weight: 600;
+}
+.volunteer-history__content {
   display: grid;
   gap: 8px;
+  min-height: 52px;
 }
-.volunteer-appointment-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+.volunteer-history__record {
+  display: grid;
+  gap: 4px;
   padding: 10px 12px;
   background: var(--el-fill-color-lighter);
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
 }
-.volunteer-appointment-card > div {
-  display: grid;
-  gap: 3px;
-}
-.volunteer-appointment-card span,
-.volunteer-appointment-card small,
+.volunteer-history__record span,
+.volunteer-history__record small,
 .volunteer-legacy-hint {
   color: var(--el-text-color-secondary);
 }
-.volunteer-appointment-form :deep(.el-select),
-.volunteer-appointment-form :deep(.el-date-editor) {
-  width: 100%;
-}
-.volunteer-appointment-advanced-toggle {
-  margin: -4px 0 4px;
+.volunteer-history__hint {
+  margin: 8px 0 0;
 }
 
 .tenure-field {
