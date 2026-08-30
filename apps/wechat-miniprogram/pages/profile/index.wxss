@@ -9,6 +9,7 @@
 .profile-row { display: flex; justify-content: space-between; padding-bottom: 14rpx; border-bottom: 1rpx solid #f0e6e1; color: #4c3b3b; }
 .profile-label { color: #806f6f; }
 .volunteer-row { margin-top: 16rpx; padding: 18rpx 20rpx; border-radius: 14rpx; background: #fff7f2; color: #741f2b; }
+.volunteer-meta { margin-top: 8rpx; color: #806f6f; font-size: 23rpx; }
 .primary-button { margin-top: 24rpx; border-radius: 12rpx; background: #741f2b; color: #fff; font-size: 29rpx; }
 .plain-button { margin-top: 14rpx; border: 1rpx solid #d9c7c3; border-radius: 12rpx; color: #741f2b; background: #fff; font-size: 27rpx; }
 .home-button { margin-bottom: 24rpx; }

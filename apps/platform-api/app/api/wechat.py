@@ -12,7 +12,10 @@ from app.services.wechat_identity import (
     revoke_member_binding,
     verify_member_binding,
 )
-from app.services.volunteer_positions import get_member_volunteer_services
+from app.services.volunteer_positions import (
+    get_member_volunteer_history,
+    get_member_volunteer_services,
+)
 
 
 router = APIRouter(prefix="/api/v1/wechat", tags=["wechat-identity"])
@@ -78,6 +81,21 @@ def volunteer_services(
     try:
         session = resolve_member_session(token)
         data = get_member_volunteer_services(session["member_id"])
+    except WeChatIdentityError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/volunteer-history")
+def volunteer_history(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    """Return the current member's privacy-safe formal volunteer history."""
+
+    token = _session_token(credentials)
+    try:
+        session = resolve_member_session(token)
+        data = get_member_volunteer_history(session["member_id"])
     except WeChatIdentityError as exc:
         raise HTTPException(401, str(exc)) from exc
     return {"success": True, "data": data}

@@ -41,11 +41,22 @@
     </view>
 
     <view class="section-card">
+      <view class="section-title">当前志工服务</view>
+      <view wx:if="{{currentVolunteerServices.length}}">
+        <view wx:for="{{currentVolunteerServices}}" wx:key="key" class="volunteer-row">{{item.positionName}} · {{item.scopeName}}</view>
+      </view>
+      <view wx:else class="empty-copy">{{volunteerErrorMessage || '暂无当前志工服务'}}</view>
+    </view>
+
+    <view class="section-card">
       <view class="section-title">志工经历</view>
       <view wx:if="{{volunteerAppointments.length}}">
-        <view wx:for="{{volunteerAppointments}}" wx:key="key" class="volunteer-row">{{item.positionName}} · {{item.scopeName}}</view>
+        <view wx:for="{{volunteerAppointments}}" wx:key="key" class="volunteer-row">
+          <view>{{item.positionName}} · {{item.scopeName}}</view>
+          <view class="volunteer-meta">{{item.rangeLabel}} · {{item.statusName}}</view>
+        </view>
       </view>
-      <view wx:else class="empty-copy">暂无志工服务记录</view>
+      <view wx:else class="empty-copy">{{volunteerErrorMessage || '暂无志工服务记录'}}</view>
     </view>
   </block>
 

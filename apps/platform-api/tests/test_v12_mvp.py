@@ -188,6 +188,113 @@ def test_member_binding_masks_identity_and_revoke_closes_session() -> None:
             assert client.get("/api/v1/wechat/me", headers=headers).status_code == 401
 
 
+def test_wechat_profile_returns_join_dates_and_safe_volunteer_history() -> None:
+    fixture = _seed_group_leader_fixture()
+    person_id = fetch_one(
+        "SELECT person_id FROM member_identities WHERE member_id=?",
+        (fixture["member_id"],),
+    )["person_id"]
+    now = _stamp()
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE members SET join_date='2022-05-06', study_start_date='2022-04-01' "
+            "WHERE id=?",
+            (fixture["member_id"],),
+        )
+        execute(
+            connection,
+            "UPDATE org_units SET name='卓越组' WHERE id=?",
+            (fixture["group_id"],),
+        )
+        execute(
+            connection,
+            "UPDATE volunteer_appointments SET appointment_key='volunteer_group_counselor', "
+            "starts_at='2026-08-01T00:00:00+00:00', ends_at=NULL, status='ACTIVE' "
+            "WHERE person_id=?",
+            (person_id,),
+        )
+        execute(
+            connection,
+            "INSERT INTO volunteer_appointments"
+            "(person_id, appointment_key, org_unit_id, scope_type, starts_at, ends_at, "
+            "status, source_reference, created_at, updated_at) "
+            "VALUES (?, 'volunteer_class_monitor', ?, 'UNIT', "
+            "'2025-01-01T00:00:00+00:00', '2025-12-31T00:00:00+00:00', "
+            "'ENDED', 'test-private-source', ?, ?)",
+            (person_id, fixture["class_id"], now, now),
+        )
+
+    with patch.dict(
+        os.environ,
+        {
+            "WECHAT_MEMBER_BINDING_ENABLED": "true",
+            "WECHAT_MINIPROGRAM_APP_ID": "v10-profile-test",
+            "WECHAT_MINIPROGRAM_APP_SECRET": "v10-profile-secret",
+        },
+    ), patch(
+        "app.services.wechat_identity.exchange_wechat_code",
+        return_value={
+            "appid": "v10-profile-test",
+            "openid": f"profile-{fixture['suffix']}",
+        },
+    ), TestClient(app) as client:
+        bound = client.post(
+            "/api/v1/wechat/member-bindings/verify",
+            json={
+                "code": "profile-code",
+                "name": "V1.2组长",
+                "phone": fixture["phone"],
+            },
+        )
+        assert bound.status_code == 200, bound.text
+        headers = {
+            "Authorization": f"Bearer {bound.json()['data']['access_token']}"
+        }
+        member = client.get("/api/v1/wechat/me", headers=headers)
+        assert member.status_code == 200, member.text
+        profile = member.json()["data"]["member"]
+        assert profile["join_date"] == "2022-05-06"
+        assert profile["study_start_date"] == "2022-04-01"
+        assert set(profile) == {
+            "member_id",
+            "name_masked",
+            "phone_masked",
+            "class_org_unit_id",
+            "class_name",
+            "study_group_org_unit_id",
+            "study_group_name",
+            "join_date",
+            "study_start_date",
+        }
+
+        current = client.get("/api/v1/wechat/volunteer-services", headers=headers)
+        assert current.status_code == 200, current.text
+        assert current.json()["data"]["roles"][0]["position_name"] == "辅导员"
+        assert current.json()["data"]["roles"][0]["scope_name"] == "卓越组"
+
+        history = client.get("/api/v1/wechat/volunteer-history", headers=headers)
+        assert history.status_code == 200, history.text
+        appointments = history.json()["data"]["appointments"]
+        assert appointments[0] == {
+            "position_name": "辅导员",
+            "scope_name": "卓越组",
+            "status_name": "服务中",
+            "starts_at": "2026-08-01T00:00:00+00:00",
+            "ends_at": None,
+        }
+        assert appointments[1]["position_name"] == "班长"
+        assert appointments[1]["status_name"] == "已结束"
+        for item in appointments:
+            assert not {
+                "position_key",
+                "source_reference",
+                "person_id",
+                "member_id",
+                "capabilities",
+            }.intersection(item)
+
+
 @pytest.mark.parametrize("position", ["volunteer_group_leader", "volunteer_group_counselor", None])
 def test_home_identity_is_independent_of_study_meeting_capability(position, monkeypatch) -> None:
     fixture = _seed_group_leader_fixture()
