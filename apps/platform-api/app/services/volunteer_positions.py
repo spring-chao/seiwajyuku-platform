@@ -151,6 +151,11 @@ def _appointment_datetime(value: Any) -> datetime | None:
     )
 
 
+def _public_appointment_timestamp(value: Any) -> str | None:
+    parsed = _appointment_datetime(value)
+    return parsed.isoformat() if parsed is not None else None
+
+
 def _write_gate(*, write: bool = False) -> None:
     settings = get_settings()
     if not settings.identity_authorization_enabled:
@@ -497,8 +502,6 @@ def get_member_volunteer_history(member_id: int) -> dict[str, Any]:
     appointments = []
     for row in rows:
         fallback = _fallback_position(row["appointment_key"])
-        starts_at = row.get("starts_at")
-        ends_at = row.get("ends_at")
         appointments.append(
             {
                 "position_name": row.get("position_name")
@@ -508,20 +511,8 @@ def get_member_volunteer_history(member_id: int) -> dict[str, Any]:
                 "status_name": VOLUNTEER_STATUS_NAMES.get(
                     str(row.get("status") or "").upper(), "状态待确认"
                 ),
-                "starts_at": (
-                    starts_at.isoformat()
-                    if isinstance(starts_at, datetime)
-                    else str(starts_at)
-                    if starts_at is not None
-                    else None
-                ),
-                "ends_at": (
-                    ends_at.isoformat()
-                    if isinstance(ends_at, datetime)
-                    else str(ends_at)
-                    if ends_at is not None
-                    else None
-                ),
+                "starts_at": _public_appointment_timestamp(row.get("starts_at")),
+                "ends_at": _public_appointment_timestamp(row.get("ends_at")),
             }
         )
     return {"appointments": appointments}
