@@ -75,7 +75,7 @@ def _member_payload(connection, member_id: int) -> dict[str, Any] | None:
     now = _now()
     row = execute(
         connection,
-        "SELECT m.id, m.name, m.phone_masked, "
+        "SELECT m.id, m.name, m.phone_masked, m.join_date, m.study_start_date, "
         "(SELECT ou.id FROM member_org_relations r JOIN org_units ou ON ou.id=r.org_unit_id "
         "WHERE r.member_id=m.id AND "
         + _active_relation_predicate("r")
@@ -122,6 +122,8 @@ def _member_payload(connection, member_id: int) -> dict[str, Any] | None:
         "class_name": result.get("class_name"),
         "study_group_org_unit_id": result.get("study_group_org_unit_id"),
         "study_group_name": result.get("study_group_name"),
+        "join_date": result.get("join_date"),
+        "study_start_date": result.get("study_start_date"),
     }
 
 

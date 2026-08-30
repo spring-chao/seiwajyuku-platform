@@ -34,6 +34,13 @@ _MEMBER_ADMIN_MANAGED_SOURCES = {
 CAPABILITY_NAMES = {
     STUDY_MEETING_MANAGE: "登记小组学习会",
 }
+VOLUNTEER_STATUS_NAMES = {
+    "PLANNED": "待开始",
+    "ACTIVE": "服务中",
+    "SUSPENDED": "已暂停",
+    "ENDED": "已结束",
+    "REVOKED": "已撤销",
+}
 
 # These defaults are also useful to old installations while 0039 is being
 # rolled out.  Once the catalog table exists, database rows are authoritative.
@@ -142,6 +149,11 @@ def _appointment_datetime(value: Any) -> datetime | None:
         if parsed.tzinfo is None
         else parsed.astimezone(UTC)
     )
+
+
+def _public_appointment_timestamp(value: Any) -> str | None:
+    parsed = _appointment_datetime(value)
+    return parsed.isoformat() if parsed is not None else None
 
 
 def _write_gate(*, write: bool = False) -> None:
@@ -438,6 +450,72 @@ def get_member_volunteer_services(member_id: int) -> dict[str, Any]:
         "needs_manual_review": False,
         "review_message": None,
     }
+
+
+def get_member_volunteer_history(member_id: int) -> dict[str, Any]:
+    """Return only the current member's display-safe formal appointment history."""
+
+    if not get_settings().identity_authorization_enabled:
+        return {"appointments": []}
+    with transaction() as connection:
+        try:
+            rows = [
+                dict(row)
+                for row in execute(
+                    connection,
+                    "SELECT va.appointment_key, c.position_name, o.name AS scope_name, "
+                    "va.status, va.starts_at, va.ends_at "
+                    "FROM member_identities mi "
+                    "JOIN person_profiles pp ON pp.id=mi.person_id "
+                    "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
+                    "LEFT JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
+                    "LEFT JOIN org_units o ON o.id=va.org_unit_id "
+                    "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
+                    "ORDER BY va.starts_at DESC, va.id DESC",
+                    (member_id,),
+                ).fetchall()
+            ]
+        except Exception as exc:
+            message = str(exc).lower()
+            if (
+                "volunteer_position_catalog" not in message
+                and "no such table" not in message
+                and "doesn't exist" not in message
+            ):
+                raise
+            rows = [
+                dict(row)
+                for row in execute(
+                    connection,
+                    "SELECT va.appointment_key, o.name AS scope_name, va.status, "
+                    "va.starts_at, va.ends_at "
+                    "FROM member_identities mi "
+                    "JOIN person_profiles pp ON pp.id=mi.person_id "
+                    "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
+                    "LEFT JOIN org_units o ON o.id=va.org_unit_id "
+                    "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
+                    "ORDER BY va.starts_at DESC, va.id DESC",
+                    (member_id,),
+                ).fetchall()
+            ]
+
+    appointments = []
+    for row in rows:
+        fallback = _fallback_position(row["appointment_key"])
+        appointments.append(
+            {
+                "position_name": row.get("position_name")
+                or (fallback or {}).get("position_name")
+                or "志工",
+                "scope_name": row.get("scope_name") or "服务范围暂未记录",
+                "status_name": VOLUNTEER_STATUS_NAMES.get(
+                    str(row.get("status") or "").upper(), "状态待确认"
+                ),
+                "starts_at": _public_appointment_timestamp(row.get("starts_at")),
+                "ends_at": _public_appointment_timestamp(row.get("ends_at")),
+            }
+        )
+    return {"appointments": appointments}
 
 
 def _catalog_rows(connection=None, *, active_only: bool = True) -> list[dict[str, Any]]:

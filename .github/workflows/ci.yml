@@ -63,7 +63,7 @@ jobs:
         env:
           MINIPROGRAM_EXPECTED_APPID: wxb63212d3ce337b81
       - name: Multi-course photo and retry interaction tests
-        run: node --test scripts/test_study_meeting_miniprogram.mjs scripts/test_home_identity_miniprogram.mjs scripts/test_miniprogram_portal.mjs apps/wechat-miniprogram/tests/current-volunteer-service.test.js
+        run: node --test scripts/test_study_meeting_miniprogram.mjs scripts/test_home_identity_miniprogram.mjs scripts/test_miniprogram_portal.mjs scripts/test_profile_miniprogram.mjs apps/wechat-miniprogram/tests/current-volunteer-service.test.js
 
   cloud-function-cleanup:
     runs-on: ubuntu-latest

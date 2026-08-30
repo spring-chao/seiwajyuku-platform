@@ -6,6 +6,7 @@
 .section-card { margin-top: 24rpx; padding: 28rpx; border-radius: 24rpx; background: #fff; box-shadow: 0 8rpx 24rpx rgba(80, 35, 35, .06); }
 .field-row { margin-bottom: 24rpx; }
 .field-label { margin-bottom: 12rpx; color: #5d4a4a; font-size: 28rpx; font-weight: 600; }
-.field-input { box-sizing: border-box; width: 100%; padding: 20rpx; border: 1rpx solid #dfd0cc; border-radius: 12rpx; background: #fffdfc; font-size: 29rpx; }
+.field-input { box-sizing: border-box; width: 100%; padding: 20rpx; border: 1rpx solid #dfd0cc; border-radius: 12rpx; background: #fff; color: #3d2a2a; caret-color: #741f2b; font-size: 29rpx; }
+.field-input-placeholder { color: #b7aaaa; }
 .primary-button { margin-top: 20rpx; border-radius: 12rpx; background: #741f2b; color: #fff; font-size: 29rpx; }
 .privacy-copy { padding: 28rpx 8rpx; color: #806f6f; line-height: 1.65; font-size: 24rpx; }
