@@ -47,6 +47,9 @@ test("identity inputs define readable text, caret and placeholder colors", () =>
   const template = read("apps/wechat-miniprogram/pages/identity/bind.wxml");
   const styles = read("apps/wechat-miniprogram/pages/identity/bind.wxss");
   assert.equal((template.match(/placeholder-class="field-input-placeholder"/g) || []).length, 2);
+  assert.equal((template.match(/always-embed="true"/g) || []).length, 2);
+  assert.equal((template.match(/placeholder-style="color:#b7aaaa;"/g) || []).length, 2);
+  assert.equal((template.match(/style="color:#3d2a2a;caret-color:#741f2b;background-color:#ffffff;"/g) || []).length, 2);
   assert.match(styles, /\.field-input\s*\{[^}]*color:\s*#3d2a2a/i);
   assert.match(styles, /\.field-input\s*\{[^}]*caret-color:\s*#741f2b/i);
   assert.match(styles, /\.field-input-placeholder\s*\{[^}]*color:\s*#b7aaaa/i);

@@ -7,11 +7,11 @@
   <view class="section-card">
     <view class="field-row">
       <view class="field-label">姓名</view>
-      <input class="field-input" placeholder-class="field-input-placeholder" data-field="name" value="{{name}}" bindinput="handleInput" placeholder="请输入正式姓名" />
+      <input class="field-input" always-embed="true" placeholder-class="field-input-placeholder" placeholder-style="color:#b7aaaa;" data-field="name" bindinput="handleInput" placeholder="请输入正式姓名" style="color:#3d2a2a;caret-color:#741f2b;background-color:#ffffff;" />
     </view>
     <view class="field-row">
       <view class="field-label">手机号</view>
-      <input class="field-input" placeholder-class="field-input-placeholder" type="number" maxlength="11" data-field="phone" value="{{phone}}" bindinput="handleInput" placeholder="请输入登记手机号" />
+      <input class="field-input" always-embed="true" placeholder-class="field-input-placeholder" placeholder-style="color:#b7aaaa;" type="number" maxlength="11" data-field="phone" bindinput="handleInput" placeholder="请输入登记手机号" style="color:#3d2a2a;caret-color:#741f2b;background-color:#ffffff;" />
     </view>
     <button class="primary-button" loading="{{loading}}" disabled="{{loading}}" bindtap="bindIdentity">微信登录并确认绑定</button>
   </view>
