@@ -1,8 +1,8 @@
 <view class="page-shell">
   <view class="hero-card">
-    <view class="eyebrow">盛和塾 · 我的成长档案</view>
-    <view class="hero-title">我的盛和塾</view>
-    <view wx:if="{{member}}" class="hero-copy">{{member.name_masked}}，这里是你的盛和塾经历。</view>
+    <view class="eyebrow">我的成长档案</view>
+    <view class="hero-title">我的成长</view>
+    <view wx:if="{{member}}" class="hero-copy">{{member.name_masked}}，这里是你的成长记录。</view>
     <view wx:else class="hero-copy">绑定正式学员身份后，可以查看自己的资料。</view>
   </view>
 

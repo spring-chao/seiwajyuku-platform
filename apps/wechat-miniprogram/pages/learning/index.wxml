@@ -1,6 +1,6 @@
 <view class="page-shell">
   <view class="hero-card">
-    <view class="eyebrow">盛和塾 · 学习记录</view>
+    <view class="eyebrow">学习记录</view>
     <view class="hero-title">我的学习</view>
     <view wx:if="{{member}}" class="hero-copy">{{member.name_masked}}，这里记录你的学习服务与成长轨迹。</view>
     <view wx:else class="hero-copy">绑定正式学员身份后，可以查看与你相关的学习内容。</view>

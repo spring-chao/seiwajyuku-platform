@@ -1,7 +1,7 @@
 <view class="page-shell">
   <scroll-view wx:if="{{state === 'ready' && !submitted}}" class="page-scroll" scroll-y>
     <view class="hero-card">
-      <view class="eyebrow">盛和塾运营平台</view>
+      <view class="eyebrow">学长服务助手</view>
       <view class="hero-title">新学长信息登记</view>
       <view class="hero-copy">{{formMeta.subtitle}}</view>
     </view>
@@ -144,7 +144,7 @@
     </view>
 
     <view class="section-card">
-      <view class="section-title">你在盛和塾想获得什么？</view>
+      <view class="section-title">你希望通过学习服务获得什么？</view>
       <view class="field-row picker-row">
         <view class="field-label">计划学习年限</view>
         <picker mode="selector" range="{{goalYearOptions}}" bindchange="handleGoalYearsChange">
@@ -184,20 +184,20 @@
     <view class="rules-card">
       <view class="section-title">加入守则与缴费说明</view>
       <view class="rules-copy">
-        <view>盛和塾是认同稻盛哲学、经营学理念的企业经营者相互学习、相互交流和共同成长的学习平台，致力于让幸福企业遍布苏城。</view>
-        <view class="rules-paragraph">每一位准备加入盛和塾苏州分中心的学员，均需认真阅读并遵守以下加入守则。</view>
+        <view>学长服务助手面向认同稻盛哲学、经营学理念的企业经营者，提供相互学习、相互交流和共同成长的学习服务，致力于让幸福企业遍布苏城。</view>
+        <view class="rules-paragraph">每一位准备加入本学习服务的学员，均需认真阅读并遵守以下加入守则。</view>
         <view class="rules-heading">（一）加入条件</view>
         <view>1. 依法开展经营的企业经营者，包括企业股东、总经理、合伙人等；</view>
         <view>2. 认同稻盛哲学与经营学，并自愿加入的企业经营者配偶、二代接班人；</view>
-        <view>3. 加入后按照学员守则要求，坚持线上读书打卡、分享学习感悟，并积极参加线下学习活动。不得利用盛和塾资源平台发布与稻盛经营学无关的企业咨询、企业培训等商业广告，或从事其他商业推广活动；不得以个人商业推广为目的，在相关群内主动添加非本班陌生学长微信（线下活动正常认识除外）。违反相关约定者，自愿接受退出处理。</view>
+        <view>3. 加入后按照学员守则要求，坚持线上读书打卡、分享学习感悟，并积极参加线下学习活动。不得利用本平台资源发布与稻盛经营学无关的企业咨询、企业培训等商业广告，或从事其他商业推广活动；不得以个人商业推广为目的，在相关群内主动添加非本班陌生学长微信（线下活动正常认识除外）。违反相关约定者，自愿接受退出处理。</view>
         <view class="rules-heading">（二）缴费说明</view>
-        <view>盛和塾学员费：4800元/人/年。</view>
+        <view>学员服务费：4800元/人/年。</view>
         <view>汇款账户：无锡稻合企业管理顾问有限公司</view>
         <view>账号：512914112210201</view>
         <view>开户行：招商银行苏州新区支行</view>
         <view>转款后请将转款截图提交工作人员。收到会费后，工作人员将开具电子发票，并通过微信或邮箱提供。</view>
         <view class="rules-heading">如有疑问请联系</view>
-        <view>盛和塾苏州分中心事务所</view>
+        <view>运营服务主体</view>
         <view>张玲嫣：199-8486-4833</view>
         <view>胡延辉：137-7605-2728</view>
         <view>苏州市高新区竹园路189号2幢102室2楼</view>

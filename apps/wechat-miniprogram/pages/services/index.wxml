@@ -1,6 +1,6 @@
 <view class="page-shell">
   <view class="hero-card">
-    <view class="eyebrow">盛和塾 · 学长服务</view>
+    <view class="eyebrow">学长服务</view>
     <view class="hero-title">志工服务</view>
     <view wx:if="{{member}}" class="hero-copy">{{member.name_masked}}，这里显示你当前承担的志工服务。</view>
     <view wx:else class="hero-copy">绑定正式学员身份后，可以查看当前志工服务。</view>
