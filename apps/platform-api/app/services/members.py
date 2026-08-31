@@ -18,6 +18,7 @@ from app.services.organization_policy import is_valid_member_class_parent
 from app.services.renewals import maybe_create_historical_cycle
 from app.services.volunteer_positions import (
     MEMBER_ADMIN_CURRENT_SERVICE_SOURCE,
+    get_current_member_study_orgs,
     read_member_current_volunteer_position,
     set_member_current_volunteer_position,
     sync_member_current_volunteer_scope,
@@ -487,25 +488,24 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         if allowed is not None and target_development not in allowed:
             raise PermissionError("不能将学员关联到授权范围外的发展组织")
 
-    relations = fetch_all(
-        "SELECT relation_type, org_unit_id FROM member_org_relations "
-        "WHERE member_id=? AND (valid_until IS NULL OR valid_until>=?)",
-        (member_id, datetime.now(UTC).isoformat()),
-    )
-    relation_by_type = {row["relation_type"]: row["org_unit_id"] for row in relations}
+    with transaction() as relation_connection:
+        current_study_orgs = get_current_member_study_orgs(
+            relation_connection, member_id
+        )
+    current_class_org = current_study_orgs["class"]
+    current_group_org = current_study_orgs["group"]
     class_key_changed = "class_org_unit_id" in updates
     group_key_changed = "group_org_unit_id" in updates
     current_volunteer_update_requested = "current_volunteer_position_key" in updates
     target_class = (
         updates.get("class_org_unit_id")
         if class_key_changed
-        else relation_by_type.get("STUDY_CLASS")
-        or relation_by_type.get("SPECIAL_COHORT")
+        else current_class_org["org_unit_id"] if current_class_org else None
     )
     target_group = (
         updates.get("group_org_unit_id")
         if group_key_changed
-        else relation_by_type.get("STUDY_GROUP")
+        else current_group_org["org_unit_id"] if current_group_org else None
     )
     if class_key_changed and not group_key_changed:
         target_group = None
@@ -1212,34 +1212,14 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
     )
     if financial_fields_editable and not financial_data.get("annual_sales"):
         financial_data["annual_sales"] = legacy_annual_sales(member["company_size"])
-    relations = fetch_all(
-        "SELECT org_unit_id, relation_type FROM member_org_relations "
-        "WHERE member_id=? AND relation_type IN ('STUDY_CLASS', 'SPECIAL_COHORT', 'STUDY_GROUP') "
-        "AND (valid_from IS NULL OR valid_from<=?) "
-        "AND (valid_until IS NULL OR valid_until>=?) ORDER BY id DESC",
-        (
-            member_id,
-            datetime.now(UTC).isoformat(),
-            datetime.now(UTC).isoformat(),
-        ),
-    )
-    relation_by_type = {
-        row["relation_type"]: row["org_unit_id"] for row in relations
-    }
-    class_org_id = relation_by_type.get("STUDY_CLASS") or relation_by_type.get(
-        "SPECIAL_COHORT"
-    )
-    class_org = (
-        fetch_one("SELECT name FROM org_units WHERE id=?", (class_org_id,))
-        if class_org_id
-        else None
-    )
-    group_org_id = relation_by_type.get("STUDY_GROUP")
-    group_org = (
-        fetch_one("SELECT name FROM org_units WHERE id=?", (group_org_id,))
-        if group_org_id
-        else None
-    )
+    with transaction() as relation_connection:
+        current_study_orgs = get_current_member_study_orgs(
+            relation_connection, member_id
+        )
+    class_org = current_study_orgs["class"]
+    group_org = current_study_orgs["group"]
+    class_org_id = class_org["org_unit_id"] if class_org else None
+    group_org_id = group_org["org_unit_id"] if group_org else None
     current_volunteer = read_member_current_volunteer_position(member_id)
     with transaction() as connection:
         write_audit(
@@ -1261,9 +1241,9 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
             **member,
             "phone": phone,
             "class_org_unit_id": class_org_id,
-            "class_org_name": class_org["name"] if class_org else None,
+            "class_org_name": class_org["org_name"] if class_org else None,
             "group_org_unit_id": group_org_id,
-            "group_org_name": group_org["name"] if group_org else None,
+            "group_org_name": group_org["org_name"] if group_org else None,
             "current_volunteer_position_key": current_volunteer.get("position_key"),
             "current_volunteer_position_name": current_volunteer.get("position_name"),
             "current_volunteer_scope_level": current_volunteer.get("scope_level"),

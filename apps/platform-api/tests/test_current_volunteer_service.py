@@ -173,6 +173,72 @@ def test_group_relation_change_follows_current_service_in_same_transaction() -> 
     )["count"] >= 1
 
 
+def test_edit_profile_and_group_role_use_the_same_primary_current_group() -> None:
+    data = _fixture()
+    actor = _admin_id()
+    now = _now()
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE member_org_relations SET is_primary=0 WHERE member_id=? AND relation_type='STUDY_GROUP'",
+            (data["member_id"],),
+        )
+        execute(
+            connection,
+            "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, created_at, updated_at) "
+            "VALUES (?, ?, 'STUDY_GROUP', 1, ?, ?)",
+            (data["member_id"], data["other_group_id"], now, now),
+        )
+
+    profile = get_member_edit_profile(int(data["member_id"]), actor)
+    assert profile["group_org_unit_id"] == data["other_group_id"]
+    assert profile["group_org_name"] == "当前志工测试二组"
+
+    result = set_member_current_volunteer_position(
+        actor, int(data["member_id"]), "volunteer_group_leader"
+    )
+    assert result["scope_org_unit_id"] == data["other_group_id"]
+
+
+def test_edit_profile_does_not_present_inactive_group_as_current_formal_scope() -> None:
+    data = _fixture()
+    actor = _admin_id()
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE org_units SET is_active=0 WHERE id=?",
+            (data["group_id"],),
+        )
+
+    profile = get_member_edit_profile(int(data["member_id"]), actor)
+    assert profile["group_org_unit_id"] is None
+    assert profile["group_org_name"] is None
+    with pytest.raises(ValueError, match="正式小组"):
+        set_member_current_volunteer_position(
+            actor, int(data["member_id"]), "volunteer_group_leader"
+        )
+
+
+def test_date_only_group_relation_is_current_for_profile_and_group_role() -> None:
+    data = _fixture()
+    actor = _admin_id()
+    today = datetime.now(UTC).date().isoformat()
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE member_org_relations SET valid_from=?, valid_until=? "
+            "WHERE member_id=? AND relation_type='STUDY_GROUP'",
+            (today, today, data["member_id"]),
+        )
+
+    profile = get_member_edit_profile(int(data["member_id"]), actor)
+    assert profile["group_org_unit_id"] == data["group_id"]
+    result = set_member_current_volunteer_position(
+        actor, int(data["member_id"]), "volunteer_group_leader"
+    )
+    assert result["scope_org_unit_id"] == data["group_id"]
+
+
 def test_class_service_follows_class_relation_change() -> None:
     data = _fixture(with_group=False)
     actor = _admin_id()
