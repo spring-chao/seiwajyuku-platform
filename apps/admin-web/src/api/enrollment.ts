@@ -25,6 +25,7 @@ export type PublicEnrollmentForm = {
   optional_fields: string[];
   industry_options: string[];
   political_status_options: string[];
+  position_options: string[];
   invoice_types: { value: "NORMAL" | "SPECIAL" | "NONE"; label: string }[];
   profit_margin_options: { value: string; label: string }[];
   growth_target_options: { value: string; label: string }[];
@@ -36,10 +37,10 @@ export type PublicEnrollmentPayload = {
   name: string;
   phone: string;
   privacy_consent: true;
-  gender?: "MALE" | "FEMALE";
+  gender: "MALE" | "FEMALE";
   birthday: string;
   district?: string;
-  political_status?: string;
+  political_status: string;
   social_role?: string;
   company_name: string;
   company_tax_id?: string;
@@ -51,10 +52,6 @@ export type PublicEnrollmentPayload = {
   invoice_info?: string;
   invoice_title?: string;
   invoice_tax_id?: string;
-  invoice_registered_address?: string;
-  invoice_phone?: string;
-  invoice_bank?: string;
-  invoice_account?: string;
   industry_category?: string;
   industry_other?: string;
   industry?: string;
@@ -68,11 +65,11 @@ export type PublicEnrollmentPayload = {
   learning_participation_goal?: string;
   business_goal?: string;
   other_goal?: string;
-  goal_years?: string;
-  revenue_growth_target?: string;
-  profit_growth_target?: string;
+  goal_years: string;
+  revenue_growth_target: string;
+  profit_growth_target: string;
   annual_sales: string;
-  profit_margin?: string;
+  profit_margin: string;
   notes?: string;
   rules_acknowledged: true;
 };

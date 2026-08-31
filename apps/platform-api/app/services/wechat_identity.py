@@ -7,6 +7,7 @@ revocable credential that lets a WeChat session resolve that identity.
 
 from __future__ import annotations
 
+import logging
 import secrets
 import sqlite3
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,8 @@ from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.volunteer_positions import STUDY_MEETING_MANAGE
 
+
+logger = logging.getLogger(__name__)
 
 WECHAT_SESSION_TOKEN_TYPE = "wechat_member_access"
 WECHAT_BINDING_ROLES = {
@@ -37,6 +40,37 @@ class WeChatIdentityError(ValueError):
 
 class WeChatProviderError(ValueError):
     """The configured WeChat provider could not exchange a login code."""
+
+
+_WECHAT_CODE_ERROR_MESSAGES = {
+    40001: "微信小程序身份配置无效，请联系工作人员",
+    40013: "微信小程序身份配置无效，请联系工作人员",
+    40125: "微信小程序身份配置无效，请联系工作人员",
+    40029: "微信登录凭证已失效，请重新点击绑定",
+    40163: "微信登录凭证已使用，请重新点击绑定",
+    40226: "微信登录凭证已失效，请重新点击绑定",
+    45011: "微信登录请求过于频繁，请稍后再试",
+}
+
+
+def _wechat_provider_error_message(
+    status_code: int, data: Any | None = None
+) -> str:
+    """Map only allowlisted provider codes; never log or expose credentials."""
+
+    raw_code = data.get("errcode") if isinstance(data, dict) else None
+    try:
+        errcode = int(raw_code) if raw_code is not None else None
+    except (TypeError, ValueError):
+        errcode = None
+    logger.warning(
+        "WeChat jscode2session rejected: status=%s errcode=%s",
+        status_code,
+        errcode if errcode is not None else "unknown",
+    )
+    return _WECHAT_CODE_ERROR_MESSAGES.get(
+        errcode, "微信身份服务暂时不可用，请稍后重试"
+    )
 
 
 def _now() -> str:
@@ -161,10 +195,23 @@ def exchange_wechat_code(code: str) -> dict[str, str]:
                 },
             )
             data = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "WeChat jscode2session request failed: error_type=%s",
+            type(exc).__name__,
+        )
+        raise WeChatProviderError("微信身份服务网络暂时不可用，请稍后重试") from exc
+    except ValueError as exc:
+        logger.warning("WeChat jscode2session returned invalid JSON")
         raise WeChatProviderError("微信身份服务暂时不可用，请稍后重试") from exc
+    if not isinstance(data, dict):
+        raise WeChatProviderError(
+            _wechat_provider_error_message(response.status_code, None)
+        )
     if response.status_code != 200 or data.get("errcode") or not data.get("openid"):
-        raise WeChatProviderError("微信身份服务暂时不可用，请稍后重试")
+        raise WeChatProviderError(
+            _wechat_provider_error_message(response.status_code, data)
+        )
     return {
         "appid": settings.wechat_miniprogram_app_id,
         "openid": str(data["openid"]),

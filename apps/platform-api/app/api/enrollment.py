@@ -36,10 +36,10 @@ class PublicEnrollmentPayload(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     phone: str = Field(pattern=r"^1\d{10}$")
     privacy_consent: Literal[True]
-    gender: Literal["MALE", "FEMALE"] | None = None
+    gender: Literal["MALE", "FEMALE"]
     birthday: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     district: str | None = Field(default=None, max_length=255)
-    political_status: str | None = Field(default=None, max_length=255)
+    political_status: str = Field(min_length=1, max_length=255)
     social_role: str | None = Field(default=None, max_length=255)
     company_name: str = Field(min_length=1, max_length=500)
     company_tax_id: str | None = Field(default=None, max_length=64)
@@ -51,6 +51,8 @@ class PublicEnrollmentPayload(BaseModel):
     invoice_info: str | None = Field(default=None, max_length=4000)
     invoice_title: str | None = Field(default=None, max_length=500)
     invoice_tax_id: str | None = Field(default=None, max_length=64)
+    # Kept nullable for old clients/data compatibility.  The public form no
+    # longer renders or sends these special-invoice detail fields.
     invoice_registered_address: str | None = Field(default=None, max_length=1000)
     invoice_phone: str | None = Field(default=None, max_length=64)
     invoice_bank: str | None = Field(default=None, max_length=255)
@@ -72,11 +74,11 @@ class PublicEnrollmentPayload(BaseModel):
     learning_participation_goal: str | None = Field(default=None, max_length=4000)
     business_goal: str | None = Field(default=None, max_length=4000)
     other_goal: str | None = Field(default=None, max_length=4000)
-    goal_years: str | None = Field(default=None, max_length=32)
-    revenue_growth_target: str | None = Field(default=None, max_length=64)
-    profit_growth_target: str | None = Field(default=None, max_length=64)
+    goal_years: str = Field(min_length=1, max_length=32)
+    revenue_growth_target: str = Field(min_length=1, max_length=64)
+    profit_growth_target: str = Field(min_length=1, max_length=64)
     annual_sales: str = Field(min_length=1, max_length=255)
-    profit_margin: str | None = Field(default=None, max_length=64)
+    profit_margin: str = Field(min_length=1, max_length=64)
     notes: str | None = Field(default=None, max_length=1000)
     # New clients must send true.  ``None`` keeps already-installed legacy
     # H5 clients readable while their old long-form fields are still present.

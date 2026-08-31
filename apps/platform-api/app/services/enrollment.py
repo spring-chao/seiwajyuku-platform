@@ -53,6 +53,15 @@ INDUSTRY_OPTIONS = (
     "其他",
 )
 POLITICAL_STATUS_OPTIONS = ("群众", "党员")
+POSITION_OPTIONS = (
+    "法人代表",
+    "董事长",
+    "合伙人",
+    "股东",
+    "总经理",
+    "经营者夫妻",
+    "经营者二代",
+)
 POLITICAL_STATUS_ALIASES = {
     "群众": "群众",
     "党员": "党员",
@@ -84,7 +93,7 @@ PROFIT_MARGIN_ALIASES = {
     "0%~10%以下": "LT_10_PERCENT",
     "亏损": "LOSS",
 }
-GROWTH_TARGET_OPTIONS = ("UNSET", "1.5", "2", "3", "5")
+GROWTH_TARGET_OPTIONS = ("1.5", "2", "3", "5")
 LEGACY_REQUIRED_FIELDS = (
     "books_read",
     "enrollment_reason_philosophy",
@@ -185,16 +194,23 @@ def _canonical_profit_margin(value: str | None) -> str | None:
 
 
 def _canonical_goal_value(
-    value: str | None, *, label: str, integer_only: bool = False
+    value: str | None,
+    *,
+    label: str,
+    integer_only: bool = False,
+    allow_unset: bool = True,
 ) -> str | None:
     cleaned = _clean_optional(value)
     if not cleaned:
         return None
     if cleaned in {"UNSET", "暂不设定"}:
+        if not allow_unset:
+            raise EnrollmentValidationError(f"{label}请选择具体目标")
         return "UNSET"
     pattern = r"^\d+$" if integer_only else r"^\d+(?:\.\d+)?$"
     if not re.fullmatch(pattern, cleaned):
-        raise EnrollmentValidationError(f"{label}请输入正数或选择暂不设定")
+        suffix = "或选择暂不设定" if allow_unset else ""
+        raise EnrollmentValidationError(f"{label}请输入正数{suffix}")
     number = Decimal(cleaned)
     if number <= 0 or number > 100:
         raise EnrollmentValidationError(f"{label}超出允许范围")
@@ -230,10 +246,14 @@ def _canonical_industry(payload: dict[str, Any]) -> dict[str, str | None]:
     }
 
 
-def _canonical_political(payload: dict[str, Any]) -> dict[str, str | None]:
+def _canonical_political(
+    payload: dict[str, Any], *, require_standard: bool = False
+) -> dict[str, str | None]:
     """Normalize new choices while keeping historical free-text values readable."""
     status = _clean_optional(payload.get("political_status"))
     status = POLITICAL_STATUS_ALIASES.get(status or "", status)
+    if require_standard and status not in POLITICAL_STATUS_OPTIONS:
+        raise EnrollmentValidationError("政治面貌请选择标准选项")
     role = _clean_optional(payload.get("social_role"))
     if status != "党员":
         role = None
@@ -257,7 +277,9 @@ def _legacy_invoice_values(value: str | None) -> dict[str, str]:
     )
 
 
-def _canonical_invoice(payload: dict[str, Any]) -> dict[str, str | None]:
+def _canonical_invoice(
+    payload: dict[str, Any], *, preserve_detail_fields: bool = True
+) -> dict[str, str | None]:
     raw_type = _clean_optional(payload.get("invoice_type"))
     invoice_type = INVOICE_TYPE_ALIASES.get(raw_type or "", raw_type)
     if invoice_type not in INVOICE_TYPE_LABELS:
@@ -279,29 +301,42 @@ def _canonical_invoice(payload: dict[str, Any]) -> dict[str, str | None]:
     company_tax_id = _clean_optional(payload.get("company_tax_id"))
     tax_id = get_value("invoice_tax_id") or company_tax_id
     title = get_value("invoice_title")
-    registered_address = get_value("invoice_registered_address")
-    phone = get_value("invoice_phone")
-    bank = get_value("invoice_bank")
-    account = get_value("invoice_account")
+    if preserve_detail_fields:
+        registered_address = get_value("invoice_registered_address")
+        phone = get_value("invoice_phone")
+        bank = get_value("invoice_bank")
+        account = get_value("invoice_account")
+    else:
+        registered_address = None
+        phone = None
+        bank = None
+        account = None
     if not title or not tax_id:
         raise EnrollmentValidationError("普票或专票必须填写发票抬头和税号")
-    if invoice_type == "SPECIAL" and not all(
-        (registered_address, phone, bank, account)
-    ):
-        raise EnrollmentValidationError("专票还需填写注册地址、注册电话、开户银行和银行账号")
     structured = {
         "invoice_type": invoice_type,
         "invoice_title": title,
         "invoice_tax_id": tax_id,
-        "invoice_registered_address": registered_address,
-        "invoice_phone": phone,
-        "invoice_bank": bank,
-        "invoice_account": account,
     }
+    if preserve_detail_fields:
+        structured.update(
+            {
+                "invoice_registered_address": registered_address,
+                "invoice_phone": phone,
+                "invoice_bank": bank,
+                "invoice_account": account,
+            }
+        )
     return {
         **structured,
         "company_tax_id": company_tax_id or tax_id,
         "invoice_info": json.dumps(structured, ensure_ascii=False),
+        # Keep the existing nullable columns available to the insert/update
+        # paths; the public form deliberately leaves them empty.
+        "invoice_registered_address": registered_address,
+        "invoice_phone": phone,
+        "invoice_bank": bank,
+        "invoice_account": account,
     }
 
 
@@ -660,11 +695,13 @@ def get_public_enrollment_form(token: str) -> dict[str, Any]:
         "link_name": link["name"],
         "subtitle": "欢迎您填写入塾申请资料",
         "notice": "提交资料不代表已经正式入塾。工作人员审核资料、确认所属分中心及会费后，才会建立正式学员档案。本页面不进行任何转账或收费。",
-        "privacy_notice": "所填资料仅用于入塾审核与后续服务。手机号、税号、银行账号和企业财务资料将按权限使用。",
+        "privacy_notice": "所填资料仅用于入塾审核与后续服务。手机号、税号和企业财务资料将按权限使用。",
         "required_fields": [
             "name",
             "phone",
             "birthday",
+            "gender",
+            "political_status",
             "referrer",
             "company_name",
             "company_address",
@@ -674,30 +711,25 @@ def get_public_enrollment_form(token: str) -> dict[str, Any]:
             "company_products",
             "employee_count",
             "annual_sales",
+            "profit_margin",
+            "goal_years",
+            "revenue_growth_target",
+            "profit_growth_target",
             "rules_acknowledged",
             "privacy_consent",
         ],
         "optional_fields": [
-            "gender",
             "district",
-            "political_status",
             "social_role",
             "email",
             "industry_other",
             "invoice_title",
             "invoice_tax_id",
-            "invoice_registered_address",
-            "invoice_phone",
-            "invoice_bank",
-            "invoice_account",
-            "profit_margin",
-            "goal_years",
-            "revenue_growth_target",
-            "profit_growth_target",
             "notes",
         ],
         "industry_options": list(INDUSTRY_OPTIONS),
         "political_status_options": list(POLITICAL_STATUS_OPTIONS),
+        "position_options": list(POSITION_OPTIONS),
         "invoice_types": [
             {"value": value, "label": label}
             for value, label in INVOICE_TYPE_LABELS.items()
@@ -707,7 +739,7 @@ def get_public_enrollment_form(token: str) -> dict[str, Any]:
             for value, label in PROFIT_MARGIN_LABELS.items()
         ],
         "growth_target_options": [
-            {"value": value, "label": "暂不设定" if value == "UNSET" else f"{value}倍"}
+            {"value": value, "label": f"{value}倍"}
             for value in GROWTH_TARGET_OPTIONS
         ],
         "goal_year_options": ["1", "2", "3", "5", "OTHER"],
@@ -781,9 +813,12 @@ def _prepare_public_values(payload: dict[str, Any]) -> dict[str, Any]:
     )
     if payload.get("rules_acknowledged") is not True and not legacy_submission:
         raise EnrollmentValidationError("请先阅读并确认加入守则与缴费说明")
+    gender = _clean_optional(payload.get("gender"))
+    if gender not in {"MALE", "FEMALE"}:
+        raise EnrollmentValidationError("性别请选择男或女")
     industry = _canonical_industry(payload)
-    political = _canonical_political(payload)
-    invoice = _canonical_invoice(payload)
+    political = _canonical_political(payload, require_standard=True)
+    invoice = _canonical_invoice(payload, preserve_detail_fields=False)
     values: dict[str, Any] = {
         key: _clean_optional(payload.get(key))
         for key in (
@@ -807,19 +842,42 @@ def _prepare_public_values(payload: dict[str, Any]) -> dict[str, Any]:
             "notes",
         )
     }
+    values["gender"] = gender
     values.update(political)
+    position = values["position"]
+    if position not in POSITION_OPTIONS:
+        raise EnrollmentValidationError("职务请选择标准选项")
     values["employee_count"] = payload.get("employee_count")
     values["annual_sales"] = _clean_optional(payload.get("annual_sales"))
-    values["profit_margin"] = _canonical_profit_margin(payload.get("profit_margin"))
-    values["goal_years"] = _canonical_goal_value(
-        payload.get("goal_years"), label="计划学习年限", integer_only=True
+    profit_margin = _canonical_profit_margin(payload.get("profit_margin"))
+    if not profit_margin:
+        raise EnrollmentValidationError("利润率请选择标准选项")
+    values["profit_margin"] = profit_margin
+    goal_years = _canonical_goal_value(
+        payload.get("goal_years"),
+        label="计划学习年限",
+        integer_only=True,
+        allow_unset=False,
     )
-    values["revenue_growth_target"] = _canonical_goal_value(
-        payload.get("revenue_growth_target"), label="业绩目标"
+    if not goal_years:
+        raise EnrollmentValidationError("计划学习年限请选择具体年限")
+    values["goal_years"] = goal_years
+    revenue_growth_target = _canonical_goal_value(
+        payload.get("revenue_growth_target"),
+        label="业绩目标",
+        allow_unset=False,
     )
-    values["profit_growth_target"] = _canonical_goal_value(
-        payload.get("profit_growth_target"), label="利润目标"
+    if not revenue_growth_target:
+        raise EnrollmentValidationError("业绩提升目标请选择具体目标")
+    values["revenue_growth_target"] = revenue_growth_target
+    profit_growth_target = _canonical_goal_value(
+        payload.get("profit_growth_target"),
+        label="利润目标",
+        allow_unset=False,
     )
+    if not profit_growth_target:
+        raise EnrollmentValidationError("利润提升目标请选择具体目标")
+    values["profit_growth_target"] = profit_growth_target
     values["_legacy_submission"] = legacy_submission
     values.update(industry)
     values.update(invoice)
