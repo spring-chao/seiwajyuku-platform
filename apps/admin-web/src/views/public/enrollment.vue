@@ -19,6 +19,18 @@ const config = ref<PublicEnrollmentForm>();
 const politicalOptions = computed(
   () => config.value?.political_status_options || ["群众", "党员"]
 );
+const positionOptions = computed(
+  () =>
+    config.value?.position_options || [
+      "法人代表",
+      "董事长",
+      "合伙人",
+      "股东",
+      "总经理",
+      "经营者夫妻",
+      "经营者二代"
+    ]
+);
 
 const form = reactive({
   name: "",
@@ -35,10 +47,6 @@ const form = reactive({
   invoice_type: "" as "" | "NORMAL" | "SPECIAL" | "NONE",
   invoice_title: "",
   invoice_tax_id: "",
-  invoice_registered_address: "",
-  invoice_phone: "",
-  invoice_bank: "",
-  invoice_account: "",
   industry_category: "",
   industry_other: "",
   company_products: "",
@@ -77,13 +85,20 @@ const rules: FormRules = {
     }
   ],
   birthday: [{ required: true, message: "请选择出生日期", trigger: "change" }],
+  gender: [{ required: true, message: "请选择性别", trigger: "change" }],
+  political_status: [
+    { required: true, message: "请选择政治面貌", trigger: "change" }
+  ],
   referrer: requiredText("推荐人", 255),
   company_name: requiredText("公司名称", 500),
   company_address: requiredText("公司地址", 1000),
   position: requiredText("职务", 255),
   invoice_type: requiredText("发票类型", 64),
+  profit_margin: [
+    { required: true, message: "请选择利润率", trigger: "change" }
+  ],
   industry_category: requiredText("所属行业", 255),
-  company_products: requiredText("主要产品", 4000),
+  company_products: requiredText("主要产品或服务", 4000),
   employee_count: [
     { required: true, message: "请填写员工人数", trigger: "blur" },
     {
@@ -92,7 +107,16 @@ const rules: FormRules = {
       trigger: "blur"
     }
   ],
-  annual_sales: requiredText("年销售额", 255),
+  annual_sales: requiredText("年销售额（万）", 255),
+  goal_years: [
+    { required: true, message: "请选择计划学习年限", trigger: "change" }
+  ],
+  revenue_growth_target: [
+    { required: true, message: "请选择业绩提升目标", trigger: "change" }
+  ],
+  profit_growth_target: [
+    { required: true, message: "请选择利润提升目标", trigger: "change" }
+  ],
   email: [
     { type: "email", message: "邮箱格式不正确", trigger: "blur" },
     { max: 255, message: "邮箱过长", trigger: "blur" }
@@ -144,18 +168,6 @@ async function submit() {
     errorMessage.value = "请填写发票抬头和税号。";
     return;
   }
-  if (
-    form.invoice_type === "SPECIAL" &&
-    [
-      form.invoice_registered_address,
-      form.invoice_phone,
-      form.invoice_bank,
-      form.invoice_account
-    ].some(value => !value.trim())
-  ) {
-    errorMessage.value = "专票资料请填写完整。";
-    return;
-  }
   if (form.industry_category === "其他" && !form.industry_other.trim()) {
     errorMessage.value = "请填写其他行业。";
     return;
@@ -180,9 +192,9 @@ async function submit() {
     phone: form.phone.trim(),
     privacy_consent: true,
     rules_acknowledged: true,
-    gender: form.gender || undefined,
+    gender: form.gender as "MALE" | "FEMALE",
     birthday: form.birthday,
-    political_status: optional(form.political_status),
+    political_status: form.political_status.trim(),
     social_role: isPartyMember.value ? optional(form.social_role) : undefined,
     company_name: form.company_name.trim(),
     company_address: form.company_address.trim(),
@@ -192,29 +204,21 @@ async function submit() {
     invoice_type: form.invoice_type as "NORMAL" | "SPECIAL" | "NONE",
     invoice_title: optional(form.invoice_title),
     invoice_tax_id: optional(form.invoice_tax_id),
-    invoice_registered_address: optional(form.invoice_registered_address),
-    invoice_phone: optional(form.invoice_phone),
-    invoice_bank: optional(form.invoice_bank),
-    invoice_account: optional(form.invoice_account),
     industry_category: form.industry_category.trim(),
     industry_other: optional(form.industry_other),
     company_products: form.company_products.trim(),
     employee_count: Number(form.employee_count),
     annual_sales: form.annual_sales.trim(),
-    profit_margin: optional(form.profit_margin),
-    goal_years: optional(
-      form.goal_years === "OTHER" ? form.goal_years_other : form.goal_years
-    ),
-    revenue_growth_target: optional(
-      form.revenue_growth_target === "CUSTOM"
-        ? form.revenue_growth_other
-        : form.revenue_growth_target
-    ),
-    profit_growth_target: optional(
-      form.profit_growth_target === "CUSTOM"
-        ? form.profit_growth_other
-        : form.profit_growth_target
-    ),
+    profit_margin: form.profit_margin,
+    goal_years: form.goal_years === "OTHER"
+      ? form.goal_years_other.trim()
+      : form.goal_years,
+    revenue_growth_target: form.revenue_growth_target === "CUSTOM"
+      ? form.revenue_growth_other.trim()
+      : form.revenue_growth_target,
+    profit_growth_target: form.profit_growth_target === "CUSTOM"
+      ? form.profit_growth_other.trim()
+      : form.profit_growth_target,
     notes: optional(form.notes)
   };
   try {
@@ -307,7 +311,7 @@ onMounted(loadForm);
             />
           </el-form-item>
 
-          <el-form-item label="性别">
+          <el-form-item label="性别" prop="gender" required>
             <el-radio-group v-model="form.gender">
               <el-radio value="MALE">男</el-radio>
               <el-radio value="FEMALE">女</el-radio>
@@ -324,10 +328,9 @@ onMounted(loadForm);
                 :teleported="false"
               />
             </el-form-item>
-            <el-form-item label="政治面貌">
+            <el-form-item label="政治面貌" prop="political_status" required>
               <el-select
                 v-model="form.political_status"
-                clearable
                 placeholder="请选择"
                 style="width: 100%"
               >
@@ -394,11 +397,18 @@ onMounted(loadForm);
 
           <div class="two-column">
             <el-form-item label="职务" prop="position" required>
-              <el-input
+              <el-select
                 v-model="form.position"
-                maxlength="255"
-                placeholder="如：董事长、总经理"
-              />
+                placeholder="请选择职务"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="option in positionOptions"
+                  :key="option"
+                  :label="option"
+                  :value="option"
+                />
+              </el-select>
             </el-form-item>
             <el-form-item label="发票类型" prop="invoice_type" required>
               <el-select
@@ -423,20 +433,6 @@ onMounted(loadForm);
               </el-form-item>
               <el-form-item label="发票税号" required>
                 <el-input v-model="form.invoice_tax_id" maxlength="64" placeholder="请填写税号" />
-              </el-form-item>
-            </div>
-            <div v-if="form.invoice_type === 'SPECIAL'" class="two-column">
-              <el-form-item label="注册地址" required>
-                <el-input v-model="form.invoice_registered_address" maxlength="1000" />
-              </el-form-item>
-              <el-form-item label="注册电话" required>
-                <el-input v-model="form.invoice_phone" maxlength="64" />
-              </el-form-item>
-              <el-form-item label="开户银行" required>
-                <el-input v-model="form.invoice_bank" maxlength="255" />
-              </el-form-item>
-              <el-form-item label="银行账号" required>
-                <el-input v-model="form.invoice_account" maxlength="128" />
               </el-form-item>
             </div>
           </template>
@@ -466,11 +462,11 @@ onMounted(loadForm);
             <el-input v-model="form.industry_other" maxlength="255" placeholder="请填写行业名称" />
           </el-form-item>
 
-          <el-form-item label="主要产品" prop="company_products" required>
+          <el-form-item label="主要产品或服务" prop="company_products" required>
             <el-input
               v-model="form.company_products"
               type="textarea"
-              :rows="3"
+              :rows="2"
               maxlength="4000"
               show-word-limit
               placeholder="请填写主要产品或服务"
@@ -479,15 +475,16 @@ onMounted(loadForm);
 
           <div class="financial-panel">
             <div class="privacy-badge">企业敏感资料 · 加密保存</div>
-            <el-form-item label="年销售额" prop="annual_sales" required>
+            <el-form-item label="年销售额（万）" prop="annual_sales" required>
               <el-input
                 v-model="form.annual_sales"
                 maxlength="255"
-                placeholder="如：5000万元，或填写销售额区间"
+                inputmode="decimal"
+                placeholder="请输入金额"
               />
             </el-form-item>
-            <el-form-item label="利润率">
-              <el-select v-model="form.profit_margin" placeholder="请选择（可选）" style="width: 100%">
+            <el-form-item label="利润率" prop="profit_margin" required>
+              <el-select v-model="form.profit_margin" placeholder="请选择" style="width: 100%">
                 <el-option
                   v-for="option in config?.profit_margin_options || []"
                   :key="option.value"
@@ -508,7 +505,7 @@ onMounted(loadForm);
           </div>
 
           <div class="two-column">
-            <el-form-item label="计划学习年限">
+            <el-form-item label="计划学习年限" prop="goal_years" required>
               <el-select v-model="form.goal_years" placeholder="请选择" style="width: 100%">
                 <el-option label="1年" value="1" />
                 <el-option label="2年" value="2" />
@@ -517,9 +514,8 @@ onMounted(loadForm);
                 <el-option label="其他" value="OTHER" />
               </el-select>
             </el-form-item>
-            <el-form-item label="业绩提升目标">
+            <el-form-item label="业绩提升目标" prop="revenue_growth_target" required>
               <el-select v-model="form.revenue_growth_target" placeholder="请选择" style="width: 100%">
-                <el-option label="暂不设定" value="UNSET" />
                 <el-option label="1.5倍" value="1.5" />
                 <el-option label="2倍" value="2" />
                 <el-option label="3倍" value="3" />
@@ -531,9 +527,8 @@ onMounted(loadForm);
           <el-form-item v-if="form.goal_years === 'OTHER'" label="自定义学习年限" required>
             <el-input v-model="form.goal_years_other" maxlength="3" inputmode="numeric" placeholder="请输入年数" />
           </el-form-item>
-          <el-form-item label="利润提升目标">
+          <el-form-item label="利润提升目标" prop="profit_growth_target" required>
             <el-select v-model="form.profit_growth_target" placeholder="请选择" style="width: 100%">
-              <el-option label="暂不设定" value="UNSET" />
               <el-option label="1.5倍" value="1.5" />
               <el-option label="2倍" value="2" />
               <el-option label="3倍" value="3" />

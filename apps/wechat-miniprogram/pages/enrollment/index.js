@@ -4,6 +4,8 @@ const REQUIRED_FIELDS = [
   ["name", "姓名"],
   ["phone", "手机号"],
   ["birthday", "出生日期"],
+  ["gender", "性别"],
+  ["political_status", "政治面貌"],
   ["referrer", "推荐人"],
   ["company_name", "公司名称"],
   ["company_address", "公司地址"],
@@ -12,7 +14,11 @@ const REQUIRED_FIELDS = [
   ["industry_category", "所属行业"],
   ["employee_count", "员工人数"],
   ["company_products", "主要产品或服务"],
-  ["annual_sales", "年销售额"]
+  ["annual_sales", "年销售额（万）"],
+  ["profit_margin", "利润率"],
+  ["goal_years", "计划学习年限"],
+  ["revenue_growth_target", "业绩提升目标"],
+  ["profit_growth_target", "利润提升目标"]
 ];
 
 const INDUSTRY_OPTIONS = [
@@ -32,12 +38,21 @@ const INDUSTRY_OPTIONS = [
 const GENDER_OPTIONS = ["男", "女"];
 const GENDER_VALUES = ["MALE", "FEMALE"];
 const POLITICAL_OPTIONS = ["群众", "党员"];
+const POSITION_OPTIONS = [
+  "法人代表",
+  "董事长",
+  "合伙人",
+  "股东",
+  "总经理",
+  "经营者夫妻",
+  "经营者二代"
+];
 const INVOICE_OPTIONS = ["普票", "专票", "无需开票"];
 const INVOICE_VALUES = ["NORMAL", "SPECIAL", "NONE"];
 const PROFIT_OPTIONS = ["10%及以上", "0%～10%以下", "亏损"];
 const PROFIT_VALUES = ["GE_10_PERCENT", "LT_10_PERCENT", "LOSS"];
-const GROWTH_OPTIONS = ["暂不设定", "1.5倍", "2倍", "3倍", "5倍", "自定义"];
-const GROWTH_VALUES = ["UNSET", "1.5", "2", "3", "5", "CUSTOM"];
+const GROWTH_OPTIONS = ["1.5倍", "2倍", "3倍", "5倍", "自定义"];
+const GROWTH_VALUES = ["1.5", "2", "3", "5", "CUSTOM"];
 const GOAL_YEAR_OPTIONS = ["1年", "2年", "3年", "5年", "自定义"];
 const GOAL_YEAR_VALUES = ["1", "2", "3", "5", "OTHER"];
 
@@ -69,7 +84,7 @@ Page({
       title: "新学长信息登记",
       subtitle: "欢迎您填写入塾申请资料",
       notice: "提交资料不代表已经正式入塾。工作人员审核资料、确认所属分中心及会费后，才会建立正式学员档案。",
-      privacy_notice: "所填资料仅用于入塾审核与后续服务。手机号、税号、银行账号和企业财务资料将按权限使用。"
+      privacy_notice: "所填资料仅用于入塾审核与后续服务。手机号、税号和企业财务资料将按权限使用。"
     },
     purposeItems: [
       {
@@ -87,6 +102,7 @@ Page({
     ],
     industryOptions: INDUSTRY_OPTIONS,
     politicalOptions: POLITICAL_OPTIONS,
+    positionOptions: POSITION_OPTIONS,
     invoiceOptions: INVOICE_OPTIONS,
     genderOptions: GENDER_OPTIONS,
     profitOptions: PROFIT_OPTIONS,
@@ -107,10 +123,6 @@ Page({
       invoice_type: "",
       invoice_title: "",
       invoice_tax_id: "",
-      invoice_registered_address: "",
-      invoice_phone: "",
-      invoice_bank: "",
-      invoice_account: "",
       industry_category: "",
       industry_other: "",
       employee_count: "",
@@ -127,7 +139,6 @@ Page({
     },
     isIndustryOther: false,
     isInvoiceDetailsVisible: false,
-    isInvoiceSpecial: false,
     isGoalYearsOther: false,
     isRevenueCustom: false,
     isProfitCustom: false,
@@ -181,9 +192,12 @@ Page({
         formMeta: { ...this.data.formMeta, ...metadata },
         industryOptions: metadata.industry_options || INDUSTRY_OPTIONS,
         politicalOptions: metadata.political_status_options || POLITICAL_OPTIONS,
+        positionOptions: metadata.position_options || POSITION_OPTIONS,
         invoiceOptions: metadata.invoice_types ? metadata.invoice_types.map(item => item.label) : INVOICE_OPTIONS,
         profitOptions: metadata.profit_margin_options ? metadata.profit_margin_options.map(item => item.label) : PROFIT_OPTIONS,
-        growthOptions: metadata.growth_target_options ? metadata.growth_target_options.map(item => item.label) : GROWTH_OPTIONS,
+        growthOptions: metadata.growth_target_options
+          ? [...metadata.growth_target_options.filter(item => item.value !== "UNSET").map(item => item.label), "自定义"]
+          : GROWTH_OPTIONS,
         goalYearOptions: metadata.goal_year_options ? metadata.goal_year_options.map(item => item === "OTHER" ? "自定义" : `${item}年`) : GOAL_YEAR_OPTIONS
       });
     } catch (error) {
@@ -204,6 +218,10 @@ Page({
     this.setData({ "form.gender": GENDER_VALUES[Number(event.detail.value)] || "" });
   },
 
+  handlePositionChange(event) {
+    this.setData({ "form.position": this.data.positionOptions[Number(event.detail.value)] || "" });
+  },
+
   handlePoliticalStatusChange(event) {
     const value = this.data.politicalOptions[Number(event.detail.value)] || "";
     this.setData({
@@ -221,8 +239,7 @@ Page({
     const value = INVOICE_VALUES[Number(event.detail.value)] || "";
     this.setData({
       "form.invoice_type": value,
-      isInvoiceDetailsVisible: value !== "NONE",
-      isInvoiceSpecial: value === "SPECIAL"
+      isInvoiceDetailsVisible: value !== "NONE"
     });
   },
 
@@ -299,10 +316,6 @@ Page({
         wx.showToast({ title: "请填写发票抬头和税号", icon: "none" });
         return false;
       }
-      if (form.invoice_type === "SPECIAL" && ["invoice_registered_address", "invoice_phone", "invoice_bank", "invoice_account"].some(field => !form[field].trim())) {
-        wx.showToast({ title: "专票资料请填写完整", icon: "none" });
-        return false;
-      }
     }
     if (this.data.isGoalYearsOther && !/^\d+$/.test(form.goal_years_other.trim())) {
       wx.showToast({ title: "请输入计划学习年限", icon: "none" });
@@ -346,10 +359,6 @@ Page({
       invoice_type: form.invoice_type,
       invoice_title: form.invoice_title.trim(),
       invoice_tax_id: form.invoice_tax_id.trim(),
-      invoice_registered_address: form.invoice_registered_address.trim(),
-      invoice_phone: form.invoice_phone.trim(),
-      invoice_bank: form.invoice_bank.trim(),
-      invoice_account: form.invoice_account.trim(),
       industry_category: form.industry_category,
       industry_other: form.industry_category === "其他" ? form.industry_other.trim() : undefined,
       company_products: form.company_products.trim(),
@@ -362,7 +371,7 @@ Page({
       notes: form.notes.trim()
     });
     if (payload.invoice_type === "NONE") {
-      ["invoice_title", "invoice_tax_id", "invoice_registered_address", "invoice_phone", "invoice_bank", "invoice_account"].forEach(field => delete payload[field]);
+      ["invoice_title", "invoice_tax_id"].forEach(field => delete payload[field]);
     }
     this.setData({ submitting: true });
     wx.showLoading({ title: "正在提交" });

@@ -35,7 +35,7 @@
         </picker>
       </view>
       <view class="field-row picker-row">
-        <view class="field-label">性别</view>
+        <view class="field-label required">性别</view>
         <picker mode="selector" range="{{genderOptions}}" bindchange="handleGenderChange">
           <view class="picker-value {{form.gender ? '' : 'placeholder'}}">{{form.gender === 'MALE' ? '男' : form.gender === 'FEMALE' ? '女' : '请选择'}}</view>
         </picker>
@@ -45,7 +45,7 @@
         <input class="field-input" data-field="referrer" value="{{form.referrer}}" bindinput="handleInput" placeholder="请填写推荐学长姓名" />
       </view>
       <view class="field-row picker-row">
-        <view class="field-label">政治面貌</view>
+        <view class="field-label required">政治面貌</view>
         <picker mode="selector" range="{{politicalOptions}}" bindchange="handlePoliticalStatusChange">
           <view class="picker-value {{form.political_status ? '' : 'placeholder'}}">{{form.political_status || '请选择'}}</view>
         </picker>
@@ -66,13 +66,15 @@
         <view class="field-label required">公司名称</view>
         <input class="field-input" data-field="company_name" value="{{form.company_name}}" bindinput="handleInput" placeholder="请手工填写企业全称" />
       </view>
-      <view class="field-row multiline-row">
-        <view class="field-label required">公司地址</view>
-        <textarea class="field-textarea" data-field="company_address" value="{{form.company_address}}" bindinput="handleInput" maxlength="1000" placeholder="请填写公司完整地址" />
-      </view>
       <view class="field-row">
+        <view class="field-label required">公司地址</view>
+        <input class="field-input" data-field="company_address" value="{{form.company_address}}" bindinput="handleInput" maxlength="1000" placeholder="请填写公司完整地址" />
+      </view>
+      <view class="field-row picker-row">
         <view class="field-label required">职务</view>
-        <input class="field-input" data-field="position" value="{{form.position}}" bindinput="handleInput" placeholder="如：董事长、总经理" />
+        <picker mode="selector" range="{{positionOptions}}" bindchange="handlePositionChange">
+          <view class="picker-value {{form.position ? '' : 'placeholder'}}">{{form.position || '请选择职务'}}</view>
+        </picker>
       </view>
       <view class="field-row picker-row">
         <view class="field-label required">所属行业</view>
@@ -88,25 +90,25 @@
         <view class="field-label required">员工人数</view>
         <input class="field-input" type="number" data-field="employee_count" value="{{form.employee_count}}" bindinput="handleInput" placeholder="请输入人数" />
       </view>
-      <view class="field-row multiline-row">
+      <view class="field-row multiline-row compact-multiline-row">
         <view class="field-label required">主要产品或服务</view>
         <textarea class="field-textarea" data-field="company_products" value="{{form.company_products}}" bindinput="handleInput" maxlength="4000" placeholder="请填写主要产品或服务" />
       </view>
       <view class="field-row">
-        <view class="field-label required">年销售额</view>
-        <input class="field-input" data-field="annual_sales" value="{{form.annual_sales}}" bindinput="handleInput" placeholder="如：5000万元或销售额区间" />
+        <view class="field-label required">年销售额（万）</view>
+        <input class="field-input" type="digit" data-field="annual_sales" value="{{form.annual_sales}}" bindinput="handleInput" placeholder="请输入金额" />
       </view>
       <view class="field-row picker-row">
-        <view class="field-label">利润率</view>
+        <view class="field-label required">利润率</view>
         <picker mode="selector" range="{{profitOptions}}" bindchange="handleProfitChange">
-          <view class="picker-value {{form.profit_margin ? '' : 'placeholder'}}">{{form.profit_margin === 'GE_10_PERCENT' ? '10%及以上' : form.profit_margin === 'LT_10_PERCENT' ? '0%～10%以下' : form.profit_margin === 'LOSS' ? '亏损' : '可选'}}</view>
+          <view class="picker-value {{form.profit_margin ? '' : 'placeholder'}}">{{form.profit_margin === 'GE_10_PERCENT' ? '10%及以上' : form.profit_margin === 'LT_10_PERCENT' ? '0%～10%以下' : form.profit_margin === 'LOSS' ? '亏损' : '请选择'}}</view>
         </picker>
       </view>
     </view>
 
     <view class="section-card">
       <view class="section-title">开票信息</view>
-      <view class="section-hint">发票抬头、税号和开票资料均为手工填写，请提交前自行核对。</view>
+      <view class="section-hint">发票抬头和税号为手工填写，请提交前自行核对。</view>
       <view class="field-row picker-row">
         <view class="field-label required">发票类型</view>
         <picker mode="selector" range="{{invoiceOptions}}" bindchange="handleInvoiceChange">
@@ -122,33 +124,15 @@
           <view class="field-label required">发票税号</view>
           <input class="field-input" data-field="invoice_tax_id" value="{{form.invoice_tax_id}}" bindinput="handleInput" placeholder="请填写税号" />
         </view>
-        <block wx:if="{{isInvoiceSpecial}}">
-          <view class="field-row multiline-row">
-            <view class="field-label required">注册地址</view>
-            <textarea class="field-textarea" data-field="invoice_registered_address" value="{{form.invoice_registered_address}}" bindinput="handleInput" placeholder="请填写注册地址" />
-          </view>
-          <view class="field-row">
-            <view class="field-label required">注册电话</view>
-            <input class="field-input" data-field="invoice_phone" value="{{form.invoice_phone}}" bindinput="handleInput" placeholder="请填写注册电话" />
-          </view>
-          <view class="field-row">
-            <view class="field-label required">开户银行</view>
-            <input class="field-input" data-field="invoice_bank" value="{{form.invoice_bank}}" bindinput="handleInput" placeholder="请填写开户银行" />
-          </view>
-          <view class="field-row">
-            <view class="field-label required">银行账号</view>
-            <input class="field-input" data-field="invoice_account" value="{{form.invoice_account}}" bindinput="handleInput" placeholder="请填写银行账号" />
-          </view>
-        </block>
       </block>
     </view>
 
     <view class="section-card">
       <view class="section-title">你希望通过学习服务获得什么？</view>
       <view class="field-row picker-row">
-        <view class="field-label">计划学习年限</view>
+        <view class="field-label required">计划学习年限</view>
         <picker mode="selector" range="{{goalYearOptions}}" bindchange="handleGoalYearsChange">
-          <view class="picker-value {{form.goal_years ? '' : 'placeholder'}}">{{form.goal_years ? (form.goal_years === '1' ? '1年' : form.goal_years === '2' ? '2年' : form.goal_years === '3' ? '3年' : form.goal_years === '5' ? '5年' : '自定义') : '可选'}}</view>
+          <view class="picker-value {{form.goal_years ? '' : 'placeholder'}}">{{form.goal_years ? (form.goal_years === '1' ? '1年' : form.goal_years === '2' ? '2年' : form.goal_years === '3' ? '3年' : form.goal_years === '5' ? '5年' : '自定义') : '请选择'}}</view>
         </picker>
       </view>
       <view wx:if="{{isGoalYearsOther}}" class="field-row">
@@ -156,9 +140,9 @@
         <input class="field-input" type="number" data-field="goal_years_other" value="{{form.goal_years_other}}" bindinput="handleInput" placeholder="请输入年数" />
       </view>
       <view class="field-row picker-row">
-        <view class="field-label">业绩提升目标</view>
+        <view class="field-label required">业绩提升目标</view>
         <picker mode="selector" range="{{growthOptions}}" bindchange="handleRevenueGrowthChange">
-          <view class="picker-value {{form.revenue_growth_target ? '' : 'placeholder'}}">{{form.revenue_growth_target === 'UNSET' ? '暂不设定' : form.revenue_growth_target === '1.5' ? '1.5倍' : form.revenue_growth_target === '2' ? '2倍' : form.revenue_growth_target === '3' ? '3倍' : form.revenue_growth_target === '5' ? '5倍' : form.revenue_growth_target === 'CUSTOM' ? '自定义' : '可选'}}</view>
+          <view class="picker-value {{form.revenue_growth_target ? '' : 'placeholder'}}">{{form.revenue_growth_target === '1.5' ? '1.5倍' : form.revenue_growth_target === '2' ? '2倍' : form.revenue_growth_target === '3' ? '3倍' : form.revenue_growth_target === '5' ? '5倍' : form.revenue_growth_target === 'CUSTOM' ? '自定义' : '请选择'}}</view>
         </picker>
       </view>
       <view wx:if="{{isRevenueCustom}}" class="field-row">
@@ -166,9 +150,9 @@
         <input class="field-input" type="digit" data-field="revenue_growth_other" value="{{form.revenue_growth_other}}" bindinput="handleInput" placeholder="请输入倍数" />
       </view>
       <view class="field-row picker-row">
-        <view class="field-label">利润提升目标</view>
+        <view class="field-label required">利润提升目标</view>
         <picker mode="selector" range="{{growthOptions}}" bindchange="handleProfitGrowthChange">
-          <view class="picker-value {{form.profit_growth_target ? '' : 'placeholder'}}">{{form.profit_growth_target === 'UNSET' ? '暂不设定' : form.profit_growth_target === '1.5' ? '1.5倍' : form.profit_growth_target === '2' ? '2倍' : form.profit_growth_target === '3' ? '3倍' : form.profit_growth_target === '5' ? '5倍' : form.profit_growth_target === 'CUSTOM' ? '自定义' : '可选'}}</view>
+          <view class="picker-value {{form.profit_growth_target ? '' : 'placeholder'}}">{{form.profit_growth_target === '1.5' ? '1.5倍' : form.profit_growth_target === '2' ? '2倍' : form.profit_growth_target === '3' ? '3倍' : form.profit_growth_target === '5' ? '5倍' : form.profit_growth_target === 'CUSTOM' ? '自定义' : '请选择'}}</view>
         </picker>
       </view>
       <view wx:if="{{isProfitCustom}}" class="field-row">

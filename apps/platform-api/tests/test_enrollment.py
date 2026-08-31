@@ -120,10 +120,27 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertIn("company_address", data["required_fields"])
         self.assertIn("employee_count", data["required_fields"])
         self.assertIn("industry_category", data["required_fields"])
+        for field in (
+            "gender",
+            "political_status",
+            "profit_margin",
+            "goal_years",
+            "revenue_growth_target",
+            "profit_growth_target",
+        ):
+            self.assertIn(field, data["required_fields"])
         self.assertIn("rules_acknowledged", data["required_fields"])
         self.assertNotIn("books_read", data["required_fields"])
         self.assertIn("annual_sales", data["required_fields"])
-        self.assertIn("profit_margin", data["optional_fields"])
+        self.assertNotIn("profit_margin", data["optional_fields"])
+        self.assertNotIn("invoice_registered_address", data["optional_fields"])
+        self.assertNotIn("invoice_phone", data["optional_fields"])
+        self.assertNotIn("invoice_bank", data["optional_fields"])
+        self.assertNotIn("invoice_account", data["optional_fields"])
+        self.assertEqual(
+            data["position_options"],
+            ["法人代表", "董事长", "合伙人", "股东", "总经理", "经营者夫妻", "经营者二代"],
+        )
         self.assertEqual(data["political_status_options"], ["群众", "党员"])
         self.assertIn("social_role", data["optional_fields"])
         self.assertNotIn("company_tax_id", data["optional_fields"])
@@ -145,7 +162,7 @@ class EnrollmentApplicationTests(unittest.TestCase):
             industry_category="信息技术 / 软件",
             goal_years="5",
             revenue_growth_target="3",
-            profit_growth_target="UNSET",
+            profit_growth_target="2",
         )
         self.assertEqual(response.status_code, 200, response.text)
         row = fetch_one(
@@ -161,7 +178,7 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertEqual(row["industry"], "信息技术 / 软件")
         self.assertEqual(row["goal_years"], "5")
         self.assertEqual(row["revenue_growth_target"], "3")
-        self.assertEqual(row["profit_growth_target"], "UNSET")
+        self.assertEqual(row["profit_growth_target"], "2")
         self.assertTrue(row["rules_acknowledged"])
         self.assertIsNotNone(row["rules_acknowledged_at"])
 
@@ -239,27 +256,46 @@ class EnrollmentApplicationTests(unittest.TestCase):
         )
         self.assertEqual(normal_missing.status_code, 422, normal_missing.text)
 
-        special_missing = self._submit(
-            token,
-            _phone(),
-            invoice_type="SPECIAL",
-            invoice_title="申请测试企业",
-            invoice_tax_id="91320000TEST2026",
-        )
-        self.assertEqual(special_missing.status_code, 422, special_missing.text)
-
         special = self._submit(
             token,
             _phone(),
             invoice_type="SPECIAL",
             invoice_title="申请测试企业",
             invoice_tax_id="91320000TEST2026",
-            invoice_registered_address="苏州工业园区测试路1号",
-            invoice_phone="0512-12345678",
-            invoice_bank="测试银行",
-            invoice_account="6222000000000000",
         )
         self.assertEqual(special.status_code, 200, special.text)
+        special_row = fetch_one(
+            "SELECT invoice_info, invoice_registered_address, invoice_phone, "
+            "invoice_bank, invoice_account FROM member_enrollment_applications "
+            "WHERE invoice_type='SPECIAL' ORDER BY id DESC LIMIT 1"
+        )
+        self.assertIsNone(special_row["invoice_registered_address"])
+        self.assertIsNone(special_row["invoice_phone"])
+        self.assertIsNone(special_row["invoice_bank"])
+        self.assertIsNone(special_row["invoice_account"])
+        self.assertNotIn("invoice_registered_address", special_row["invoice_info"])
+
+    def test_public_required_profile_and_goal_fields_reject_empty_values(self) -> None:
+        _, token = self._create_link()
+        for field in (
+            "gender",
+            "political_status",
+            "profit_margin",
+            "goal_years",
+            "revenue_growth_target",
+            "profit_growth_target",
+        ):
+            response = self._submit(token, _phone(), **{field: None})
+            self.assertEqual(response.status_code, 422, f"{field}: {response.text}")
+
+        for field in ("revenue_growth_target", "profit_growth_target"):
+            response = self._submit(token, _phone(), **{field: "UNSET"})
+            self.assertEqual(response.status_code, 422, f"{field}: {response.text}")
+
+    def test_public_position_must_use_catalog_option(self) -> None:
+        _, token = self._create_link()
+        response = self._submit(token, _phone(), position="其他职务")
+        self.assertEqual(response.status_code, 422, response.text)
 
     def test_v111_rules_acknowledgement_is_required(self) -> None:
         _, token = self._create_link()

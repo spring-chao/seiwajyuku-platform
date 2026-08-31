@@ -126,6 +126,9 @@ page {
 .multiline-row { align-items: flex-start; padding: 24rpx 0; }
 .multiline-row .field-label { padding-top: 8rpx; }
 .field-textarea { min-height: 150rpx; line-height: 1.6; text-align: left; }
+.compact-multiline-row { padding: 16rpx 0; }
+.compact-multiline-row .field-label { padding-top: 4rpx; }
+.compact-multiline-row .field-textarea { min-height: 96rpx; }
 
 .rules-card { border: 1rpx solid #ead9c6; background: #fff8ed; }
 .rules-copy { margin-top: 18rpx; color: #675651; font-size: 23rpx; line-height: 1.72; }
