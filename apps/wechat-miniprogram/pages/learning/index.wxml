@@ -33,7 +33,7 @@
     <view class="section-card">
       <view class="section-title">最近学习</view>
       <view wx:if="{{recentLearning.length}}">
-        <view wx:for="{{recentLearning}}" wx:key="source_id" class="learning-row">
+        <view wx:for="{{recentLearning}}" wx:key="uiKey" class="learning-row">
           <view class="learning-name">{{item.title}}</view>
           <view class="learning-copy">{{item.occurredAtLabel}} · {{item.learning_type}} · {{item.status_name}}</view>
         </view>

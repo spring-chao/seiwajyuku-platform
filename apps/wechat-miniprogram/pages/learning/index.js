@@ -42,8 +42,9 @@ Page({
         ...item,
         uiKey: `${item.class_name || "class"}-${item.group_name || "group"}-${index}`
       }));
-      const recentLearning = (summary.recent_learning || []).map(item => ({
+      const recentLearning = (summary.recent_learning || []).map((item, index) => ({
         ...item,
+        uiKey: `${item.occurred_at || "date"}-${item.title || "learning"}-${index}`,
         occurredAtLabel: String(item.occurred_at || "").slice(0, 10).replace(/-/g, "/")
       }));
       this.setData({ member, currentLearning, recentLearning });

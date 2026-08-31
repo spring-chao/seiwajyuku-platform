@@ -251,8 +251,20 @@ def test_learning_summary_requires_bound_session_and_isolates_member() -> None:
         assert all(item["status_name"] in {"已参加", "已完成", "已记录"} for item in records)
         assert all("final_points" not in item and "credit_points" not in item for item in records)
         assert all("member_id" not in item and "id" not in item for item in records)
-        assert all(isinstance(item["source_id"], str) for item in records)
-        assert all("other" not in item["source_id"] for item in records)
+        assert all("source_id" not in item for item in records)
+        assert all(
+            set(item)
+            == {
+                "occurred_at",
+                "learning_type",
+                "title",
+                "class_name",
+                "group_name",
+                "source_type",
+                "status_name",
+            }
+            for item in records
+        )
 
 
 def test_learning_summary_returns_explicit_empty_state_without_facts() -> None:

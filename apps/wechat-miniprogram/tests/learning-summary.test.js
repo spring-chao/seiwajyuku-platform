@@ -16,9 +16,12 @@ assert.doesNotMatch(learningJs, /const currentLearning = assignments/);
 assert.doesNotMatch(learningJs, /item\.current_cycle\.learning_cycle_index/);
 
 assert.match(learningWxml, /wx:for="\{\{recentLearning\}\}"/);
+assert.match(learningJs, /uiKey:/);
+assert.match(learningWxml, /wx:key="uiKey"/);
 assert.match(learningWxml, /item\.occurredAtLabel/);
 assert.match(learningWxml, /正式学分统计正在建设中/);
 assert.doesNotMatch(learningWxml, /暂无学分记录/);
+assert.doesNotMatch(learningWxml, /source_id/);
 assert.doesNotMatch(profileWxml, /暂无学分记录/);
 
 console.log("learning summary mini-program tests passed");

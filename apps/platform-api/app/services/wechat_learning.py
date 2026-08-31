@@ -18,6 +18,16 @@ from app.services.learning_cycles import _active_binding, _cycle_at
 
 RECENT_LEARNING_LIMIT = 20
 
+_PUBLIC_LEARNING_RECORD_FIELDS = (
+    "occurred_at",
+    "learning_type",
+    "title",
+    "class_name",
+    "group_name",
+    "source_type",
+    "status_name",
+)
+
 _LEARNING_TYPE_NAMES = {
     "CLASS_MEETING": "班级学习会",
     "CLASS_SESSION": "班级学习会",
@@ -426,7 +436,13 @@ def _deduplicate_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
             seen.add(key)
         if priority < 2:
             structured_coarse_seen.update(coarse_keys)
-        result.append({key: value for key, value in record.items() if not key.startswith("_")})
+        result.append(
+            {
+                key: record[key]
+                for key in _PUBLIC_LEARNING_RECORD_FIELDS
+                if key in record
+            }
+        )
         if len(result) >= RECENT_LEARNING_LIMIT:
             break
     return result
