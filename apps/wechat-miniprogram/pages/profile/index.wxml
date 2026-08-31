@@ -27,12 +27,13 @@
 
     <view class="section-card">
       <view class="section-title">学习记录</view>
-      <view class="empty-copy">暂无学习记录</view>
+      <view class="empty-copy">请进入“我的学习”查看已接入记录</view>
     </view>
 
     <view class="section-card">
       <view class="section-title">我的学分</view>
-      <view class="empty-copy">暂无学分记录</view>
+      <view class="empty-copy">正式学分统计正在建设中</view>
+      <view class="learning-copy">学习记录不会丢失，统一规则确认后再展示。</view>
     </view>
 
     <view class="section-card">

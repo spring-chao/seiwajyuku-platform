@@ -16,6 +16,7 @@ from app.services.volunteer_positions import (
     get_member_volunteer_history,
     get_member_volunteer_services,
 )
+from app.services.wechat_learning import get_member_learning_summary
 
 
 router = APIRouter(prefix="/api/v1/wechat", tags=["wechat-identity"])
@@ -69,6 +70,23 @@ def wechat_me(
         raise HTTPException(401, str(exc)) from exc
     # The provider credential and binding id remain server-side details.
     return {"success": True, "data": {"member": data["member"]}}
+
+
+@router.get("/learning-summary")
+def learning_summary(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    """Return learning facts for the member resolved by the WeChat session."""
+
+    token = _session_token(credentials)
+    try:
+        session = resolve_member_session(token)
+        data = get_member_learning_summary(session["member_id"])
+    except WeChatIdentityError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.get("/volunteer-services")
