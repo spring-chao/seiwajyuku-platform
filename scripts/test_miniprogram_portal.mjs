@@ -29,7 +29,7 @@ test("P3 registers the four learner entry pages", () => {
 
 test("bound home exposes four plain-language entries without technical fields", () => {
   const template = read("apps/wechat-miniprogram/pages/home/index.wxml");
-  for (const label of ["我的学习", "扫码", "我的盛和塾", "志工服务"]) {
+  for (const label of ["我的学习", "扫码", "我的成长", "志工服务"]) {
     assert.match(template, new RegExp(label));
   }
   for (const handler of ["openLearning", "openScan", "openProfile", "openServices"]) {

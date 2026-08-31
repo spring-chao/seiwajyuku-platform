@@ -1,6 +1,6 @@
 <view class="page-shell">
   <view class="hero-card">
-    <view class="eyebrow">盛和塾 · 快速入口</view>
+    <view class="eyebrow">快速入口</view>
     <view class="hero-title">扫码</view>
     <view class="hero-copy">扫描活动或学习会二维码，系统会自动打开对应服务。</view>
   </view>

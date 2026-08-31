@@ -58,10 +58,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22.14.0"
-      - name: Check TEST mini-program configuration and source syntax
+      - name: Check production mini-program configuration and source syntax
         run: node scripts/check_wechat_miniprogram.mjs
         env:
-          MINIPROGRAM_EXPECTED_APPID: wxb63212d3ce337b81
+          MINIPROGRAM_EXPECTED_APPID: wx9622a0ab5070ae2d
+          MINIPROGRAM_EXPECTED_ENVIRONMENT: PRODUCTION
+          MINIPROGRAM_EXPECTED_API_BASE_URL: https://shengheshu-d2g2zyyl99f6c6fc2-1453587887.ap-shanghai.app.tcloudbase.com/platform
       - name: Multi-course photo and retry interaction tests
         run: node --test scripts/test_study_meeting_miniprogram.mjs scripts/test_home_identity_miniprogram.mjs scripts/test_miniprogram_portal.mjs scripts/test_profile_miniprogram.mjs apps/wechat-miniprogram/tests/current-volunteer-service.test.js
 

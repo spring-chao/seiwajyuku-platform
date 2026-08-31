@@ -1,8 +1,8 @@
 <view class="page-shell">
   <view class="hero-card">
-    <view class="eyebrow">盛和塾 · 学长服务</view>
+    <view class="eyebrow">学长服务</view>
     <view class="hero-title">{{identityState === 'bound' ? '欢迎回来' : '学长服务助手'}}</view>
-    <view class="hero-copy">{{identityState === 'bound' ? '学习服务从这里开始' : identityState === 'unbound' ? '新学长申请和学长服务，从这里开始' : '盛和塾 · 学长服务'}}</view>
+    <view class="hero-copy">{{identityState === 'bound' ? '学习服务从这里开始' : identityState === 'unbound' ? '新学长申请和学长服务，从这里开始' : '学长服务'}}</view>
   </view>
 
   <view wx:if="{{loading}}" class="state-card">正在加载，请稍候…</view>
@@ -48,7 +48,7 @@
     </view>
     <view class="entry-card {{isVolunteer ? '' : 'entry-card-wide'}}" bindtap="openProfile">
       <view class="entry-icon">我</view>
-      <view class="entry-title">我的盛和塾</view>
+      <view class="entry-title">我的成长</view>
       <view class="entry-copy">班级、小组和成长记录</view>
     </view>
     <view wx:if="{{isVolunteer}}" class="entry-card" bindtap="openServices">
@@ -58,6 +58,6 @@
     </view>
   </view>
 
-  <view wx:if="{{!loading && identityState === 'unbound'}}" class="entry-hint">绑定正式学员身份后，可使用学习、扫码和“我的盛和塾”入口。</view>
+  <view wx:if="{{!loading && identityState === 'unbound'}}" class="entry-hint">绑定正式学员身份后，可使用学习、扫码和“我的成长”入口。</view>
   <view class="footer-copy">页面只显示与你当前身份相关的服务；暂未开放的功能会明确提示。</view>
 </view>
