@@ -5,7 +5,7 @@
 .hero-copy { margin-top: 16rpx; line-height: 1.65; font-size: 27rpx; opacity: .92; }
 .section-card, .state-card { margin-top: 24rpx; padding: 28rpx; border-radius: 24rpx; background: #fff; box-shadow: 0 8rpx 24rpx rgba(80, 35, 35, .06); }
 .section-title { font-size: 34rpx; font-weight: 700; }
-.section-copy, .empty-copy, .profile-row, .volunteer-row { margin-top: 14rpx; color: #806f6f; line-height: 1.6; font-size: 25rpx; }
+.section-copy, .empty-copy, .profile-row, .volunteer-row, .learning-copy { margin-top: 14rpx; color: #806f6f; line-height: 1.6; font-size: 25rpx; }
 .profile-row { display: flex; justify-content: space-between; padding-bottom: 14rpx; border-bottom: 1rpx solid #f0e6e1; color: #4c3b3b; }
 .profile-label { color: #806f6f; }
 .volunteer-row { margin-top: 16rpx; padding: 18rpx 20rpx; border-radius: 14rpx; background: #fff7f2; color: #741f2b; }

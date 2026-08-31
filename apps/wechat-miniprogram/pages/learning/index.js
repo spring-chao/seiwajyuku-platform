@@ -6,6 +6,7 @@ Page({
     loading: true,
     member: null,
     currentLearning: [],
+    recentLearning: [],
     canManageStudyMeeting: false,
     errorMessage: ""
   },
@@ -18,7 +19,13 @@ Page({
     const version = this._loadVersion = (this._loadVersion || 0) + 1;
     const current = () => this._loadVersion === version;
     const token = app.globalData.memberSessionToken;
-    this.setData({ loading: true, errorMessage: "", currentLearning: [], canManageStudyMeeting: false });
+    this.setData({
+      loading: true,
+      errorMessage: "",
+      currentLearning: [],
+      recentLearning: [],
+      canManageStudyMeeting: false
+    });
     if (!token) {
       this.setData({ loading: false, member: null });
       return;
@@ -28,30 +35,27 @@ Page({
       if (!current()) return;
       const member = me.data && me.data.member;
       if (!member || !member.member_id) throw new Error("暂时无法确认学员身份，请重试。");
-      this.setData({ member });
+      const summaryResponse = await request("/api/v1/wechat/learning-summary", { auth: true });
+      if (!current()) return;
+      const summary = summaryResponse.data || {};
+      const currentLearning = (summary.current_learning || []).map((item, index) => ({
+        ...item,
+        uiKey: `${item.class_name || "class"}-${item.group_name || "group"}-${index}`
+      }));
+      const recentLearning = (summary.recent_learning || []).map(item => ({
+        ...item,
+        occurredAtLabel: String(item.occurred_at || "").slice(0, 10).replace(/-/g, "/")
+      }));
+      this.setData({ member, currentLearning, recentLearning });
 
-      // The current learning service is already exposed by the study-meeting
-      // context API. History and credit settlement remain separate services;
-      // do not manufacture values on the mini-program when those APIs are not
-      // available to a learner yet.
+      // This endpoint is only for the existing volunteer management entry;
+      // it must never be used as an ordinary member's learning history.
       try {
         const response = await request("/api/v1/study-meetings/context", { auth: true });
         if (!current()) return;
         const assignments = (response.data && response.data.assignments) || [];
-        const currentLearning = assignments
-          .filter(item => item && item.current_cycle)
-          .map(item => ({
-            groupId: item.group_org_unit_id,
-            className: item.class_name || "",
-            groupName: item.group_name || "",
-            positionName: item.position_name || "志工",
-            cycleIndex: item.current_cycle.learning_cycle_index,
-            memberCount: item.member_count || 0
-          }));
-        this.setData({
-          currentLearning,
-          canManageStudyMeeting: currentLearning.length > 0
-        });
+        const canManageStudyMeeting = assignments.some(item => item && item.current_cycle);
+        this.setData({ canManageStudyMeeting });
       } catch (error) {
         if (error.statusCode === 401) {
           app.clearMemberSession();
