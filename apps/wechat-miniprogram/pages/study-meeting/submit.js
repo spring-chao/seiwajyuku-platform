@@ -1,5 +1,11 @@
 const app = getApp();
 const { request, uploadPhoto } = require("../../utils/request");
+const {
+  applyLearningContentResults,
+  normalizeMeetingPlan,
+  requiredLearningContentComplete,
+  serializeLearningContentResults
+} = require("../../utils/study-meeting");
 
 function localDateString() {
   const now = new Date();
@@ -9,8 +15,9 @@ function localDateString() {
 Page({
   data: {
     loading: true, submitting: false, choosingPhoto: false, assignment: null,
-    courses: [], visibleCourses: [], selectedCourseKeys: [], courseSearch: "",
-    hasCourse: false, homeCount: 0, crossCount: 0, totalCount: 0,
+    meetingPlanReady: false, meetingPlanError: "", meetingSteps: [],
+    learningContentResults: [], requiredContentCount: 0, completedRequiredCount: 0,
+    allRequiredContentCompleted: true, homeCount: 0, crossCount: 0, totalCount: 0,
     crossSummary: "", errorMessage: "", photoPath: "", evidenceEnabled: false
   },
 
@@ -25,47 +32,57 @@ Page({
     try {
       const response = await request("/api/v1/study-meetings/context?group_org_unit_id=" + encodeURIComponent(draft.group_org_unit_id), { auth: true });
       const context = response.data || {};
+      const assignment = context.assignment || {};
+      const meetingPlan = normalizeMeetingPlan(
+        assignment.meeting_plan,
+        assignment.current_cycle && assignment.current_cycle.learning_cycle_index
+      );
+      const hasCurrentCycle = Boolean(assignment.current_cycle);
+      const meetingPlanError = hasCurrentCycle && !meetingPlan
+        ? (assignment.meeting_plan_error || "当前学习周期内容配置尚未完成，请联系运营人员。")
+        : "";
       const homeCount = (draft.member_ids || []).length;
       const crossCount = (draft.cross_group_member_ids || []).length;
-      const courses = (context.courses || []).map(course => ({
-        ...course, selected: false,
-        creditLabel: course.status === "CONFIGURED" ? course.credit_points + "学分" : "学分待配置"
-      }));
-      this.setData({ assignment: context.assignment, courses, visibleCourses: courses,
+      const learningContentResults = applyLearningContentResults(
+        meetingPlan ? meetingPlan.learningContents : [],
+        draft.learning_content_results
+      );
+      const requiredContentCount = learningContentResults.filter(item => item.required).length;
+      const completedRequiredCount = learningContentResults.filter(item => item.required && item.completed).length;
+      this.setData({ assignment,
+        meetingPlanReady: Boolean(meetingPlan && hasCurrentCycle),
+        meetingPlanError, meetingSteps: meetingPlan ? meetingPlan.steps : [],
+        learningContentResults, requiredContentCount, completedRequiredCount,
+        allRequiredContentCompleted: requiredLearningContentComplete(learningContentResults),
         homeCount, crossCount, totalCount: homeCount + crossCount,
         crossSummary: crossCount ? "，其他小组 " + crossCount + " 人" : "",
         evidenceEnabled: context.evidence_enabled === true, loading: false });
     } catch (error) {
-      this.setData({ loading: false, errorMessage: error.message || "课程配置加载失败" });
+      this.setData({ loading: false, errorMessage: error.message || "学习会信息加载失败" });
     }
   },
 
-  handleCourseSwitch(event) {
+  toggleLearningContent(event) {
     if (this.data.submitting) return;
-    const hasCourse = String(event.currentTarget.dataset.value) === "true";
-    this.setData({ hasCourse });
-    if (!hasCourse) {
-      this.setData({ selectedCourseKeys: [], courses: this.data.courses.map(item => ({ ...item, selected: false })) });
-      this.filterCourses();
-    }
+    const contentKey = String(event.currentTarget.dataset.contentKey || "");
+    const learningContentResults = this.data.learningContentResults.map(item =>
+      item.contentKey === contentKey ? { ...item, completed: !item.completed } : item
+    );
+    this.setData({
+      learningContentResults,
+      completedRequiredCount: learningContentResults.filter(item => item.required && item.completed).length,
+      allRequiredContentCompleted: requiredLearningContentComplete(learningContentResults)
+    });
+    const draft = app.globalData.studyMeetingDraft || {};
+    app.globalData.studyMeetingDraft = {
+      ...draft,
+      learning_content_results: serializeLearningContentResults(learningContentResults)
+    };
   },
 
-  toggleCourse(event) {
-    if (this.data.submitting) return;
-    const key = event.currentTarget.dataset.key;
-    const courses = this.data.courses.map(item => item.course_key === key ? { ...item, selected: !item.selected } : item);
-    this.setData({ courses, selectedCourseKeys: courses.filter(item => item.selected).map(item => item.course_key) });
-    this.filterCourses();
-  },
-
-  searchCourses(event) {
-    this.setData({ courseSearch: event.detail.value });
-    this.filterCourses();
-  },
-
-  filterCourses() {
-    const term = this.data.courseSearch.trim();
-    this.setData({ visibleCourses: this.data.courses.filter(item => !term || item.course_name.includes(term)) });
+  openLearningContent(event) {
+    const label = event.currentTarget.dataset.label || "扫码打开学习内容";
+    wx.showToast({ title: `${label}请使用对应二维码`, icon: "none" });
   },
 
   async choosePhoto() {
@@ -98,8 +115,11 @@ Page({
 
   async submit() {
     if (this.data.submitting || this.data.choosingPhoto) return;
-    if (this.data.hasCourse && !this.data.selectedCourseKeys.length) {
-      wx.showToast({ title: "请选择本次观看的课程", icon: "none" }); return;
+    if (!this.data.meetingPlanReady) {
+      wx.showToast({ title: "当前学习周期内容尚未配置", icon: "none" }); return;
+    }
+    if (!this.data.allRequiredContentCompleted) {
+      wx.showToast({ title: "请先确认本期必学内容已完成", icon: "none" }); return;
     }
     if (!this.data.photoPath) {
       wx.showToast({ title: "请先拍摄或选择一张合影", icon: "none" }); return;
@@ -110,8 +130,7 @@ Page({
     const draft = app.globalData.studyMeetingDraft || {};
     const payload = {
       group_org_unit_id: draft.group_org_unit_id, meeting_date: localDateString(),
-      member_ids: draft.member_ids || [], cross_group_member_ids: draft.cross_group_member_ids || [],
-      has_course: this.data.hasCourse, course_keys: this.data.hasCourse ? this.data.selectedCourseKeys : []
+      member_ids: draft.member_ids || [], cross_group_member_ids: draft.cross_group_member_ids || []
     };
     const fingerprint = JSON.stringify(payload);
     this.setData({ submitting: true });
@@ -144,7 +163,10 @@ Page({
   },
 
   complete(session) {
-    app.globalData.studyMeetingResult = session;
+    app.globalData.studyMeetingResult = {
+      ...session,
+      learning_content_results: serializeLearningContentResults(this.data.learningContentResults)
+    };
     app.globalData.studyMeetingDraft = null;
     wx.redirectTo({ url: "/pages/study-meeting/result" });
   }

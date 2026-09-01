@@ -1,5 +1,6 @@
 const app = getApp();
 const { request } = require("../../utils/request");
+const { normalizeMeetingPlan } = require("../../utils/study-meeting");
 
 function toSelectionMap(ids) {
   return (ids || []).reduce((map, id) => {
@@ -13,6 +14,8 @@ Page({
     groupId: "",
     loading: true,
     assignment: null,
+    meetingPlanReady: false,
+    meetingPlanError: "",
     members: [],
     selected: {},
     crossMembers: [],
@@ -36,10 +39,20 @@ Page({
       const response = await request(`/api/v1/study-meetings/context?group_org_unit_id=${encodeURIComponent(this.data.groupId)}`, { auth: true });
       const context = response.data || {};
       const assignment = context.assignment || {};
+      const meetingPlan = normalizeMeetingPlan(
+        assignment.meeting_plan,
+        assignment.current_cycle && assignment.current_cycle.learning_cycle_index
+      );
+      const hasCurrentCycle = Boolean(assignment.current_cycle);
+      const meetingPlanError = hasCurrentCycle && !meetingPlan
+        ? (assignment.meeting_plan_error || "当前学习周期内容配置尚未完成，请联系运营人员。")
+        : "";
       const storedDraft = app.globalData.studyMeetingDraft || {};
       const draft = storedDraft.group_org_unit_id === this.data.groupId ? storedDraft : {};
       this.setData({
         assignment,
+        meetingPlanReady: Boolean(meetingPlan && hasCurrentCycle),
+        meetingPlanError,
         members: assignment.members || [],
         selected: toSelectionMap(draft.member_ids || (assignment.members || []).map(item => item.member_id)),
         crossSelected: toSelectionMap(draft.cross_group_member_ids || []),
@@ -102,13 +115,19 @@ Page({
   },
 
   continueSubmit() {
+    if (!this.data.meetingPlanReady) {
+      wx.showToast({ title: "当前学习周期内容尚未配置", icon: "none" });
+      return;
+    }
     const memberIds = Object.keys(this.data.selected).filter(id => this.data.selected[id]).map(Number);
     const crossIds = Object.keys(this.data.crossSelected).filter(id => this.data.crossSelected[id]).map(Number);
     if (!memberIds.length && !crossIds.length) {
       wx.showToast({ title: "至少选择一名实际参加学长", icon: "none" });
       return;
     }
+    const previousDraft = app.globalData.studyMeetingDraft || {};
     app.globalData.studyMeetingDraft = {
+      ...previousDraft,
       group_org_unit_id: this.data.groupId,
       member_ids: memberIds,
       cross_group_member_ids: crossIds

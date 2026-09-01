@@ -5,21 +5,25 @@
 .hero-copy { margin-top: 16rpx; line-height: 1.65; font-size: 27rpx; opacity: .92; }
 .section-card, .state-card { margin-top: 24rpx; padding: 28rpx; border-radius: 24rpx; background: #fff; box-shadow: 0 8rpx 24rpx rgba(80, 35, 35, .06); }
 .section-title { font-size: 34rpx; font-weight: 700; }
-.radio-row { display: flex; margin-top: 22rpx; }
-.radio { flex: 1; padding: 22rpx; margin-right: 14rpx; border: 1rpx solid #e2d2ce; border-radius: 14rpx; color: #806f6f; text-align: center; font-size: 28rpx; }
-.radio:last-child { margin-right: 0; }
-.radio.checked { border-color: #741f2b; background: #fff1eb; color: #741f2b; font-weight: 700; }
-.picker-value { margin-top: 20rpx; padding: 22rpx; border: 1rpx solid #dfd0cc; border-radius: 12rpx; font-size: 28rpx; }
-.placeholder, .section-hint { color: #9b8984; }
-.course-hint { margin-top: 14rpx; color: #741f2b; font-size: 25rpx; line-height: 1.5; }
+.section-hint, .feature-hint { margin-top: 12rpx; color: #9b8984; line-height: 1.6; font-size: 25rpx; }
+.feature-hint { color: #741f2b; }
+.feature-hint.warning { color: #a36b35; }
+.flow-row { display: flex; align-items: flex-start; margin-top: 18rpx; padding: 18rpx; border-radius: 14rpx; background: #fffaf7; }
+.flow-number { flex: 0 0 42rpx; color: #741f2b; font-size: 29rpx; font-weight: 700; }
+.flow-content { flex: 1; color: #5d4a4a; line-height: 1.55; font-size: 28rpx; }
+.learning-content { display: flex; align-items: flex-start; margin-top: 18rpx; padding: 20rpx; border: 1rpx solid #eee4df; border-radius: 16rpx; background: #fffaf7; }
+.learning-content.completed { border-color: #b88773; background: #fff1eb; }
+.content-check { flex: 0 0 44rpx; color: #741f2b; font-size: 34rpx; font-weight: 700; }
+.content-main { flex: 1; }
+.content-title { color: #741f2b; line-height: 1.5; font-size: 29rpx; font-weight: 700; }
+.content-description { margin-top: 8rpx; color: #806f6f; line-height: 1.5; font-size: 24rpx; }
+.content-meta { display: flex; align-items: center; gap: 12rpx; margin-top: 12rpx; color: #806f6f; font-size: 23rpx; }
+.required-tag { padding: 4rpx 10rpx; border-radius: 999rpx; background: #f3dfd2; color: #741f2b; }
+.resource-hint { margin-top: 10rpx; color: #9a6b3b; font-size: 23rpx; }
+.completion-copy { margin-top: 14rpx; color: #741f2b; font-size: 25rpx; }
+.local-state-note { margin-top: 16rpx; padding: 16rpx; border-radius: 12rpx; background: #fbf7f3; color: #806f6f; line-height: 1.55; font-size: 23rpx; }
 .notice-card { border-left: 8rpx solid #d79a83; }
-.section-hint { margin-top: 12rpx; font-size: 25rpx; line-height: 1.6; }
 .primary-button { margin-top: 24rpx; border-radius: 12rpx; background: #741f2b; color: #fff; font-size: 29rpx; }
 .error { color: #b33b44; }
-.course-list { max-height: 500rpx; height: 500rpx; margin-top: 16rpx; }
-.course-item { display: flex; align-items: center; gap: 18rpx; padding: 24rpx 18rpx; border: 2rpx solid #eee4df; border-radius: 14rpx; margin-bottom: 12rpx; font-size: 28rpx; }
-.course-item.selected { background: #fff1eb; border-color: #741f2b; color: #741f2b; }
-.course-check { flex-shrink: 0; font-size: 34rpx; }
-.course-points { font-size: 24rpx; color: #93796f; margin-top: 8rpx; }
 .study-photo { width: 100%; height: 360rpx; margin-top: 20rpx; border-radius: 16rpx; background: #fbf7f3; }
 .photo-button { margin-top: 22rpx; background: #f6eeea; color: #741f2b; font-size: 28rpx; }

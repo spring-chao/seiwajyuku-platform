@@ -1,43 +1,55 @@
 <view class="page-shell">
   <view wx:if="{{loading}}" class="state-card">正在准备提交…</view>
   <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
-  <block wx:if="{{!loading && assignment && assignment.current_cycle}}">
+  <block wx:if="{{!loading && assignment && assignment.current_cycle && meetingPlanReady}}">
     <view class="hero-card">
       <view class="eyebrow">{{assignment.class_name}} · {{assignment.group_name}}</view>
       <view class="hero-title">确认本次学习会</view>
       <view class="hero-copy">第 {{assignment.current_cycle.learning_cycle_index}} 学习周期 · 参加 {{totalCount}} 人</view>
     </view>
     <view class="section-card">
-      <view class="section-title">今天看了在线课程吗？</view>
-      <view class="radio-row">
-        <view class="radio {{!hasCourse ? 'checked' : ''}}" data-value="false" bindtap="handleCourseSwitch">{{!hasCourse ? '✓' : '○'}} 没有</view>
-        <view class="radio {{hasCourse ? 'checked' : ''}}" data-value="true" bindtap="handleCourseSwitch">{{hasCourse ? '✓' : '○'}} 有</view>
+      <view class="section-title">本期小组学习会</view>
+      <view class="section-hint">第 {{assignment.current_cycle.learning_cycle_index}} 学习周期 · 空巴为本次流程最后一个环节。</view>
+      <view wx:for="{{meetingSteps}}" wx:key="stepNo" class="flow-row">
+        <view class="flow-number">{{item.stepNo}}</view>
+        <view class="flow-content">{{item.content}}</view>
       </view>
-      <block wx:if="{{hasCourse && courses.length}}">
-        <view class="course-hint">可以多选 · 已选 {{selectedCourseKeys.length}} 门</view>
-        <input class="picker-value" placeholder="搜索课程名称" value="{{courseSearch}}" bindinput="searchCourses" />
-        <scroll-view scroll-y class="course-list">
-          <view wx:for="{{visibleCourses}}" wx:key="course_key" class="course-item {{item.selected ? 'selected' : ''}}" data-key="{{item.course_key}}" bindtap="toggleCourse">
-            <view class="course-check">{{item.selected ? '✓' : '○'}}</view>
-            <view><view>{{item.course_name}}</view><view class="course-points">{{item.creditLabel}}</view></view>
+    </view>
+    <view class="section-card">
+      <view class="section-title">本期必学</view>
+      <block wx:if="{{learningContentResults.length}}">
+        <view class="section-hint">请确认本期必学内容已由全组完成；不要求每位学员扫码。</view>
+        <view wx:for="{{learningContentResults}}" wx:key="uiKey" class="learning-content {{item.completed ? 'completed' : ''}}" data-content-key="{{item.contentKey}}" bindtap="toggleLearningContent">
+          <view class="content-check">{{item.completed ? '✓' : '○'}}</view>
+          <view class="content-main">
+            <view class="content-title">{{item.title}}</view>
+            <view wx:if="{{item.description}}" class="content-description">{{item.description}}</view>
+            <view class="content-meta"><text wx:if="{{item.required}}" class="required-tag">必学</text><text>{{item.creditLabel}}</text></view>
+            <view wx:if="{{item.hasResourceAccess}}" class="resource-hint" data-label="{{item.resourceLabel}}" catchtap="openLearningContent">{{item.resourceLabel}}</view>
           </view>
-        </scroll-view>
+        </view>
       </block>
-      <view wx:if="{{hasCourse && !courses.length}}" class="course-hint">当前没有可选在线课程，请先选择“没有”。</view>
+      <view wx:else class="section-hint">本期无指定视频学习，仍可继续登记参与人员和现场合影。</view>
+      <view wx:if="{{requiredContentCount}}" class="completion-copy">已确认 {{completedRequiredCount}} / {{requiredContentCount}} 项必学内容</view>
+      <view wx:if="{{requiredContentCount && !allRequiredContentCompleted}}" class="feature-hint warning">请完成本期必学内容确认后再提交。</view>
+      <view class="local-state-note">本轮完成勾选仅用于本次登记页面，不会转换为课程积分；正式内容事实将在后续版本接入。</view>
     </view>
     <view class="section-card">
       <view class="section-title">一张学习合影</view>
       <view class="section-hint">拍一张，或从相册选择。仅用于学习记录核验，默认保留7天。</view>
       <image wx:if="{{photoPath}}" class="study-photo" src="{{photoPath}}" mode="aspectFit" bindtap="previewPhoto" />
       <button class="photo-button" bindtap="choosePhoto" loading="{{choosingPhoto}}" disabled="{{submitting || choosingPhoto || !evidenceEnabled}}">{{photoPath ? '重新选择合影' : '拍照 / 选择合影'}}</button>
-      <view wx:if="{{!evidenceEnabled}}" class="course-hint">合影功能尚未开启，请联系运营人员。</view>
+      <view wx:if="{{!evidenceEnabled}}" class="feature-hint">合影功能尚未开启，请联系运营人员。</view>
     </view>
     <view class="section-card notice-card">
       <view class="section-title">本次登记</view>
       <view class="section-hint">本组 {{homeCount}} 人{{crossSummary}}。提交后即可完成本次学习会登记。</view>
     </view>
-    <button class="primary-button" loading="{{submitting}}" disabled="{{submitting || choosingPhoto || !evidenceEnabled}}" bindtap="submit">提交本次学习会</button>
+    <button class="primary-button" loading="{{submitting}}" disabled="{{submitting || choosingPhoto || !evidenceEnabled || !allRequiredContentCompleted}}" bindtap="submit">提交本次学习会</button>
   </block>
+  <view wx:if="{{!loading && assignment && assignment.current_cycle && !meetingPlanReady}}" class="state-card error">
+    {{meetingPlanError || '当前学习周期内容配置尚未完成，请联系运营人员。'}}
+  </view>
   <view wx:if="{{!loading && assignment && !assignment.current_cycle}}" class="state-card error">
     {{assignment.cycle_error || '当前学习周期暂不可用，请联系运营人员。'}}
   </view>

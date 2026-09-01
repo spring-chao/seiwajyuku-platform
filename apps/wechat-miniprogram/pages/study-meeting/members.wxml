@@ -1,7 +1,7 @@
 <view class="page-shell">
   <view wx:if="{{loading}}" class="state-card">正在加载本组学员…</view>
   <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
-  <block wx:if="{{!loading && assignment && assignment.current_cycle}}">
+  <block wx:if="{{!loading && assignment && assignment.current_cycle && meetingPlanReady}}">
     <view class="hero-card">
       <view class="eyebrow">{{assignment.class_name}}</view>
       <view class="hero-title">{{assignment.group_name}}</view>
@@ -29,8 +29,11 @@
       </block>
       <view wx:if="{{crossSelectedCount}}" class="count-copy">已添加其他小组学长 {{crossSelectedCount}} 人</view>
     </view>
-    <button class="primary-button" disabled="{{selectedCount + crossSelectedCount === 0}}" bindtap="continueSubmit">下一步：选择课程</button>
+    <button class="primary-button" disabled="{{selectedCount + crossSelectedCount === 0}}" bindtap="continueSubmit">下一步：确认学习会</button>
   </block>
+  <view wx:if="{{!loading && assignment && assignment.current_cycle && !meetingPlanReady}}" class="state-card error">
+    {{meetingPlanError || '当前学习周期内容配置尚未完成，请联系运营人员。'}}
+  </view>
   <view wx:if="{{!loading && assignment && !assignment.current_cycle}}" class="state-card error">
     {{assignment.cycle_error || '当前学习周期暂不可用，请联系运营人员。'}}
   </view>

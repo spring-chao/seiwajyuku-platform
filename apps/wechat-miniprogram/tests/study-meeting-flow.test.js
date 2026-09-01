@@ -3,7 +3,26 @@ const path = require("node:path");
 const test = require("node:test");
 
 const requestPath = require.resolve("../utils/request");
+const studyMeetingUtils = require("../utils/study-meeting");
 const pagePath = path.resolve(__dirname, "../pages/study-meeting/submit.js");
+
+const meetingPlan = {
+  learning_cycle_index: 1,
+  cycle_index: 1,
+  steps: [
+    { step_no: 1, content: "本期流程", is_terminal: false, learning_content_keys: ["content-1"] },
+    { step_no: 2, content: "空巴。", is_terminal: true, learning_content_keys: [] }
+  ],
+  learning_contents: [{
+    content_key: "content-1",
+    title: "本期必学内容",
+    description: "全组学习",
+    required: true,
+    sort_order: 1,
+    credit_points: null,
+    content_access: { type: "NONE", label: null }
+  }]
+};
 
 function instantiatePage(definition) {
   const page = {
@@ -19,7 +38,7 @@ function instantiatePage(definition) {
   return page;
 }
 
-test("study meeting submits one complete fact through the public mini-program flow", async () => {
+test("study meeting submits one complete fact without legacy course selection", async () => {
   const calls = [];
   const app = {
     globalData: {
@@ -31,23 +50,16 @@ test("study meeting submits one complete fact through the public mini-program fl
     }
   };
   const request = async (url, options = {}) => {
-    calls.push({ kind: "request", url, method: options.method || "GET" });
+    calls.push({ kind: "request", url, method: options.method || "GET", options });
     if (url.includes("/context?")) {
       return {
         data: {
           assignment: {
             class_name: "测试班",
             group_name: "测试组",
-            current_cycle: { learning_cycle_index: 1 }
+            current_cycle: { learning_cycle_index: 1 },
+            meeting_plan: meetingPlan
           },
-          courses: [
-            {
-              course_key: "course-1",
-              course_name: "测试课程",
-              status: "CONFIGURED",
-              credit_points: 20
-            }
-          ],
           evidence_enabled: true
         }
       };
@@ -63,7 +75,7 @@ test("study meeting submits one complete fact through the public mini-program fl
             { member_id: 12, attendance_type: "HOME_GROUP" },
             { member_id: 21, attendance_type: "CROSS_GROUP" }
           ],
-          courses: [{ course_key: "course-1" }]
+          courses: []
         }
       };
     }
@@ -102,8 +114,10 @@ test("study meeting submits one complete fact through the public mini-program fl
     const page = instantiatePage(definition);
     await page.loadContext();
     page.setData({
-      hasCourse: true,
-      selectedCourseKeys: ["course-1"],
+      learningContentResults: [
+        { contentKey: "content-1", uiKey: "content-1-0", completed: true, required: true }
+      ],
+      allRequiredContentCompleted: true,
       photoPath: "temporary-photo.jpg"
     });
     await page.submit();
@@ -118,6 +132,8 @@ test("study meeting submits one complete fact through the public mini-program fl
         "redirect::/pages/study-meeting/result"
       ]
     );
+    const create = calls.find(item => item.kind === "request" && item.url === "/api/v1/study-meetings");
+    assert.equal(Object.keys(create.options.data).some(key => key.includes("course")), false);
     assert.equal(app.globalData.studyMeetingDraft, null);
     assert.equal(app.globalData.studyMeetingResult.status, "SUBMITTED");
   } finally {

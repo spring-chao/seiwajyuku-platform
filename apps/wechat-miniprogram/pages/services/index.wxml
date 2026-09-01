@@ -19,7 +19,7 @@
   <block wx:if="{{!loading && member}}">
     <view wx:if="{{isVolunteer && canManageStudyMeeting}}" class="service-card" bindtap="openStudyMeeting">
       <view class="service-title">小组学习会登记</view>
-      <view class="service-copy">登记本次学习会参加人员和课程</view>
+      <view class="service-copy">查看本期学习流程，登记参加人员和现场合影</view>
       <view wx:if="{{serviceAssignments.length}}" class="service-scope">
         <view wx:for="{{serviceAssignments}}" wx:key="key">{{item.positionName}} · {{item.scopeName}}</view>
       </view>

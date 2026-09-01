@@ -64,8 +64,8 @@ jobs:
           MINIPROGRAM_EXPECTED_APPID: wx9622a0ab5070ae2d
           MINIPROGRAM_EXPECTED_ENVIRONMENT: PRODUCTION
           MINIPROGRAM_EXPECTED_API_BASE_URL: https://shengheshu-d2g2zyyl99f6c6fc2-1453587887.ap-shanghai.app.tcloudbase.com/platform
-      - name: Multi-course photo and retry interaction tests
-        run: node --test scripts/test_study_meeting_miniprogram.mjs scripts/test_home_identity_miniprogram.mjs scripts/test_miniprogram_portal.mjs scripts/test_profile_miniprogram.mjs apps/wechat-miniprogram/tests/current-volunteer-service.test.js apps/wechat-miniprogram/tests/enrollment-form.test.js
+      - name: Study meeting plan, attendance and photo tests
+        run: node --test scripts/test_study_meeting_miniprogram.mjs scripts/test_home_identity_miniprogram.mjs scripts/test_miniprogram_portal.mjs scripts/test_profile_miniprogram.mjs apps/wechat-miniprogram/tests/current-volunteer-service.test.js apps/wechat-miniprogram/tests/enrollment-form.test.js apps/wechat-miniprogram/tests/learning-summary.test.js apps/wechat-miniprogram/tests/study-meeting-flow.test.js apps/wechat-miniprogram/tests/study-meeting-plan.test.js
 
   cloud-function-cleanup:
     runs-on: ubuntu-latest
