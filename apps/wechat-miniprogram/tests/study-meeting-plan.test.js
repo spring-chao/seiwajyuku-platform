@@ -133,19 +133,29 @@ test("QR resource is only a weak access hint and an uncredited video is not show
   assert.equal(qrContent.resourceLabel, "扫码打开学习内容");
 });
 
-test("a no-video meeting plan remains valid and can continue without a content gate", () => {
-  const plan = normalizeMeetingPlan({
-    learning_cycle_index: 28,
-    steps: [
-      { step_no: 1, content: "经营分析会实操观摩；", is_terminal: false, learning_content_keys: [] },
-      { step_no: 2, content: "近期重点工作沟通交流；", is_terminal: false, learning_content_keys: [] },
-      { step_no: 3, content: "空巴。", is_terminal: true, learning_content_keys: [] }
-    ],
-    learning_contents: []
-  });
-  assert.ok(plan);
-  assert.equal(plan.learningContents.length, 0);
-  assert.equal(requiredLearningContentComplete(plan.learningContents), true);
+test("confirmed no-video cycles 28, 29, 32, 33 and 34 remain valid without a content gate", () => {
+  for (const cycleIndex of [28, 29, 32, 33, 34]) {
+    const plan = normalizeMeetingPlan({
+      learning_cycle_index: cycleIndex,
+      steps: [
+        { step_no: 1, content: "经营分析会实操观摩；", is_terminal: false, learning_content_keys: [] },
+        { step_no: 2, content: "近期重点工作沟通交流；", is_terminal: false, learning_content_keys: [] },
+        { step_no: 3, content: "空巴。", is_terminal: true, learning_content_keys: [] }
+      ],
+      learning_contents: []
+    });
+    assert.ok(plan, `cycle ${cycleIndex} should remain renderable`);
+    assert.equal(plan.learningCycleIndex, cycleIndex);
+    assert.equal(plan.learningContents.length, 0);
+    assert.equal(requiredLearningContentComplete(plan.learningContents), true);
+  }
+});
+
+test("a delayed current cycle keeps its own content and rejects a different cycle plan", () => {
+  const delayed = normalizeMeetingPlan(samplePlan(8), 8);
+  assert.ok(delayed);
+  assert.equal(delayed.learningCycleIndex, 8);
+  assert.equal(normalizeMeetingPlan(samplePlan(9), 8), null);
 });
 
 test("learning content completion is a local UI state and keeps no course key", () => {
