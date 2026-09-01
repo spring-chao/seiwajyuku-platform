@@ -1,0 +1,4842 @@
+{
+  "schema_version": 1,
+  "review_type": "V1.3-C0_GROUP_MEETING_LEARNING_CONTENT_MANUAL_REVIEW",
+  "status": "PENDING_BUSINESS_REVIEW",
+  "base_commit": "51ce48fe2cd70314acb00be01af0a67455cac6b0",
+  "business_boundary": {
+    "mapping_key": [
+      "cohort_month",
+      "learning_cycle_index",
+      "year_index"
+    ],
+    "calendar_month_is_not_content_identity": true,
+    "schedule_override_changes_time_only": true,
+    "formal_mapping_changes_allowed": false,
+    "production_deploy_allowed": false,
+    "production_migration_allowed": false
+  },
+  "baseline": {
+    "canonical_scope": "REAL_IN_SCOPE_CLASS_PROJECTION",
+    "canonical_source": "group-meeting-class-projection-audit-2026.1.json",
+    "actual_projection_status": "NOT_PROVIDED",
+    "class_projection_summary": {
+      "class_count": 6,
+      "in_scope_class_count": 4,
+      "out_of_scope_class_count": 2,
+      "projected_cycle_count": 144,
+      "mapped_projected_cycle_count": 129,
+      "mapping_conflict_projected_cycle_count": 4,
+      "mapping_missing_projected_cycle_count": 11,
+      "plan_cycle_missing_projected_cycle_count": 0,
+      "projection_finding_count": 15,
+      "plan_match_status_counts": {
+        "MAPPING_CONFLICT": 4,
+        "MAPPING_MISSING": 11,
+        "MATCHED": 129
+      },
+      "excluded_classes_have_no_findings": true,
+      "template_months": [
+        1,
+        4,
+        7,
+        10
+      ],
+      "template_cycle_definition": "4个开班月份模板 × 36学习周期",
+      "projection_types": {
+        "planned": "PLANNED",
+        "actual_current": "ACTUAL_CURRENT"
+      },
+      "actual_projection_status": "NOT_PROVIDED"
+    },
+    "template_mapping_source": "cycle-flow-mapping-2026.1.json",
+    "template_mapping_source_counts": {
+      "MAPPING_CONFLICT": 5,
+      "MAPPING_MISSING": 10
+    },
+    "template_scope_note": "全模板 mapping 文件包含当前真实班级范围之外的1月/10月模板异常；它们列为补充项，不计入C0主清单。"
+  },
+  "source_fingerprints": {
+    "group-meeting-class-projection-audit-2026.1.json": "75d0e453e47497ad770b74563f5a8aac678517dfa55b903bbabdc46692f07121",
+    "standard-3y-2026.json": "47e1996d8674a43574b792b9d5f4704d95b98bb11a5c0351efda7249e2620e08",
+    "cycle-flow-mapping-2026.1.json": "b28b03b71c81be845722b37cf125bb7693fdeab8576f6428e52137cccd0b1caf",
+    "group-meeting-flows-2026.1.json": "2af6cb434e8a6dad925698267fc603d19e799b57d77bdfa524d7469192b8a9f7",
+    "course-credit-rules-2026.json": "3879c7cc557b074036b149e611bad5e7e2ec13e4d22fc58b50d3649a627a4fd1"
+  },
+  "summary": {
+    "cycle_count": 144,
+    "canonical_item_count": 15,
+    "mapping_conflict_count": 4,
+    "mapping_missing_count": 11,
+    "finding_count": 15,
+    "mapped_count": 129,
+    "safe_auto_fix_count": 0,
+    "review_required_count": 23,
+    "canonical_review_required_count": 15,
+    "template_only_supplemental_count": 8,
+    "supplemental_mapping_conflict_count": 3,
+    "supplemental_mapping_missing_count": 5,
+    "priority_counts": {
+      "P0": 0,
+      "P1": 15,
+      "P2": 8
+    },
+    "canonical_priority_counts": {
+      "P0": 0,
+      "P1": 15,
+      "P2": 0
+    },
+    "required_video_without_qr_count": 22,
+    "historical_qr_node_count": 15,
+    "actual_projection_status": "NOT_PROVIDED"
+  },
+  "items": [
+    {
+      "finding_id": "c0-mapping_conflict-4-26-9c067c09",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_CONFLICT",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 4,
+      "learning_cycle_index": 26,
+      "year_index": 3,
+      "template_label": "4月开班模板",
+      "learning_cycle_label": "4月开班模板 · 第26学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [
+        "Y3-C26-COHORT-1-4-7-c5846a2908",
+        "Y3-C26-COHORT-1-4-7-3131994926"
+      ],
+      "source_file_names": [
+        "【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
+        "【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx"
+      ],
+      "source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx",
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 1,
+          "title": "经营分析会实操观摩",
+          "content": "经营分析会实操观摩",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 5,
+          "title": "哲学手册编写行动计划的检视+研讨；",
+          "content": "哲学手册编写行动计划的检视+研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 6,
+          "title": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "content": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 7,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 15
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 8,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 16
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 1,
+          "title": "经营分析会实操观摩",
+          "content": "经营分析会实操观摩",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 5,
+          "title": "哲学手册编写行动计划的检视+研讨；",
+          "content": "哲学手册编写行动计划的检视+研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 6,
+          "title": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "content": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 7,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 15
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 8,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 16
+        }
+      ],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "4月开班",
+          "source_cell": "C15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "4月开班",
+          "source_cell": "C16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "4月开班",
+          "source_cell": "C17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "1.哲学手册编制检视+研讨\n2.三大委落地经验和案例分享编写辅导（如线上辅导，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "4月开班",
+          "source_cell": "C18",
+          "source_text": "1.哲学手册编制检视+研讨\n2.三大委落地经验和案例分享编写辅导（如线上辅导，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "cohort_month=4, learning_cycle_index=26, year_index=3 命中 2 个候选流程，无法安全选择唯一 flow。",
+      "codex_suggestion": "人工对照候选原始文件，确认唯一流程；若只是重复文件，确认后再做 alias/去重标准化。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "吴越二班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-04",
+          "cohort_month": 4,
+          "learning_cycle_index": 26,
+          "planned_date": "2028-05",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越二班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-4-28-efd01ea0",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 4,
+      "learning_cycle_index": 28,
+      "year_index": 3,
+      "template_label": "4月开班模板",
+      "learning_cycle_label": "4月开班模板 · 第28学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "4月开班",
+          "source_cell": "E15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "4月开班",
+          "source_cell": "E16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "4月开班",
+          "source_cell": "E17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "4月开班",
+          "source_cell": "E18",
+          "source_text": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "吴越二班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-04",
+          "cohort_month": 4,
+          "learning_cycle_index": 28,
+          "planned_date": "2028-07",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越二班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-4-29-3905601f",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 4,
+      "learning_cycle_index": 29,
+      "year_index": 3,
+      "template_label": "4月开班模板",
+      "learning_cycle_label": "4月开班模板 · 第29学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "4月开班",
+          "source_cell": "F15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "4月开班",
+          "source_cell": "F16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "4月开班",
+          "source_cell": "F17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "4月开班",
+          "source_cell": "F18",
+          "source_text": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "吴越二班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-04",
+          "cohort_month": 4,
+          "learning_cycle_index": 29,
+          "planned_date": "2028-08",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越二班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_conflict-7-26-647bcd47",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_CONFLICT",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 7,
+      "learning_cycle_index": 26,
+      "year_index": 3,
+      "template_label": "7月开班模板",
+      "learning_cycle_label": "7月开班模板 · 第26学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [
+        "Y3-C26-COHORT-1-4-7-c5846a2908",
+        "Y3-C26-COHORT-1-4-7-3131994926"
+      ],
+      "source_file_names": [
+        "【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
+        "【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx"
+      ],
+      "source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx",
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 1,
+          "title": "经营分析会实操观摩",
+          "content": "经营分析会实操观摩",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 5,
+          "title": "哲学手册编写行动计划的检视+研讨；",
+          "content": "哲学手册编写行动计划的检视+研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 6,
+          "title": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "content": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 7,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 15
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 8,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 16
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 1,
+          "title": "经营分析会实操观摩",
+          "content": "经营分析会实操观摩",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 5,
+          "title": "哲学手册编写行动计划的检视+研讨；",
+          "content": "哲学手册编写行动计划的检视+研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 6,
+          "title": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "content": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 7,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 15
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 8,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 16
+        }
+      ],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "C15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "C16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "C17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "1.哲学手册编制检视+研讨\n2.三大委落地经验和案例分享编写辅导（如线上辅导，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "C18",
+          "source_text": "1.哲学手册编制检视+研讨\n2.三大委落地经验和案例分享编写辅导（如线上辅导，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "cohort_month=7, learning_cycle_index=26, year_index=3 命中 2 个候选流程，无法安全选择唯一 flow。",
+      "codex_suggestion": "人工对照候选原始文件，确认唯一流程；若只是重复文件，确认后再做 alias/去重标准化。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "吴越一班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-07",
+          "cohort_month": 7,
+          "learning_cycle_index": 26,
+          "planned_date": "2028-08",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越一班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-7-32-c3b597a0",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 7,
+      "learning_cycle_index": 32,
+      "year_index": 3,
+      "template_label": "7月开班模板",
+      "learning_cycle_label": "7月开班模板 · 第32学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "I15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "I16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "I17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "哲学手册编制检视+研讨",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "I18",
+          "source_text": "哲学手册编制检视+研讨"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "吴越一班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-07",
+          "cohort_month": 7,
+          "learning_cycle_index": 32,
+          "planned_date": "2029-02",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越一班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-7-33-b919d5f4",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 7,
+      "learning_cycle_index": 33,
+      "year_index": 3,
+      "template_label": "7月开班模板",
+      "learning_cycle_label": "7月开班模板 · 第33学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "J15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "J16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "J17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "J18",
+          "source_text": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "吴越一班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-07",
+          "cohort_month": 7,
+          "learning_cycle_index": 33,
+          "planned_date": "2029-03",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越一班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-7-34-d52145ac",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 7,
+      "learning_cycle_index": 34,
+      "year_index": 3,
+      "template_label": "7月开班模板",
+      "learning_cycle_label": "7月开班模板 · 第34学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "K15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "K16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "K17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "K18",
+          "source_text": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "吴越一班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-07",
+          "cohort_month": 7,
+          "learning_cycle_index": 34,
+          "planned_date": "2029-04",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越一班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_conflict-7-26-b3af5cdb",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_CONFLICT",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 7,
+      "learning_cycle_index": 26,
+      "year_index": 3,
+      "template_label": "7月开班模板",
+      "learning_cycle_label": "7月开班模板 · 第26学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [
+        "Y3-C26-COHORT-1-4-7-c5846a2908",
+        "Y3-C26-COHORT-1-4-7-3131994926"
+      ],
+      "source_file_names": [
+        "【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
+        "【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx"
+      ],
+      "source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx",
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 1,
+          "title": "经营分析会实操观摩",
+          "content": "经营分析会实操观摩",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 5,
+          "title": "哲学手册编写行动计划的检视+研讨；",
+          "content": "哲学手册编写行动计划的检视+研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 6,
+          "title": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "content": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 7,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 15
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 8,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 16
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 1,
+          "title": "经营分析会实操观摩",
+          "content": "经营分析会实操观摩",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 5,
+          "title": "哲学手册编写行动计划的检视+研讨；",
+          "content": "哲学手册编写行动计划的检视+研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 6,
+          "title": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "content": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 7,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 15
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 8,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 16
+        }
+      ],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "C15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "C16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "C17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "1.哲学手册编制检视+研讨\n2.三大委落地经验和案例分享编写辅导（如线上辅导，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "C18",
+          "source_text": "1.哲学手册编制检视+研讨\n2.三大委落地经验和案例分享编写辅导（如线上辅导，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "cohort_month=7, learning_cycle_index=26, year_index=3 命中 2 个候选流程，无法安全选择唯一 flow。",
+      "codex_suggestion": "人工对照候选原始文件，确认唯一流程；若只是重复文件，确认后再做 alias/去重标准化。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "圆融五班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-07",
+          "cohort_month": 7,
+          "learning_cycle_index": 26,
+          "planned_date": "2028-08",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "圆融五班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-7-32-d1731f57",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 7,
+      "learning_cycle_index": 32,
+      "year_index": 3,
+      "template_label": "7月开班模板",
+      "learning_cycle_label": "7月开班模板 · 第32学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "I15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "I16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "I17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "哲学手册编制检视+研讨",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "I18",
+          "source_text": "哲学手册编制检视+研讨"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "圆融五班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-07",
+          "cohort_month": 7,
+          "learning_cycle_index": 32,
+          "planned_date": "2029-02",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "圆融五班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-7-33-7bf18e98",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 7,
+      "learning_cycle_index": 33,
+      "year_index": 3,
+      "template_label": "7月开班模板",
+      "learning_cycle_label": "7月开班模板 · 第33学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "J15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "J16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "J17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "J18",
+          "source_text": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "圆融五班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-07",
+          "cohort_month": 7,
+          "learning_cycle_index": 33,
+          "planned_date": "2029-03",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "圆融五班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-7-34-3d4eef64",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 7,
+      "learning_cycle_index": 34,
+      "year_index": 3,
+      "template_label": "7月开班模板",
+      "learning_cycle_label": "7月开班模板 · 第34学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "K15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "K16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "K17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "K18",
+          "source_text": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "圆融五班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-07",
+          "cohort_month": 7,
+          "learning_cycle_index": 34,
+          "planned_date": "2029-04",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "圆融五班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_conflict-7-26-4d819cf3",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_CONFLICT",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 7,
+      "learning_cycle_index": 26,
+      "year_index": 3,
+      "template_label": "7月开班模板",
+      "learning_cycle_label": "7月开班模板 · 第26学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [
+        "Y3-C26-COHORT-1-4-7-c5846a2908",
+        "Y3-C26-COHORT-1-4-7-3131994926"
+      ],
+      "source_file_names": [
+        "【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
+        "【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx"
+      ],
+      "source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx",
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 1,
+          "title": "经营分析会实操观摩",
+          "content": "经营分析会实操观摩",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 5,
+          "title": "哲学手册编写行动计划的检视+研讨；",
+          "content": "哲学手册编写行动计划的检视+研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 6,
+          "title": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "content": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 7,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 15
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 8,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 16
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 1,
+          "title": "经营分析会实操观摩",
+          "content": "经营分析会实操观摩",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 5,
+          "title": "哲学手册编写行动计划的检视+研讨；",
+          "content": "哲学手册编写行动计划的检视+研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 6,
+          "title": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "content": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 7,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 15
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 8,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 16
+        }
+      ],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "C15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "C16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "C17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "1.哲学手册编制检视+研讨\n2.三大委落地经验和案例分享编写辅导（如线上辅导，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "C18",
+          "source_text": "1.哲学手册编制检视+研讨\n2.三大委落地经验和案例分享编写辅导（如线上辅导，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "cohort_month=7, learning_cycle_index=26, year_index=3 命中 2 个候选流程，无法安全选择唯一 flow。",
+      "codex_suggestion": "人工对照候选原始文件，确认唯一流程；若只是重复文件，确认后再做 alias/去重标准化。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "吴越三班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-07",
+          "cohort_month": 7,
+          "learning_cycle_index": 26,
+          "planned_date": "2028-08",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越三班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-7-32-98e23dee",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 7,
+      "learning_cycle_index": 32,
+      "year_index": 3,
+      "template_label": "7月开班模板",
+      "learning_cycle_label": "7月开班模板 · 第32学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "I15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "I16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "I17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "哲学手册编制检视+研讨",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "I18",
+          "source_text": "哲学手册编制检视+研讨"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "吴越三班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-07",
+          "cohort_month": 7,
+          "learning_cycle_index": 32,
+          "planned_date": "2029-02",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越三班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-7-33-aece74c9",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 7,
+      "learning_cycle_index": 33,
+      "year_index": 3,
+      "template_label": "7月开班模板",
+      "learning_cycle_label": "7月开班模板 · 第33学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "J15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "J16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "J17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "J18",
+          "source_text": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "吴越三班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-07",
+          "cohort_month": 7,
+          "learning_cycle_index": 33,
+          "planned_date": "2029-03",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越三班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-7-34-a745ffa0",
+      "source_scope": "IN_SCOPE_CLASS_PROJECTION",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 7,
+      "learning_cycle_index": 34,
+      "year_index": 3,
+      "template_label": "7月开班模板",
+      "learning_cycle_label": "7月开班模板 · 第34学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "K15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "K16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "K17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "7月开班",
+          "source_cell": "K18",
+          "source_text": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P1",
+      "impact_reason": "纳入范围的真实班级未来会遇到，但运行时 OPEN 周期尚未提供",
+      "class_impact": [
+        {
+          "class_name": "吴越三班",
+          "class_org_unit_id": null,
+          "class_open_date": "2026-07",
+          "cohort_month": 7,
+          "learning_cycle_index": 34,
+          "planned_date": "2029-04",
+          "current_open_cycle": null,
+          "actual_projection_status": "NOT_PROVIDED",
+          "impact_level": "P1"
+        }
+      ],
+      "actual_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越三班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    }
+  ],
+  "template_only_supplemental_items": [
+    {
+      "finding_id": "c0-mapping_conflict-1-26-1422b56d",
+      "source_scope": "TEMPLATE_ONLY_SUPPLEMENTAL",
+      "status": "MAPPING_CONFLICT",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 1,
+      "learning_cycle_index": 26,
+      "year_index": 3,
+      "template_label": "1月开班模板",
+      "learning_cycle_label": "1月开班模板 · 第26学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [
+        "Y3-C26-COHORT-1-4-7-c5846a2908",
+        "Y3-C26-COHORT-1-4-7-3131994926"
+      ],
+      "source_file_names": [
+        "【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
+        "【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx"
+      ],
+      "source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx",
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 1,
+          "title": "经营分析会实操观摩",
+          "content": "经营分析会实操观摩",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 5,
+          "title": "哲学手册编写行动计划的检视+研讨；",
+          "content": "哲学手册编写行动计划的检视+研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 6,
+          "title": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "content": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 7,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 15
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "step_no": 8,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 16
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 1,
+          "title": "经营分析会实操观摩",
+          "content": "经营分析会实操观摩",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 5,
+          "title": "哲学手册编写行动计划的检视+研讨；",
+          "content": "哲学手册编写行动计划的检视+研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 6,
+          "title": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "content": "三大委建立及运行经验总结分享稿编写的辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 7,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 15
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-1-4-7-3131994926",
+          "step_no": 8,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 16
+        }
+      ],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "1月开班",
+          "source_cell": "C15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "1月开班",
+          "source_cell": "C16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "1月开班",
+          "source_cell": "C17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "1.哲学手册编制检视+研讨\n2.三大委落地经验和案例分享编写辅导（如线上辅导，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "1月开班",
+          "source_cell": "C18",
+          "source_text": "1.哲学手册编制检视+研讨\n2.三大委落地经验和案例分享编写辅导（如线上辅导，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "cohort_month=1, learning_cycle_index=26, year_index=3 命中 2 个候选流程，无法安全选择唯一 flow。",
+      "codex_suggestion": "人工对照候选原始文件，确认唯一流程；若只是重复文件，确认后再做 alias/去重标准化。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P2",
+      "impact_reason": "仅模板完整性问题，当前没有纳入范围的真实班级投影",
+      "class_impact": [],
+      "actual_projection": {
+        "status": "NOT_APPLICABLE",
+        "source": "没有当前纳入范围的真实班级投影"
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-1-28-fa52fdee",
+      "source_scope": "TEMPLATE_ONLY_SUPPLEMENTAL",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 1,
+      "learning_cycle_index": 28,
+      "year_index": 3,
+      "template_label": "1月开班模板",
+      "learning_cycle_label": "1月开班模板 · 第28学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "1月开班",
+          "source_cell": "E15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "1月开班",
+          "source_cell": "E16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "1月开班",
+          "source_cell": "E17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "1月开班",
+          "source_cell": "E18",
+          "source_text": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P2",
+      "impact_reason": "仅模板完整性问题，当前没有纳入范围的真实班级投影",
+      "class_impact": [],
+      "actual_projection": {
+        "status": "NOT_APPLICABLE",
+        "source": "没有当前纳入范围的真实班级投影"
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-1-29-9d10ec25",
+      "source_scope": "TEMPLATE_ONLY_SUPPLEMENTAL",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 1,
+      "learning_cycle_index": 29,
+      "year_index": 3,
+      "template_label": "1月开班模板",
+      "learning_cycle_label": "1月开班模板 · 第29学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "1月开班",
+          "source_cell": "F15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "1月开班",
+          "source_cell": "F16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "1月开班",
+          "source_cell": "F17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "1月开班",
+          "source_cell": "F18",
+          "source_text": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P2",
+      "impact_reason": "仅模板完整性问题，当前没有纳入范围的真实班级投影",
+      "class_impact": [],
+      "actual_projection": {
+        "status": "NOT_APPLICABLE",
+        "source": "没有当前纳入范围的真实班级投影"
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_conflict-10-25-fa9ee82e",
+      "source_scope": "TEMPLATE_ONLY_SUPPLEMENTAL",
+      "status": "MAPPING_CONFLICT",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 10,
+      "learning_cycle_index": 25,
+      "year_index": 3,
+      "template_label": "10月开班模板",
+      "learning_cycle_label": "10月开班模板 · 第25学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [
+        "Y3-C25-COHORT-10-c164f36e2c",
+        "Y3-C25-COHORT-10-eeff4f4753"
+      ],
+      "source_file_names": [
+        "【第25个月】（2026版10月开班）年度计划制定的研讨+经营分析会检视发表+三大委落地经验分享+人生&经营哲学践行发表+小组学习会-经营分析会观摩+第三年学习计划讲解+年度计划制定研讨+三大委案例分享辅导0911.docx",
+        "【第25个月】（2026版10月开班）年度计划制定的研讨1+经营分析会检视发表+三大委落地经验分享+人生&经营哲学践行发表+小组学习会-经营分析会观摩+第三年学习计划讲解+年度计划制定研讨+三大委案例分享辅导0911.docx"
+      ],
+      "source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第25个月】（2026版10月开班）年度计划制定的研讨+经营分析会检视发表+三大委落地经验分享+人生&经营哲学践行发表+小组学习会-经营分析会观摩+第三年学习计划讲解+年度计划制定研讨+三大委案例分享辅导0911.docx",
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第25个月】（2026版10月开班）年度计划制定的研讨1+经营分析会检视发表+三大委落地经验分享+人生&经营哲学践行发表+小组学习会-经营分析会观摩+第三年学习计划讲解+年度计划制定研讨+三大委案例分享辅导0911.docx",
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [
+        {
+          "flow_key": "Y3-C25-COHORT-10-c164f36e2c",
+          "step_no": 1,
+          "title": "经营分析会实操观摩；",
+          "content": "经营分析会实操观摩；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 7
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-c164f36e2c",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 8
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-c164f36e2c",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-c164f36e2c",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-c164f36e2c",
+          "step_no": 5,
+          "title": "第三年学习计划讲解；",
+          "content": "第三年学习计划讲解；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-c164f36e2c",
+          "step_no": 6,
+          "title": "年度计划制定研讨；",
+          "content": "年度计划制定研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-c164f36e2c",
+          "step_no": 7,
+          "title": "三大委落地经验和案例分享编写辅导；",
+          "content": "三大委落地经验和案例分享编写辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-c164f36e2c",
+          "step_no": 8,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-c164f36e2c",
+          "step_no": 9,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 15
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-eeff4f4753",
+          "step_no": 1,
+          "title": "经营分析会实操观摩；",
+          "content": "经营分析会实操观摩；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 8
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-eeff4f4753",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-eeff4f4753",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-eeff4f4753",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-eeff4f4753",
+          "step_no": 5,
+          "title": "第三年学习计划讲解；",
+          "content": "第三年学习计划讲解；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-eeff4f4753",
+          "step_no": 6,
+          "title": "年度计划制定研讨；",
+          "content": "年度计划制定研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-eeff4f4753",
+          "step_no": 7,
+          "title": "三大委落地经验和案例分享编写辅导；",
+          "content": "三大委落地经验和案例分享编写辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-eeff4f4753",
+          "step_no": 8,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 15
+        },
+        {
+          "flow_key": "Y3-C25-COHORT-10-eeff4f4753",
+          "step_no": 9,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 16
+        }
+      ],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "B15",
+          "source_text": "全天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "B16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "B17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "1.第三年学习计划讲解；\n2.年度计划制定的研讨；\n3.三大委落地经验和案例分享编写辅导",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "B18",
+          "source_text": "1.第三年学习计划讲解；\n2.年度计划制定的研讨；\n3.三大委落地经验和案例分享编写辅导"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "cohort_month=10, learning_cycle_index=25, year_index=3 命中 2 个候选流程，无法安全选择唯一 flow。",
+      "codex_suggestion": "人工对照候选原始文件，确认唯一流程；若只是重复文件，确认后再做 alias/去重标准化。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P2",
+      "impact_reason": "仅模板完整性问题，当前没有纳入范围的真实班级投影",
+      "class_impact": [],
+      "actual_projection": {
+        "status": "NOT_APPLICABLE",
+        "source": "没有当前纳入范围的真实班级投影"
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_conflict-10-26-62c9250c",
+      "source_scope": "TEMPLATE_ONLY_SUPPLEMENTAL",
+      "status": "MAPPING_CONFLICT",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 10,
+      "learning_cycle_index": 26,
+      "year_index": 3,
+      "template_label": "10月开班模板",
+      "learning_cycle_label": "10月开班模板 · 第26学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [
+        "Y3-C26-COHORT-10-c008c1df96",
+        "Y3-C26-COHORT-10-6e3ff29065"
+      ],
+      "source_file_names": [
+        "【第26个月】（2026版10月开班）年度计划制定的研讨+经营分析会检视发表+三大委落地经验分享+人生&经营哲学践行发表+小组学习会-经营分析会观摩+第三年学习计划讲解+年度计划制定研讨+三大委案例分享辅导0911.docx",
+        "【第26个月】（2026版10月开班）年度计划制定的研讨2+经营分析会检视发表+三大委落地经验分享+人生&经营哲学践行发表+小组学习会-经营分析会观摩+第三年学习计划讲解+年度计划制定研讨+三大委案例分享辅导0911.docx"
+      ],
+      "source_files": [
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版10月开班）年度计划制定的研讨+经营分析会检视发表+三大委落地经验分享+人生&经营哲学践行发表+小组学习会-经营分析会观摩+第三年学习计划讲解+年度计划制定研讨+三大委案例分享辅导0911.docx",
+        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版10月开班）年度计划制定的研讨2+经营分析会检视发表+三大委落地经验分享+人生&经营哲学践行发表+小组学习会-经营分析会观摩+第三年学习计划讲解+年度计划制定研讨+三大委案例分享辅导0911.docx",
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [
+        {
+          "flow_key": "Y3-C26-COHORT-10-c008c1df96",
+          "step_no": 1,
+          "title": "经营分析会实操观摩；",
+          "content": "经营分析会实操观摩；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 8
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-c008c1df96",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-c008c1df96",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-c008c1df96",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-c008c1df96",
+          "step_no": 5,
+          "title": "年度计划制定研讨；",
+          "content": "年度计划制定研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-c008c1df96",
+          "step_no": 6,
+          "title": "三大委落地经验和案例分享编写辅导；",
+          "content": "三大委落地经验和案例分享编写辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-c008c1df96",
+          "step_no": 7,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-c008c1df96",
+          "step_no": 8,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 15
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-6e3ff29065",
+          "step_no": 1,
+          "title": "经营分析会实操观摩；",
+          "content": "经营分析会实操观摩；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 8
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-6e3ff29065",
+          "step_no": 2,
+          "title": "企业参访、企业经营者分享；",
+          "content": "企业参访、企业经营者分享；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 9
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-6e3ff29065",
+          "step_no": 3,
+          "title": "近期读书打卡分享情况；",
+          "content": "近期读书打卡分享情况；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 10
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-6e3ff29065",
+          "step_no": 4,
+          "title": "上月班级学习会课后作业的检视、分享、辅导；",
+          "content": "上月班级学习会课后作业的检视、分享、辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 11
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-6e3ff29065",
+          "step_no": 5,
+          "title": "年度计划制定研讨；",
+          "content": "年度计划制定研讨；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 12
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-6e3ff29065",
+          "step_no": 6,
+          "title": "三大委落地经验和案例分享编写辅导；",
+          "content": "三大委落地经验和案例分享编写辅导；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 13
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-6e3ff29065",
+          "step_no": 7,
+          "title": "近期重点工作沟通交流；",
+          "content": "近期重点工作沟通交流；",
+          "is_required": true,
+          "is_terminal": false,
+          "source_paragraph_index": 14
+        },
+        {
+          "flow_key": "Y3-C26-COHORT-10-6e3ff29065",
+          "step_no": 8,
+          "title": "空巴。",
+          "content": "空巴。",
+          "is_required": true,
+          "is_terminal": true,
+          "source_paragraph_index": 15
+        }
+      ],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "C15",
+          "source_text": "全天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "C16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "C17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "年度计划制定的研讨；",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "C18",
+          "source_text": "年度计划制定的研讨；"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "cohort_month=10, learning_cycle_index=26, year_index=3 命中 2 个候选流程，无法安全选择唯一 flow。",
+      "codex_suggestion": "人工对照候选原始文件，确认唯一流程；若只是重复文件，确认后再做 alias/去重标准化。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P2",
+      "impact_reason": "仅模板完整性问题，当前没有纳入范围的真实班级投影",
+      "class_impact": [],
+      "actual_projection": {
+        "status": "NOT_APPLICABLE",
+        "source": "没有当前纳入范围的真实班级投影"
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-10-30-c2ea25fa",
+      "source_scope": "TEMPLATE_ONLY_SUPPLEMENTAL",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 10,
+      "learning_cycle_index": 30,
+      "year_index": 3,
+      "template_label": "10月开班模板",
+      "learning_cycle_label": "10月开班模板 · 第30学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "G15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "G16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "G17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "哲学手册编制检视+研讨",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "G18",
+          "source_text": "哲学手册编制检视+研讨"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P2",
+      "impact_reason": "仅模板完整性问题，当前没有纳入范围的真实班级投影",
+      "class_impact": [],
+      "actual_projection": {
+        "status": "NOT_APPLICABLE",
+        "source": "没有当前纳入范围的真实班级投影"
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-10-31-3bd9d904",
+      "source_scope": "TEMPLATE_ONLY_SUPPLEMENTAL",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 10,
+      "learning_cycle_index": 31,
+      "year_index": 3,
+      "template_label": "10月开班模板",
+      "learning_cycle_label": "10月开班模板 · 第31学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "H15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "H16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "H17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "H18",
+          "source_text": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P2",
+      "impact_reason": "仅模板完整性问题，当前没有纳入范围的真实班级投影",
+      "class_impact": [],
+      "actual_projection": {
+        "status": "NOT_APPLICABLE",
+        "source": "没有当前纳入范围的真实班级投影"
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    },
+    {
+      "finding_id": "c0-mapping_missing-10-32-915fb996",
+      "source_scope": "TEMPLATE_ONLY_SUPPLEMENTAL",
+      "status": "MAPPING_MISSING",
+      "review_status": "REVIEW_REQUIRED",
+      "cohort_month": 10,
+      "learning_cycle_index": 32,
+      "year_index": 3,
+      "template_label": "10月开班模板",
+      "learning_cycle_label": "10月开班模板 · 第32学习周期",
+      "flow_key": null,
+      "candidate_flow_keys": [],
+      "source_file_names": [],
+      "source_files": [
+        "第三年学习计划（2026版20250804）.xlsx"
+      ],
+      "original_source_steps": [],
+      "planned_group_meeting_tasks": [
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "全天或半天",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "I15",
+          "source_text": "全天或半天"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "经营分析会实操观摩",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "I16",
+          "source_text": "经营分析会实操观摩"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "上月班级学习会的作业检视",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "I17",
+          "source_text": "上月班级学习会的作业检视"
+        },
+        {
+          "task_type": "GROUP_MEETING",
+          "title": "小组学习会",
+          "description": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）",
+          "is_required": true,
+          "credit_points": null,
+          "source_file": "第三年学习计划（2026版20250804）.xlsx",
+          "source_sheet": "10月开班",
+          "source_cell": "I18",
+          "source_text": "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）"
+        }
+      ],
+      "identified_task_type": "REVIEW_REQUIRED",
+      "task_type_candidates": [
+        "PRACTICE",
+        "DISCUSSION"
+      ],
+      "source_task_type": "GROUP_MEETING",
+      "is_required": true,
+      "qr_refs": [],
+      "current_learning_content_titles": [],
+      "current_learning_content_nodes": [],
+      "candidate_standard_courses": [],
+      "current_credit_rule_keys": [],
+      "current_credit_points": [],
+      "candidate_credit_rule_keys": [],
+      "candidate_credit_points": [],
+      "group_meeting_base_credit_note": "小组会基础出席分（当前规则为每周期每人4分）不是本内容节点的课程积分，本轮不自动归属。",
+      "technical_reason": "按 cohort_month + learning_cycle_index + year_index 未找到对应的小组学习会流程；不能用自然月份或相邻周期猜测。",
+      "codex_suggestion": "人工核对原始资料；确认有流程后补充 mapping，确认没有小组会后标记 EXEMPTED，否则标记 SOURCE_MISSING。",
+      "safe_to_auto_fix": false,
+      "auto_fix_reason": "当前属于业务映射未确认项；没有足够证据安全选择流程、必学属性或积分规则。",
+      "must_be_manually_confirmed": true,
+      "priority": "P2",
+      "impact_reason": "仅模板完整性问题，当前没有纳入范围的真实班级投影",
+      "class_impact": [],
+      "actual_projection": {
+        "status": "NOT_APPLICABLE",
+        "source": "没有当前纳入范围的真实班级投影"
+      },
+      "schedule_override_invariance": {
+        "lookup_identity": [
+          "cohort_month",
+          "learning_cycle_index",
+          "year_index",
+          "plan_cycle_id"
+        ],
+        "planned_date_may_change": true,
+        "learning_content_identity_may_change": false,
+        "note": "班会顺延只调整计划/实际时间，不改变 learning_cycle_index、plan_cycle_id 或学习内容身份。"
+      },
+      "business_confirmation": {
+        "final_content_name": "",
+        "is_group_meeting_content": null,
+        "is_required": null,
+        "content_type": "",
+        "has_credit": "",
+        "credit_rule_key": "",
+        "credit_points": null,
+        "qr_location": "",
+        "resolution": "",
+        "notes": ""
+      }
+    }
+  ],
+  "appendices": {
+    "required_video_without_qr": [
+      {
+        "cohort_month": 1,
+        "learning_cycle_index": 5,
+        "year_index": 1,
+        "flow_key": "Y1-C05-COHORT-1-4-7-10-c29bc0e80f",
+        "content_key": "Y1-C05-STEP-04-CONTENT-01",
+        "title": "关于核算表分析&任务单的制作",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": "Y1-ACCOUNTING-ANALYSIS-TASK",
+        "credit_points": 40,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 1,
+        "learning_cycle_index": 8,
+        "year_index": 1,
+        "flow_key": "Y1-C08-COHORT-1-7-2926ab4bad",
+        "content_key": "Y1-C08-STEP-04-CONTENT-01",
+        "title": "成功方程式49天讲解",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 1,
+        "learning_cycle_index": 17,
+        "year_index": 2,
+        "flow_key": "Y2-C17-COHORT-1-4-60bf53334e",
+        "content_key": "Y2-C17-STEP-05-CONTENT-01",
+        "title": "阿米巴经营之如何制作分部门核算表",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 1,
+        "learning_cycle_index": 20,
+        "year_index": 2,
+        "flow_key": "Y2-C20-COHORT-1-d1e34ececf",
+        "content_key": "Y2-C20-STEP-05-CONTENT-01",
+        "title": "优秀改善创新案例分享",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 1,
+        "learning_cycle_index": 36,
+        "year_index": 3,
+        "flow_key": "Y3-C36-COHORT-1-af08ca9255",
+        "content_key": "Y3-C36-STEP-07-CONTENT-01",
+        "title": "志愿者学长培训",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 4,
+        "learning_cycle_index": 5,
+        "year_index": 1,
+        "flow_key": "Y1-C05-COHORT-1-4-7-10-c29bc0e80f",
+        "content_key": "Y1-C05-STEP-04-CONTENT-01",
+        "title": "关于核算表分析&任务单的制作",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": "Y1-ACCOUNTING-ANALYSIS-TASK",
+        "credit_points": 40,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 4,
+        "learning_cycle_index": 10,
+        "year_index": 1,
+        "flow_key": "Y1-C10-COHORT-4-10-7a66085b69",
+        "content_key": "Y1-C10-STEP-04-CONTENT-01",
+        "title": "成功方程式49天讲解",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 4,
+        "learning_cycle_index": 11,
+        "year_index": 1,
+        "flow_key": "Y1-C11-COHORT-4-10-434144a26d",
+        "content_key": "Y1-C11-STEP-05-CONTENT-01",
+        "title": "成功方程式49天讲解",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 4,
+        "learning_cycle_index": 17,
+        "year_index": 2,
+        "flow_key": "Y2-C17-COHORT-1-4-60bf53334e",
+        "content_key": "Y2-C17-STEP-05-CONTENT-01",
+        "title": "阿米巴经营之如何制作分部门核算表",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 4,
+        "learning_cycle_index": 36,
+        "year_index": 3,
+        "flow_key": "Y3-C36-COHORT-4-7-2b1ed7c819",
+        "content_key": "Y3-C36-STEP-06-CONTENT-01",
+        "title": "志愿者学长培训",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 7,
+        "learning_cycle_index": 5,
+        "year_index": 1,
+        "flow_key": "Y1-C05-COHORT-1-4-7-10-c29bc0e80f",
+        "content_key": "Y1-C05-STEP-04-CONTENT-01",
+        "title": "关于核算表分析&任务单的制作",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": "Y1-ACCOUNTING-ANALYSIS-TASK",
+        "credit_points": 40,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 7,
+        "learning_cycle_index": 8,
+        "year_index": 1,
+        "flow_key": "Y1-C08-COHORT-1-7-2926ab4bad",
+        "content_key": "Y1-C08-STEP-04-CONTENT-01",
+        "title": "成功方程式49天讲解",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 7,
+        "learning_cycle_index": 19,
+        "year_index": 2,
+        "flow_key": "Y2-C19-COHORT-7-10-e3409c3e9c",
+        "content_key": "Y2-C19-STEP-05-CONTENT-01",
+        "title": "阿米巴经营之如何制作分部门核算表",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 7,
+        "learning_cycle_index": 36,
+        "year_index": 3,
+        "flow_key": "Y3-C36-COHORT-4-7-2b1ed7c819",
+        "content_key": "Y3-C36-STEP-06-CONTENT-01",
+        "title": "志愿者学长培训",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 10,
+        "learning_cycle_index": 5,
+        "year_index": 1,
+        "flow_key": "Y1-C05-COHORT-1-4-7-10-c29bc0e80f",
+        "content_key": "Y1-C05-STEP-04-CONTENT-01",
+        "title": "关于核算表分析&任务单的制作",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": "Y1-ACCOUNTING-ANALYSIS-TASK",
+        "credit_points": 40,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 10,
+        "learning_cycle_index": 10,
+        "year_index": 1,
+        "flow_key": "Y1-C10-COHORT-4-10-7a66085b69",
+        "content_key": "Y1-C10-STEP-04-CONTENT-01",
+        "title": "成功方程式49天讲解",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 10,
+        "learning_cycle_index": 11,
+        "year_index": 1,
+        "flow_key": "Y1-C11-COHORT-4-10-434144a26d",
+        "content_key": "Y1-C11-STEP-05-CONTENT-01",
+        "title": "成功方程式49天讲解",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 10,
+        "learning_cycle_index": 15,
+        "year_index": 2,
+        "flow_key": "Y2-C15-COHORT-10-7fbb19ca26",
+        "content_key": "Y2-C15-STEP-05-CONTENT-01",
+        "title": "学习践行委讲解",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 10,
+        "learning_cycle_index": 17,
+        "year_index": 2,
+        "flow_key": "Y2-C17-COHORT-10-cc58137817",
+        "content_key": "Y2-C17-STEP-05-CONTENT-01",
+        "title": "改善创新委讲解",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 10,
+        "learning_cycle_index": 17,
+        "year_index": 2,
+        "flow_key": "Y2-C17-COHORT-10-cc58137817",
+        "content_key": "Y2-C17-STEP-05-CONTENT-02",
+        "title": "改善创新优秀企业践行分享",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 10,
+        "learning_cycle_index": 19,
+        "year_index": 2,
+        "flow_key": "Y2-C19-COHORT-7-10-e3409c3e9c",
+        "content_key": "Y2-C19-STEP-05-CONTENT-01",
+        "title": "阿米巴经营之如何制作分部门核算表",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      },
+      {
+        "cohort_month": 10,
+        "learning_cycle_index": 36,
+        "year_index": 3,
+        "flow_key": "Y3-C36-COHORT-10-4c499c8544",
+        "content_key": "Y3-C36-STEP-07-CONTENT-01",
+        "title": "志愿者学长培训",
+        "required": true,
+        "qr_refs": [],
+        "credit_rule_key": null,
+        "credit_points": null,
+        "match_status": "MAPPED",
+        "review_status": "REVIEW_REQUIRED",
+        "note": "无二维码不代表不是学习内容，也不代表自动有积分；请单独确认内容与积分。"
+      }
+    ],
+    "historical_qr_nodes": [
+      {
+        "node_id": "Y2-C14-COHORT-1-4-7-10-885bae980e-course-node-1",
+        "cohort_months": [
+          1,
+          4,
+          7,
+          10
+        ],
+        "learning_cycle_index": 14,
+        "year_index": 2,
+        "flow_key": "Y2-C14-COHORT-1-4-7-10-885bae980e",
+        "source_file": "【第14个月】（2026版1、4、7、10月开班）班级学习会-《如何召开经营分析会-基础班+进阶版》+经营分析会实操+人生&经营哲学践行发表+小组学习会-幸福关爱委视频（企业年度计划修正）0814.docx",
+        "context_step_no": 4,
+        "context_text": "【幸福关爱委讲解】视频学习+研讨；",
+        "qr_location": {
+          "media_target": "media/image3.png",
+          "relationship_id": "rId6",
+          "source_paragraph_index": 42,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y2-C14-COHORT-1-4-7-10-885bae980e-course-node-2",
+        "cohort_months": [
+          1,
+          4,
+          7,
+          10
+        ],
+        "learning_cycle_index": 14,
+        "year_index": 2,
+        "flow_key": "Y2-C14-COHORT-1-4-7-10-885bae980e",
+        "source_file": "【第14个月】（2026版1、4、7、10月开班）班级学习会-《如何召开经营分析会-基础班+进阶版》+经营分析会实操+人生&经营哲学践行发表+小组学习会-幸福关爱委视频（企业年度计划修正）0814.docx",
+        "context_step_no": 4,
+        "context_text": "【幸福关爱委讲解】视频学习+研讨；",
+        "qr_location": {
+          "media_target": "media/image4.png",
+          "relationship_id": "rId7",
+          "source_paragraph_index": 42,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y2-C15-COHORT-1-4-7-21a2178ede-course-node-1",
+        "cohort_months": [
+          1,
+          4,
+          7
+        ],
+        "learning_cycle_index": 15,
+        "year_index": 2,
+        "flow_key": "Y2-C15-COHORT-1-4-7-21a2178ede",
+        "source_file": "【第15个月】（2026版1、4、7月开班）班级学习会-《如何改善创新》+经营分析会检视+人生&经营哲学发表+经营分析会研讨+小组学习会-经营分析会实操观摩+《改善创新委》视频学习0814.docx",
+        "context_step_no": 5,
+        "context_text": "【改善创新委讲解】、【改善创新优秀企业践行分享】视频学习+研讨；",
+        "qr_location": {
+          "media_target": "media/image4.jpeg",
+          "relationship_id": "rId10",
+          "source_paragraph_index": 17,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y2-C15-COHORT-1-4-7-21a2178ede-course-node-2",
+        "cohort_months": [
+          1,
+          4,
+          7
+        ],
+        "learning_cycle_index": 15,
+        "year_index": 2,
+        "flow_key": "Y2-C15-COHORT-1-4-7-21a2178ede",
+        "source_file": "【第15个月】（2026版1、4、7月开班）班级学习会-《如何改善创新》+经营分析会检视+人生&经营哲学发表+经营分析会研讨+小组学习会-经营分析会实操观摩+《改善创新委》视频学习0814.docx",
+        "context_step_no": 5,
+        "context_text": "【改善创新委讲解】、【改善创新优秀企业践行分享】视频学习+研讨；",
+        "qr_location": {
+          "media_target": "media/image1.png",
+          "relationship_id": "rId7",
+          "source_paragraph_index": 17,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y2-C16-COHORT-10-e89ea06de1-course-node-1",
+        "cohort_months": [
+          10
+        ],
+        "learning_cycle_index": 16,
+        "year_index": 2,
+        "flow_key": "Y2-C16-COHORT-10-e89ea06de1",
+        "source_file": "【第16个月】（2026版10月开班）班级学习会-《干法》+《京瓷哲学》读书总结+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《幸福关爱委讲解》视频学习0814.docx",
+        "context_step_no": 4,
+        "context_text": "【幸福关爱委讲解】视频学习+研讨；\n体系讲解 企业案例分享",
+        "qr_location": {
+          "media_target": "media/image2.png",
+          "relationship_id": "rId8",
+          "source_paragraph_index": 13,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y2-C16-COHORT-10-e89ea06de1-course-node-2",
+        "cohort_months": [
+          10
+        ],
+        "learning_cycle_index": 16,
+        "year_index": 2,
+        "flow_key": "Y2-C16-COHORT-10-e89ea06de1",
+        "source_file": "【第16个月】（2026版10月开班）班级学习会-《干法》+《京瓷哲学》读书总结+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《幸福关爱委讲解》视频学习0814.docx",
+        "context_step_no": 4,
+        "context_text": "【幸福关爱委讲解】视频学习+研讨；\n体系讲解 企业案例分享",
+        "qr_location": {
+          "media_target": "media/image3.png",
+          "relationship_id": "rId9",
+          "source_paragraph_index": 13,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y2-C16-COHORT-1-4-da8410ed23-course-node-1",
+        "cohort_months": [
+          1,
+          4
+        ],
+        "learning_cycle_index": 16,
+        "year_index": 2,
+        "flow_key": "Y2-C16-COHORT-1-4-da8410ed23",
+        "source_file": "【第16个月】（2026版1、4月开班）班级学习会-《阿米巴经营带来企业持续发展》+学习践行委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之概论》视频学习+研讨+学习践行发表辅导0814.docx",
+        "context_step_no": 5,
+        "context_text": "【阿米巴经营之概论】视频学习+研讨；",
+        "qr_location": {
+          "media_target": "media/image1.jpeg",
+          "relationship_id": "rId7",
+          "source_paragraph_index": 11,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y2-C18-COHORT-7-10-bcbc9e3d33-course-node-1",
+        "cohort_months": [
+          7,
+          10
+        ],
+        "learning_cycle_index": 18,
+        "year_index": 2,
+        "flow_key": "Y2-C18-COHORT-7-10-bcbc9e3d33",
+        "source_file": "【第18个月】（2026版7、10月开班）班级学习会-《阿米巴经营带来企业持续发展》+学习践行委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之概论》视频学习+研讨+学习践行发表辅导0818.docx",
+        "context_step_no": 5,
+        "context_text": "【阿米巴经营之概论】视频学习+研讨；",
+        "qr_location": {
+          "media_target": "media/image1.jpeg",
+          "relationship_id": "rId4",
+          "source_paragraph_index": 11,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y2-C21-COHORT-4-7-10-9dc872e110-course-node-1",
+        "cohort_months": [
+          4,
+          7,
+          10
+        ],
+        "learning_cycle_index": 21,
+        "year_index": 2,
+        "flow_key": "Y2-C21-COHORT-4-7-10-9dc872e110",
+        "source_file": "【第21个月】（2026版4、7、10月开班）班级学习会-《企业的自我革新-从京瓷的新产品开发谈起》+改善创新案例总结发表+经营分析会检视+研讨+小组学习会-经营分析会实操+《优秀改善创新案例分享》视频学习+研讨+改善创新案例总结发表辅导0819.docx",
+        "context_step_no": 5,
+        "context_text": "【优秀改善创新案例分享】视频学习+研讨",
+        "qr_location": {
+          "media_target": "media/image1.png",
+          "relationship_id": "rId7",
+          "source_paragraph_index": 13,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y3-C27-COHORT-7-ba27a4dd0d-course-node-1",
+        "cohort_months": [
+          7
+        ],
+        "learning_cycle_index": 27,
+        "year_index": 3,
+        "flow_key": "Y3-C27-COHORT-7-ba27a4dd0d",
+        "source_file": "【第27个月】（2026版7月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+人生&经营哲学发表+小组学习会-经营分析会观摩+《百日奋战》视频学习+哲学手册编制研讨0912.docx",
+        "context_step_no": 5,
+        "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
+        "qr_location": {
+          "media_target": "media/image1.png",
+          "relationship_id": "rId6",
+          "source_paragraph_index": 19,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y3-C27-COHORT-7-ba27a4dd0d-course-node-2",
+        "cohort_months": [
+          7
+        ],
+        "learning_cycle_index": 27,
+        "year_index": 3,
+        "flow_key": "Y3-C27-COHORT-7-ba27a4dd0d",
+        "source_file": "【第27个月】（2026版7月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+人生&经营哲学发表+小组学习会-经营分析会观摩+《百日奋战》视频学习+哲学手册编制研讨0912.docx",
+        "context_step_no": 5,
+        "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
+        "qr_location": {
+          "media_target": "media/image2.png",
+          "relationship_id": "rId7",
+          "source_paragraph_index": 19,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y3-C30-COHORT-1-4-b2f6700018-course-node-1",
+        "cohort_months": [
+          1,
+          4
+        ],
+        "learning_cycle_index": 30,
+        "year_index": 3,
+        "flow_key": "Y3-C30-COHORT-1-4-b2f6700018",
+        "source_file": "【第30个月】（2026版1、4月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0922.docx",
+        "context_step_no": 5,
+        "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
+        "qr_location": {
+          "media_target": "media/image1.png",
+          "relationship_id": "rId6",
+          "source_paragraph_index": 19,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y3-C30-COHORT-1-4-b2f6700018-course-node-2",
+        "cohort_months": [
+          1,
+          4
+        ],
+        "learning_cycle_index": 30,
+        "year_index": 3,
+        "flow_key": "Y3-C30-COHORT-1-4-b2f6700018",
+        "source_file": "【第30个月】（2026版1、4月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0922.docx",
+        "context_step_no": 5,
+        "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
+        "qr_location": {
+          "media_target": "media/image2.png",
+          "relationship_id": "rId7",
+          "source_paragraph_index": 19,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y3-C33-COHORT-10-4c4d3a8016-course-node-1",
+        "cohort_months": [
+          10
+        ],
+        "learning_cycle_index": 33,
+        "year_index": 3,
+        "flow_key": "Y3-C33-COHORT-10-4c4d3a8016",
+        "source_file": "【第33个月】（2026版10月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0915.docx",
+        "context_step_no": 5,
+        "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
+        "qr_location": {
+          "media_target": "media/image1.png",
+          "relationship_id": "rId6",
+          "source_paragraph_index": 19,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      },
+      {
+        "node_id": "Y3-C33-COHORT-10-4c4d3a8016-course-node-2",
+        "cohort_months": [
+          10
+        ],
+        "learning_cycle_index": 33,
+        "year_index": 3,
+        "flow_key": "Y3-C33-COHORT-10-4c4d3a8016",
+        "source_file": "【第33个月】（2026版10月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0915.docx",
+        "context_step_no": 5,
+        "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
+        "qr_location": {
+          "media_target": "media/image2.png",
+          "relationship_id": "rId7",
+          "source_paragraph_index": 19,
+          "qr_url_present": false
+        },
+        "candidate_standard_courses": [],
+        "candidate_credit_rule_keys": [],
+        "candidate_credit_points": [],
+        "review_classification": "D. 无法确认（待业务核对）",
+        "credit_rule_key": null,
+        "credit_points": null,
+        "review_status": "REVIEW_REQUIRED",
+        "note": "二维码仅作为访问入口；不得由二维码本身生成课程或积分规则。"
+      }
+    ]
+  }
+}

@@ -21,6 +21,7 @@ from app.services.learning_cycles import (
     set_learning_cycle_schedule_override,
     update_current_learning_cycle,
 )
+from app.services.group_meeting_plan import build_group_meeting_plan
 
 
 def test_mysql_cycle_query_datetime_normalizes_iso_boundary() -> None:
@@ -347,6 +348,14 @@ def test_schedule_override_keeps_future_cycle_planned_until_class_boundary(
     assert delayed["current_cycle"]["learning_cycle_index"] == 8
     assert delayed["current_cycle"]["plan_cycle"]["cycle_label"] == "7月轨道第8周期"
     assert delayed["current_cycle"]["planned_class_meeting_at"] == "2027-03-20T19:00:00+00:00"
+    delayed_plan = build_group_meeting_plan(
+        plan_cycle=delayed["current_cycle"]["plan_cycle"],
+        cohort_month=7,
+        learning_cycle_index=delayed["current_cycle"]["learning_cycle_index"],
+    )
+    assert delayed_plan["learning_cycle_index"] == 8
+    assert delayed_plan["cohort_month"] == 7
+    assert delayed_plan["learning_contents"][0]["title"] == "成功方程式49天讲解"
 
     monkeypatch.setattr(
         learning_cycles_service, "_now", lambda: "2027-03-20T20:00:00+00:00"
