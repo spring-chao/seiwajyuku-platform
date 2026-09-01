@@ -12,7 +12,7 @@ function read(relativePath) {
   return readFileSync(join(repoRoot, relativePath), "utf8");
 }
 
-test("P3 registers the four learner entry pages", () => {
+test("learner entry pages remain registered, including the auxiliary scan route", () => {
   const app = JSON.parse(read("apps/wechat-miniprogram/app.json"));
   const sitemap = JSON.parse(read("apps/wechat-miniprogram/sitemap.json"));
   const expected = [
@@ -27,14 +27,17 @@ test("P3 registers the four learner entry pages", () => {
   }
 });
 
-test("bound home exposes four plain-language entries without technical fields", () => {
+test("bound home exposes the two core entries without making scan a primary entry", () => {
   const template = read("apps/wechat-miniprogram/pages/home/index.wxml");
-  for (const label of ["我的学习", "扫码", "我的成长", "志工服务"]) {
+  for (const label of ["我的学习", "我的成长", "志工服务"]) {
     assert.match(template, new RegExp(label));
   }
-  for (const handler of ["openLearning", "openScan", "openProfile", "openServices"]) {
+  for (const handler of ["openLearning", "openProfile", "openServices"]) {
     assert.match(template, new RegExp(`bindtap=\"${handler}\"`));
   }
+  assert.doesNotMatch(template, /entry-title">扫码/);
+  assert.doesNotMatch(template, /bindtap=\"openScan\"/);
+  assert.doesNotMatch(template, /下方“扫码”/);
   for (const technicalField of ["org_unit_id", "learning_cycle_id", "capability", "scope_type", "role_key"]) {
     assert.doesNotMatch(template, new RegExp(technicalField));
   }

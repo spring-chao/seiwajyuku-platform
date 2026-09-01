@@ -15,10 +15,10 @@
       <view class="identity-name">{{member.name_masked}}</view>
       <view wx:if="{{displayRole}}" class="identity-role">{{displayRole}}</view>
       <view class="identity-copy">{{displayScope || '暂未关联班级 · 暂未关联小组'}}</view>
-      <view wx:if="{{canManageStudyMeeting}}" class="identity-copy">可从下方“扫码”进入学习会登记。</view>
+      <view wx:if="{{canManageStudyMeeting}}" class="identity-copy">可从“志工服务”进入小组学习会登记。</view>
       <view wx:elif="{{isVolunteer}}" class="identity-copy">{{serviceMessage}}</view>
       <!-- Keep the old action contract for older test fixtures; the visible
-           entry now lives in the four-entry grid below. -->
+           entry now lives in the volunteer-service card below. -->
       <button wx:if="{{canManageStudyMeeting}}" class="primary-button" bindtap="openStudyMeeting" hidden="{{true}}">小组学习会登记</button>
       <button class="plain-button" bindtap="unbind">解除本机绑定</button>
     </view>
@@ -41,11 +41,6 @@
       <view class="entry-title">我的学习</view>
       <view class="entry-copy">最近学习、参加记录和学分</view>
     </view>
-    <view class="entry-card entry-card-primary" bindtap="openScan">
-      <view class="entry-icon">扫</view>
-      <view class="entry-title">扫码</view>
-      <view class="entry-copy">参加活动或学习服务</view>
-    </view>
     <view class="entry-card {{isVolunteer ? '' : 'entry-card-wide'}}" bindtap="openProfile">
       <view class="entry-icon">我</view>
       <view class="entry-title">我的成长</view>
@@ -58,6 +53,6 @@
     </view>
   </view>
 
-  <view wx:if="{{!loading && identityState === 'unbound'}}" class="entry-hint">绑定正式学员身份后，可使用学习、扫码和“我的成长”入口。</view>
+  <view wx:if="{{!loading && identityState === 'unbound'}}" class="entry-hint">绑定正式学员身份后，可使用学习和“我的成长”入口。</view>
   <view class="footer-copy">页面只显示与你当前身份相关的服务；暂未开放的功能会明确提示。</view>
 </view>

@@ -15,9 +15,7 @@
 .entry-grid { display: flex; flex-wrap: wrap; justify-content: space-between; margin-top: 24rpx; }
 .entry-card { width: calc(50% - 10rpx); min-height: 178rpx; box-sizing: border-box; margin-bottom: 20rpx; padding: 24rpx 22rpx; border: 1rpx solid #eadbd5; border-radius: 22rpx; background: #fff; box-shadow: 0 8rpx 24rpx rgba(80, 35, 35, .06); }
 .entry-card-wide { width: 100%; }
-.entry-card-primary { border-color: #c7837b; background: linear-gradient(145deg, #fff8f4, #fff0ec); }
 .entry-icon { display: flex; align-items: center; justify-content: center; width: 58rpx; height: 58rpx; border-radius: 18rpx; background: #f7e7df; color: #741f2b; font-size: 30rpx; font-weight: 700; }
-.entry-card-primary .entry-icon { background: #741f2b; color: #fff; }
 .entry-title { margin-top: 18rpx; color: #4c3030; font-size: 31rpx; font-weight: 700; }
 .entry-copy { margin-top: 8rpx; color: #806f6f; font-size: 23rpx; line-height: 1.45; }
 .entry-hint { margin-top: 20rpx; padding: 22rpx 24rpx; border-radius: 18rpx; background: #fff; color: #806f6f; font-size: 25rpx; line-height: 1.55; text-align: center; }

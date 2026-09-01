@@ -110,11 +110,6 @@ Page({
     wx.navigateTo({ url: "/pages/learning/index" });
   },
 
-  openScan() {
-    if (this.data.identityState !== "bound") return;
-    wx.navigateTo({ url: "/pages/scan/index" });
-  },
-
   openProfile() {
     if (this.data.identityState !== "bound") return;
     wx.navigateTo({ url: "/pages/profile/index" });
