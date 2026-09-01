@@ -28,7 +28,6 @@ NS = {"w": W_NS, "a": A_NS, "r": R_NS}
 
 DEFAULT_CREDIT_RULES = Path("data/learning-plans/course-credit-rules-2026.json")
 
-
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -76,6 +75,88 @@ def _course_match(
     return None, None
 
 
+def _learning_content_type(text: str) -> str | None:
+    """Classify learning semantics independently from QR evidence.
+
+    The group-meeting source documents use several phrasings for the same
+    fact (for example, ``视频学习+研讨`` and ``观看...视频``).  A QR image is
+    deliberately not part of this decision.
+    """
+
+    # Some flow documents contain a planning note such as “如本月……（如
+    # 视频学习）”.  It describes a possible condition, not a designated
+    # learning item, so it must not create a fake video node.
+    if re.match(r"^\s*(?:如|若|如果).{0,80}(?:如|例如).{0,30}(?:视频|课程)", text):
+        return None
+    if "视频" in text:
+        return "VIDEO_LEARNING"
+    if "课程" in text:
+        return "COURSE_LEARNING"
+    return None
+
+
+def _learning_content_titles(text: str) -> list[str]:
+    """Extract one display title per explicitly named learning content.
+
+    Bracketed titles are the reliable source form used by the documents.  A
+    plain-text fallback keeps generic entries such as ``志愿者学长培训视频
+    学习`` visible without pretending to know a more specific course name.
+    """
+
+    matches = list(re.finditer(r"[【\[《](?P<title>[^】\]》\r\n]+)[】\]》]", text))
+    if matches:
+        titles: list[str] = []
+        for match_index, match in enumerate(matches):
+            before = text[max(0, match.start() - 24) : match.start()]
+            after_end = (
+                matches[match_index + 1].start()
+                if match_index + 1 < len(matches)
+                else len(text)
+            )
+            after = text[match.end() : min(after_end, match.end() + 48)]
+            # A title list can put the semantic marker after the final title,
+            # e.g. ``【视频A】、【视频B】视频学习``.  In that form the marker
+            # applies to every punctuation-connected title in the run.
+            run_end = match_index
+            while run_end + 1 < len(matches):
+                separator = text[matches[run_end].end() : matches[run_end + 1].start()]
+                if not re.fullmatch(r"[\s、，,和与及；;]*", separator):
+                    break
+                run_end += 1
+            run_tail = (
+                text[matches[run_end].end() : matches[run_end].end() + 48]
+                if run_end > match_index
+                else ""
+            )
+            run_text = text[match.end() : matches[run_end].end()]
+            # A bracketed book or supporting phrase in the same step is not
+            # automatically a video.  Keep a title when its local text says
+            # video/course, while allowing ``视频《标题》`` as well.
+            if not re.search(r"视频|课程", after) and not re.search(r"视频|课程", run_tail) and not (
+                re.search(r"视频|课程", before)
+                and not re.search(r"读书|书籍|阅读", after)
+                and not re.search(r"读书|书籍|阅读", run_text)
+            ):
+                continue
+            title = match.group("title").strip()
+            if title and _normalized_title(title) not in {
+                _normalized_title(item) for item in titles
+            }:
+                titles.append(title)
+        if titles:
+            return titles
+
+    title = re.sub(r"^[：:，,；;\s]+|[；;，,。．\s]+$", "", text)
+    title = re.sub(r"^(?:观看|学习|讲解|完成|参加)\s*", "", title)
+    title = re.sub(r"(?:视频学习|视频观看|课程学习|课程观看|视频|课程)\s*$", "", title)
+    title = title.strip(" ：:，,；;。．")
+    return [title or text.strip()]
+
+
+def _normalized_title(value: str) -> str:
+    return re.sub(r"[\s\"“”‘’'（）()【】《》、，,；;：:。．]+", "", value).lower()
+
+
 def _paragraph_records(document: Document) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for index, paragraph in enumerate(document.paragraphs):
@@ -114,6 +195,7 @@ def parse_flow(
     terminal_found = False
     steps: list[dict[str, Any]] = []
     course_nodes: list[dict[str, Any]] = []
+    learning_content_nodes: list[dict[str, Any]] = []
     pending_images: list[dict[str, Any]] = []
     current_step: dict[str, Any] | None = None
     for record in records:
@@ -176,6 +258,50 @@ def parse_flow(
                 "qr_url": None,
             }
         )
+    for step in steps:
+        if step["is_terminal"]:
+            continue
+        context = str(step.get("content") or "").strip()
+        task_type = _learning_content_type(context)
+        if task_type is None:
+            continue
+        qr_refs = [str(item.get("relationship_id")) for item in step.get("qr_refs", [])]
+        has_explicit_title = bool(re.search(r"[【\[《][^】\]》\r\n]+[】\]》]", context))
+        for content_index, title in enumerate(_learning_content_titles(context), start=1):
+            # Prefer the extracted title.  Matching the whole step first can
+            # incorrectly assign a later-mentioned course rule to every title
+            # in a multi-content step.
+            course_key, points = _course_match(title, course_rules)
+            if course_key is None and not has_explicit_title:
+                course_key, points = _course_match(context, course_rules)
+            content_key = (
+                f"Y{year_index or 0}-C{cycle_index or 0:02d}-"
+                f"STEP-{int(step['step_no']):02d}-CONTENT-{content_index:02d}"
+            )
+            learning_content_nodes.append(
+                {
+                    "content_key": content_key,
+                    "task_type": task_type,
+                    "title": title,
+                    "description": context,
+                    "is_required": bool(step.get("is_required", True)),
+                    "sort_order": int(step["step_no"]) * 100 + content_index,
+                    "source_step_no": int(step["step_no"]),
+                    "credit_rule_key": course_key,
+                    "course_key": course_key,
+                    "credit_points": points,
+                    "credit_status": "MAPPED" if course_key else "PENDING",
+                    "verification_mode": "MEETING_CONFIRM",
+                    # QR is an optional access aid, never the identity of the
+                    # learning content.  The raw image relationships remain
+                    # in the legacy course_nodes evidence only.
+                    "qr_refs": qr_refs,
+                    "content_access": {
+                        "type": "QR" if qr_refs else "NONE",
+                        "label": "扫码打开学习内容" if qr_refs else None,
+                    },
+                }
+            )
     terminal_steps = [step for step in steps if step["is_terminal"]]
     relative_path = path.relative_to(source_root).as_posix()
     status = "PARSED" if group_started and terminal_found else "REVIEW_REQUIRED"
@@ -203,6 +329,7 @@ def parse_flow(
         },
         "steps": steps,
         "course_nodes": course_nodes,
+        "learning_content_nodes": learning_content_nodes,
         "quality": {
             "group_marker_found": group_started,
             "konpa_found": terminal_found,
@@ -211,6 +338,19 @@ def parse_flow(
                 node["credit_status"] == "QR_REVIEW_REQUIRED" for node in course_nodes
             ),
             "pending_images_before_first_step": len(pending_images),
+            "learning_content_node_count": len(learning_content_nodes),
+            "video_learning_node_count": sum(
+                node["task_type"] == "VIDEO_LEARNING" for node in learning_content_nodes
+            ),
+            "required_video_without_qr_count": sum(
+                node["task_type"] == "VIDEO_LEARNING"
+                and node["is_required"]
+                and not node["qr_refs"]
+                for node in learning_content_nodes
+            ),
+            "learning_content_without_credit_rule_count": sum(
+                node["credit_rule_key"] is None for node in learning_content_nodes
+            ),
         },
     }
 
@@ -232,6 +372,7 @@ def build_catalog(source_root: Path, inventory_path: Path) -> dict[str, Any]:
                     "source": item,
                     "steps": [],
                     "course_nodes": [],
+                    "learning_content_nodes": [],
                     "quality": {"parser_error": str(exc)},
                 }
             )
@@ -242,6 +383,32 @@ def build_catalog(source_root: Path, inventory_path: Path) -> dict[str, Any]:
             flow.get("status") == "REVIEW_REQUIRED" for flow in flows
         ),
         "course_node_count": sum(len(flow.get("course_nodes", [])) for flow in flows),
+        "learning_content_node_count": sum(
+            len(flow.get("learning_content_nodes", [])) for flow in flows
+        ),
+        "video_learning_node_count": sum(
+            sum(
+                node.get("task_type") == "VIDEO_LEARNING"
+                for node in flow.get("learning_content_nodes", [])
+            )
+            for flow in flows
+        ),
+        "required_video_without_qr_count": sum(
+            sum(
+                node.get("task_type") == "VIDEO_LEARNING"
+                and node.get("is_required")
+                and not node.get("qr_refs")
+                for node in flow.get("learning_content_nodes", [])
+            )
+            for flow in flows
+        ),
+        "learning_content_without_credit_rule_count": sum(
+            sum(
+                node.get("credit_rule_key") is None
+                for node in flow.get("learning_content_nodes", [])
+            )
+            for flow in flows
+        ),
         "qr_review_required_count": sum(
             node.get("credit_status") == "QR_REVIEW_REQUIRED"
             for flow in flows

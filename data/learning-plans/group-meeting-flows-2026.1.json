@@ -3,14 +3,18 @@
   "plan_key": "STANDARD_3Y_2026",
   "version_label": "2026.1",
   "status": "DRAFT",
-  "generated_at": "2026-08-25T07:21:09.115984+00:00",
+  "generated_at": "2026-09-01T06:36:30.103420+00:00",
   "source_folder": "E:\\班级运营资料\\6.班会+小组会学习会流程",
-  "source_inventory_sha256": "3199fbcc8e1678a306473a2de801d65e0a705b21d2385a3c5116a4ab12dff579",
+  "source_inventory_sha256": "42fe8a0b80636b37975a88c5f595968ba970569897bbf8ba0551c49a2c496326",
   "quality_report": {
     "flow_count": 78,
     "parsed_flow_count": 78,
     "review_required_flow_count": 0,
     "course_node_count": 32,
+    "learning_content_node_count": 39,
+    "video_learning_node_count": 39,
+    "required_video_without_qr_count": 13,
+    "learning_content_without_credit_rule_count": 25,
     "qr_review_required_count": 15,
     "missing_konpa_count": 0
   },
@@ -138,12 +142,39 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y1-C10-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "京瓷如何制定年度计划",
+          "description": "【京瓷如何制定年度计划】视频学习+研讨；",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": "Y1-KYOCERA-ANNUAL-PLAN",
+          "course_key": "Y1-KYOCERA-ANNUAL-PLAN",
+          "credit_points": 30,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId6"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -243,12 +274,37 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y1-C10-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "成功方程式49天讲解",
+          "description": "【成功方程式49天讲解】视频（每周一个，回顾）+研讨；",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [],
+          "content_access": {
+            "type": "NONE",
+            "label": null
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 1,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -383,12 +439,39 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y1-C11-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "人生&经营哲学践行发表稿编写讲解",
+          "description": "【人生&经营哲学践行发表稿编写讲解】视频学习+发表稿辅导",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": "Y1-CLASS-SPEECH-DRAFT",
+          "course_key": "Y1-CLASS-SPEECH-DRAFT",
+          "credit_points": 20,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -523,12 +606,58 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y1-C11-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "人生&经营哲学践行发表稿编写讲解",
+          "description": "【人生&经营哲学践行发表稿编写讲解】视频学习+发表稿辅导；",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": "Y1-CLASS-SPEECH-DRAFT",
+          "course_key": "Y1-CLASS-SPEECH-DRAFT",
+          "credit_points": 20,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        },
+        {
+          "content_key": "Y1-C11-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "成功方程式49天讲解",
+          "description": "【成功方程式49天讲解】视频+研讨；",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [],
+          "content_access": {
+            "type": "NONE",
+            "label": null
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 2,
+        "video_learning_node_count": 2,
+        "required_video_without_qr_count": 1,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -654,12 +783,39 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y1-C12-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "年度计划与月度核算管理",
+          "description": "【年度计划与月度核算管理】视频学习+研讨",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": "Y1-ANNUAL-MONTHLY-MGMT",
+          "course_key": "Y1-ANNUAL-MONTHLY-MGMT",
+          "credit_points": 15,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId6"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -759,12 +915,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -942,12 +1103,60 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y1-C01-STEP-03-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "如何制作核算表",
+          "description": "观看何淼老师《如何制作核算表》视频，并现场进行编制整体核算表的研讨；",
+          "is_required": true,
+          "sort_order": 301,
+          "source_step_no": 3,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId6"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        },
+        {
+          "content_key": "Y1-C01-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "班级学习会发表稿编写",
+          "description": "【班级学习会发表稿编写】视频学习+讲解；",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": "Y1-CLASS-SPEECH-DRAFT",
+          "course_key": "Y1-CLASS-SPEECH-DRAFT",
+          "credit_points": 20,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId8"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 3,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 2,
+        "video_learning_node_count": 2,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -1040,12 +1249,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -1164,12 +1378,39 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y1-C03-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "六项精进实践",
+          "description": "观看村田老师《六项精进实践》视频，进行《六项精进实践》视频学习总结发表稿编写的辅导；\n《六项精进实践》",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": "Y1-SIX-DILIGENCES",
+          "course_key": "Y1-SIX-DILIGENCES",
+          "credit_points": 20,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId4"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -1288,12 +1529,39 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y1-C04-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "经营十二条实践",
+          "description": "观看村田老师《经营十二条实践》视频，进行《经营十二条》读书和《经营十二条实践》视频学习总结发表稿编写的辅导；",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": "Y1-TWELVE-MANAGEMENT",
+          "course_key": "Y1-TWELVE-MANAGEMENT",
+          "credit_points": 20,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId4"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -1386,12 +1654,37 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y1-C05-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "关于核算表分析&任务单的制作",
+          "description": "观看王寅清老师《关于核算表分析&任务单的制作》视频，并现场研讨；",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": "Y1-ACCOUNTING-ANALYSIS-TASK",
+          "course_key": "Y1-ACCOUNTING-ANALYSIS-TASK",
+          "credit_points": 40,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [],
+          "content_access": {
+            "type": "NONE",
+            "label": null
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 1,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -1501,12 +1794,60 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y1-C06-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "会计七原则实践",
+          "description": "【会计七原则实践】视频与《经营与会计》书籍的学习总结发表稿编写的辅导；\n5“核算表分析&任务单制作”检视+研讨；\n6 【企业导入讲解】视频学习+研讨+导入资格测评；",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": "Y1-SEVEN-ACCOUNTING-PRINCIPLES",
+          "course_key": "Y1-SEVEN-ACCOUNTING-PRINCIPLES",
+          "credit_points": 20,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId6"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        },
+        {
+          "content_key": "Y1-C06-STEP-04-CONTENT-02",
+          "task_type": "VIDEO_LEARNING",
+          "title": "企业导入讲解",
+          "description": "【会计七原则实践】视频与《经营与会计》书籍的学习总结发表稿编写的辅导；\n5“核算表分析&任务单制作”检视+研讨；\n6 【企业导入讲解】视频学习+研讨+导入资格测评；",
+          "is_required": true,
+          "sort_order": 402,
+          "source_step_no": 4,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId6"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 2,
+        "video_learning_node_count": 2,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -1588,12 +1929,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -1710,12 +2056,39 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y1-C07-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "京瓷如何制定年度计划",
+          "description": "【京瓷如何制定年度计划】视频学习+研讨",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": "Y1-KYOCERA-ANNUAL-PLAN",
+          "course_key": "Y1-KYOCERA-ANNUAL-PLAN",
+          "credit_points": 30,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -1806,12 +2179,37 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y1-C08-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "成功方程式49天讲解",
+          "description": "【成功方程式49天讲解】视频（每周1个，回顾）+研讨",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [],
+          "content_access": {
+            "type": "NONE",
+            "label": null
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 1,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -1902,12 +2300,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -2007,12 +2410,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -2138,12 +2546,39 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y1-C09-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "年度计划与月度核算管理",
+          "description": "【年度计划与月度核算管理】视频学习+研讨；",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": "Y1-ANNUAL-MONTHLY-MGMT",
+          "course_key": "Y1-ANNUAL-MONTHLY-MGMT",
+          "credit_points": 15,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -2233,12 +2668,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -2395,12 +2835,64 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C13-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "幸福测评表讲解",
+          "description": "三张幸福测评表测评结果检视、经验分享、研讨并制定本年度改善目标及季度分解目标和行动方案（有言实行表）；\n【幸福测评表讲解】视频二维码\n（建议在小组学习会前，组织集体线上学习）\n【学习践行委讲解】视频学习+研讨；\n学习践行委体系讲解+标杆企业分享视频二维码",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": "Y1-HAPPINESS-ASSESSMENT",
+          "course_key": "Y1-HAPPINESS-ASSESSMENT",
+          "credit_points": 20,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId5",
+            "rId6",
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        },
+        {
+          "content_key": "Y2-C13-STEP-04-CONTENT-02",
+          "task_type": "VIDEO_LEARNING",
+          "title": "学习践行委讲解",
+          "description": "三张幸福测评表测评结果检视、经验分享、研讨并制定本年度改善目标及季度分解目标和行动方案（有言实行表）；\n【幸福测评表讲解】视频二维码\n（建议在小组学习会前，组织集体线上学习）\n【学习践行委讲解】视频学习+研讨；\n学习践行委体系讲解+标杆企业分享视频二维码",
+          "is_required": true,
+          "sort_order": 402,
+          "source_step_no": 4,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId5",
+            "rId6",
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 3,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 2,
+        "video_learning_node_count": 2,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -2615,12 +3107,40 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C14-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "幸福关爱委讲解",
+          "description": "【幸福关爱委讲解】视频学习+研讨；\n幸福关爱委体系讲解+标杆企业分享视频",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId6",
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 2,
         "unknown_course_node_count": 2,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -2719,12 +3239,37 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C15-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "学习践行委讲解",
+          "description": "【学习践行委讲解】视频学习+研讨；",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [],
+          "content_access": {
+            "type": "NONE",
+            "label": null
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 1,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -2866,12 +3411,62 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C15-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "改善创新委讲解",
+          "description": "【改善创新委讲解】、【改善创新优秀企业践行分享】视频学习+研讨；",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId10",
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        },
+        {
+          "content_key": "Y2-C15-STEP-05-CONTENT-02",
+          "task_type": "VIDEO_LEARNING",
+          "title": "改善创新优秀企业践行分享",
+          "description": "【改善创新委讲解】、【改善创新优秀企业践行分享】视频学习+研讨；",
+          "is_required": true,
+          "sort_order": 502,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId10",
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 2,
         "unknown_course_node_count": 2,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 2,
+        "video_learning_node_count": 2,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 2
       }
     },
     {
@@ -3002,12 +3597,40 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C16-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "幸福关爱委讲解",
+          "description": "【幸福关爱委讲解】视频学习+研讨；\n体系讲解 企业案例分享",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId8",
+            "rId9"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 2,
         "unknown_course_node_count": 2,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -3133,12 +3756,39 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C16-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "阿米巴经营之概论",
+          "description": "【阿米巴经营之概论】视频学习+研讨；",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 1,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -3228,12 +3878,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -3323,12 +3978,56 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C17-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "改善创新委讲解",
+          "description": "【改善创新委讲解】、【改善创新优秀企业践行分享】视频学习+研讨；",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [],
+          "content_access": {
+            "type": "NONE",
+            "label": null
+          }
+        },
+        {
+          "content_key": "Y2-C17-STEP-05-CONTENT-02",
+          "task_type": "VIDEO_LEARNING",
+          "title": "改善创新优秀企业践行分享",
+          "description": "【改善创新委讲解】、【改善创新优秀企业践行分享】视频学习+研讨；",
+          "is_required": true,
+          "sort_order": 502,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [],
+          "content_access": {
+            "type": "NONE",
+            "label": null
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 2,
+        "video_learning_node_count": 2,
+        "required_video_without_qr_count": 2,
+        "learning_content_without_credit_rule_count": 2
       }
     },
     {
@@ -3428,12 +4127,37 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C17-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "阿米巴经营之如何制作分部门核算表",
+          "description": "【阿米巴经营之如何制作分部门核算表】视频学习+研讨；",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [],
+          "content_access": {
+            "type": "NONE",
+            "label": null
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 1,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -3514,12 +4238,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -3610,12 +4339,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -3741,12 +4475,39 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C18-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "阿米巴经营之概论",
+          "description": "【阿米巴经营之概论】视频学习+研讨；\n阿米巴经营之概论",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId4"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 1,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -3836,12 +4597,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -3931,12 +4697,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -4036,12 +4807,37 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C19-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "阿米巴经营之如何制作分部门核算表",
+          "description": "【阿米巴经营之如何制作分部门核算表】视频学习+研讨；",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [],
+          "content_access": {
+            "type": "NONE",
+            "label": null
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 1,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -4140,12 +4936,37 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C20-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "优秀改善创新案例分享",
+          "description": "【优秀改善创新案例分享】视频学习+研讨\n或嘉宾分享，视频需要自行在线上课堂查找",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [],
+          "content_access": {
+            "type": "NONE",
+            "label": null
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 1,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -4226,12 +5047,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -4322,12 +5148,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -4417,12 +5248,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -4549,12 +5385,39 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C21-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "优秀改善创新案例分享",
+          "description": "【优秀改善创新案例分享】视频学习+研讨",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 1,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -4635,12 +5498,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -4732,12 +5600,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -4827,12 +5700,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -4950,12 +5828,39 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C23-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "人生&经营哲学践行发表稿编写讲解",
+          "description": "【人生&经营哲学践行发表稿编写讲解】视频学习；\n人生&经营哲学践行发表稿编写的辅导",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": "Y1-CLASS-SPEECH-DRAFT",
+          "course_key": "Y1-CLASS-SPEECH-DRAFT",
+          "credit_points": 20,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -5083,12 +5988,39 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y2-C24-STEP-04-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "人生&经营哲学践行发表稿编写讲解",
+          "description": "【人生&经营哲学践行发表稿编写讲解】视频学习+研讨（可线上开展）",
+          "is_required": true,
+          "sort_order": 401,
+          "source_step_no": 4,
+          "credit_rule_key": "Y1-CLASS-SPEECH-DRAFT",
+          "course_key": "Y1-CLASS-SPEECH-DRAFT",
+          "credit_points": 20,
+          "credit_status": "MAPPED",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId6"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 1,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -5196,12 +6128,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -5309,12 +6246,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -5415,12 +6357,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -5519,12 +6466,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -5623,12 +6575,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -5729,12 +6686,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -5835,12 +6797,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -5939,12 +6906,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -6035,12 +7007,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -6189,12 +7166,40 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y3-C27-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "百日奋战",
+          "description": "《百日奋战》讲解视频，启动会筹备和研讨；\n《百日奋战》讲解视频 《百日奋战》案例分享",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId6",
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 2,
         "unknown_course_node_count": 2,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -6284,12 +7289,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -6388,12 +7398,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -6492,12 +7507,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -6596,12 +7616,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -6742,12 +7767,40 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y3-C30-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "百日奋战",
+          "description": "《百日奋战》讲解视频，启动会筹备和研讨；\n《百日奋战》讲解视频 《百日奋战》案例分享",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId6",
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 2,
         "unknown_course_node_count": 2,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -6846,12 +7899,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -6959,12 +8017,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -7072,12 +8135,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -7176,12 +8244,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -7289,12 +8362,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -7402,12 +8480,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -7547,12 +8630,40 @@
           "qr_url": null
         }
       ],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y3-C33-STEP-05-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "百日奋战",
+          "description": "《百日奋战》讲解视频，启动会筹备和研讨；\n《百日奋战》讲解视频 《百日奋战》案例分享",
+          "is_required": true,
+          "sort_order": 501,
+          "source_step_no": 5,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [
+            "rId6",
+            "rId7"
+          ],
+          "content_access": {
+            "type": "QR",
+            "label": "扫码打开学习内容"
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 2,
         "unknown_course_node_count": 2,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -7642,12 +8753,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -7746,12 +8862,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -7859,12 +8980,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -7954,12 +9080,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -8049,12 +9180,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -8162,12 +9298,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -8266,12 +9407,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -8370,12 +9516,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -8483,12 +9634,17 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 0,
+        "video_learning_node_count": 0,
+        "required_video_without_qr_count": 0,
+        "learning_content_without_credit_rule_count": 0
       }
     },
     {
@@ -8596,12 +9752,37 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y3-C36-STEP-07-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "志愿者学长培训",
+          "description": "志愿者学长培训视频学习",
+          "is_required": true,
+          "sort_order": 701,
+          "source_step_no": 7,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [],
+          "content_access": {
+            "type": "NONE",
+            "label": null
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 1,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -8709,12 +9890,37 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y3-C36-STEP-07-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "志愿者学长培训",
+          "description": "志愿者学长培训视频学习；",
+          "is_required": true,
+          "sort_order": 701,
+          "source_step_no": 7,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [],
+          "content_access": {
+            "type": "NONE",
+            "label": null
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 1,
+        "learning_content_without_credit_rule_count": 1
       }
     },
     {
@@ -8814,12 +10020,37 @@
         }
       ],
       "course_nodes": [],
+      "learning_content_nodes": [
+        {
+          "content_key": "Y3-C36-STEP-06-CONTENT-01",
+          "task_type": "VIDEO_LEARNING",
+          "title": "志愿者学长培训",
+          "description": "志愿者学长培训视频学习；",
+          "is_required": true,
+          "sort_order": 601,
+          "source_step_no": 6,
+          "credit_rule_key": null,
+          "course_key": null,
+          "credit_points": null,
+          "credit_status": "PENDING",
+          "verification_mode": "MEETING_CONFIRM",
+          "qr_refs": [],
+          "content_access": {
+            "type": "NONE",
+            "label": null
+          }
+        }
+      ],
       "quality": {
         "group_marker_found": true,
         "konpa_found": true,
         "course_node_count": 0,
         "unknown_course_node_count": 0,
-        "pending_images_before_first_step": 0
+        "pending_images_before_first_step": 0,
+        "learning_content_node_count": 1,
+        "video_learning_node_count": 1,
+        "required_video_without_qr_count": 1,
+        "learning_content_without_credit_rule_count": 1
       }
     }
   ]

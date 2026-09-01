@@ -16,7 +16,12 @@ SCRIPTS_ROOT = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from apply_group_meeting_flow_adjustments import build_candidate_catalog  # noqa: E402
-from parse_group_meeting_flows import load_course_rules, parse_flow  # noqa: E402
+from parse_group_meeting_flows import (  # noqa: E402
+    _learning_content_type,
+    _learning_content_titles,
+    load_course_rules,
+    parse_flow,
+)
 from app.api.learning_plans import (  # noqa: E402
     GROUP_MEETING_CREDIT_POLICY,
     _learning_plan_group_meeting_flow_payload,
@@ -80,6 +85,72 @@ def test_qr_after_konpa_is_excluded(tmp_path: Path) -> None:
         node["source_paragraph_index"] <= flow["steps"][-1]["source_paragraph_index"]
         for node in flow["course_nodes"]
     )
+
+
+def test_learning_content_is_semantic_and_deduplicates_book_mentions() -> None:
+    text = "观看《经营十二条实践》视频，进行《经营十二条》读书和《经营十二条实践》视频学习总结"
+
+    assert _learning_content_titles(text) == ["经营十二条实践"]
+
+
+def test_learning_content_can_contain_two_videos_without_qr() -> None:
+    text = "【视频A】视频学习+研讨；【视频B】视频学习+研讨"
+
+    assert _learning_content_titles(text) == ["视频A", "视频B"]
+
+
+def test_learning_content_title_list_keeps_titles_before_shared_marker() -> None:
+    text = "【改善创新委讲解】、【改善创新优秀企业践行分享】视频学习+研讨；"
+
+    assert _learning_content_titles(text) == [
+        "改善创新委讲解",
+        "改善创新优秀企业践行分享",
+    ]
+
+
+def test_conditional_video_note_is_not_a_learning_content() -> None:
+    assert _learning_content_type(
+        "如本月小组学习会中经营分析会实操和其他学习内容（如视频学习）结合，则按全天设计"
+    ) is None
+
+
+def test_learning_content_does_not_inherit_credit_from_another_title() -> None:
+    text = "【会计七原则实践】视频与《经营与会计》书籍的学习总结"
+
+    # The title extractor is the boundary used before credit matching.  A
+    # book mentioned beside a mapped video must not become another mapped
+    # learning content node.
+    assert _learning_content_titles(text) == ["会计七原则实践"]
+
+
+def test_cycle_five_video_is_visible_without_qr() -> None:
+    payload = json.loads(FLOWS.read_text(encoding="utf-8"))
+    nodes = [
+        node
+        for flow in payload["flows"]
+        if flow["year_index"] == 1 and flow["cycle_index"] == 5
+        for node in flow["learning_content_nodes"]
+    ]
+
+    assert len(nodes) == 1
+    assert nodes[0]["title"] == "关于核算表分析&任务单的制作"
+    assert nodes[0]["task_type"] == "VIDEO_LEARNING"
+    assert nodes[0]["is_required"] is True
+    assert nodes[0]["qr_refs"] == []
+    assert nodes[0]["credit_rule_key"] == "Y1-ACCOUNTING-ANALYSIS-TASK"
+
+
+def test_all_learning_content_nodes_are_not_defined_by_qr_count() -> None:
+    payload = json.loads(FLOWS.read_text(encoding="utf-8"))
+    content_nodes = [
+        node
+        for flow in payload["flows"]
+        for node in flow["learning_content_nodes"]
+    ]
+
+    assert len(content_nodes) == payload["quality_report"]["learning_content_node_count"]
+    assert any(node["qr_refs"] == [] for node in content_nodes)
+    assert payload["quality_report"]["required_video_without_qr_count"] > 0
 
 
 def test_first_group_meeting_has_three_course_nodes(tmp_path: Path) -> None:

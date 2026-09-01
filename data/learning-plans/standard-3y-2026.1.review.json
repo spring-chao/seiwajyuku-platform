@@ -6,8 +6,8 @@
   "candidate_version_label": "2026.1",
   "candidate_status": "DRAFT",
   "status": "PENDING",
-  "created_at": "2026-08-25T08:46:42.930121+00:00",
-  "updated_at": "2026-08-25T08:46:42.930121+00:00",
+  "created_at": "2026-09-01T06:39:54.642662+00:00",
+  "updated_at": "2026-09-01T06:39:54.642662+00:00",
   "base_confirmed_review_status": "CONFIRMED",
   "base_plan_cycle_count": 144,
   "source_fingerprint": {
@@ -30,11 +30,11 @@
     },
     "base_flow_catalog": {
       "filename": "group-meeting-flows-2026.1.json",
-      "sha256": "b9cdca0a705feff1a22a8e63308eeb5bc35a618021373faf08cfce984f743c17"
+      "sha256": "45e8c49477378a2099aacc79a6cf15a995ad2ce63989e77a2552361a100d03dc"
     },
     "base_mapping": {
       "filename": "cycle-flow-mapping-2026.1.json",
-      "sha256": "29a1c0aabc6e557264de74c2ec00ad11a59bd77b093f0eb815a843bcf3986f05"
+      "sha256": "9365223a7ec9458283547c6b4d6116ee9f5314c6867f68ed03dd59f31b5e8818"
     },
     "base_course_credit_rules": {
       "filename": "course-credit-rules-2026.json",
@@ -42,7 +42,7 @@
     },
     "base_source_inventory": {
       "filename": "group-meeting-source-inventory-2026.json",
-      "sha256": "3199fbcc8e1678a306473a2de801d65e0a705b21d2385a3c5116a4ab12dff579",
+      "sha256": "42fe8a0b80636b37975a88c5f595968ba970569897bbf8ba0551c49a2c496326",
       "included_file_count": 78
     },
     "base_group_flow_source_files": [

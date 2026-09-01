@@ -361,6 +361,9 @@ def test_study_meeting_same_class_cross_group_does_not_change_relations(tmp_path
             assignment = context.json()["data"]["assignment"]
             assert assignment["current_cycle"]["learning_cycle_index"] == 1
             assert assignment["position_name"] == "组长"
+            assert "courses" not in context.json()["data"]
+            assert assignment["meeting_plan"]["cycle_index"] == 1
+            assert assignment["meeting_plan"]["configuration_status"] == "CONFIGURED"
             created = client.post(
                 "/api/v1/study-meetings",
                 headers=headers,

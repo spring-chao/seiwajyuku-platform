@@ -9,9 +9,10 @@ review and credit settlement remain separate, disabled phases.
 
 from __future__ import annotations
 
-import secrets
 import hashlib
 import json
+import logging
+import secrets
 import sqlite3
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
@@ -24,6 +25,11 @@ from app.services.course_credit_rules import (
     list_course_credit_rules,
 )
 from app.services.learning_cycles import _active_binding, _cycle_at
+from app.services.learning_cycles import _plan_cycle_payload
+from app.services.group_meeting_plan import (
+    GroupMeetingPlanConfigError,
+    build_group_meeting_plan,
+)
 from app.services.wechat_identity import (
     WeChatIdentityError,
     authorized_group_targets,
@@ -46,6 +52,7 @@ class StudyMeetingPermissionError(PermissionError):
 
 
 BUSINESS_TIMEZONE = timezone(timedelta(hours=8))
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -304,6 +311,31 @@ def get_study_meeting_context(
             except StudyMeetingError as exc:
                 cycle_data = {"error": str(exc)}
             cycle = cycle_data.get("cycle") if cycle_data else None
+            meeting_plan = None
+            meeting_plan_error = None
+            if cycle:
+                plan_cycle = _plan_cycle_payload(connection, int(cycle["plan_cycle_id"]))
+                if not plan_cycle:
+                    meeting_plan_error = "当前学习周期缺少对应的学习计划内容，请联系运营人员检查学习计划"
+                    logger.warning(
+                        "Study meeting plan cycle is missing",
+                        extra={"plan_cycle_id": cycle.get("plan_cycle_id")},
+                    )
+                else:
+                    try:
+                        meeting_plan = build_group_meeting_plan(
+                            plan_cycle=plan_cycle,
+                            cohort_month=cycle_data["binding"].get("cohort_month"),
+                        )
+                    except GroupMeetingPlanConfigError as exc:
+                        meeting_plan_error = str(exc)
+                        logger.warning(
+                            "Study meeting plan configuration is unavailable",
+                            extra={
+                                "plan_cycle_id": plan_cycle.get("id"),
+                                "cycle_index": plan_cycle.get("cycle_index"),
+                            },
+                        )
             assignment = {
                 **target,
                 "current_cycle": {
@@ -317,6 +349,8 @@ def get_study_meeting_context(
                 else None,
                 "cycle_error": cycle_data.get("error") if cycle_data else None,
                 "member_count": len(_active_group_members(connection, target["group_org_unit_id"])),
+                "meeting_plan": meeting_plan,
+                "meeting_plan_error": meeting_plan_error,
             }
             if selected and selected["group_org_unit_id"] == target["group_org_unit_id"]:
                 assignment["members"] = _active_group_members(
@@ -333,18 +367,6 @@ def get_study_meeting_context(
         )
     finally:
         connection.close()
-    rules = _course_rules()
-    courses = [
-        {
-            "course_key": rule["course_key"],
-            "course_name": rule["course_name"],
-            "credit_points": rule.get("credit_points") if rule.get("status") == "CONFIGURED" else None,
-            "status": rule.get("status", "PENDING"),
-        }
-        for rule in sorted(
-            rules.values(), key=lambda item: (item.get("year_index") is None, item.get("year_index") or 999, item["course_name"])
-        )
-    ]
     role_keys = sorted({item["role_key"] for item in targets})
     credit_policy = {
         **get_group_meeting_credit_policy(),
@@ -358,7 +380,6 @@ def get_study_meeting_context(
         "selected_group_org_unit_id": selected["group_org_unit_id"] if selected else None,
         "assignment": selected_assignment,
         "assignments": assignments,
-        "courses": courses,
         "credit_policy": credit_policy,
         "evidence_enabled": get_settings().study_meeting_evidence_enabled,
         "evidence_required": True,

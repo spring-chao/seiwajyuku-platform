@@ -3,15 +3,15 @@
   "plan_key": "standard-3y",
   "version_label": "2026.1",
   "status": "DRAFT",
-  "generated_at": "2026-08-25T07:23:35.799975+00:00",
+  "generated_at": "2026-09-01T06:36:30.441068+00:00",
   "source_plan": {
     "filename": "standard-3y-2026.json",
-    "sha256": "404e1a9b3ea5037c9d5dd01d112186a629243115ee5c64da8ae0602cd572e8a2"
+    "sha256": "47e1996d8674a43574b792b9d5f4704d95b98bb11a5c0351efda7249e2620e08"
   },
   "source_flows": {
     "filename": "group-meeting-flows-2026.1.json",
-    "sha256": "b9cdca0a705feff1a22a8e63308eeb5bc35a618021373faf08cfce984f743c17",
-    "source_inventory_sha256": "3199fbcc8e1678a306473a2de801d65e0a705b21d2385a3c5116a4ab12dff579"
+    "sha256": "45e8c49477378a2099aacc79a6cf15a995ad2ce63989e77a2552361a100d03dc",
+    "source_inventory_sha256": "42fe8a0b80636b37975a88c5f595968ba970569897bbf8ba0551c49a2c496326"
   },
   "quality_report": {
     "entry_count": 144,
