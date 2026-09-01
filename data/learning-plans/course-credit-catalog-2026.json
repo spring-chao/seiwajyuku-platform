@@ -2,7 +2,7 @@
   "schema_version": 1,
   "plan_key": "STANDARD_3Y_2026",
   "version_label": "2026.1",
-  "description": "课程积分配置目录。第一学年沿用已确认规则；后续课程默认0分并等待配置。",
+  "description": "小组学习会课程积分配置目录。课程名称和分值以业务负责人确认的课程积分参考表为准；未明确对应的流程暂不设置课程学分。",
   "entries": [
     {
       "course_key": "Y1-HAPPINESS-ASSESSMENT",
@@ -10,8 +10,11 @@
       "year_index": 1,
       "credit_points": 20,
       "status": "CONFIGURED",
-      "source": "BASELINE",
-      "aliases": ["幸福测评", "幸福测评表"]
+      "source": "USER_CONFIRMED_REFERENCE",
+      "aliases": [
+        "幸福测评",
+        "幸福测评表"
+      ]
     },
     {
       "course_key": "Y1-CLASS-SPEECH-DRAFT",
@@ -19,8 +22,11 @@
       "year_index": 1,
       "credit_points": 20,
       "status": "CONFIGURED",
-      "source": "BASELINE",
-      "aliases": ["班级学习会发表稿", "发表稿编写"]
+      "source": "USER_CONFIRMED_REFERENCE",
+      "aliases": [
+        "班级学习会发表稿",
+        "发表稿编写"
+      ]
     },
     {
       "course_key": "Y1-SIX-DILIGENCES",
@@ -28,8 +34,10 @@
       "year_index": 1,
       "credit_points": 20,
       "status": "CONFIGURED",
-      "source": "BASELINE",
-      "aliases": ["六项精进"]
+      "source": "USER_CONFIRMED_REFERENCE",
+      "aliases": [
+        "六项精进"
+      ]
     },
     {
       "course_key": "Y1-TWELVE-MANAGEMENT",
@@ -37,8 +45,10 @@
       "year_index": 1,
       "credit_points": 20,
       "status": "CONFIGURED",
-      "source": "BASELINE",
-      "aliases": ["经营十二条"]
+      "source": "USER_CONFIRMED_REFERENCE",
+      "aliases": [
+        "经营十二条"
+      ]
     },
     {
       "course_key": "Y1-INTEGRATED-ACCOUNTING",
@@ -46,8 +56,10 @@
       "year_index": 1,
       "credit_points": 40,
       "status": "CONFIGURED",
-      "source": "BASELINE",
-      "aliases": ["整体核算表"]
+      "source": "USER_CONFIRMED_REFERENCE",
+      "aliases": [
+        "整体核算表"
+      ]
     },
     {
       "course_key": "Y1-ACCOUNTING-ANALYSIS-TASK",
@@ -55,8 +67,11 @@
       "year_index": 1,
       "credit_points": 40,
       "status": "CONFIGURED",
-      "source": "BASELINE",
-      "aliases": ["核算表分析", "任务单制作"]
+      "source": "USER_CONFIRMED_REFERENCE",
+      "aliases": [
+        "核算表分析",
+        "任务单制作"
+      ]
     },
     {
       "course_key": "Y1-SEVEN-ACCOUNTING-PRINCIPLES",
@@ -64,26 +79,32 @@
       "year_index": 1,
       "credit_points": 20,
       "status": "CONFIGURED",
-      "source": "BASELINE",
-      "aliases": ["会计七原则"]
+      "source": "USER_CONFIRMED_REFERENCE",
+      "aliases": [
+        "会计七原则"
+      ]
     },
     {
       "course_key": "Y1-KYOCERA-ANNUAL-PLAN",
       "course_name": "京瓷如何制定年度计划",
       "year_index": 1,
-      "credit_points": 30,
+      "credit_points": 40,
       "status": "CONFIGURED",
-      "source": "BASELINE",
-      "aliases": ["京瓷如何制定年度计划"]
+      "source": "USER_CONFIRMED_REFERENCE",
+      "aliases": [
+        "京瓷如何制定年度计划"
+      ]
     },
     {
       "course_key": "Y1-ANNUAL-MONTHLY-MGMT",
       "course_name": "年度计划与月度核算管理",
       "year_index": 1,
-      "credit_points": 15,
+      "credit_points": 11,
       "status": "CONFIGURED",
-      "source": "BASELINE",
-      "aliases": ["年度计划与月度核算管理"]
+      "source": "USER_CONFIRMED_REFERENCE",
+      "aliases": [
+        "年度计划与月度核算管理"
+      ]
     },
     {
       "course_key": "AUTO-QR-HAPPINESS-CARE",
@@ -92,7 +113,9 @@
       "credit_points": 0,
       "status": "PENDING",
       "source": "SYSTEM_DEFAULT",
-      "aliases": ["幸福关爱委"]
+      "aliases": [
+        "幸福关爱委"
+      ]
     },
     {
       "course_key": "AUTO-QR-IMPROVEMENT-INNOVATION",
@@ -101,16 +124,21 @@
       "credit_points": 0,
       "status": "PENDING",
       "source": "SYSTEM_DEFAULT",
-      "aliases": ["改善创新委", "改善创新案例"]
+      "aliases": [
+        "改善创新委",
+        "改善创新案例"
+      ]
     },
     {
       "course_key": "AUTO-QR-AMOEBA-INTRODUCTION",
       "course_name": "阿米巴经营之概论",
       "year_index": 2,
-      "credit_points": 0,
-      "status": "PENDING",
-      "source": "SYSTEM_DEFAULT",
-      "aliases": ["阿米巴经营之概论"]
+      "credit_points": 20,
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE",
+      "aliases": [
+        "阿米巴经营之概论"
+      ]
     },
     {
       "course_key": "AUTO-QR-EXCELLENT-IMPROVEMENT",
@@ -119,16 +147,194 @@
       "credit_points": 0,
       "status": "PENDING",
       "source": "SYSTEM_DEFAULT",
-      "aliases": ["优秀改善创新案例分享"]
+      "aliases": [
+        "优秀改善创新案例分享"
+      ]
     },
     {
       "course_key": "AUTO-QR-HUNDRED-DAY-CAMPAIGN",
-      "course_name": "百日奋战学习",
+      "course_name": "如何开展百日奋战",
       "year_index": 3,
-      "credit_points": 0,
-      "status": "PENDING",
-      "source": "SYSTEM_DEFAULT",
-      "aliases": ["百日奋战"]
+      "credit_points": 20,
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE",
+      "aliases": [
+        "如何开展百日奋战",
+        "百日奋战"
+      ]
+    },
+    {
+      "course_key": "GM-LEARNING-PRACTICE-COMMITTEE",
+      "course_name": "学习践行委培训",
+      "year_index": null,
+      "credit_points": 34,
+      "aliases": [
+        "学习践行委培训"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
+    },
+    {
+      "course_key": "GM-HAPPINESS-CARE-COMMITTEE",
+      "course_name": "幸福关爱委培训",
+      "year_index": null,
+      "credit_points": 34,
+      "aliases": [
+        "幸福关爱委培训"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
+    },
+    {
+      "course_key": "GM-IMPROVEMENT-INNOVATION-TRAINING",
+      "course_name": "改善创新委培训 + 如何改善创新",
+      "year_index": null,
+      "credit_points": 34,
+      "aliases": [
+        "改善创新委培训 + 如何改善创新",
+        "改善创新委培训",
+        "如何改善创新"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
+    },
+    {
+      "course_key": "GM-OPERATING-ANALYSIS-BASIC",
+      "course_name": "如何召开经营分析会（基础版）",
+      "year_index": null,
+      "credit_points": 40,
+      "aliases": [
+        "如何召开经营分析会（基础版）"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
+    },
+    {
+      "course_key": "GM-OPERATING-ANALYSIS-ADVANCED",
+      "course_name": "如何召开经营分析会（进阶版）",
+      "year_index": null,
+      "credit_points": 30,
+      "aliases": [
+        "如何召开经营分析会（进阶版）"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
+    },
+    {
+      "course_key": "GM-AMOEBA-DEPARTMENT-ACCOUNTING",
+      "course_name": "阿米巴经营之如何制作分部门核算表",
+      "year_index": null,
+      "credit_points": 20,
+      "aliases": [
+        "阿米巴经营之如何制作分部门核算表"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
+    },
+    {
+      "course_key": "GM-INNOVATION-CASE-SHARING",
+      "course_name": "创新案例分享（塾内优秀企业家）",
+      "year_index": null,
+      "credit_points": 20,
+      "aliases": [
+        "创新案例分享（塾内优秀企业家）"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
+    },
+    {
+      "course_key": "GM-PHILOSOPHY-MANUAL-1",
+      "course_name": "哲学手册编制 1",
+      "year_index": null,
+      "credit_points": 30,
+      "aliases": [
+        "哲学手册编制1",
+        "哲学手册编制 1"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
+    },
+    {
+      "course_key": "GM-PHILOSOPHY-MANUAL-2",
+      "course_name": "哲学手册编制 2",
+      "year_index": null,
+      "credit_points": 30,
+      "aliases": [
+        "哲学手册编制2",
+        "哲学手册编制 2"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
+    },
+    {
+      "course_key": "GM-HUMAN-FINANCE-SYSTEM-1",
+      "course_name": "人财培养体系 1",
+      "year_index": null,
+      "credit_points": 35,
+      "aliases": [
+        "人财培养体系1",
+        "人财培养体系 1"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
+    },
+    {
+      "course_key": "GM-HUMAN-FINANCE-SYSTEM-2",
+      "course_name": "人财培养体系 2",
+      "year_index": null,
+      "credit_points": 35,
+      "aliases": [
+        "人财培养体系2",
+        "人财培养体系 2"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
+    },
+    {
+      "course_key": "GM-HUMAN-FINANCE-SYSTEM-3",
+      "course_name": "人财培养体系 3",
+      "year_index": null,
+      "credit_points": 35,
+      "aliases": [
+        "人财培养体系3",
+        "人财培养体系 3"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
+    },
+    {
+      "course_key": "GM-VOLUNTEER-TRAINING-1",
+      "course_name": "志愿者学长培训视频1（预备班工作开展、正式班开班典礼、日常读书）",
+      "year_index": null,
+      "credit_points": 25,
+      "aliases": [
+        "志愿者学长培训视频1"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
+    },
+    {
+      "course_key": "GM-VOLUNTEER-TRAINING-2",
+      "course_name": "志愿者学长培训视频2（班级学习会、小组学习会、学员走访、学分、幸福测评）",
+      "year_index": null,
+      "credit_points": 24,
+      "aliases": [
+        "志愿者学长培训视频2"
+      ],
+      "status": "CONFIGURED",
+      "source": "USER_CONFIRMED_REFERENCE"
     }
-  ]
+  ],
+  "business_confirmation": {
+    "confirmed_at": "2026-09-01",
+    "source": "业务负责人根据本轮提供的5张小组学习会流程截图和1张课程积分参考图确认",
+    "reference_count": 25,
+    "explicit_no_credit": [
+      {
+        "title": "成功方程式49天讲解",
+        "credit_points": null,
+        "reason": "业务负责人确认：总部不为该视频+研讨设置课程学分。"
+      }
+    ]
+  }
 }

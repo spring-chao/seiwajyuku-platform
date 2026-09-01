@@ -20,21 +20,21 @@
       "10": 36
     },
     "cycle_entry_count": 144,
-    "source_flow_count": 78,
-    "mapped_cycle_entry_count": 129,
-    "mapping_missing_cycle_entry_count": 10,
-    "mapping_conflict_cycle_entry_count": 5,
+    "source_flow_count": 83,
+    "mapped_cycle_entry_count": 139,
+    "mapping_missing_cycle_entry_count": 3,
+    "mapping_conflict_cycle_entry_count": 2,
     "source_learning_content_count": 39,
     "source_video_learning_count": 39,
     "source_required_video_without_qr_count": 13,
     "cycle_entry_required_video_without_qr_count": 22,
-    "source_learning_content_without_credit_rule_count": 25,
-    "source_qr_without_credit_rule_count": 15,
-    "cycle_entry_with_configuration_findings": 77,
+    "source_learning_content_without_credit_rule_count": 18,
+    "source_qr_without_credit_rule_count": 7,
+    "cycle_entry_with_configuration_findings": 59,
     "configuration_finding_counts": {
-      "LEARNING_CONTENT_WITHOUT_CREDIT_RULE": 47,
-      "MAPPING_CONFLICT": 5,
-      "MAPPING_MISSING": 10,
+      "LEARNING_CONTENT_WITHOUT_CREDIT_RULE": 35,
+      "MAPPING_CONFLICT": 2,
+      "MAPPING_MISSING": 3,
       "PLAN_RULE_NOT_IN_GROUP_CONTENT": 16,
       "REQUIRED_VIDEO_WITHOUT_QR": 21
     }
@@ -609,29 +609,6 @@
       },
       {
         "cohort_month": [
-          1,
-          4
-        ],
-        "template_label": [
-          "1月开班模板",
-          "4月开班模板"
-        ],
-        "cycle_index": 16,
-        "learning_cycle_index": 16,
-        "learning_cycle_label": [
-          "1月开班模板 · 第16学习周期",
-          "4月开班模板 · 第16学习周期"
-        ],
-        "year_index": 2,
-        "cohort_months": [
-          1,
-          4
-        ],
-        "title": "阿米巴经营之概论",
-        "content_key": "Y2-C16-STEP-05-CONTENT-01"
-      },
-      {
-        "cohort_month": [
           10
         ],
         "template_label": [
@@ -667,75 +644,6 @@
         ],
         "title": "改善创新优秀企业践行分享",
         "content_key": "Y2-C17-STEP-05-CONTENT-02"
-      },
-      {
-        "cohort_month": [
-          1,
-          4
-        ],
-        "template_label": [
-          "1月开班模板",
-          "4月开班模板"
-        ],
-        "cycle_index": 17,
-        "learning_cycle_index": 17,
-        "learning_cycle_label": [
-          "1月开班模板 · 第17学习周期",
-          "4月开班模板 · 第17学习周期"
-        ],
-        "year_index": 2,
-        "cohort_months": [
-          1,
-          4
-        ],
-        "title": "阿米巴经营之如何制作分部门核算表",
-        "content_key": "Y2-C17-STEP-05-CONTENT-01"
-      },
-      {
-        "cohort_month": [
-          7,
-          10
-        ],
-        "template_label": [
-          "7月开班模板",
-          "10月开班模板"
-        ],
-        "cycle_index": 18,
-        "learning_cycle_index": 18,
-        "learning_cycle_label": [
-          "7月开班模板 · 第18学习周期",
-          "10月开班模板 · 第18学习周期"
-        ],
-        "year_index": 2,
-        "cohort_months": [
-          7,
-          10
-        ],
-        "title": "阿米巴经营之概论",
-        "content_key": "Y2-C18-STEP-05-CONTENT-01"
-      },
-      {
-        "cohort_month": [
-          7,
-          10
-        ],
-        "template_label": [
-          "7月开班模板",
-          "10月开班模板"
-        ],
-        "cycle_index": 19,
-        "learning_cycle_index": 19,
-        "learning_cycle_label": [
-          "7月开班模板 · 第19学习周期",
-          "10月开班模板 · 第19学习周期"
-        ],
-        "year_index": 2,
-        "cohort_months": [
-          7,
-          10
-        ],
-        "title": "阿米巴经营之如何制作分部门核算表",
-        "content_key": "Y2-C19-STEP-05-CONTENT-01"
       },
       {
         "cohort_month": [
@@ -782,67 +690,6 @@
         ],
         "title": "优秀改善创新案例分享",
         "content_key": "Y2-C21-STEP-05-CONTENT-01"
-      },
-      {
-        "cohort_month": [
-          7
-        ],
-        "template_label": [
-          "7月开班模板"
-        ],
-        "cycle_index": 27,
-        "learning_cycle_index": 27,
-        "learning_cycle_label": [
-          "7月开班模板 · 第27学习周期"
-        ],
-        "year_index": 3,
-        "cohort_months": [
-          7
-        ],
-        "title": "百日奋战",
-        "content_key": "Y3-C27-STEP-05-CONTENT-01"
-      },
-      {
-        "cohort_month": [
-          1,
-          4
-        ],
-        "template_label": [
-          "1月开班模板",
-          "4月开班模板"
-        ],
-        "cycle_index": 30,
-        "learning_cycle_index": 30,
-        "learning_cycle_label": [
-          "1月开班模板 · 第30学习周期",
-          "4月开班模板 · 第30学习周期"
-        ],
-        "year_index": 3,
-        "cohort_months": [
-          1,
-          4
-        ],
-        "title": "百日奋战",
-        "content_key": "Y3-C30-STEP-05-CONTENT-01"
-      },
-      {
-        "cohort_month": [
-          10
-        ],
-        "template_label": [
-          "10月开班模板"
-        ],
-        "cycle_index": 33,
-        "learning_cycle_index": 33,
-        "learning_cycle_label": [
-          "10月开班模板 · 第33学习周期"
-        ],
-        "year_index": 3,
-        "cohort_months": [
-          10
-        ],
-        "title": "百日奋战",
-        "content_key": "Y3-C33-STEP-05-CONTENT-01"
       },
       {
         "cohort_month": [
@@ -1057,50 +904,6 @@
       },
       {
         "cohort_month": [
-          1,
-          4
-        ],
-        "template_label": [
-          "1月开班模板",
-          "4月开班模板"
-        ],
-        "cycle_index": 16,
-        "learning_cycle_index": 16,
-        "learning_cycle_label": [
-          "1月开班模板 · 第16学习周期",
-          "4月开班模板 · 第16学习周期"
-        ],
-        "year_index": 2,
-        "cohort_months": [
-          1,
-          4
-        ],
-        "context_step_no": 5
-      },
-      {
-        "cohort_month": [
-          7,
-          10
-        ],
-        "template_label": [
-          "7月开班模板",
-          "10月开班模板"
-        ],
-        "cycle_index": 18,
-        "learning_cycle_index": 18,
-        "learning_cycle_label": [
-          "7月开班模板 · 第18学习周期",
-          "10月开班模板 · 第18学习周期"
-        ],
-        "year_index": 2,
-        "cohort_months": [
-          7,
-          10
-        ],
-        "context_step_no": 5
-      },
-      {
-        "cohort_month": [
           4,
           7,
           10
@@ -1121,122 +924,6 @@
         "cohort_months": [
           4,
           7,
-          10
-        ],
-        "context_step_no": 5
-      },
-      {
-        "cohort_month": [
-          7
-        ],
-        "template_label": [
-          "7月开班模板"
-        ],
-        "cycle_index": 27,
-        "learning_cycle_index": 27,
-        "learning_cycle_label": [
-          "7月开班模板 · 第27学习周期"
-        ],
-        "year_index": 3,
-        "cohort_months": [
-          7
-        ],
-        "context_step_no": 5
-      },
-      {
-        "cohort_month": [
-          7
-        ],
-        "template_label": [
-          "7月开班模板"
-        ],
-        "cycle_index": 27,
-        "learning_cycle_index": 27,
-        "learning_cycle_label": [
-          "7月开班模板 · 第27学习周期"
-        ],
-        "year_index": 3,
-        "cohort_months": [
-          7
-        ],
-        "context_step_no": 5
-      },
-      {
-        "cohort_month": [
-          1,
-          4
-        ],
-        "template_label": [
-          "1月开班模板",
-          "4月开班模板"
-        ],
-        "cycle_index": 30,
-        "learning_cycle_index": 30,
-        "learning_cycle_label": [
-          "1月开班模板 · 第30学习周期",
-          "4月开班模板 · 第30学习周期"
-        ],
-        "year_index": 3,
-        "cohort_months": [
-          1,
-          4
-        ],
-        "context_step_no": 5
-      },
-      {
-        "cohort_month": [
-          1,
-          4
-        ],
-        "template_label": [
-          "1月开班模板",
-          "4月开班模板"
-        ],
-        "cycle_index": 30,
-        "learning_cycle_index": 30,
-        "learning_cycle_label": [
-          "1月开班模板 · 第30学习周期",
-          "4月开班模板 · 第30学习周期"
-        ],
-        "year_index": 3,
-        "cohort_months": [
-          1,
-          4
-        ],
-        "context_step_no": 5
-      },
-      {
-        "cohort_month": [
-          10
-        ],
-        "template_label": [
-          "10月开班模板"
-        ],
-        "cycle_index": 33,
-        "learning_cycle_index": 33,
-        "learning_cycle_label": [
-          "10月开班模板 · 第33学习周期"
-        ],
-        "year_index": 3,
-        "cohort_months": [
-          10
-        ],
-        "context_step_no": 5
-      },
-      {
-        "cohort_month": [
-          10
-        ],
-        "template_label": [
-          "10月开班模板"
-        ],
-        "cycle_index": 33,
-        "learning_cycle_index": 33,
-        "learning_cycle_label": [
-          "10月开班模板 · 第33学习周期"
-        ],
-        "year_index": 3,
-        "cohort_months": [
           10
         ],
         "context_step_no": 5
@@ -1542,7 +1229,7 @@
           "is_required": true,
           "has_qr": true,
           "credit_rule_key": "Y1-KYOCERA-ANNUAL-PLAN",
-          "credit_points": 30,
+          "credit_points": 40,
           "source_step_no": 4
         }
       ],
@@ -1602,7 +1289,7 @@
           "is_required": true,
           "has_qr": true,
           "credit_rule_key": "Y1-ANNUAL-MONTHLY-MGMT",
-          "credit_points": 15,
+          "credit_points": 11,
           "source_step_no": 4
         }
       ],
@@ -1747,19 +1434,17 @@
           "title": "阿米巴经营之概论",
           "is_required": true,
           "has_qr": true,
-          "credit_rule_key": null,
-          "credit_points": null,
+          "credit_rule_key": "AUTO-QR-AMOEBA-INTRODUCTION",
+          "credit_points": 20,
           "source_step_no": 5
         }
       ],
       "learning_content_count": 1,
       "required_video_without_qr_count": 0,
-      "learning_content_without_credit_rule_count": 1,
+      "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "LEARNING_CONTENT_WITHOUT_CREDIT_RULE"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 1,
@@ -1779,19 +1464,18 @@
           "title": "阿米巴经营之如何制作分部门核算表",
           "is_required": true,
           "has_qr": false,
-          "credit_rule_key": null,
-          "credit_points": null,
+          "credit_rule_key": "GM-AMOEBA-DEPARTMENT-ACCOUNTING",
+          "credit_points": 20,
           "source_step_no": 5
         }
       ],
       "learning_content_count": 1,
       "required_video_without_qr_count": 1,
-      "learning_content_without_credit_rule_count": 1,
+      "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
       "findings": [
-        "REQUIRED_VIDEO_WITHOUT_QR",
-        "LEARNING_CONTENT_WITHOUT_CREDIT_RULE"
+        "REQUIRED_VIDEO_WITHOUT_QR"
       ]
     },
     {
@@ -1980,17 +1664,15 @@
       "learning_cycle_label": "1月开班模板 · 第26学习周期",
       "year_index": 3,
       "year_cycle_index": 2,
-      "mapping_status": "MAPPING_CONFLICT",
-      "flow_key": null,
+      "mapping_status": "MAPPED",
+      "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
       "learning_contents": [],
       "learning_content_count": 0,
       "required_video_without_qr_count": 0,
       "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "MAPPING_CONFLICT"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 1,
@@ -2020,17 +1702,15 @@
       "learning_cycle_label": "1月开班模板 · 第28学习周期",
       "year_index": 3,
       "year_cycle_index": 4,
-      "mapping_status": "MAPPING_MISSING",
-      "flow_key": null,
+      "mapping_status": "MAPPED",
+      "flow_key": "Y3-C28-COHORT-1-4-BIZCONF",
       "learning_contents": [],
       "learning_content_count": 0,
       "required_video_without_qr_count": 0,
       "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "MAPPING_MISSING"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 1,
@@ -2041,17 +1721,15 @@
       "learning_cycle_label": "1月开班模板 · 第29学习周期",
       "year_index": 3,
       "year_cycle_index": 5,
-      "mapping_status": "MAPPING_MISSING",
-      "flow_key": null,
+      "mapping_status": "MAPPED",
+      "flow_key": "Y3-C29-COHORT-1-4-BIZCONF",
       "learning_contents": [],
       "learning_content_count": 0,
       "required_video_without_qr_count": 0,
       "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "MAPPING_MISSING"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 1,
@@ -2071,19 +1749,17 @@
           "title": "百日奋战",
           "is_required": true,
           "has_qr": true,
-          "credit_rule_key": null,
-          "credit_points": null,
+          "credit_rule_key": "AUTO-QR-HUNDRED-DAY-CAMPAIGN",
+          "credit_points": 20,
           "source_step_no": 5
         }
       ],
       "learning_content_count": 1,
       "required_video_without_qr_count": 0,
-      "learning_content_without_credit_rule_count": 1,
+      "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "LEARNING_CONTENT_WITHOUT_CREDIT_RULE"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 1,
@@ -2454,7 +2130,7 @@
           "is_required": true,
           "has_qr": true,
           "credit_rule_key": "Y1-KYOCERA-ANNUAL-PLAN",
-          "credit_points": 30,
+          "credit_points": 40,
           "source_step_no": 4
         }
       ],
@@ -2503,7 +2179,7 @@
           "is_required": true,
           "has_qr": true,
           "credit_rule_key": "Y1-ANNUAL-MONTHLY-MGMT",
-          "credit_points": 15,
+          "credit_points": 11,
           "source_step_no": 4
         }
       ],
@@ -2743,19 +2419,17 @@
           "title": "阿米巴经营之概论",
           "is_required": true,
           "has_qr": true,
-          "credit_rule_key": null,
-          "credit_points": null,
+          "credit_rule_key": "AUTO-QR-AMOEBA-INTRODUCTION",
+          "credit_points": 20,
           "source_step_no": 5
         }
       ],
       "learning_content_count": 1,
       "required_video_without_qr_count": 0,
-      "learning_content_without_credit_rule_count": 1,
+      "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "LEARNING_CONTENT_WITHOUT_CREDIT_RULE"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 4,
@@ -2775,19 +2449,18 @@
           "title": "阿米巴经营之如何制作分部门核算表",
           "is_required": true,
           "has_qr": false,
-          "credit_rule_key": null,
-          "credit_points": null,
+          "credit_rule_key": "GM-AMOEBA-DEPARTMENT-ACCOUNTING",
+          "credit_points": 20,
           "source_step_no": 5
         }
       ],
       "learning_content_count": 1,
       "required_video_without_qr_count": 1,
-      "learning_content_without_credit_rule_count": 1,
+      "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
       "findings": [
-        "REQUIRED_VIDEO_WITHOUT_QR",
-        "LEARNING_CONTENT_WITHOUT_CREDIT_RULE"
+        "REQUIRED_VIDEO_WITHOUT_QR"
       ]
     },
     {
@@ -2986,17 +2659,15 @@
       "learning_cycle_label": "4月开班模板 · 第26学习周期",
       "year_index": 3,
       "year_cycle_index": 2,
-      "mapping_status": "MAPPING_CONFLICT",
-      "flow_key": null,
+      "mapping_status": "MAPPED",
+      "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
       "learning_contents": [],
       "learning_content_count": 0,
       "required_video_without_qr_count": 0,
       "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "MAPPING_CONFLICT"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 4,
@@ -3026,17 +2697,15 @@
       "learning_cycle_label": "4月开班模板 · 第28学习周期",
       "year_index": 3,
       "year_cycle_index": 4,
-      "mapping_status": "MAPPING_MISSING",
-      "flow_key": null,
+      "mapping_status": "MAPPED",
+      "flow_key": "Y3-C28-COHORT-1-4-BIZCONF",
       "learning_contents": [],
       "learning_content_count": 0,
       "required_video_without_qr_count": 0,
       "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "MAPPING_MISSING"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 4,
@@ -3047,17 +2716,15 @@
       "learning_cycle_label": "4月开班模板 · 第29学习周期",
       "year_index": 3,
       "year_cycle_index": 5,
-      "mapping_status": "MAPPING_MISSING",
-      "flow_key": null,
+      "mapping_status": "MAPPED",
+      "flow_key": "Y3-C29-COHORT-1-4-BIZCONF",
       "learning_contents": [],
       "learning_content_count": 0,
       "required_video_without_qr_count": 0,
       "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "MAPPING_MISSING"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 4,
@@ -3077,19 +2744,17 @@
           "title": "百日奋战",
           "is_required": true,
           "has_qr": true,
-          "credit_rule_key": null,
-          "credit_points": null,
+          "credit_rule_key": "AUTO-QR-HUNDRED-DAY-CAMPAIGN",
+          "credit_points": 20,
           "source_step_no": 5
         }
       ],
       "learning_content_count": 1,
       "required_video_without_qr_count": 0,
-      "learning_content_without_credit_rule_count": 1,
+      "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "LEARNING_CONTENT_WITHOUT_CREDIT_RULE"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 4,
@@ -3531,7 +3196,7 @@
           "is_required": true,
           "has_qr": true,
           "credit_rule_key": "Y1-KYOCERA-ANNUAL-PLAN",
-          "credit_points": 30,
+          "credit_points": 40,
           "source_step_no": 4
         }
       ],
@@ -3591,7 +3256,7 @@
           "is_required": true,
           "has_qr": true,
           "credit_rule_key": "Y1-ANNUAL-MONTHLY-MGMT",
-          "credit_points": 15,
+          "credit_points": 11,
           "source_step_no": 4
         }
       ],
@@ -3774,19 +3439,17 @@
           "title": "阿米巴经营之概论",
           "is_required": true,
           "has_qr": true,
-          "credit_rule_key": null,
-          "credit_points": null,
+          "credit_rule_key": "AUTO-QR-AMOEBA-INTRODUCTION",
+          "credit_points": 20,
           "source_step_no": 5
         }
       ],
       "learning_content_count": 1,
       "required_video_without_qr_count": 0,
-      "learning_content_without_credit_rule_count": 1,
+      "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "LEARNING_CONTENT_WITHOUT_CREDIT_RULE"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 7,
@@ -3806,19 +3469,18 @@
           "title": "阿米巴经营之如何制作分部门核算表",
           "is_required": true,
           "has_qr": false,
-          "credit_rule_key": null,
-          "credit_points": null,
+          "credit_rule_key": "GM-AMOEBA-DEPARTMENT-ACCOUNTING",
+          "credit_points": 20,
           "source_step_no": 5
         }
       ],
       "learning_content_count": 1,
       "required_video_without_qr_count": 1,
-      "learning_content_without_credit_rule_count": 1,
+      "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
       "findings": [
-        "REQUIRED_VIDEO_WITHOUT_QR",
-        "LEARNING_CONTENT_WITHOUT_CREDIT_RULE"
+        "REQUIRED_VIDEO_WITHOUT_QR"
       ]
     },
     {
@@ -3979,17 +3641,15 @@
       "learning_cycle_label": "7月开班模板 · 第26学习周期",
       "year_index": 3,
       "year_cycle_index": 2,
-      "mapping_status": "MAPPING_CONFLICT",
-      "flow_key": null,
+      "mapping_status": "MAPPED",
+      "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
       "learning_contents": [],
       "learning_content_count": 0,
       "required_video_without_qr_count": 0,
       "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "MAPPING_CONFLICT"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 7,
@@ -4009,19 +3669,17 @@
           "title": "百日奋战",
           "is_required": true,
           "has_qr": true,
-          "credit_rule_key": null,
-          "credit_points": null,
+          "credit_rule_key": "AUTO-QR-HUNDRED-DAY-CAMPAIGN",
+          "credit_points": 20,
           "source_step_no": 5
         }
       ],
       "learning_content_count": 1,
       "required_video_without_qr_count": 0,
-      "learning_content_without_credit_rule_count": 1,
+      "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "LEARNING_CONTENT_WITHOUT_CREDIT_RULE"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 7,
@@ -4115,17 +3773,15 @@
       "learning_cycle_label": "7月开班模板 · 第32学习周期",
       "year_index": 3,
       "year_cycle_index": 8,
-      "mapping_status": "MAPPING_MISSING",
-      "flow_key": null,
+      "mapping_status": "MAPPED",
+      "flow_key": "Y3-C32-COHORT-7-BIZCONF",
       "learning_contents": [],
       "learning_content_count": 0,
       "required_video_without_qr_count": 0,
       "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "MAPPING_MISSING"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 7,
@@ -4136,17 +3792,15 @@
       "learning_cycle_label": "7月开班模板 · 第33学习周期",
       "year_index": 3,
       "year_cycle_index": 9,
-      "mapping_status": "MAPPING_MISSING",
-      "flow_key": null,
+      "mapping_status": "MAPPED",
+      "flow_key": "Y3-C33-COHORT-7-BIZCONF",
       "learning_contents": [],
       "learning_content_count": 0,
       "required_video_without_qr_count": 0,
       "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "MAPPING_MISSING"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 7,
@@ -4157,17 +3811,15 @@
       "learning_cycle_label": "7月开班模板 · 第34学习周期",
       "year_index": 3,
       "year_cycle_index": 10,
-      "mapping_status": "MAPPING_MISSING",
-      "flow_key": null,
+      "mapping_status": "MAPPED",
+      "flow_key": "Y3-C34-COHORT-7-BIZCONF",
       "learning_contents": [],
       "learning_content_count": 0,
       "required_video_without_qr_count": 0,
       "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "MAPPING_MISSING"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 7,
@@ -4455,7 +4107,7 @@
           "is_required": true,
           "has_qr": true,
           "credit_rule_key": "Y1-KYOCERA-ANNUAL-PLAN",
-          "credit_points": 30,
+          "credit_points": 40,
           "source_step_no": 4
         }
       ],
@@ -4504,7 +4156,7 @@
           "is_required": true,
           "has_qr": true,
           "credit_rule_key": "Y1-ANNUAL-MONTHLY-MGMT",
-          "credit_points": 15,
+          "credit_points": 11,
           "source_step_no": 4
         }
       ],
@@ -4787,19 +4439,17 @@
           "title": "阿米巴经营之概论",
           "is_required": true,
           "has_qr": true,
-          "credit_rule_key": null,
-          "credit_points": null,
+          "credit_rule_key": "AUTO-QR-AMOEBA-INTRODUCTION",
+          "credit_points": 20,
           "source_step_no": 5
         }
       ],
       "learning_content_count": 1,
       "required_video_without_qr_count": 0,
-      "learning_content_without_credit_rule_count": 1,
+      "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "LEARNING_CONTENT_WITHOUT_CREDIT_RULE"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 10,
@@ -4819,19 +4469,18 @@
           "title": "阿米巴经营之如何制作分部门核算表",
           "is_required": true,
           "has_qr": false,
-          "credit_rule_key": null,
-          "credit_points": null,
+          "credit_rule_key": "GM-AMOEBA-DEPARTMENT-ACCOUNTING",
+          "credit_points": 20,
           "source_step_no": 5
         }
       ],
       "learning_content_count": 1,
       "required_video_without_qr_count": 1,
-      "learning_content_without_credit_rule_count": 1,
+      "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
       "findings": [
-        "REQUIRED_VIDEO_WITHOUT_QR",
-        "LEARNING_CONTENT_WITHOUT_CREDIT_RULE"
+        "REQUIRED_VIDEO_WITHOUT_QR"
       ]
     },
     {
@@ -5150,19 +4799,17 @@
           "title": "百日奋战",
           "is_required": true,
           "has_qr": true,
-          "credit_rule_key": null,
-          "credit_points": null,
+          "credit_rule_key": "AUTO-QR-HUNDRED-DAY-CAMPAIGN",
+          "credit_points": 20,
           "source_step_no": 5
         }
       ],
       "learning_content_count": 1,
       "required_video_without_qr_count": 0,
-      "learning_content_without_credit_rule_count": 1,
+      "learning_content_without_credit_rule_count": 0,
       "planned_learning_task_count": 0,
       "planned_rules_not_in_group_content": [],
-      "findings": [
-        "LEARNING_CONTENT_WITHOUT_CREDIT_RULE"
-      ]
+      "findings": []
     },
     {
       "cohort_month": 10,

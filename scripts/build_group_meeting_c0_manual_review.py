@@ -1,11 +1,9 @@
 """Build the V1.3-C0 manual review package for group-meeting content mappings.
 
-The C0 package is deliberately an audit artifact.  It does not select a flow,
-create a learning-content mapping, assign credit, or modify production data.
-The canonical 15-item list is projected from the currently in-scope classes:
-four conflict projections and eleven missing projections.  Template-only
-exceptions are kept in a separate appendix so they are visible without being
-mistaken for current class impact.
+The C0 package is deliberately an audit artifact.  It does not assign credit
+or modify production data.  After business confirmation, resolved mappings
+are no longer included in the unresolved primary list; remaining
+template-only exceptions stay visible in the appendix.
 """
 
 from __future__ import annotations
@@ -765,10 +763,12 @@ def render_markdown(payload: dict[str, Any]) -> str:
         "## 审核口径",
         "",
         f"- 基线 commit：`{payload['base_commit']}`",
-        "- 主清单采用最新真实班级投影口径：4 个冲突 + 11 个缺失 = 15 个审核项。",
+        f"- 主清单采用最新真实班级投影口径：{summary['mapping_conflict_count']} 个冲突 + "
+        f"{summary['mapping_missing_count']} 个缺失 = {summary['canonical_item_count']} 个审核项。",
         "- 主清单只覆盖当前纳入小组学习会 36 周期计划的真实班级；模板层但暂无真实班级影响的异常放入补充附录。",
         "- 1/26 等写法统一解释为 `cohort_month=1, learning_cycle_index=26`，不使用自然月份替代学习周期。",
         "- 实际周期状态来自 `class_learning_cycles`；当前审计的实际运行状态为 `NOT_PROVIDED`，没有虚构 OPEN 周期。",
+        "- 班会顺延只能改变计划/实际时间；不得改变 `cohort_month`、`learning_cycle_index`、`plan_cycle_id` 或学习内容身份。",
         "",
         "## 汇总",
         "",
@@ -788,7 +788,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
         "",
         "### 模板层计数说明",
         "",
-        "仓库全模板 mapping 文件的原始计数是 5 个冲突 + 10 个缺失；其中包含当前真实班级范围之外的 1 月、10 月模板异常。C0 主清单按真实班级投影重新计数为 4 个冲突 + 11 个缺失，模板异常不被删除，见补充附录。",
+        f"仓库全模板 mapping 文件当前仍有 {summary['supplemental_mapping_conflict_count']} 个冲突 + "
+        f"{summary['supplemental_mapping_missing_count']} 个缺失；这些是当前纳入范围之外的模板项，"
+        "不计入主清单，也不删除，见补充附录。",
         "",
         "## 主清单汇总表",
         "",
@@ -819,12 +821,12 @@ def render_markdown(payload: dict[str, Any]) -> str:
             )
             + "|"
         )
-    lines.extend(["", "## 15 项主清单逐项证据与业务确认", ""])
+    lines.extend(["", f"## {summary['canonical_item_count']} 项主清单逐项证据与业务确认", ""])
     for item in payload["items"]:
         lines.extend(_render_item(item))
     lines.extend(
         [
-            "## 附录 A：模板层补充异常（不计入主清单 15 项）",
+            f"## 附录 A：模板层补充异常（不计入主清单 {summary['canonical_item_count']} 项）",
             "",
             "这些项仍然需要业务确认，但当前没有纳入范围的真实班级影响，因此统一为 P2。",
             "",
@@ -891,7 +893,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
             "",
             "## 业务确认后才能进入下一步",
             "",
-            "本文件完成后停止。只有业务逐项确认内容、必学属性、二维码定位和积分规则，才能生成下一版正式 mapping；本轮不开始 V1.3-C 小程序页面开发。",
+            "本文件只保留尚未确认的模板项；已经由业务确认的流程已写入当前 mapping。剩余项目以后有明确资料时再补，本轮不开始 V1.3-C 小程序页面开发。",
             "",
         ]
     )

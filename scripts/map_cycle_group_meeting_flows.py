@@ -25,6 +25,7 @@ from learning_plan_semantics import (
 DEFAULT_PLAN = Path("data/learning-plans/standard-3y-2026.json")
 DEFAULT_FLOWS = Path("data/learning-plans/group-meeting-flows-2026.1.json")
 DEFAULT_OUTPUT = Path("data/learning-plans/cycle-flow-mapping-2026.1.json")
+IGNORED_FLOW_STATUSES = {"DUPLICATE_SUPERSEDED"}
 
 
 def sha256_file(path: Path) -> str:
@@ -53,6 +54,7 @@ def build_mapping(plan_path: Path, flows_path: Path) -> dict[str, Any]:
                 if flow.get("year_index") == year_index
                 and flow.get("cycle_index") == cycle_index
                 and cohort_month in (flow.get("eligible_cohort_months") or [])
+                and flow.get("status") not in IGNORED_FLOW_STATUSES
             ]
             status = "MAPPED" if len(candidates) == 1 else (
                 "MAPPING_CONFLICT" if candidates else "MAPPING_MISSING"

@@ -89,6 +89,11 @@ def _sample_flows(flows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     selected: list[dict[str, Any]] = []
     by_year: dict[int, list[dict[str, Any]]] = {}
     for flow in flows:
+        if flow.get("status") != "PARSED":
+            # Business-confirmed overlays and superseded duplicate evidence
+            # are handled by their own confirmation artifact. C6 continues
+            # to review only source-parsed flows and QR nodes.
+            continue
         by_year.setdefault(int(flow.get("year_index") or 0), []).append(flow)
     for year_index in (1, 2, 3):
         year_flows = sorted(
@@ -365,9 +370,9 @@ def verify_review(
 ) -> dict[str, Any]:
     _assert_fingerprint(review, paths)
     expected_counts = {
-        "mapping_conflicts": 5,
-        "mapping_missing": 10,
-        "qr_review_required": 15,
+        "mapping_conflicts": 2,
+        "mapping_missing": 3,
+        "qr_review_required": 7,
         "course_nodes": 32,
         "flow_samples": 9,
     }

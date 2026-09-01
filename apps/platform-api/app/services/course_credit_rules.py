@@ -12,7 +12,7 @@ from app.services.audit import write_audit
 
 DEFAULT_PLAN_KEY = "STANDARD_3Y_2026"
 DEFAULT_VERSION_LABEL = "2026.1"
-AVAILABLE_CREDIT_POINTS = [0, 15, 20, 30, 40]
+AVAILABLE_CREDIT_POINTS = [0, 11, 15, 20, 24, 25, 30, 34, 35, 40]
 _COURSE_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 

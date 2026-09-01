@@ -57,6 +57,25 @@ def test_cycle_five_returns_required_video_without_qr() -> None:
     assert step["learning_content_keys"] == ["Y1-C05-STEP-04-CONTENT-01"]
 
 
+def test_business_confirmed_screenshot_flow_has_steps_but_no_video_course() -> None:
+    meeting_plan = build_group_meeting_plan(
+        plan_cycle=_cycle(cohort_month=4, cycle_index=28), cohort_month=4
+    )
+
+    assert meeting_plan["configuration_status"] == "CONFIGURED"
+    assert meeting_plan["learning_contents"] == []
+    assert [step["content"] for step in meeting_plan["steps"]] == [
+        "经营分析会实操观摩；",
+        "企业参访、企业经营者分享；",
+        "近期读书打卡分享情况；",
+        "上月班级学习会课后作业的检视、分享、辅导；",
+        "人财培养体系研讨；（如线上研讨，小组学习会可改为半天）",
+        "三大委落地经验和案例分享编写辅导（如线上研讨，小组会可改为半天）",
+        "近期重点工作沟通交流；",
+        "空巴。",
+    ]
+
+
 @pytest.mark.parametrize("cohort_month, cycle_index", [(10, 25), (10, 30)])
 def test_ambiguous_or_missing_flow_fails_closed(cohort_month: int, cycle_index: int) -> None:
     with pytest.raises(GroupMeetingPlanConfigError, match="小组学习会"):
@@ -93,8 +112,8 @@ def test_36_cycle_audit_reports_missing_qr_as_a_finding() -> None:
     assert audit["summary"]["cycle_entry_count"] == 144
     assert audit["summary"]["cycles_per_track"] == {"1": 36, "4": 36, "7": 36, "10": 36}
     assert audit["summary"]["source_required_video_without_qr_count"] >= 1
-    assert audit["summary"]["configuration_finding_counts"]["MAPPING_CONFLICT"] == 5
-    assert audit["summary"]["configuration_finding_counts"]["MAPPING_MISSING"] == 10
+    assert audit["summary"]["configuration_finding_counts"]["MAPPING_CONFLICT"] == 2
+    assert audit["summary"]["configuration_finding_counts"]["MAPPING_MISSING"] == 3
     assert any(
         item["cycle_index"] == 5
         and item["title"] == "关于核算表分析&任务单的制作"

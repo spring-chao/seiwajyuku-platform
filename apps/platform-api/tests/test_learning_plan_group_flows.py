@@ -178,16 +178,16 @@ def test_first_year_credit_rules_match_confirmed_values() -> None:
     assert points["Y1-SEVEN-ACCOUNTING-PRINCIPLES"] == 20
 
 
-def test_kyocera_annual_plan_credit_is_30_not_40() -> None:
+def test_kyocera_annual_plan_credit_follows_business_reference() -> None:
     payload = json.loads(RULES.read_text(encoding="utf-8"))
     rule = next(item for item in payload["rules"] if item["course_key"] == "Y1-KYOCERA-ANNUAL-PLAN")
-    assert rule["credit_points"] == 30
+    assert rule["credit_points"] == 40
 
 
-def test_annual_monthly_management_credit_is_15() -> None:
+def test_annual_monthly_management_credit_follows_business_reference() -> None:
     payload = json.loads(RULES.read_text(encoding="utf-8"))
     rule = next(item for item in payload["rules"] if item["course_key"] == "Y1-ANNUAL-MONTHLY-MGMT")
-    assert rule["credit_points"] == 15
+    assert rule["credit_points"] == 11
 
 
 def test_group_meeting_base_credit_is_cycle_level_not_step_level() -> None:
@@ -215,6 +215,42 @@ def test_unknown_course_credit_stays_null() -> None:
     assert all(node["credit_points"] is None for node in unknown)
 
 
+def test_success_formula_49_day_video_has_no_course_credit() -> None:
+    payload = json.loads(FLOWS.read_text(encoding="utf-8"))
+    nodes = [
+        node
+        for flow in payload["flows"]
+        for node in flow["learning_content_nodes"]
+        if node["title"] == "成功方程式49天讲解"
+    ]
+    assert nodes
+    assert all(node["credit_rule_key"] is None for node in nodes)
+    assert all(node["credit_points"] is None for node in nodes)
+
+
+def test_confirmed_screenshot_flows_have_only_cycle_attendance_credit() -> None:
+    payload = json.loads(FLOWS.read_text(encoding="utf-8"))
+    flows = {
+        flow["flow_key"]: flow
+        for flow in payload["flows"]
+        if flow.get("status") == "MANUALLY_CONFIRMED"
+    }
+    assert set(flows) == {
+        "Y3-C28-COHORT-1-4-BIZCONF",
+        "Y3-C29-COHORT-1-4-BIZCONF",
+        "Y3-C32-COHORT-7-BIZCONF",
+        "Y3-C33-COHORT-7-BIZCONF",
+        "Y3-C34-COHORT-7-BIZCONF",
+    }
+    assert all(flow["learning_content_nodes"] == [] for flow in flows.values())
+    assert all(flow["course_nodes"] == [] for flow in flows.values())
+    assert all(
+        all(step["qr_refs"] == [] for step in flow["steps"])
+        for flow in flows.values()
+    )
+    assert all(flow["business_confirmation"]["attendance_credit_points"] == 4 for flow in flows.values())
+
+
 def test_cycle_flow_mapping_does_not_use_calendar_month_as_primary_key() -> None:
     payload = json.loads(MAPPING.read_text(encoding="utf-8"))
     assert payload["quality_report"]["entry_count"] == 144
@@ -230,6 +266,24 @@ def test_cycle_flow_mapping_does_not_use_calendar_month_as_primary_key() -> None
     assert sample["template_label"] == "1月开班模板"
     assert sample["learning_cycle_label"] == "1月开班模板 · 第26学习周期"
     assert sample["lookup_key"]["learning_cycle_index"] == 26
+
+
+def test_cycle_26_duplicate_selection_and_screenshot_mappings_are_active() -> None:
+    mapping = json.loads(MAPPING.read_text(encoding="utf-8"))
+    by_key = {item["mapping_key"]: item for item in mapping["mappings"]}
+    for mapping_key in ("1-26", "4-26", "7-26"):
+        assert by_key[mapping_key]["status"] == "MAPPED"
+        assert by_key[mapping_key]["flow_key"] == "Y3-C26-COHORT-1-4-7-c5846a2908"
+    for mapping_key in ("1-28", "4-28", "1-29", "4-29", "7-32", "7-33", "7-34"):
+        assert by_key[mapping_key]["status"] == "MAPPED"
+        assert by_key[mapping_key]["flow_key"].endswith("BIZCONF")
+
+    flows = json.loads(FLOWS.read_text(encoding="utf-8"))["flows"]
+    duplicate = next(
+        flow for flow in flows if flow["flow_key"] == "Y3-C26-COHORT-1-4-7-3131994926"
+    )
+    assert duplicate["status"] == "DUPLICATE_SUPERSEDED"
+    assert duplicate["superseded_by"] == "Y3-C26-COHORT-1-4-7-c5846a2908"
 
 
 def _valid_adjustment() -> tuple[dict, dict]:
@@ -299,6 +353,8 @@ def test_confirmed_2026_cannot_be_overwritten() -> None:
 def test_group_flow_catalog_contains_read_only_source_evidence() -> None:
     payload = _learning_plan_group_meeting_flow_payload()
     assert payload["source_fragment_count"] == 575
-    assert payload["flow_count"] == 78
+    assert payload["flow_count"] == 83
     assert len(payload["base_group_flow_source_files"]) == 78
     assert payload["base_course_credit_rules_sha256"] == _sha256(RULES)
+    assert payload["quality_report"]["manually_confirmed_flow_count"] == 5
+    assert payload["quality_report"]["superseded_flow_count"] == 1

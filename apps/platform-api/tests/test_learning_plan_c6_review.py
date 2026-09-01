@@ -33,9 +33,9 @@ def test_c6_manifest_has_all_exception_and_course_review_items() -> None:
 
     assert review["status"] == "PENDING"
     assert review["candidate_version_label"] == "2026.1"
-    assert len(review["mapping_conflicts"]) == 5
-    assert len(review["mapping_missing"]) == 10
-    assert len(review["qr_review_required"]) == 15
+    assert len(review["mapping_conflicts"]) == 2
+    assert len(review["mapping_missing"]) == 3
+    assert len(review["qr_review_required"]) == 7
     assert len(review["course_nodes"]) == 32
     assert review["summary"]["cycle_count"] == 144
     assert len(review["source_fingerprint"]["base_group_flow_source_files"]) == 78
@@ -119,5 +119,5 @@ def test_api_payload_exposes_c6_read_only_review() -> None:
     payload = _learning_plan_group_meeting_flow_payload()
 
     assert payload["c6_review_status"] == "PENDING"
-    assert payload["c6_summary"]["mapping_conflict_count"] == 5
+    assert payload["c6_summary"]["mapping_conflict_count"] == 2
     assert len(payload["c6_review"]["course_nodes"]) == 32

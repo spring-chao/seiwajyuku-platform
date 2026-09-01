@@ -6,8 +6,8 @@
   "candidate_version_label": "2026.1",
   "candidate_status": "DRAFT",
   "status": "PENDING",
-  "created_at": "2026-09-01T08:53:15.744069+00:00",
-  "updated_at": "2026-09-01T08:53:15.744069+00:00",
+  "created_at": "2026-09-01T13:58:36.713391+00:00",
+  "updated_at": "2026-09-01T13:58:36.713391+00:00",
   "base_confirmed_review_status": "CONFIRMED",
   "base_plan_cycle_count": 144,
   "source_fingerprint": {
@@ -30,15 +30,15 @@
     },
     "base_flow_catalog": {
       "filename": "group-meeting-flows-2026.1.json",
-      "sha256": "2af6cb434e8a6dad925698267fc603d19e799b57d77bdfa524d7469192b8a9f7"
+      "sha256": "fd1bd4e7ebc1011c6e508e5e9ab0518d07a15ec715a513dd57b3f0d2060fd795"
     },
     "base_mapping": {
       "filename": "cycle-flow-mapping-2026.1.json",
-      "sha256": "483cb133bbd02ec44fbcf0ec96f46858b9feb3a34b1a54a8263095c234e1f6a0"
+      "sha256": "cac558682207a6833c74691a68ecc827739da8ca75c137f59d9749aeb2e7eaec"
     },
     "base_course_credit_rules": {
       "filename": "course-credit-rules-2026.json",
-      "sha256": "3879c7cc557b074036b149e611bad5e7e2ec13e4d22fc58b50d3649a627a4fd1"
+      "sha256": "5a1ea7d7bc12311683036be2d76ee20cd89ff6503fdcfb9478530d8a167d4f0c"
     },
     "base_source_inventory": {
       "filename": "group-meeting-source-inventory-2026.json",
@@ -459,108 +459,6 @@
   },
   "mapping_conflicts": [
     {
-      "review_id": "mapping-conflict-1-26",
-      "kind": "MAPPING_CONFLICT",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "mapping_key": "1-26",
-      "template_key": "COHORT_MONTH_01",
-      "template_label": "1月开班模板",
-      "cohort_month": 1,
-      "cycle_index": 26,
-      "learning_cycle_index": 26,
-      "learning_cycle_label": "1月开班模板 · 第26学习周期",
-      "year_index": 3,
-      "year_cycle_index": 2,
-      "candidate_flow_keys": [
-        "Y3-C26-COHORT-1-4-7-c5846a2908",
-        "Y3-C26-COHORT-1-4-7-3131994926"
-      ],
-      "candidate_source_files": [
-        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
-        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx"
-      ],
-      "lookup_key": {
-        "plan_version": "2026",
-        "template_key": "COHORT_MONTH_01",
-        "cohort_month": 1,
-        "learning_cycle_index": 26,
-        "year_index": 3
-      },
-      "review_prompt": "选择正确的流程；不得依据自然月自动猜选。"
-    },
-    {
-      "review_id": "mapping-conflict-4-26",
-      "kind": "MAPPING_CONFLICT",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "mapping_key": "4-26",
-      "template_key": "COHORT_MONTH_04",
-      "template_label": "4月开班模板",
-      "cohort_month": 4,
-      "cycle_index": 26,
-      "learning_cycle_index": 26,
-      "learning_cycle_label": "4月开班模板 · 第26学习周期",
-      "year_index": 3,
-      "year_cycle_index": 2,
-      "candidate_flow_keys": [
-        "Y3-C26-COHORT-1-4-7-c5846a2908",
-        "Y3-C26-COHORT-1-4-7-3131994926"
-      ],
-      "candidate_source_files": [
-        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
-        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx"
-      ],
-      "lookup_key": {
-        "plan_version": "2026",
-        "template_key": "COHORT_MONTH_04",
-        "cohort_month": 4,
-        "learning_cycle_index": 26,
-        "year_index": 3
-      },
-      "review_prompt": "选择正确的流程；不得依据自然月自动猜选。"
-    },
-    {
-      "review_id": "mapping-conflict-7-26",
-      "kind": "MAPPING_CONFLICT",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "mapping_key": "7-26",
-      "template_key": "COHORT_MONTH_07",
-      "template_label": "7月开班模板",
-      "cohort_month": 7,
-      "cycle_index": 26,
-      "learning_cycle_index": 26,
-      "learning_cycle_label": "7月开班模板 · 第26学习周期",
-      "year_index": 3,
-      "year_cycle_index": 2,
-      "candidate_flow_keys": [
-        "Y3-C26-COHORT-1-4-7-c5846a2908",
-        "Y3-C26-COHORT-1-4-7-3131994926"
-      ],
-      "candidate_source_files": [
-        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨+三大委案例分享辅导0828.docx",
-        "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第26个月】（2026版1、4、7月开班）《哲学手册编制2》视频学习+研讨+经验分析会检视发表+三大委落地经验和案例分享+人生&经营哲学发表+小组学习会-经营分析会观摩+哲学手册编制研讨0828.docx"
-      ],
-      "lookup_key": {
-        "plan_version": "2026",
-        "template_key": "COHORT_MONTH_07",
-        "cohort_month": 7,
-        "learning_cycle_index": 26,
-        "year_index": 3
-      },
-      "review_prompt": "选择正确的流程；不得依据自然月自动猜选。"
-    },
-    {
       "review_id": "mapping-conflict-10-25",
       "kind": "MAPPING_CONFLICT",
       "review_status": "PENDING",
@@ -630,202 +528,6 @@
     }
   ],
   "mapping_missing": [
-    {
-      "review_id": "mapping-missing-1-28",
-      "kind": "MAPPING_MISSING",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "mapping_key": "1-28",
-      "template_key": "COHORT_MONTH_01",
-      "template_label": "1月开班模板",
-      "cohort_month": 1,
-      "cycle_index": 28,
-      "learning_cycle_index": 28,
-      "learning_cycle_label": "1月开班模板 · 第28学习周期",
-      "year_index": 3,
-      "year_cycle_index": 4,
-      "candidate_flow_keys": [],
-      "candidate_source_files": [],
-      "lookup_key": {
-        "plan_version": "2026",
-        "template_key": "COHORT_MONTH_01",
-        "cohort_month": 1,
-        "learning_cycle_index": 28,
-        "year_index": 3
-      },
-      "review_prompt": "确认本周期映射流程，或明确 EXEMPTED/NO_GROUP_MEETING；若应有流程但源资料缺失，标记 SOURCE_MISSING。"
-    },
-    {
-      "review_id": "mapping-missing-1-29",
-      "kind": "MAPPING_MISSING",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "mapping_key": "1-29",
-      "template_key": "COHORT_MONTH_01",
-      "template_label": "1月开班模板",
-      "cohort_month": 1,
-      "cycle_index": 29,
-      "learning_cycle_index": 29,
-      "learning_cycle_label": "1月开班模板 · 第29学习周期",
-      "year_index": 3,
-      "year_cycle_index": 5,
-      "candidate_flow_keys": [],
-      "candidate_source_files": [],
-      "lookup_key": {
-        "plan_version": "2026",
-        "template_key": "COHORT_MONTH_01",
-        "cohort_month": 1,
-        "learning_cycle_index": 29,
-        "year_index": 3
-      },
-      "review_prompt": "确认本周期映射流程，或明确 EXEMPTED/NO_GROUP_MEETING；若应有流程但源资料缺失，标记 SOURCE_MISSING。"
-    },
-    {
-      "review_id": "mapping-missing-4-28",
-      "kind": "MAPPING_MISSING",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "mapping_key": "4-28",
-      "template_key": "COHORT_MONTH_04",
-      "template_label": "4月开班模板",
-      "cohort_month": 4,
-      "cycle_index": 28,
-      "learning_cycle_index": 28,
-      "learning_cycle_label": "4月开班模板 · 第28学习周期",
-      "year_index": 3,
-      "year_cycle_index": 4,
-      "candidate_flow_keys": [],
-      "candidate_source_files": [],
-      "lookup_key": {
-        "plan_version": "2026",
-        "template_key": "COHORT_MONTH_04",
-        "cohort_month": 4,
-        "learning_cycle_index": 28,
-        "year_index": 3
-      },
-      "review_prompt": "确认本周期映射流程，或明确 EXEMPTED/NO_GROUP_MEETING；若应有流程但源资料缺失，标记 SOURCE_MISSING。"
-    },
-    {
-      "review_id": "mapping-missing-4-29",
-      "kind": "MAPPING_MISSING",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "mapping_key": "4-29",
-      "template_key": "COHORT_MONTH_04",
-      "template_label": "4月开班模板",
-      "cohort_month": 4,
-      "cycle_index": 29,
-      "learning_cycle_index": 29,
-      "learning_cycle_label": "4月开班模板 · 第29学习周期",
-      "year_index": 3,
-      "year_cycle_index": 5,
-      "candidate_flow_keys": [],
-      "candidate_source_files": [],
-      "lookup_key": {
-        "plan_version": "2026",
-        "template_key": "COHORT_MONTH_04",
-        "cohort_month": 4,
-        "learning_cycle_index": 29,
-        "year_index": 3
-      },
-      "review_prompt": "确认本周期映射流程，或明确 EXEMPTED/NO_GROUP_MEETING；若应有流程但源资料缺失，标记 SOURCE_MISSING。"
-    },
-    {
-      "review_id": "mapping-missing-7-32",
-      "kind": "MAPPING_MISSING",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "mapping_key": "7-32",
-      "template_key": "COHORT_MONTH_07",
-      "template_label": "7月开班模板",
-      "cohort_month": 7,
-      "cycle_index": 32,
-      "learning_cycle_index": 32,
-      "learning_cycle_label": "7月开班模板 · 第32学习周期",
-      "year_index": 3,
-      "year_cycle_index": 8,
-      "candidate_flow_keys": [],
-      "candidate_source_files": [],
-      "lookup_key": {
-        "plan_version": "2026",
-        "template_key": "COHORT_MONTH_07",
-        "cohort_month": 7,
-        "learning_cycle_index": 32,
-        "year_index": 3
-      },
-      "review_prompt": "确认本周期映射流程，或明确 EXEMPTED/NO_GROUP_MEETING；若应有流程但源资料缺失，标记 SOURCE_MISSING。"
-    },
-    {
-      "review_id": "mapping-missing-7-33",
-      "kind": "MAPPING_MISSING",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "mapping_key": "7-33",
-      "template_key": "COHORT_MONTH_07",
-      "template_label": "7月开班模板",
-      "cohort_month": 7,
-      "cycle_index": 33,
-      "learning_cycle_index": 33,
-      "learning_cycle_label": "7月开班模板 · 第33学习周期",
-      "year_index": 3,
-      "year_cycle_index": 9,
-      "candidate_flow_keys": [],
-      "candidate_source_files": [],
-      "lookup_key": {
-        "plan_version": "2026",
-        "template_key": "COHORT_MONTH_07",
-        "cohort_month": 7,
-        "learning_cycle_index": 33,
-        "year_index": 3
-      },
-      "review_prompt": "确认本周期映射流程，或明确 EXEMPTED/NO_GROUP_MEETING；若应有流程但源资料缺失，标记 SOURCE_MISSING。"
-    },
-    {
-      "review_id": "mapping-missing-7-34",
-      "kind": "MAPPING_MISSING",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "mapping_key": "7-34",
-      "template_key": "COHORT_MONTH_07",
-      "template_label": "7月开班模板",
-      "cohort_month": 7,
-      "cycle_index": 34,
-      "learning_cycle_index": 34,
-      "learning_cycle_label": "7月开班模板 · 第34学习周期",
-      "year_index": 3,
-      "year_cycle_index": 10,
-      "candidate_flow_keys": [],
-      "candidate_source_files": [],
-      "lookup_key": {
-        "plan_version": "2026",
-        "template_key": "COHORT_MONTH_07",
-        "cohort_month": 7,
-        "learning_cycle_index": 34,
-        "year_index": 3
-      },
-      "review_prompt": "确认本周期映射流程，或明确 EXEMPTED/NO_GROUP_MEETING；若应有流程但源资料缺失，标记 SOURCE_MISSING。"
-    },
     {
       "review_id": "mapping-missing-10-30",
       "kind": "MAPPING_MISSING",
@@ -1081,62 +783,6 @@
       "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
     },
     {
-      "review_id": "qr-review-Y2-C16-COHORT-1-4-da8410ed23-1",
-      "kind": "QR_REVIEW_REQUIRED",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "flow_key": "Y2-C16-COHORT-1-4-da8410ed23",
-      "year_index": 2,
-      "cycle_index": 16,
-      "source": {
-        "relative_path": "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第16个月】（2026版1、4月开班）班级学习会-《阿米巴经营带来企业持续发展》+学习践行委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之概论》视频学习+研讨+学习践行发表辅导0814.docx",
-        "filename": "【第16个月】（2026版1、4月开班）班级学习会-《阿米巴经营带来企业持续发展》+学习践行委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之概论》视频学习+研讨+学习践行发表辅导0814.docx",
-        "sha256": "da8410ed232ef06fc15938fa2bc756885ee40ebbad10d0cdb49bad842f2bfbbf"
-      },
-      "node_index": 1,
-      "node_type": "COURSE_QR",
-      "media_target": "media/image1.jpeg",
-      "relationship_id": "rId7",
-      "source_paragraph_index": 11,
-      "context_step_no": 5,
-      "context_text": "【阿米巴经营之概论】视频学习+研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
-      "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
-    },
-    {
-      "review_id": "qr-review-Y2-C18-COHORT-7-10-bcbc9e3d33-1",
-      "kind": "QR_REVIEW_REQUIRED",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "flow_key": "Y2-C18-COHORT-7-10-bcbc9e3d33",
-      "year_index": 2,
-      "cycle_index": 18,
-      "source": {
-        "relative_path": "【2026版】第2学年班会+小组会流程/【2026版】第2学年班会+小组会流程/【第18个月】（2026版7、10月开班）班级学习会-《阿米巴经营带来企业持续发展》+学习践行委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之概论》视频学习+研讨+学习践行发表辅导0818.docx",
-        "filename": "【第18个月】（2026版7、10月开班）班级学习会-《阿米巴经营带来企业持续发展》+学习践行委落地优秀案例发表+经营分析会检视+研讨+小组学习会-经营分析会实操观摩+《阿米巴经营之概论》视频学习+研讨+学习践行发表辅导0818.docx",
-        "sha256": "bcbc9e3d33975fc42189e0991d720bcbf40349a89b4047c592a0777e76ea13e9"
-      },
-      "node_index": 1,
-      "node_type": "COURSE_QR",
-      "media_target": "media/image1.jpeg",
-      "relationship_id": "rId4",
-      "source_paragraph_index": 11,
-      "context_step_no": 5,
-      "context_text": "【阿米巴经营之概论】视频学习+研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
-      "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
-    },
-    {
       "review_id": "qr-review-Y2-C21-COHORT-4-7-10-9dc872e110-1",
       "kind": "QR_REVIEW_REQUIRED",
       "review_status": "PENDING",
@@ -1159,174 +805,6 @@
       "source_paragraph_index": 13,
       "context_step_no": 5,
       "context_text": "【优秀改善创新案例分享】视频学习+研讨",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
-      "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
-    },
-    {
-      "review_id": "qr-review-Y3-C27-COHORT-7-ba27a4dd0d-1",
-      "kind": "QR_REVIEW_REQUIRED",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "flow_key": "Y3-C27-COHORT-7-ba27a4dd0d",
-      "year_index": 3,
-      "cycle_index": 27,
-      "source": {
-        "relative_path": "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第27个月】（2026版7月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+人生&经营哲学发表+小组学习会-经营分析会观摩+《百日奋战》视频学习+哲学手册编制研讨0912.docx",
-        "filename": "【第27个月】（2026版7月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+人生&经营哲学发表+小组学习会-经营分析会观摩+《百日奋战》视频学习+哲学手册编制研讨0912.docx",
-        "sha256": "ba27a4dd0d1b5b18cf26e4d850a407896544df5e966ba5439c801a01a5574327"
-      },
-      "node_index": 1,
-      "node_type": "COURSE_QR",
-      "media_target": "media/image1.png",
-      "relationship_id": "rId6",
-      "source_paragraph_index": 19,
-      "context_step_no": 5,
-      "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
-      "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
-    },
-    {
-      "review_id": "qr-review-Y3-C27-COHORT-7-ba27a4dd0d-2",
-      "kind": "QR_REVIEW_REQUIRED",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "flow_key": "Y3-C27-COHORT-7-ba27a4dd0d",
-      "year_index": 3,
-      "cycle_index": 27,
-      "source": {
-        "relative_path": "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第27个月】（2026版7月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+人生&经营哲学发表+小组学习会-经营分析会观摩+《百日奋战》视频学习+哲学手册编制研讨0912.docx",
-        "filename": "【第27个月】（2026版7月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+人生&经营哲学发表+小组学习会-经营分析会观摩+《百日奋战》视频学习+哲学手册编制研讨0912.docx",
-        "sha256": "ba27a4dd0d1b5b18cf26e4d850a407896544df5e966ba5439c801a01a5574327"
-      },
-      "node_index": 2,
-      "node_type": "COURSE_QR",
-      "media_target": "media/image2.png",
-      "relationship_id": "rId7",
-      "source_paragraph_index": 19,
-      "context_step_no": 5,
-      "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
-      "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
-    },
-    {
-      "review_id": "qr-review-Y3-C30-COHORT-1-4-b2f6700018-1",
-      "kind": "QR_REVIEW_REQUIRED",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "flow_key": "Y3-C30-COHORT-1-4-b2f6700018",
-      "year_index": 3,
-      "cycle_index": 30,
-      "source": {
-        "relative_path": "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第30个月】（2026版1、4月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0922.docx",
-        "filename": "【第30个月】（2026版1、4月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0922.docx",
-        "sha256": "b2f6700018d0ea475681bb0fe2e9f345c98a01d1a81809f7e2d93671458eabae"
-      },
-      "node_index": 1,
-      "node_type": "COURSE_QR",
-      "media_target": "media/image1.png",
-      "relationship_id": "rId6",
-      "source_paragraph_index": 19,
-      "context_step_no": 5,
-      "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
-      "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
-    },
-    {
-      "review_id": "qr-review-Y3-C30-COHORT-1-4-b2f6700018-2",
-      "kind": "QR_REVIEW_REQUIRED",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "flow_key": "Y3-C30-COHORT-1-4-b2f6700018",
-      "year_index": 3,
-      "cycle_index": 30,
-      "source": {
-        "relative_path": "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第30个月】（2026版1、4月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0922.docx",
-        "filename": "【第30个月】（2026版1、4月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0922.docx",
-        "sha256": "b2f6700018d0ea475681bb0fe2e9f345c98a01d1a81809f7e2d93671458eabae"
-      },
-      "node_index": 2,
-      "node_type": "COURSE_QR",
-      "media_target": "media/image2.png",
-      "relationship_id": "rId7",
-      "source_paragraph_index": 19,
-      "context_step_no": 5,
-      "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
-      "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
-    },
-    {
-      "review_id": "qr-review-Y3-C33-COHORT-10-4c4d3a8016-1",
-      "kind": "QR_REVIEW_REQUIRED",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "flow_key": "Y3-C33-COHORT-10-4c4d3a8016",
-      "year_index": 3,
-      "cycle_index": 33,
-      "source": {
-        "relative_path": "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第33个月】（2026版10月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0915.docx",
-        "filename": "【第33个月】（2026版10月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0915.docx",
-        "sha256": "4c4d3a80167a95bd74e06b69a9bd402787ec1f1ca5bce87c5679789548676af2"
-      },
-      "node_index": 1,
-      "node_type": "COURSE_QR",
-      "media_target": "media/image1.png",
-      "relationship_id": "rId6",
-      "source_paragraph_index": 19,
-      "context_step_no": 5,
-      "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
-      "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
-    },
-    {
-      "review_id": "qr-review-Y3-C33-COHORT-10-4c4d3a8016-2",
-      "kind": "QR_REVIEW_REQUIRED",
-      "review_status": "PENDING",
-      "resolution_status": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "notes": null,
-      "flow_key": "Y3-C33-COHORT-10-4c4d3a8016",
-      "year_index": 3,
-      "cycle_index": 33,
-      "source": {
-        "relative_path": "【2026版】第3学年班会+小组会流程/【2026版】第3学年班会+小组会流程/【第33个月】（2026版10月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0915.docx",
-        "filename": "【第33个月】（2026版10月开班）百日奋战启动会+经营分析会检视发表+三大委落地经验分享+小组学习会-经营分析会观摩+《百日奋战》视频学习0915.docx",
-        "sha256": "4c4d3a80167a95bd74e06b69a9bd402787ec1f1ca5bce87c5679789548676af2"
-      },
-      "node_index": 2,
-      "node_type": "COURSE_QR",
-      "media_target": "media/image2.png",
-      "relationship_id": "rId7",
-      "source_paragraph_index": 19,
-      "context_step_no": 5,
-      "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
       "source_course_key": null,
       "source_credit_points": null,
       "source_credit_status": "QR_REVIEW_REQUIRED",
@@ -1358,7 +836,7 @@
       "context_step_no": 4,
       "context_text": "【京瓷如何制定年度计划】视频学习+研讨；",
       "source_course_key": "Y1-KYOCERA-ANNUAL-PLAN",
-      "source_credit_points": 30,
+      "source_credit_points": 40,
       "source_credit_status": "MAPPED",
       "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
     },
@@ -1442,7 +920,7 @@
       "context_step_no": 4,
       "context_text": "【年度计划与月度核算管理】视频学习+研讨",
       "source_course_key": "Y1-ANNUAL-MONTHLY-MGMT",
-      "source_credit_points": 15,
+      "source_credit_points": 11,
       "source_credit_status": "MAPPED",
       "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
     },
@@ -1638,7 +1116,7 @@
       "context_step_no": 4,
       "context_text": "【京瓷如何制定年度计划】视频学习+研讨",
       "source_course_key": "Y1-KYOCERA-ANNUAL-PLAN",
-      "source_credit_points": 30,
+      "source_credit_points": 40,
       "source_credit_status": "MAPPED",
       "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
     },
@@ -1666,7 +1144,7 @@
       "context_step_no": 4,
       "context_text": "【年度计划与月度核算管理】视频学习+研讨；",
       "source_course_key": "Y1-ANNUAL-MONTHLY-MGMT",
-      "source_credit_points": 15,
+      "source_credit_points": 11,
       "source_credit_status": "MAPPED",
       "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
     },
@@ -1945,9 +1423,9 @@
       "source_paragraph_index": 11,
       "context_step_no": 5,
       "context_text": "【阿米巴经营之概论】视频学习+研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
+      "source_course_key": "AUTO-QR-AMOEBA-INTRODUCTION",
+      "source_credit_points": 20,
+      "source_credit_status": "MAPPED",
       "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
     },
     {
@@ -1973,9 +1451,9 @@
       "source_paragraph_index": 11,
       "context_step_no": 5,
       "context_text": "【阿米巴经营之概论】视频学习+研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
+      "source_course_key": "AUTO-QR-AMOEBA-INTRODUCTION",
+      "source_credit_points": 20,
+      "source_credit_status": "MAPPED",
       "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
     },
     {
@@ -2085,9 +1563,9 @@
       "source_paragraph_index": 19,
       "context_step_no": 5,
       "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
+      "source_course_key": "AUTO-QR-HUNDRED-DAY-CAMPAIGN",
+      "source_credit_points": 20,
+      "source_credit_status": "MAPPED",
       "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
     },
     {
@@ -2113,9 +1591,9 @@
       "source_paragraph_index": 19,
       "context_step_no": 5,
       "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
+      "source_course_key": "AUTO-QR-HUNDRED-DAY-CAMPAIGN",
+      "source_credit_points": 20,
+      "source_credit_status": "MAPPED",
       "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
     },
     {
@@ -2141,9 +1619,9 @@
       "source_paragraph_index": 19,
       "context_step_no": 5,
       "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
+      "source_course_key": "AUTO-QR-HUNDRED-DAY-CAMPAIGN",
+      "source_credit_points": 20,
+      "source_credit_status": "MAPPED",
       "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
     },
     {
@@ -2169,9 +1647,9 @@
       "source_paragraph_index": 19,
       "context_step_no": 5,
       "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
+      "source_course_key": "AUTO-QR-HUNDRED-DAY-CAMPAIGN",
+      "source_credit_points": 20,
+      "source_credit_status": "MAPPED",
       "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
     },
     {
@@ -2197,9 +1675,9 @@
       "source_paragraph_index": 19,
       "context_step_no": 5,
       "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
+      "source_course_key": "AUTO-QR-HUNDRED-DAY-CAMPAIGN",
+      "source_credit_points": 20,
+      "source_credit_status": "MAPPED",
       "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
     },
     {
@@ -2225,9 +1703,9 @@
       "source_paragraph_index": 19,
       "context_step_no": 5,
       "context_text": "《百日奋战》讲解视频，启动会筹备和研讨；",
-      "source_course_key": null,
-      "source_credit_points": null,
-      "source_credit_status": "QR_REVIEW_REQUIRED",
+      "source_course_key": "AUTO-QR-HUNDRED-DAY-CAMPAIGN",
+      "source_credit_points": 20,
+      "source_credit_status": "MAPPED",
       "review_prompt": "确认课程名称、是否属于课程积分二维码以及积分；非课程或空巴后二维码要明确排除。"
     }
   ],
@@ -2451,10 +1929,10 @@
   ],
   "summary": {
     "cycle_count": 144,
-    "mapping_conflict_count": 5,
-    "mapping_missing_count": 10,
-    "unresolved_mapping_count": 15,
-    "qr_review_required_count": 15,
+    "mapping_conflict_count": 2,
+    "mapping_missing_count": 3,
+    "unresolved_mapping_count": 5,
+    "qr_review_required_count": 7,
     "course_node_review_count": 32,
     "course_node_confirmed_count": 0,
     "flow_sample_count": 9,
@@ -2479,7 +1957,8 @@
           "幸福测评",
           "幸福测评表"
         ],
-        "status": "CONFIRMED"
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
       },
       {
         "course_key": "Y1-CLASS-SPEECH-DRAFT",
@@ -2490,7 +1969,8 @@
           "班级学习会发表稿",
           "发表稿编写"
         ],
-        "status": "CONFIRMED"
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
       },
       {
         "course_key": "Y1-SIX-DILIGENCES",
@@ -2500,7 +1980,8 @@
         "aliases": [
           "六项精进"
         ],
-        "status": "CONFIRMED"
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
       },
       {
         "course_key": "Y1-TWELVE-MANAGEMENT",
@@ -2510,7 +1991,8 @@
         "aliases": [
           "经营十二条"
         ],
-        "status": "CONFIRMED"
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
       },
       {
         "course_key": "Y1-INTEGRATED-ACCOUNTING",
@@ -2520,7 +2002,8 @@
         "aliases": [
           "整体核算表"
         ],
-        "status": "CONFIRMED"
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
       },
       {
         "course_key": "Y1-ACCOUNTING-ANALYSIS-TASK",
@@ -2531,7 +2014,8 @@
           "核算表分析",
           "任务单制作"
         ],
-        "status": "CONFIRMED"
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
       },
       {
         "course_key": "Y1-SEVEN-ACCOUNTING-PRINCIPLES",
@@ -2541,27 +2025,214 @@
         "aliases": [
           "会计七原则"
         ],
-        "status": "CONFIRMED"
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
       },
       {
         "course_key": "Y1-KYOCERA-ANNUAL-PLAN",
         "course_name": "京瓷如何制定年度计划",
         "year_index": 1,
-        "credit_points": 30,
+        "credit_points": 40,
         "aliases": [
           "京瓷如何制定年度计划"
         ],
-        "status": "CONFIRMED"
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
       },
       {
         "course_key": "Y1-ANNUAL-MONTHLY-MGMT",
         "course_name": "年度计划与月度核算管理",
         "year_index": 1,
-        "credit_points": 15,
+        "credit_points": 11,
         "aliases": [
           "年度计划与月度核算管理"
         ],
-        "status": "CONFIRMED"
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-LEARNING-PRACTICE-COMMITTEE",
+        "course_name": "学习践行委培训",
+        "year_index": null,
+        "credit_points": 34,
+        "aliases": [
+          "学习践行委培训"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-HAPPINESS-CARE-COMMITTEE",
+        "course_name": "幸福关爱委培训",
+        "year_index": null,
+        "credit_points": 34,
+        "aliases": [
+          "幸福关爱委培训"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-IMPROVEMENT-INNOVATION-TRAINING",
+        "course_name": "改善创新委培训 + 如何改善创新",
+        "year_index": null,
+        "credit_points": 34,
+        "aliases": [
+          "改善创新委培训 + 如何改善创新",
+          "改善创新委培训",
+          "如何改善创新"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-OPERATING-ANALYSIS-BASIC",
+        "course_name": "如何召开经营分析会（基础版）",
+        "year_index": null,
+        "credit_points": 40,
+        "aliases": [
+          "如何召开经营分析会（基础版）"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-OPERATING-ANALYSIS-ADVANCED",
+        "course_name": "如何召开经营分析会（进阶版）",
+        "year_index": null,
+        "credit_points": 30,
+        "aliases": [
+          "如何召开经营分析会（进阶版）"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "AUTO-QR-AMOEBA-INTRODUCTION",
+        "course_name": "阿米巴经营之概论",
+        "year_index": 2,
+        "credit_points": 20,
+        "aliases": [
+          "阿米巴经营之概论"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-AMOEBA-DEPARTMENT-ACCOUNTING",
+        "course_name": "阿米巴经营之如何制作分部门核算表",
+        "year_index": null,
+        "credit_points": 20,
+        "aliases": [
+          "阿米巴经营之如何制作分部门核算表"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-INNOVATION-CASE-SHARING",
+        "course_name": "创新案例分享（塾内优秀企业家）",
+        "year_index": null,
+        "credit_points": 20,
+        "aliases": [
+          "创新案例分享（塾内优秀企业家）"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-PHILOSOPHY-MANUAL-1",
+        "course_name": "哲学手册编制 1",
+        "year_index": null,
+        "credit_points": 30,
+        "aliases": [
+          "哲学手册编制1",
+          "哲学手册编制 1"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-PHILOSOPHY-MANUAL-2",
+        "course_name": "哲学手册编制 2",
+        "year_index": null,
+        "credit_points": 30,
+        "aliases": [
+          "哲学手册编制2",
+          "哲学手册编制 2"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-HUMAN-FINANCE-SYSTEM-1",
+        "course_name": "人财培养体系 1",
+        "year_index": null,
+        "credit_points": 35,
+        "aliases": [
+          "人财培养体系1",
+          "人财培养体系 1"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-HUMAN-FINANCE-SYSTEM-2",
+        "course_name": "人财培养体系 2",
+        "year_index": null,
+        "credit_points": 35,
+        "aliases": [
+          "人财培养体系2",
+          "人财培养体系 2"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-HUMAN-FINANCE-SYSTEM-3",
+        "course_name": "人财培养体系 3",
+        "year_index": null,
+        "credit_points": 35,
+        "aliases": [
+          "人财培养体系3",
+          "人财培养体系 3"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "AUTO-QR-HUNDRED-DAY-CAMPAIGN",
+        "course_name": "如何开展百日奋战",
+        "year_index": 3,
+        "credit_points": 20,
+        "aliases": [
+          "如何开展百日奋战",
+          "百日奋战"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-VOLUNTEER-TRAINING-1",
+        "course_name": "志愿者学长培训视频1（预备班工作开展、正式班开班典礼、日常读书）",
+        "year_index": null,
+        "credit_points": 25,
+        "aliases": [
+          "志愿者学长培训视频1"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
+      },
+      {
+        "course_key": "GM-VOLUNTEER-TRAINING-2",
+        "course_name": "志愿者学长培训视频2（班级学习会、小组学习会、学员走访、学分、幸福测评）",
+        "year_index": null,
+        "credit_points": 24,
+        "aliases": [
+          "志愿者学长培训视频2"
+        ],
+        "status": "CONFIRMED",
+        "source": "USER_CONFIRMED_REFERENCE"
       }
     ]
   }

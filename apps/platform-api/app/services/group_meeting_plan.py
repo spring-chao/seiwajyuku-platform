@@ -19,6 +19,7 @@ class GroupMeetingPlanConfigError(ValueError):
 
 
 COHORT_TEMPLATE_MONTHS = (1, 4, 7, 10)
+SUPPORTED_FLOW_STATUSES = {"PARSED", "MANUALLY_CONFIRMED"}
 
 
 def _cohort_template_label(cohort_month: int) -> str:
@@ -94,7 +95,7 @@ def _flow_for_cycle(*, year_index: int, cycle_index: int, cohort_month: int) -> 
         (item for item in _flow_catalog().get("flows", []) if item.get("flow_key") == flow_key),
         None,
     )
-    if not flow or flow.get("status") != "PARSED":
+    if not flow or flow.get("status") not in SUPPORTED_FLOW_STATUSES:
         raise GroupMeetingPlanConfigError(
             f"第{cycle_index}学习周期的小组学习会内容尚未配置，请联系运营人员检查学习计划"
         )

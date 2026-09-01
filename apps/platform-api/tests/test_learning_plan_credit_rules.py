@@ -25,10 +25,12 @@ def test_catalog_has_first_year_defaults_and_pending_new_courses():
     assert data["version_status"] == "DRAFT"
     assert data["persisted"] is False
     rules = {item["course_key"]: item for item in data["rules"]}
-    assert rules["Y1-KYOCERA-ANNUAL-PLAN"]["credit_points"] == 30
+    assert rules["Y1-KYOCERA-ANNUAL-PLAN"]["credit_points"] == 40
     assert rules["Y1-KYOCERA-ANNUAL-PLAN"]["status"] == "CONFIGURED"
-    assert rules["AUTO-QR-AMOEBA-INTRODUCTION"]["credit_points"] == 0
-    assert rules["AUTO-QR-AMOEBA-INTRODUCTION"]["status"] == "PENDING"
+    assert rules["AUTO-QR-AMOEBA-INTRODUCTION"]["credit_points"] == 20
+    assert rules["AUTO-QR-AMOEBA-INTRODUCTION"]["status"] == "CONFIGURED"
+    assert rules["Y1-ANNUAL-MONTHLY-MGMT"]["credit_points"] == 11
+    assert rules["GM-HUMAN-FINANCE-SYSTEM-1"]["credit_points"] == 35
     assert data["custom_credit_allowed"] is True
 
 
@@ -116,7 +118,7 @@ def test_credit_config_api_is_protected_and_supports_new_version():
         headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
         response = client.get("/api/v1/learning-plan-course-credit-config", headers=headers)
         assert response.status_code == 200, response.text
-        assert response.json()["data"]["available_credit_points"] == [0, 15, 20, 30, 40]
+        assert response.json()["data"]["available_credit_points"] == [0, 11, 15, 20, 24, 25, 30, 34, 35, 40]
         version = client.post(
             "/api/v1/learning-plan-course-credit-config/versions",
             headers=headers,

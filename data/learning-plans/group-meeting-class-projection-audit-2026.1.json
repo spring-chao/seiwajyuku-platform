@@ -10,15 +10,13 @@
     "in_scope_class_count": 4,
     "out_of_scope_class_count": 2,
     "projected_cycle_count": 144,
-    "mapped_projected_cycle_count": 129,
-    "mapping_conflict_projected_cycle_count": 4,
-    "mapping_missing_projected_cycle_count": 11,
+    "mapped_projected_cycle_count": 144,
+    "mapping_conflict_projected_cycle_count": 0,
+    "mapping_missing_projected_cycle_count": 0,
     "plan_cycle_missing_projected_cycle_count": 0,
-    "projection_finding_count": 15,
+    "projection_finding_count": 0,
     "plan_match_status_counts": {
-      "MAPPING_CONFLICT": 4,
-      "MAPPING_MISSING": 11,
-      "MATCHED": 129
+      "MATCHED": 144
     },
     "excluded_classes_have_no_findings": true,
     "template_months": [
@@ -43,7 +41,7 @@
       "cohort_month": 4,
       "template_label": "4月开班模板",
       "learning_cycle_count": 36,
-      "plan_match_status": "REVIEW_REQUIRED",
+      "plan_match_status": "MATCHED",
       "cycle_projections": [
         {
           "projection_type": "PLANNED",
@@ -534,12 +532,10 @@
           "year_cycle_index": 2,
           "learning_cycle_label": "4月开班模板 · 第26学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_CONFLICT",
-          "plan_match_status": "MAPPING_CONFLICT",
-          "findings": [
-            "MAPPING_CONFLICT"
-          ]
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -574,12 +570,10 @@
           "year_cycle_index": 4,
           "learning_cycle_label": "4月开班模板 · 第28学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_MISSING",
-          "plan_match_status": "MAPPING_MISSING",
-          "findings": [
-            "MAPPING_MISSING"
-          ]
+          "flow_key": "Y3-C28-COHORT-1-4-BIZCONF",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -595,12 +589,10 @@
           "year_cycle_index": 5,
           "learning_cycle_label": "4月开班模板 · 第29学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_MISSING",
-          "plan_match_status": "MAPPING_MISSING",
-          "findings": [
-            "MAPPING_MISSING"
-          ]
+          "flow_key": "Y3-C29-COHORT-1-4-BIZCONF",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -835,26 +827,7 @@
         "actual_status": "NOT_LOADED",
         "schedule_override": null
       },
-      "findings": [
-        {
-          "specified_date": "2028-05",
-          "learning_cycle_index": 26,
-          "plan_match_status": "MAPPING_CONFLICT",
-          "flow_mapping_status": "MAPPING_CONFLICT"
-        },
-        {
-          "specified_date": "2028-07",
-          "learning_cycle_index": 28,
-          "plan_match_status": "MAPPING_MISSING",
-          "flow_mapping_status": "MAPPING_MISSING"
-        },
-        {
-          "specified_date": "2028-08",
-          "learning_cycle_index": 29,
-          "plan_match_status": "MAPPING_MISSING",
-          "flow_mapping_status": "MAPPING_MISSING"
-        }
-      ]
+      "findings": []
     },
     {
       "class_name": "吴越一班",
@@ -864,7 +837,7 @@
       "cohort_month": 7,
       "template_label": "7月开班模板",
       "learning_cycle_count": 36,
-      "plan_match_status": "REVIEW_REQUIRED",
+      "plan_match_status": "MATCHED",
       "cycle_projections": [
         {
           "projection_type": "PLANNED",
@@ -1355,12 +1328,10 @@
           "year_cycle_index": 2,
           "learning_cycle_label": "7月开班模板 · 第26学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_CONFLICT",
-          "plan_match_status": "MAPPING_CONFLICT",
-          "findings": [
-            "MAPPING_CONFLICT"
-          ]
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -1471,12 +1442,10 @@
           "year_cycle_index": 8,
           "learning_cycle_label": "7月开班模板 · 第32学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_MISSING",
-          "plan_match_status": "MAPPING_MISSING",
-          "findings": [
-            "MAPPING_MISSING"
-          ]
+          "flow_key": "Y3-C32-COHORT-7-BIZCONF",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -1492,12 +1461,10 @@
           "year_cycle_index": 9,
           "learning_cycle_label": "7月开班模板 · 第33学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_MISSING",
-          "plan_match_status": "MAPPING_MISSING",
-          "findings": [
-            "MAPPING_MISSING"
-          ]
+          "flow_key": "Y3-C33-COHORT-7-BIZCONF",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -1513,12 +1480,10 @@
           "year_cycle_index": 10,
           "learning_cycle_label": "7月开班模板 · 第34学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_MISSING",
-          "plan_match_status": "MAPPING_MISSING",
-          "findings": [
-            "MAPPING_MISSING"
-          ]
+          "flow_key": "Y3-C34-COHORT-7-BIZCONF",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -1658,32 +1623,7 @@
         "actual_status": "NOT_LOADED",
         "schedule_override": null
       },
-      "findings": [
-        {
-          "specified_date": "2028-08",
-          "learning_cycle_index": 26,
-          "plan_match_status": "MAPPING_CONFLICT",
-          "flow_mapping_status": "MAPPING_CONFLICT"
-        },
-        {
-          "specified_date": "2029-02",
-          "learning_cycle_index": 32,
-          "plan_match_status": "MAPPING_MISSING",
-          "flow_mapping_status": "MAPPING_MISSING"
-        },
-        {
-          "specified_date": "2029-03",
-          "learning_cycle_index": 33,
-          "plan_match_status": "MAPPING_MISSING",
-          "flow_mapping_status": "MAPPING_MISSING"
-        },
-        {
-          "specified_date": "2029-04",
-          "learning_cycle_index": 34,
-          "plan_match_status": "MAPPING_MISSING",
-          "flow_mapping_status": "MAPPING_MISSING"
-        }
-      ]
+      "findings": []
     },
     {
       "class_name": "圆融五班",
@@ -1693,7 +1633,7 @@
       "cohort_month": 7,
       "template_label": "7月开班模板",
       "learning_cycle_count": 36,
-      "plan_match_status": "REVIEW_REQUIRED",
+      "plan_match_status": "MATCHED",
       "cycle_projections": [
         {
           "projection_type": "PLANNED",
@@ -2184,12 +2124,10 @@
           "year_cycle_index": 2,
           "learning_cycle_label": "7月开班模板 · 第26学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_CONFLICT",
-          "plan_match_status": "MAPPING_CONFLICT",
-          "findings": [
-            "MAPPING_CONFLICT"
-          ]
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -2300,12 +2238,10 @@
           "year_cycle_index": 8,
           "learning_cycle_label": "7月开班模板 · 第32学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_MISSING",
-          "plan_match_status": "MAPPING_MISSING",
-          "findings": [
-            "MAPPING_MISSING"
-          ]
+          "flow_key": "Y3-C32-COHORT-7-BIZCONF",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -2321,12 +2257,10 @@
           "year_cycle_index": 9,
           "learning_cycle_label": "7月开班模板 · 第33学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_MISSING",
-          "plan_match_status": "MAPPING_MISSING",
-          "findings": [
-            "MAPPING_MISSING"
-          ]
+          "flow_key": "Y3-C33-COHORT-7-BIZCONF",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -2342,12 +2276,10 @@
           "year_cycle_index": 10,
           "learning_cycle_label": "7月开班模板 · 第34学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_MISSING",
-          "plan_match_status": "MAPPING_MISSING",
-          "findings": [
-            "MAPPING_MISSING"
-          ]
+          "flow_key": "Y3-C34-COHORT-7-BIZCONF",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -2487,32 +2419,7 @@
         "actual_status": "NOT_LOADED",
         "schedule_override": null
       },
-      "findings": [
-        {
-          "specified_date": "2028-08",
-          "learning_cycle_index": 26,
-          "plan_match_status": "MAPPING_CONFLICT",
-          "flow_mapping_status": "MAPPING_CONFLICT"
-        },
-        {
-          "specified_date": "2029-02",
-          "learning_cycle_index": 32,
-          "plan_match_status": "MAPPING_MISSING",
-          "flow_mapping_status": "MAPPING_MISSING"
-        },
-        {
-          "specified_date": "2029-03",
-          "learning_cycle_index": 33,
-          "plan_match_status": "MAPPING_MISSING",
-          "flow_mapping_status": "MAPPING_MISSING"
-        },
-        {
-          "specified_date": "2029-04",
-          "learning_cycle_index": 34,
-          "plan_match_status": "MAPPING_MISSING",
-          "flow_mapping_status": "MAPPING_MISSING"
-        }
-      ]
+      "findings": []
     },
     {
       "class_name": "吴越三班",
@@ -2522,7 +2429,7 @@
       "cohort_month": 7,
       "template_label": "7月开班模板",
       "learning_cycle_count": 36,
-      "plan_match_status": "REVIEW_REQUIRED",
+      "plan_match_status": "MATCHED",
       "cycle_projections": [
         {
           "projection_type": "PLANNED",
@@ -3013,12 +2920,10 @@
           "year_cycle_index": 2,
           "learning_cycle_label": "7月开班模板 · 第26学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_CONFLICT",
-          "plan_match_status": "MAPPING_CONFLICT",
-          "findings": [
-            "MAPPING_CONFLICT"
-          ]
+          "flow_key": "Y3-C26-COHORT-1-4-7-c5846a2908",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -3129,12 +3034,10 @@
           "year_cycle_index": 8,
           "learning_cycle_label": "7月开班模板 · 第32学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_MISSING",
-          "plan_match_status": "MAPPING_MISSING",
-          "findings": [
-            "MAPPING_MISSING"
-          ]
+          "flow_key": "Y3-C32-COHORT-7-BIZCONF",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -3150,12 +3053,10 @@
           "year_cycle_index": 9,
           "learning_cycle_label": "7月开班模板 · 第33学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_MISSING",
-          "plan_match_status": "MAPPING_MISSING",
-          "findings": [
-            "MAPPING_MISSING"
-          ]
+          "flow_key": "Y3-C33-COHORT-7-BIZCONF",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -3171,12 +3072,10 @@
           "year_cycle_index": 10,
           "learning_cycle_label": "7月开班模板 · 第34学习周期",
           "plan_cycle_id": null,
-          "flow_key": null,
-          "flow_mapping_status": "MAPPING_MISSING",
-          "plan_match_status": "MAPPING_MISSING",
-          "findings": [
-            "MAPPING_MISSING"
-          ]
+          "flow_key": "Y3-C34-COHORT-7-BIZCONF",
+          "flow_mapping_status": "MAPPED",
+          "plan_match_status": "MATCHED",
+          "findings": []
         },
         {
           "projection_type": "PLANNED",
@@ -3316,32 +3215,7 @@
         "actual_status": "NOT_LOADED",
         "schedule_override": null
       },
-      "findings": [
-        {
-          "specified_date": "2028-08",
-          "learning_cycle_index": 26,
-          "plan_match_status": "MAPPING_CONFLICT",
-          "flow_mapping_status": "MAPPING_CONFLICT"
-        },
-        {
-          "specified_date": "2029-02",
-          "learning_cycle_index": 32,
-          "plan_match_status": "MAPPING_MISSING",
-          "flow_mapping_status": "MAPPING_MISSING"
-        },
-        {
-          "specified_date": "2029-03",
-          "learning_cycle_index": 33,
-          "plan_match_status": "MAPPING_MISSING",
-          "flow_mapping_status": "MAPPING_MISSING"
-        },
-        {
-          "specified_date": "2029-04",
-          "learning_cycle_index": 34,
-          "plan_match_status": "MAPPING_MISSING",
-          "flow_mapping_status": "MAPPING_MISSING"
-        }
-      ]
+      "findings": []
     },
     {
       "class_name": "神仙班",
