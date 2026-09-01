@@ -326,6 +326,7 @@ def get_study_meeting_context(
                         meeting_plan = build_group_meeting_plan(
                             plan_cycle=plan_cycle,
                             cohort_month=cycle_data["binding"].get("cohort_month"),
+                            learning_cycle_index=int(cycle["learning_cycle_index"]),
                         )
                     except GroupMeetingPlanConfigError as exc:
                         meeting_plan_error = str(exc)

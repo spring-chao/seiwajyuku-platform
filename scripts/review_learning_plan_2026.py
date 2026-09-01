@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from learning_plan_semantics import cohort_template_label, learning_cycle_label
 from learning_plan_2026 import COHORT_MONTHS, assert_valid_plan
 
 
@@ -160,9 +161,16 @@ def _checkpoint(plan: dict[str, Any], cohort_month: int, cycle_index: int) -> di
         if task.get("credit_points") is not None
     ]
     return {
+        # Keep checkpoint_id stable for existing review records and API
+        # consumers; expose the business meaning explicitly beside it.
         "checkpoint_id": f"{cohort_month}-{cycle_index}",
+        "checkpoint_label": f"cohort_month={cohort_month}, learning_cycle_index={cycle_index}",
+        "template_key": f"COHORT_MONTH_{cohort_month:02d}",
+        "template_label": cohort_template_label(cohort_month),
         "cohort_month": cohort_month,
         "cycle_index": cycle_index,
+        "learning_cycle_index": cycle_index,
+        "learning_cycle_label": learning_cycle_label(cohort_month, cycle_index),
         "year_index": cycle.get("year_index"),
         "year_cycle_index": cycle.get("year_cycle_index"),
         "nominal_calendar_month": cycle.get("nominal_calendar_month"),

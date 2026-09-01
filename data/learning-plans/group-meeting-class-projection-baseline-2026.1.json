@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "status": "AUDIT_INPUT",
+  "scope_source": "user_confirmed_class_scope_2026-09-01",
+  "description": "真实班级投影审计基线；学习计划范围用声明式配置表达，不作为运行时班级名称判断。",
+  "classes": [
+    {
+      "class_name": "吴越二班",
+      "actual_open_year_month": "2026-04",
+      "cohort_month": 4,
+      "learning_plan_scope": "GROUP_MEETING_36_CYCLES",
+      "specified_dates": [
+        "2026-04",
+        "2026-05",
+        "2027-04",
+        "2029-03"
+      ]
+    },
+    {
+      "class_name": "吴越一班",
+      "actual_open_year_month": "2026-07",
+      "cohort_month": 7,
+      "learning_plan_scope": "GROUP_MEETING_36_CYCLES",
+      "specified_dates": [
+        "2026-07",
+        "2026-08",
+        "2027-07",
+        "2029-06"
+      ]
+    },
+    {
+      "class_name": "圆融五班",
+      "actual_open_year_month": "2026-07",
+      "cohort_month": 7,
+      "learning_plan_scope": "GROUP_MEETING_36_CYCLES",
+      "specified_dates": [
+        "2026-07",
+        "2026-08",
+        "2027-07",
+        "2029-06"
+      ]
+    },
+    {
+      "class_name": "吴越三班",
+      "actual_open_year_month": "2026-07",
+      "cohort_month": 7,
+      "learning_plan_scope": "GROUP_MEETING_36_CYCLES",
+      "specified_dates": [
+        "2026-07",
+        "2026-08",
+        "2027-07",
+        "2029-06"
+      ]
+    },
+    {
+      "class_name": "神仙班",
+      "learning_plan_scope": "OUT_OF_SCOPE",
+      "exclusion_reason": "本次不设置小组学习会 36 周期强制要求"
+    },
+    {
+      "class_name": "先锋班",
+      "learning_plan_scope": "OUT_OF_SCOPE",
+      "exclusion_reason": "本次不设置小组学习会 36 周期强制要求"
+    }
+  ]
+}

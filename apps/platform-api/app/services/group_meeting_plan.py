@@ -18,6 +18,18 @@ class GroupMeetingPlanConfigError(ValueError):
     """The current cycle cannot be mapped to one safe meeting plan."""
 
 
+COHORT_TEMPLATE_MONTHS = (1, 4, 7, 10)
+
+
+def _cohort_template_label(cohort_month: int) -> str:
+    month = int(cohort_month)
+    if month not in COHORT_TEMPLATE_MONTHS:
+        raise GroupMeetingPlanConfigError(
+            "小组学习会只支持 1、4、7、10 月开班月份模板"
+        )
+    return f"{month}月开班模板"
+
+
 def _data_root() -> Path:
     for parent in Path(__file__).resolve().parents:
         candidate = parent / "data" / "learning-plans"
@@ -39,7 +51,7 @@ def _cycle_flow_mapping() -> dict[tuple[int, int, int], dict[str, Any]]:
     return {
         (
             int(item.get("year_index") or 0),
-            int(item.get("cycle_index") or 0),
+            int(item.get("learning_cycle_index") or item.get("cycle_index") or 0),
             int(item.get("cohort_month") or 0),
         ): item
         for item in payload.get("mappings", [])
@@ -60,6 +72,10 @@ def _normalize_text(value: Any) -> str:
 
 
 def _flow_for_cycle(*, year_index: int, cycle_index: int, cohort_month: int) -> dict[str, Any]:
+    if cohort_month not in COHORT_TEMPLATE_MONTHS:
+        raise GroupMeetingPlanConfigError(
+            "小组学习会只支持 1、4、7、10 月开班月份模板"
+        )
     mapping = _cycle_flow_mapping().get((year_index, cycle_index, cohort_month))
     if not mapping or mapping.get("status") == "MAPPING_MISSING":
         raise GroupMeetingPlanConfigError(
@@ -115,6 +131,7 @@ def build_group_meeting_plan(
     *,
     plan_cycle: dict[str, Any],
     cohort_month: int | None,
+    learning_cycle_index: int | None = None,
 ) -> dict[str, Any]:
     """Return a public-safe meeting plan for one active ``plan_cycle``.
 
@@ -127,12 +144,28 @@ def build_group_meeting_plan(
         raise GroupMeetingPlanConfigError(
             "班级尚未配置开班批次，无法确定当前小组学习会内容"
         )
-    cycle_index = int(plan_cycle.get("cycle_index") or 0)
+    cohort_month = int(cohort_month)
+    template_label = _cohort_template_label(cohort_month)
+    plan_cycle_index = int(
+        plan_cycle.get("learning_cycle_index")
+        or plan_cycle.get("cycle_index")
+        or 0
+    )
+    cycle_index = int(learning_cycle_index or plan_cycle_index)
     year_index = int(plan_cycle.get("year_index") or 0)
     if not cycle_index or not year_index:
         raise GroupMeetingPlanConfigError("当前学习周期缺少有效的学习计划索引")
+    if plan_cycle_index and plan_cycle_index != cycle_index:
+        raise GroupMeetingPlanConfigError(
+            "当前学习周期与学习计划周期不一致，请联系运营人员检查学习计划"
+        )
+    expected_year_index = ((cycle_index - 1) // 12) + 1 if 1 <= cycle_index <= 36 else 0
+    if expected_year_index != year_index:
+        raise GroupMeetingPlanConfigError(
+            "当前学习周期与学习计划学年不一致，请联系运营人员检查学习计划"
+        )
     plan_cohort_month = plan_cycle.get("cohort_month")
-    if plan_cohort_month is not None and int(plan_cohort_month) != int(cohort_month):
+    if plan_cohort_month is not None and int(plan_cohort_month) != cohort_month:
         raise GroupMeetingPlanConfigError(
             "当前学习周期与班级开班批次不一致，请联系运营人员检查学习计划"
         )
@@ -199,6 +232,12 @@ def build_group_meeting_plan(
     return {
         "configuration_status": "CONFIGURED",
         "plan_cycle_id": int(plan_cycle["id"]),
+        "cohort_month": cohort_month,
+        "cohort_template_label": template_label,
+        "learning_cycle_index": cycle_index,
+        "learning_cycle_label": f"{template_label} · 第{cycle_index}学习周期",
+        # Keep cycle_index for existing admin consumers until V1.3-C removes
+        # the legacy course-selection contract.
         "cycle_index": cycle_index,
         "year_index": year_index,
         "year_cycle_index": ((cycle_index - 1) % 12) + 1,

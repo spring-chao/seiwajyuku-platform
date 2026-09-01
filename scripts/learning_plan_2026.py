@@ -4,6 +4,10 @@ The Excel workbooks are treated as source evidence.  Only the explicitly
 listed formal cohort sheets are read; draft, pilot and explanatory sheets are
 never discovered implicitly.  The JSON produced by this module is the review
 boundary between source workbooks and runtime database rows.
+
+The four source tracks are opening-month templates (1, 4, 7 and 10), while
+each track's ``cycle_index`` is the class-relative 1-to-36 learning-cycle
+index.  A source workbook's ``nominal_calendar_month`` is evidence only.
 """
 
 from __future__ import annotations
@@ -15,11 +19,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterable
 
+from learning_plan_semantics import COHORT_TEMPLATE_MONTHS, cohort_template_label
+
 
 PLAN_KEY = "standard-3y"
 VERSION_LABEL = "2026"
 SUPPORTED_VERSION_LABEL_RE = re.compile(r"^2026(?:\.\d+)?$")
-COHORT_MONTHS = (1, 4, 7, 10)
+# These are opening-month template tracks, not learning-cycle numbers.
+COHORT_MONTHS = COHORT_TEMPLATE_MONTHS
 TASK_TYPES = {
     "CLASS_MEETING",
     "GROUP_MEETING",
@@ -631,25 +638,25 @@ def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
 
     tracks = plan.get("cohort_tracks")
     if not isinstance(tracks, list) or len(tracks) != 4:
-        errors.append("必须正好包含 4 条开班轨道")
+        errors.append("必须正好包含 4 条开班月份模板轨道")
         tracks = tracks if isinstance(tracks, list) else []
     seen_cohorts: set[int] = set()
     for track in tracks:
         cohort = track.get("cohort_month")
         if cohort not in COHORT_MONTHS:
-            errors.append(f"非法开班批次: {cohort}")
+            errors.append(f"非法开班月份模板: {cohort}")
             continue
         if cohort in seen_cohorts:
-            errors.append(f"开班批次重复: {cohort}月")
+            errors.append(f"开班月份模板重复: {cohort}月")
         seen_cohorts.add(cohort)
         cycles = track.get("cycles")
         if not isinstance(cycles, list) or len(cycles) != 36:
-            errors.append(f"{cohort}月轨道必须包含36个周期")
+            errors.append(f"{cohort_template_label(cohort)}必须包含36个学习周期")
             cycles = cycles if isinstance(cycles, list) else []
         indexes = [cycle.get("cycle_index") for cycle in cycles]
         expected_indexes = list(range(1, 37))
         if indexes != expected_indexes:
-            errors.append(f"{cohort}月轨道 cycle_index 断档或串轨")
+            errors.append(f"{cohort_template_label(cohort)} learning_cycle_index 断档或串轨")
         for cycle in cycles:
             index = cycle.get("cycle_index")
             year_index = cycle.get("year_index")
@@ -657,20 +664,20 @@ def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
             expected_year = ((int(index) - 1) // 12) + 1 if isinstance(index, int) else None
             expected_year_cycle = ((int(index) - 1) % 12) + 1 if isinstance(index, int) else None
             if year_index != expected_year or year_cycle_index != expected_year_cycle:
-                errors.append(f"{cohort}月轨道第{index}周期的学年索引不一致")
+                errors.append(f"{cohort_template_label(cohort)}第{index}学习周期的学年索引不一致")
             for task in cycle.get("tasks", []):
                 task_type = task.get("task_type")
                 if task_type not in TASK_TYPES:
-                    errors.append(f"{cohort}月轨道第{index}周期存在未知任务类型 {task_type}")
+                    errors.append(f"{cohort_template_label(cohort)}第{index}学习周期存在未知任务类型 {task_type}")
                 if task_type == "GROUP_MEETING" and task.get("credit_points") is not None:
-                    errors.append(f"{cohort}月轨道第{index}周期 GROUP_MEETING 不得配置任务级学分")
+                    errors.append(f"{cohort_template_label(cohort)}第{index}学习周期 GROUP_MEETING 不得配置任务级学分")
                 elif task.get("credit_points") is not None and task.get("credit_points") not in {20, 40}:
-                    errors.append(f"{cohort}月轨道第{index}周期存在非规则学分")
+                    errors.append(f"{cohort_template_label(cohort)}第{index}学习周期存在非规则学分")
                 if not task.get("metadata", {}).get("source_sheet") or not task.get("metadata", {}).get("source_cell"):
-                    errors.append(f"{cohort}月轨道第{index}周期任务缺少源单元格元数据")
+                    errors.append(f"{cohort_template_label(cohort)}第{index}学习周期任务缺少源单元格元数据")
 
     if len(seen_cohorts) != 4:
-        errors.append("开班批次必须覆盖 1、4、7、10 月")
+        errors.append("开班月份模板必须覆盖 1、4、7、10 月")
     if report["cycle_count"] != 144:
         errors.append("总周期必须为 144")
     if report["unknown_task_type_count"]:
@@ -679,7 +686,7 @@ def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
         errors.append(
             "小组学习会缺失周期: "
             + ", ".join(
-                f"{item['cohort_month']}月/{item['cycle_index']}"
+                f"cohort_month={item['cohort_month']}, learning_cycle_index={item['cycle_index']}"
                 for item in report["missing_group_meeting_cycles"][:12]
             )
         )

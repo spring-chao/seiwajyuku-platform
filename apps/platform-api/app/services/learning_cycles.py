@@ -13,6 +13,7 @@ from app.services.iam import accessible_org_ids
 CLASS_MEETING_STATUSES = {"PLANNED", "POSTPONED"}
 GROUP_MEETING_POLICIES = {"REQUIRED", "SUSPENDED", "WAIVED"}
 GROUP_TASK_STATUSES = {"PENDING", "COMPLETED", "WAIVED"}
+COHORT_TEMPLATE_MONTHS = {1, 4, 7, 10}
 
 
 def _now() -> str:
@@ -80,6 +81,10 @@ def _plan_cycle_payload(connection, plan_cycle_id: int) -> dict[str, Any] | None
     if not cycle:
         return None
     result = dict(cycle)
+    # ``cycle_index`` is the legacy storage/API name.  Keep it for existing
+    # consumers, but expose the business meaning explicitly: this is the
+    # class-relative learning cycle, not the cohort template month.
+    result["learning_cycle_index"] = int(cycle["cycle_index"])
     tasks = execute(
         connection,
         "SELECT id, task_type, title, description, credit_points, is_required, "
@@ -305,8 +310,8 @@ def bind_class_learning_plan(
     cohort_month: int | None = None, started_at: str | None = None,
 ) -> dict[str, Any]:
     _visible_class(class_org_unit_id, actor_user_id)
-    if cohort_month is not None and not 1 <= int(cohort_month) <= 12:
-        raise ValueError("开班批次月份必须在 1 到 12 之间")
+    if cohort_month is not None and int(cohort_month) not in COHORT_TEMPLATE_MONTHS:
+        raise ValueError("开班月份模板必须是 1、4、7 或 10 月")
     start = _normalize_datetime(started_at, "学习计划开始时间") or _now()
     now = _now()
     with transaction() as connection:

@@ -1,6 +1,7 @@
-"""Map confirmed-plan cycles to formal group-meeting flow documents.
+"""Map learning-plan template cycles to formal group-meeting flow documents.
 
-The resolver uses plan track + study year + cycle index + cohort eligibility.
+The resolver uses ``cohort_month`` as an opening-month template and
+``learning_cycle_index`` as the class-relative cycle number.  The source
 ``nominal_calendar_month`` is copied as evidence only and is never a lookup
 key, so a delayed class meeting cannot silently switch a cohort's flow.
 """
@@ -13,6 +14,12 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from learning_plan_semantics import (
+    COHORT_TEMPLATE_MONTHS,
+    cohort_template_label,
+    learning_cycle_label,
+)
 
 
 DEFAULT_PLAN = Path("data/learning-plans/standard-3y-2026.json")
@@ -35,6 +42,8 @@ def build_mapping(plan_path: Path, flows_path: Path) -> dict[str, Any]:
     entries: list[dict[str, Any]] = []
     for track in plan.get("cohort_tracks", []):
         cohort_month = int(track["cohort_month"])
+        if cohort_month not in COHORT_TEMPLATE_MONTHS:
+            raise ValueError(f"非法开班月份模板: {cohort_month}")
         for cycle in track.get("cycles", []):
             cycle_index = int(cycle["cycle_index"])
             year_index = int(cycle["year_index"])
@@ -51,8 +60,12 @@ def build_mapping(plan_path: Path, flows_path: Path) -> dict[str, Any]:
             entries.append(
                 {
                     "mapping_key": f"{cohort_month}-{cycle_index}",
+                    "template_key": f"COHORT_MONTH_{cohort_month:02d}",
+                    "template_label": cohort_template_label(cohort_month),
                     "cohort_month": cohort_month,
                     "cycle_index": cycle_index,
+                    "learning_cycle_index": cycle_index,
+                    "learning_cycle_label": learning_cycle_label(cohort_month, cycle_index),
                     "year_index": year_index,
                     "year_cycle_index": cycle.get("year_cycle_index"),
                     "nominal_calendar_month": cycle.get("nominal_calendar_month"),
@@ -64,8 +77,9 @@ def build_mapping(plan_path: Path, flows_path: Path) -> dict[str, Any]:
                     ],
                     "lookup_key": {
                         "plan_version": plan.get("version_label"),
+                        "template_key": f"COHORT_MONTH_{cohort_month:02d}",
                         "cohort_month": cohort_month,
-                        "cycle_index": cycle_index,
+                        "learning_cycle_index": cycle_index,
                         "year_index": year_index,
                     },
                     "calendar_month_used_as_primary_key": False,
@@ -73,6 +87,8 @@ def build_mapping(plan_path: Path, flows_path: Path) -> dict[str, Any]:
             )
     quality = {
         "entry_count": len(entries),
+        "template_count": len(plan.get("cohort_tracks", [])),
+        "template_cycle_definition": "4个开班月份模板 × 36学习周期",
         "mapped_count": sum(entry["status"] == "MAPPED" for entry in entries),
         "missing_count": sum(entry["status"] == "MAPPING_MISSING" for entry in entries),
         "conflict_count": sum(entry["status"] == "MAPPING_CONFLICT" for entry in entries),

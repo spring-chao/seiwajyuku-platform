@@ -222,7 +222,7 @@ def _learning_plan_group_meeting_flow_payload() -> dict:
 
 class LearningPlanBindingPayload(BaseModel):
     plan_version_id: int = Field(gt=0)
-    cohort_month: int | None = Field(default=None, ge=1, le=12)
+    cohort_month: Literal[1, 4, 7, 10] | None = None
     started_at: str | None = Field(default=None, max_length=64)
 
 

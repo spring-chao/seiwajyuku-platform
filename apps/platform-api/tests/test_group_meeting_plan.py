@@ -32,6 +32,10 @@ def test_cycle_five_returns_required_video_without_qr() -> None:
 
     assert meeting_plan["configuration_status"] == "CONFIGURED"
     assert meeting_plan["plan_cycle_id"] == 9005
+    assert meeting_plan["cohort_month"] == 4
+    assert meeting_plan["cohort_template_label"] == "4月开班模板"
+    assert meeting_plan["learning_cycle_index"] == 5
+    assert meeting_plan["learning_cycle_label"] == "4月开班模板 · 第5学习周期"
     assert meeting_plan["cycle_index"] == 5
     assert meeting_plan["year_index"] == 1
     assert meeting_plan["learning_contents"] == [
@@ -66,6 +70,15 @@ def test_plan_cycle_cohort_mismatch_fails_closed() -> None:
     with pytest.raises(GroupMeetingPlanConfigError, match="开班批次"):
         build_group_meeting_plan(
             plan_cycle=_cycle(cohort_month=4, cycle_index=5), cohort_month=7
+        )
+
+
+def test_runtime_cycle_mismatch_fails_closed() -> None:
+    with pytest.raises(GroupMeetingPlanConfigError, match="学习计划周期不一致"):
+        build_group_meeting_plan(
+            plan_cycle=_cycle(cohort_month=4, cycle_index=5),
+            cohort_month=4,
+            learning_cycle_index=6,
         )
 
 

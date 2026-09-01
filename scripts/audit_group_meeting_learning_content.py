@@ -14,6 +14,12 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from learning_plan_semantics import (
+    COHORT_TEMPLATE_MONTHS,
+    cohort_template_label,
+    learning_cycle_label,
+)
+
 
 DEFAULT_ROOT = Path("data/learning-plans")
 DEFAULT_OUTPUT = DEFAULT_ROOT / "group-meeting-learning-content-audit-2026.1.json"
@@ -73,6 +79,8 @@ def build_audit(
     for item in mapping.get("mappings", []):
         cohort_month = int(item["cohort_month"])
         cycle_index = int(item["cycle_index"])
+        if cohort_month not in COHORT_TEMPLATE_MONTHS:
+            raise ValueError(f"非法开班月份模板: {cohort_month}")
         flow = flows.get(item.get("flow_key"))
         nodes = list(flow.get("learning_content_nodes", [])) if flow else []
         plan_cycle = plan_tracks.get((cohort_month, cycle_index), {})
@@ -102,7 +110,11 @@ def build_audit(
         entries.append(
             {
                 "cohort_month": cohort_month,
+                "template_key": item.get("template_key") or f"COHORT_MONTH_{cohort_month:02d}",
+                "template_label": item.get("template_label") or cohort_template_label(cohort_month),
                 "cycle_index": cycle_index,
+                "learning_cycle_index": cycle_index,
+                "learning_cycle_label": item.get("learning_cycle_label") or learning_cycle_label(cohort_month, cycle_index),
                 "year_index": item.get("year_index"),
                 "year_cycle_index": item.get("year_cycle_index"),
                 "mapping_status": item.get("status"),
@@ -147,6 +159,12 @@ def build_audit(
         "status": "AUDIT_ONLY",
         "summary": {
             "cohort_track_count": len(plan.get("cohort_tracks", [])),
+            "audit_model": "cohort_month_template_x_learning_cycle_index",
+            "template_cycle_definition": "4个开班月份模板 × 36学习周期",
+            "cycles_per_template": {
+                str(track.get("cohort_month")): len(track.get("cycles", []))
+                for track in plan.get("cohort_tracks", [])
+            },
             "cycles_per_track": {
                 str(track.get("cohort_month")): len(track.get("cycles", []))
                 for track in plan.get("cohort_tracks", [])
@@ -177,7 +195,19 @@ def build_audit(
         "findings": {
             "required_video_without_qr": [
                 {
+                    "cohort_month": flow.get("eligible_cohort_months"),
+                    "template_label": [
+                        cohort_template_label(month)
+                        for month in (flow.get("eligible_cohort_months") or [])
+                        if month in COHORT_TEMPLATE_MONTHS
+                    ],
                     "cycle_index": flow.get("cycle_index"),
+                    "learning_cycle_index": flow.get("cycle_index"),
+                    "learning_cycle_label": [
+                        learning_cycle_label(month, int(flow.get("cycle_index") or 0))
+                        for month in (flow.get("eligible_cohort_months") or [])
+                        if month in COHORT_TEMPLATE_MONTHS and flow.get("cycle_index")
+                    ],
                     "year_index": flow.get("year_index"),
                     "cohort_months": flow.get("eligible_cohort_months"),
                     "title": node.get("title"),
@@ -191,7 +221,19 @@ def build_audit(
             ],
             "learning_content_without_credit_rule": [
                 {
+                    "cohort_month": flow.get("eligible_cohort_months"),
+                    "template_label": [
+                        cohort_template_label(month)
+                        for month in (flow.get("eligible_cohort_months") or [])
+                        if month in COHORT_TEMPLATE_MONTHS
+                    ],
                     "cycle_index": flow.get("cycle_index"),
+                    "learning_cycle_index": flow.get("cycle_index"),
+                    "learning_cycle_label": [
+                        learning_cycle_label(month, int(flow.get("cycle_index") or 0))
+                        for month in (flow.get("eligible_cohort_months") or [])
+                        if month in COHORT_TEMPLATE_MONTHS and flow.get("cycle_index")
+                    ],
                     "year_index": flow.get("year_index"),
                     "cohort_months": flow.get("eligible_cohort_months"),
                     "title": node.get("title"),
@@ -203,7 +245,19 @@ def build_audit(
             ],
             "qr_without_credit_rule": [
                 {
+                    "cohort_month": flow.get("eligible_cohort_months"),
+                    "template_label": [
+                        cohort_template_label(month)
+                        for month in (flow.get("eligible_cohort_months") or [])
+                        if month in COHORT_TEMPLATE_MONTHS
+                    ],
                     "cycle_index": flow.get("cycle_index"),
+                    "learning_cycle_index": flow.get("cycle_index"),
+                    "learning_cycle_label": [
+                        learning_cycle_label(month, int(flow.get("cycle_index") or 0))
+                        for month in (flow.get("eligible_cohort_months") or [])
+                        if month in COHORT_TEMPLATE_MONTHS and flow.get("cycle_index")
+                    ],
                     "year_index": flow.get("year_index"),
                     "cohort_months": flow.get("eligible_cohort_months"),
                     "context_step_no": node.get("context_step_no"),

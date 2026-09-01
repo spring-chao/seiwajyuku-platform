@@ -185,6 +185,14 @@ def test_review_manifest_binds_json_hash_and_all_36_checkpoints(tmp_path: Path) 
     manifest = build_review_manifest(plan, source_commit="370dc94", source_json=source_json)
     assert manifest["status"] == "PENDING"
     assert manifest["required_checkpoint_count"] == 36
+    checkpoint = next(
+        item
+        for item in manifest["checkpoints"]
+        if item["cohort_month"] == 1 and item["learning_cycle_index"] == 1
+    )
+    assert checkpoint["template_label"] == "1月开班模板"
+    assert checkpoint["checkpoint_label"] == "cohort_month=1, learning_cycle_index=1"
+    assert checkpoint["learning_cycle_label"] == "1月开班模板 · 第1学习周期"
     verify_review_manifest(manifest, plan=plan, source_json=source_json, expected_source_commit="370dc94")
 
     confirmed = json.loads(json.dumps(manifest))

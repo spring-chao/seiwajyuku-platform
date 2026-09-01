@@ -218,8 +218,18 @@ def test_unknown_course_credit_stays_null() -> None:
 def test_cycle_flow_mapping_does_not_use_calendar_month_as_primary_key() -> None:
     payload = json.loads(MAPPING.read_text(encoding="utf-8"))
     assert payload["quality_report"]["entry_count"] == 144
+    assert payload["quality_report"]["template_count"] == 4
+    assert payload["quality_report"]["template_cycle_definition"] == "4个开班月份模板 × 36学习周期"
     assert payload["quality_report"]["calendar_month_used_as_primary_key"] is False
     assert all(not item["calendar_month_used_as_primary_key"] for item in payload["mappings"])
+    sample = next(
+        item
+        for item in payload["mappings"]
+        if item["cohort_month"] == 1 and item["learning_cycle_index"] == 26
+    )
+    assert sample["template_label"] == "1月开班模板"
+    assert sample["learning_cycle_label"] == "1月开班模板 · 第26学习周期"
+    assert sample["lookup_key"]["learning_cycle_index"] == 26
 
 
 def _valid_adjustment() -> tuple[dict, dict]:

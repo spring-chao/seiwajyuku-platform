@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from learning_plan_semantics import cohort_template_label, learning_cycle_label
+
 
 DEFAULT_ROOT = Path("data/learning-plans")
 DEFAULT_OUTPUT = DEFAULT_ROOT / "standard-3y-2026.1.review.json"
@@ -136,8 +138,18 @@ def build_review(
         status = mapping.get("status")
         fields = {
             "mapping_key": mapping.get("mapping_key"),
+            "template_key": mapping.get("template_key"),
+            "template_label": mapping.get("template_label")
+            or cohort_template_label(int(mapping.get("cohort_month") or 0)),
             "cohort_month": mapping.get("cohort_month"),
             "cycle_index": mapping.get("cycle_index"),
+            "learning_cycle_index": mapping.get("learning_cycle_index")
+            or mapping.get("cycle_index"),
+            "learning_cycle_label": mapping.get("learning_cycle_label")
+            or learning_cycle_label(
+                int(mapping.get("cohort_month") or 0),
+                int(mapping.get("learning_cycle_index") or mapping.get("cycle_index") or 0),
+            ),
             "year_index": mapping.get("year_index"),
             "year_cycle_index": mapping.get("year_cycle_index"),
             "candidate_flow_keys": mapping.get("candidate_flow_keys", []),
