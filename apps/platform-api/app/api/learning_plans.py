@@ -12,8 +12,11 @@ from app.api.auth import require_permission
 from app.services.learning_cycles import (
     bind_class_learning_plan,
     confirm_class_meeting,
+    clear_learning_cycle_schedule_override,
+    get_class_learning_schedule,
     get_class_learning_progress,
     list_learning_plans,
+    set_learning_cycle_schedule_override,
     update_current_learning_cycle,
 )
 from app.services.course_credit_rules import (
@@ -246,6 +249,11 @@ class ConfirmClassMeetingPayload(BaseModel):
     confirmation_reason: str | None = Field(default=None, max_length=1000)
 
 
+class LearningCycleScheduleOverridePayload(BaseModel):
+    planned_class_meeting_at: str = Field(min_length=1, max_length=64)
+    adjustment_reason: str = Field(min_length=1, max_length=1000)
+
+
 class CourseCreditRuleUpdatePayload(BaseModel):
     version_label: str = Field(default=DEFAULT_VERSION_LABEL, min_length=1, max_length=64)
     credit_points: int = Field(ge=0, le=999)
@@ -447,6 +455,22 @@ def learning_progress(
     return {"success": True, "data": data}
 
 
+@router.get("/classes/{class_org_unit_id}/learning-cycle-schedule")
+def learning_cycle_schedule(
+    class_org_unit_id: str,
+    user: dict = Depends(require_permission("plans:read")),
+) -> dict:
+    try:
+        data = get_class_learning_schedule(
+            user_id=user["id"], class_org_unit_id=class_org_unit_id
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
 @router.patch("/classes/{class_org_unit_id}/learning-cycles/current")
 def update_learning_cycle(
     class_org_unit_id: str,
@@ -457,6 +481,51 @@ def update_learning_cycle(
         data = update_current_learning_cycle(
             actor_user_id=user["id"], class_org_unit_id=class_org_unit_id,
             updates=payload.model_dump(exclude_unset=True),
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.put(
+    "/classes/{class_org_unit_id}/learning-cycles/{learning_cycle_index}/schedule-override"
+)
+def set_learning_cycle_schedule(
+    class_org_unit_id: str,
+    learning_cycle_index: int,
+    payload: LearningCycleScheduleOverridePayload,
+    user: dict = Depends(require_permission("plans:period_write")),
+) -> dict:
+    try:
+        data = set_learning_cycle_schedule_override(
+            actor_user_id=user["id"],
+            class_org_unit_id=class_org_unit_id,
+            learning_cycle_index=learning_cycle_index,
+            planned_class_meeting_at=payload.planned_class_meeting_at,
+            adjustment_reason=payload.adjustment_reason,
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.delete(
+    "/classes/{class_org_unit_id}/learning-cycles/{learning_cycle_index}/schedule-override"
+)
+def clear_learning_cycle_schedule(
+    class_org_unit_id: str,
+    learning_cycle_index: int,
+    user: dict = Depends(require_permission("plans:period_write")),
+) -> dict:
+    try:
+        data = clear_learning_cycle_schedule_override(
+            actor_user_id=user["id"],
+            class_org_unit_id=class_org_unit_id,
+            learning_cycle_index=learning_cycle_index,
         )
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc

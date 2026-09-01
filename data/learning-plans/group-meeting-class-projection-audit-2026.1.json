@@ -1,9 +1,9 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "plan_key": "standard-3y",
   "version_label": "2026.1",
   "status": "AUDIT_ONLY",
-  "projection_model": "class_open_year_month -> learning_cycle_index -> cohort_month_template -> group_meeting_flow",
+  "projection_model": "PLANNED: class_open_year_month -> learning_cycle_index -> cohort_month_template -> group_meeting_flow; ACTUAL_CURRENT: class_learning_cycles runtime state",
   "scope_source": "user_confirmed_class_scope_2026-09-01",
   "summary": {
     "class_count": 6,
@@ -27,7 +27,12 @@
       7,
       10
     ],
-    "template_cycle_definition": "4个开班月份模板 × 36学习周期"
+    "template_cycle_definition": "4个开班月份模板 × 36学习周期",
+    "projection_types": {
+      "planned": "PLANNED",
+      "actual_current": "ACTUAL_CURRENT"
+    },
+    "actual_projection_status": "NOT_PROVIDED"
   },
   "classes": [
     {
@@ -41,12 +46,14 @@
       "plan_match_status": "REVIEW_REQUIRED",
       "cycle_projections": [
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2026-04",
+          "planned_month": "2026-04",
           "learning_cycle_index": 1,
           "year_index": 1,
           "year_cycle_index": 1,
@@ -58,12 +65,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2026-05",
+          "planned_month": "2026-05",
           "learning_cycle_index": 2,
           "year_index": 1,
           "year_cycle_index": 2,
@@ -75,12 +84,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2026-06",
+          "planned_month": "2026-06",
           "learning_cycle_index": 3,
           "year_index": 1,
           "year_cycle_index": 3,
@@ -92,12 +103,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2026-07",
+          "planned_month": "2026-07",
           "learning_cycle_index": 4,
           "year_index": 1,
           "year_cycle_index": 4,
@@ -109,12 +122,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2026-08",
+          "planned_month": "2026-08",
           "learning_cycle_index": 5,
           "year_index": 1,
           "year_cycle_index": 5,
@@ -126,12 +141,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2026-09",
+          "planned_month": "2026-09",
           "learning_cycle_index": 6,
           "year_index": 1,
           "year_cycle_index": 6,
@@ -143,12 +160,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2026-10",
+          "planned_month": "2026-10",
           "learning_cycle_index": 7,
           "year_index": 1,
           "year_cycle_index": 7,
@@ -160,12 +179,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2026-11",
+          "planned_month": "2026-11",
           "learning_cycle_index": 8,
           "year_index": 1,
           "year_cycle_index": 8,
@@ -177,12 +198,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2026-12",
+          "planned_month": "2026-12",
           "learning_cycle_index": 9,
           "year_index": 1,
           "year_cycle_index": 9,
@@ -194,12 +217,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2027-01",
+          "planned_month": "2027-01",
           "learning_cycle_index": 10,
           "year_index": 1,
           "year_cycle_index": 10,
@@ -211,12 +236,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2027-02",
+          "planned_month": "2027-02",
           "learning_cycle_index": 11,
           "year_index": 1,
           "year_cycle_index": 11,
@@ -228,12 +255,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2027-03",
+          "planned_month": "2027-03",
           "learning_cycle_index": 12,
           "year_index": 1,
           "year_cycle_index": 12,
@@ -245,12 +274,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2027-04",
+          "planned_month": "2027-04",
           "learning_cycle_index": 13,
           "year_index": 2,
           "year_cycle_index": 1,
@@ -262,12 +293,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2027-05",
+          "planned_month": "2027-05",
           "learning_cycle_index": 14,
           "year_index": 2,
           "year_cycle_index": 2,
@@ -279,12 +312,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2027-06",
+          "planned_month": "2027-06",
           "learning_cycle_index": 15,
           "year_index": 2,
           "year_cycle_index": 3,
@@ -296,12 +331,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2027-07",
+          "planned_month": "2027-07",
           "learning_cycle_index": 16,
           "year_index": 2,
           "year_cycle_index": 4,
@@ -313,12 +350,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2027-08",
+          "planned_month": "2027-08",
           "learning_cycle_index": 17,
           "year_index": 2,
           "year_cycle_index": 5,
@@ -330,12 +369,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2027-09",
+          "planned_month": "2027-09",
           "learning_cycle_index": 18,
           "year_index": 2,
           "year_cycle_index": 6,
@@ -347,12 +388,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2027-10",
+          "planned_month": "2027-10",
           "learning_cycle_index": 19,
           "year_index": 2,
           "year_cycle_index": 7,
@@ -364,12 +407,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2027-11",
+          "planned_month": "2027-11",
           "learning_cycle_index": 20,
           "year_index": 2,
           "year_cycle_index": 8,
@@ -381,12 +426,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2027-12",
+          "planned_month": "2027-12",
           "learning_cycle_index": 21,
           "year_index": 2,
           "year_cycle_index": 9,
@@ -398,12 +445,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2028-01",
+          "planned_month": "2028-01",
           "learning_cycle_index": 22,
           "year_index": 2,
           "year_cycle_index": 10,
@@ -415,12 +464,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2028-02",
+          "planned_month": "2028-02",
           "learning_cycle_index": 23,
           "year_index": 2,
           "year_cycle_index": 11,
@@ -432,12 +483,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2028-03",
+          "planned_month": "2028-03",
           "learning_cycle_index": 24,
           "year_index": 2,
           "year_cycle_index": 12,
@@ -449,12 +502,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2028-04",
+          "planned_month": "2028-04",
           "learning_cycle_index": 25,
           "year_index": 3,
           "year_cycle_index": 1,
@@ -466,12 +521,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2028-05",
+          "planned_month": "2028-05",
           "learning_cycle_index": 26,
           "year_index": 3,
           "year_cycle_index": 2,
@@ -485,12 +542,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2028-06",
+          "planned_month": "2028-06",
           "learning_cycle_index": 27,
           "year_index": 3,
           "year_cycle_index": 3,
@@ -502,12 +561,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2028-07",
+          "planned_month": "2028-07",
           "learning_cycle_index": 28,
           "year_index": 3,
           "year_cycle_index": 4,
@@ -521,12 +582,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2028-08",
+          "planned_month": "2028-08",
           "learning_cycle_index": 29,
           "year_index": 3,
           "year_cycle_index": 5,
@@ -540,12 +603,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2028-09",
+          "planned_month": "2028-09",
           "learning_cycle_index": 30,
           "year_index": 3,
           "year_cycle_index": 6,
@@ -557,12 +622,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2028-10",
+          "planned_month": "2028-10",
           "learning_cycle_index": 31,
           "year_index": 3,
           "year_cycle_index": 7,
@@ -574,12 +641,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2028-11",
+          "planned_month": "2028-11",
           "learning_cycle_index": 32,
           "year_index": 3,
           "year_cycle_index": 8,
@@ -591,12 +660,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2028-12",
+          "planned_month": "2028-12",
           "learning_cycle_index": 33,
           "year_index": 3,
           "year_cycle_index": 9,
@@ -608,12 +679,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2029-01",
+          "planned_month": "2029-01",
           "learning_cycle_index": 34,
           "year_index": 3,
           "year_cycle_index": 10,
@@ -625,12 +698,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2029-02",
+          "planned_month": "2029-02",
           "learning_cycle_index": 35,
           "year_index": 3,
           "year_cycle_index": 11,
@@ -642,12 +717,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2029-03",
+          "planned_month": "2029-03",
           "learning_cycle_index": 36,
           "year_index": 3,
           "year_cycle_index": 12,
@@ -661,12 +738,14 @@
       ],
       "checkpoints": [
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2026-04",
+          "planned_month": "2026-04",
           "learning_cycle_index": 1,
           "year_index": 1,
           "year_cycle_index": 1,
@@ -678,12 +757,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2026-05",
+          "planned_month": "2026-05",
           "learning_cycle_index": 2,
           "year_index": 1,
           "year_cycle_index": 2,
@@ -695,12 +776,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2027-04",
+          "planned_month": "2027-04",
           "learning_cycle_index": 13,
           "year_index": 2,
           "year_cycle_index": 1,
@@ -712,12 +795,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越二班",
           "actual_open_year_month": "2026-04",
           "cohort_month": 4,
           "template_key": "COHORT_MONTH_04",
           "template_label": "4月开班模板",
           "specified_date": "2029-03",
+          "planned_month": "2029-03",
           "learning_cycle_index": 36,
           "year_index": 3,
           "year_cycle_index": 12,
@@ -729,6 +814,27 @@
           "findings": []
         }
       ],
+      "planned_projection": {
+        "projection_type": "PLANNED",
+        "basis": "actual_open_year_month + planned month offset; not runtime cycle clock",
+        "cycle_count": 36,
+        "checkpoint_cycle_indexes": [
+          1,
+          2,
+          13,
+          36
+        ]
+      },
+      "current_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越二班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
       "findings": [
         {
           "specified_date": "2028-05",
@@ -761,12 +867,14 @@
       "plan_match_status": "REVIEW_REQUIRED",
       "cycle_projections": [
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-07",
+          "planned_month": "2026-07",
           "learning_cycle_index": 1,
           "year_index": 1,
           "year_cycle_index": 1,
@@ -778,12 +886,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-08",
+          "planned_month": "2026-08",
           "learning_cycle_index": 2,
           "year_index": 1,
           "year_cycle_index": 2,
@@ -795,12 +905,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-09",
+          "planned_month": "2026-09",
           "learning_cycle_index": 3,
           "year_index": 1,
           "year_cycle_index": 3,
@@ -812,12 +924,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-10",
+          "planned_month": "2026-10",
           "learning_cycle_index": 4,
           "year_index": 1,
           "year_cycle_index": 4,
@@ -829,12 +943,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-11",
+          "planned_month": "2026-11",
           "learning_cycle_index": 5,
           "year_index": 1,
           "year_cycle_index": 5,
@@ -846,12 +962,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-12",
+          "planned_month": "2026-12",
           "learning_cycle_index": 6,
           "year_index": 1,
           "year_cycle_index": 6,
@@ -863,12 +981,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-01",
+          "planned_month": "2027-01",
           "learning_cycle_index": 7,
           "year_index": 1,
           "year_cycle_index": 7,
@@ -880,12 +1000,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-02",
+          "planned_month": "2027-02",
           "learning_cycle_index": 8,
           "year_index": 1,
           "year_cycle_index": 8,
@@ -897,12 +1019,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-03",
+          "planned_month": "2027-03",
           "learning_cycle_index": 9,
           "year_index": 1,
           "year_cycle_index": 9,
@@ -914,12 +1038,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-04",
+          "planned_month": "2027-04",
           "learning_cycle_index": 10,
           "year_index": 1,
           "year_cycle_index": 10,
@@ -931,12 +1057,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-05",
+          "planned_month": "2027-05",
           "learning_cycle_index": 11,
           "year_index": 1,
           "year_cycle_index": 11,
@@ -948,12 +1076,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-06",
+          "planned_month": "2027-06",
           "learning_cycle_index": 12,
           "year_index": 1,
           "year_cycle_index": 12,
@@ -965,12 +1095,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-07",
+          "planned_month": "2027-07",
           "learning_cycle_index": 13,
           "year_index": 2,
           "year_cycle_index": 1,
@@ -982,12 +1114,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-08",
+          "planned_month": "2027-08",
           "learning_cycle_index": 14,
           "year_index": 2,
           "year_cycle_index": 2,
@@ -999,12 +1133,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-09",
+          "planned_month": "2027-09",
           "learning_cycle_index": 15,
           "year_index": 2,
           "year_cycle_index": 3,
@@ -1016,12 +1152,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-10",
+          "planned_month": "2027-10",
           "learning_cycle_index": 16,
           "year_index": 2,
           "year_cycle_index": 4,
@@ -1033,12 +1171,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-11",
+          "planned_month": "2027-11",
           "learning_cycle_index": 17,
           "year_index": 2,
           "year_cycle_index": 5,
@@ -1050,12 +1190,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-12",
+          "planned_month": "2027-12",
           "learning_cycle_index": 18,
           "year_index": 2,
           "year_cycle_index": 6,
@@ -1067,12 +1209,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-01",
+          "planned_month": "2028-01",
           "learning_cycle_index": 19,
           "year_index": 2,
           "year_cycle_index": 7,
@@ -1084,12 +1228,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-02",
+          "planned_month": "2028-02",
           "learning_cycle_index": 20,
           "year_index": 2,
           "year_cycle_index": 8,
@@ -1101,12 +1247,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-03",
+          "planned_month": "2028-03",
           "learning_cycle_index": 21,
           "year_index": 2,
           "year_cycle_index": 9,
@@ -1118,12 +1266,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-04",
+          "planned_month": "2028-04",
           "learning_cycle_index": 22,
           "year_index": 2,
           "year_cycle_index": 10,
@@ -1135,12 +1285,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-05",
+          "planned_month": "2028-05",
           "learning_cycle_index": 23,
           "year_index": 2,
           "year_cycle_index": 11,
@@ -1152,12 +1304,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-06",
+          "planned_month": "2028-06",
           "learning_cycle_index": 24,
           "year_index": 2,
           "year_cycle_index": 12,
@@ -1169,12 +1323,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-07",
+          "planned_month": "2028-07",
           "learning_cycle_index": 25,
           "year_index": 3,
           "year_cycle_index": 1,
@@ -1186,12 +1342,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-08",
+          "planned_month": "2028-08",
           "learning_cycle_index": 26,
           "year_index": 3,
           "year_cycle_index": 2,
@@ -1205,12 +1363,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-09",
+          "planned_month": "2028-09",
           "learning_cycle_index": 27,
           "year_index": 3,
           "year_cycle_index": 3,
@@ -1222,12 +1382,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-10",
+          "planned_month": "2028-10",
           "learning_cycle_index": 28,
           "year_index": 3,
           "year_cycle_index": 4,
@@ -1239,12 +1401,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-11",
+          "planned_month": "2028-11",
           "learning_cycle_index": 29,
           "year_index": 3,
           "year_cycle_index": 5,
@@ -1256,12 +1420,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-12",
+          "planned_month": "2028-12",
           "learning_cycle_index": 30,
           "year_index": 3,
           "year_cycle_index": 6,
@@ -1273,12 +1439,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-01",
+          "planned_month": "2029-01",
           "learning_cycle_index": 31,
           "year_index": 3,
           "year_cycle_index": 7,
@@ -1290,12 +1458,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-02",
+          "planned_month": "2029-02",
           "learning_cycle_index": 32,
           "year_index": 3,
           "year_cycle_index": 8,
@@ -1309,12 +1479,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-03",
+          "planned_month": "2029-03",
           "learning_cycle_index": 33,
           "year_index": 3,
           "year_cycle_index": 9,
@@ -1328,12 +1500,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-04",
+          "planned_month": "2029-04",
           "learning_cycle_index": 34,
           "year_index": 3,
           "year_cycle_index": 10,
@@ -1347,12 +1521,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-05",
+          "planned_month": "2029-05",
           "learning_cycle_index": 35,
           "year_index": 3,
           "year_cycle_index": 11,
@@ -1364,12 +1540,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-06",
+          "planned_month": "2029-06",
           "learning_cycle_index": 36,
           "year_index": 3,
           "year_cycle_index": 12,
@@ -1383,12 +1561,14 @@
       ],
       "checkpoints": [
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-07",
+          "planned_month": "2026-07",
           "learning_cycle_index": 1,
           "year_index": 1,
           "year_cycle_index": 1,
@@ -1400,12 +1580,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-08",
+          "planned_month": "2026-08",
           "learning_cycle_index": 2,
           "year_index": 1,
           "year_cycle_index": 2,
@@ -1417,12 +1599,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-07",
+          "planned_month": "2027-07",
           "learning_cycle_index": 13,
           "year_index": 2,
           "year_cycle_index": 1,
@@ -1434,12 +1618,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越一班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-06",
+          "planned_month": "2029-06",
           "learning_cycle_index": 36,
           "year_index": 3,
           "year_cycle_index": 12,
@@ -1451,6 +1637,27 @@
           "findings": []
         }
       ],
+      "planned_projection": {
+        "projection_type": "PLANNED",
+        "basis": "actual_open_year_month + planned month offset; not runtime cycle clock",
+        "cycle_count": 36,
+        "checkpoint_cycle_indexes": [
+          1,
+          2,
+          13,
+          36
+        ]
+      },
+      "current_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越一班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
       "findings": [
         {
           "specified_date": "2028-08",
@@ -1489,12 +1696,14 @@
       "plan_match_status": "REVIEW_REQUIRED",
       "cycle_projections": [
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-07",
+          "planned_month": "2026-07",
           "learning_cycle_index": 1,
           "year_index": 1,
           "year_cycle_index": 1,
@@ -1506,12 +1715,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-08",
+          "planned_month": "2026-08",
           "learning_cycle_index": 2,
           "year_index": 1,
           "year_cycle_index": 2,
@@ -1523,12 +1734,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-09",
+          "planned_month": "2026-09",
           "learning_cycle_index": 3,
           "year_index": 1,
           "year_cycle_index": 3,
@@ -1540,12 +1753,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-10",
+          "planned_month": "2026-10",
           "learning_cycle_index": 4,
           "year_index": 1,
           "year_cycle_index": 4,
@@ -1557,12 +1772,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-11",
+          "planned_month": "2026-11",
           "learning_cycle_index": 5,
           "year_index": 1,
           "year_cycle_index": 5,
@@ -1574,12 +1791,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-12",
+          "planned_month": "2026-12",
           "learning_cycle_index": 6,
           "year_index": 1,
           "year_cycle_index": 6,
@@ -1591,12 +1810,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-01",
+          "planned_month": "2027-01",
           "learning_cycle_index": 7,
           "year_index": 1,
           "year_cycle_index": 7,
@@ -1608,12 +1829,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-02",
+          "planned_month": "2027-02",
           "learning_cycle_index": 8,
           "year_index": 1,
           "year_cycle_index": 8,
@@ -1625,12 +1848,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-03",
+          "planned_month": "2027-03",
           "learning_cycle_index": 9,
           "year_index": 1,
           "year_cycle_index": 9,
@@ -1642,12 +1867,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-04",
+          "planned_month": "2027-04",
           "learning_cycle_index": 10,
           "year_index": 1,
           "year_cycle_index": 10,
@@ -1659,12 +1886,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-05",
+          "planned_month": "2027-05",
           "learning_cycle_index": 11,
           "year_index": 1,
           "year_cycle_index": 11,
@@ -1676,12 +1905,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-06",
+          "planned_month": "2027-06",
           "learning_cycle_index": 12,
           "year_index": 1,
           "year_cycle_index": 12,
@@ -1693,12 +1924,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-07",
+          "planned_month": "2027-07",
           "learning_cycle_index": 13,
           "year_index": 2,
           "year_cycle_index": 1,
@@ -1710,12 +1943,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-08",
+          "planned_month": "2027-08",
           "learning_cycle_index": 14,
           "year_index": 2,
           "year_cycle_index": 2,
@@ -1727,12 +1962,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-09",
+          "planned_month": "2027-09",
           "learning_cycle_index": 15,
           "year_index": 2,
           "year_cycle_index": 3,
@@ -1744,12 +1981,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-10",
+          "planned_month": "2027-10",
           "learning_cycle_index": 16,
           "year_index": 2,
           "year_cycle_index": 4,
@@ -1761,12 +2000,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-11",
+          "planned_month": "2027-11",
           "learning_cycle_index": 17,
           "year_index": 2,
           "year_cycle_index": 5,
@@ -1778,12 +2019,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-12",
+          "planned_month": "2027-12",
           "learning_cycle_index": 18,
           "year_index": 2,
           "year_cycle_index": 6,
@@ -1795,12 +2038,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-01",
+          "planned_month": "2028-01",
           "learning_cycle_index": 19,
           "year_index": 2,
           "year_cycle_index": 7,
@@ -1812,12 +2057,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-02",
+          "planned_month": "2028-02",
           "learning_cycle_index": 20,
           "year_index": 2,
           "year_cycle_index": 8,
@@ -1829,12 +2076,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-03",
+          "planned_month": "2028-03",
           "learning_cycle_index": 21,
           "year_index": 2,
           "year_cycle_index": 9,
@@ -1846,12 +2095,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-04",
+          "planned_month": "2028-04",
           "learning_cycle_index": 22,
           "year_index": 2,
           "year_cycle_index": 10,
@@ -1863,12 +2114,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-05",
+          "planned_month": "2028-05",
           "learning_cycle_index": 23,
           "year_index": 2,
           "year_cycle_index": 11,
@@ -1880,12 +2133,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-06",
+          "planned_month": "2028-06",
           "learning_cycle_index": 24,
           "year_index": 2,
           "year_cycle_index": 12,
@@ -1897,12 +2152,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-07",
+          "planned_month": "2028-07",
           "learning_cycle_index": 25,
           "year_index": 3,
           "year_cycle_index": 1,
@@ -1914,12 +2171,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-08",
+          "planned_month": "2028-08",
           "learning_cycle_index": 26,
           "year_index": 3,
           "year_cycle_index": 2,
@@ -1933,12 +2192,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-09",
+          "planned_month": "2028-09",
           "learning_cycle_index": 27,
           "year_index": 3,
           "year_cycle_index": 3,
@@ -1950,12 +2211,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-10",
+          "planned_month": "2028-10",
           "learning_cycle_index": 28,
           "year_index": 3,
           "year_cycle_index": 4,
@@ -1967,12 +2230,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-11",
+          "planned_month": "2028-11",
           "learning_cycle_index": 29,
           "year_index": 3,
           "year_cycle_index": 5,
@@ -1984,12 +2249,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-12",
+          "planned_month": "2028-12",
           "learning_cycle_index": 30,
           "year_index": 3,
           "year_cycle_index": 6,
@@ -2001,12 +2268,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-01",
+          "planned_month": "2029-01",
           "learning_cycle_index": 31,
           "year_index": 3,
           "year_cycle_index": 7,
@@ -2018,12 +2287,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-02",
+          "planned_month": "2029-02",
           "learning_cycle_index": 32,
           "year_index": 3,
           "year_cycle_index": 8,
@@ -2037,12 +2308,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-03",
+          "planned_month": "2029-03",
           "learning_cycle_index": 33,
           "year_index": 3,
           "year_cycle_index": 9,
@@ -2056,12 +2329,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-04",
+          "planned_month": "2029-04",
           "learning_cycle_index": 34,
           "year_index": 3,
           "year_cycle_index": 10,
@@ -2075,12 +2350,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-05",
+          "planned_month": "2029-05",
           "learning_cycle_index": 35,
           "year_index": 3,
           "year_cycle_index": 11,
@@ -2092,12 +2369,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-06",
+          "planned_month": "2029-06",
           "learning_cycle_index": 36,
           "year_index": 3,
           "year_cycle_index": 12,
@@ -2111,12 +2390,14 @@
       ],
       "checkpoints": [
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-07",
+          "planned_month": "2026-07",
           "learning_cycle_index": 1,
           "year_index": 1,
           "year_cycle_index": 1,
@@ -2128,12 +2409,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-08",
+          "planned_month": "2026-08",
           "learning_cycle_index": 2,
           "year_index": 1,
           "year_cycle_index": 2,
@@ -2145,12 +2428,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-07",
+          "planned_month": "2027-07",
           "learning_cycle_index": 13,
           "year_index": 2,
           "year_cycle_index": 1,
@@ -2162,12 +2447,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "圆融五班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-06",
+          "planned_month": "2029-06",
           "learning_cycle_index": 36,
           "year_index": 3,
           "year_cycle_index": 12,
@@ -2179,6 +2466,27 @@
           "findings": []
         }
       ],
+      "planned_projection": {
+        "projection_type": "PLANNED",
+        "basis": "actual_open_year_month + planned month offset; not runtime cycle clock",
+        "cycle_count": 36,
+        "checkpoint_cycle_indexes": [
+          1,
+          2,
+          13,
+          36
+        ]
+      },
+      "current_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "圆融五班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
       "findings": [
         {
           "specified_date": "2028-08",
@@ -2217,12 +2525,14 @@
       "plan_match_status": "REVIEW_REQUIRED",
       "cycle_projections": [
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-07",
+          "planned_month": "2026-07",
           "learning_cycle_index": 1,
           "year_index": 1,
           "year_cycle_index": 1,
@@ -2234,12 +2544,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-08",
+          "planned_month": "2026-08",
           "learning_cycle_index": 2,
           "year_index": 1,
           "year_cycle_index": 2,
@@ -2251,12 +2563,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-09",
+          "planned_month": "2026-09",
           "learning_cycle_index": 3,
           "year_index": 1,
           "year_cycle_index": 3,
@@ -2268,12 +2582,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-10",
+          "planned_month": "2026-10",
           "learning_cycle_index": 4,
           "year_index": 1,
           "year_cycle_index": 4,
@@ -2285,12 +2601,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-11",
+          "planned_month": "2026-11",
           "learning_cycle_index": 5,
           "year_index": 1,
           "year_cycle_index": 5,
@@ -2302,12 +2620,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-12",
+          "planned_month": "2026-12",
           "learning_cycle_index": 6,
           "year_index": 1,
           "year_cycle_index": 6,
@@ -2319,12 +2639,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-01",
+          "planned_month": "2027-01",
           "learning_cycle_index": 7,
           "year_index": 1,
           "year_cycle_index": 7,
@@ -2336,12 +2658,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-02",
+          "planned_month": "2027-02",
           "learning_cycle_index": 8,
           "year_index": 1,
           "year_cycle_index": 8,
@@ -2353,12 +2677,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-03",
+          "planned_month": "2027-03",
           "learning_cycle_index": 9,
           "year_index": 1,
           "year_cycle_index": 9,
@@ -2370,12 +2696,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-04",
+          "planned_month": "2027-04",
           "learning_cycle_index": 10,
           "year_index": 1,
           "year_cycle_index": 10,
@@ -2387,12 +2715,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-05",
+          "planned_month": "2027-05",
           "learning_cycle_index": 11,
           "year_index": 1,
           "year_cycle_index": 11,
@@ -2404,12 +2734,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-06",
+          "planned_month": "2027-06",
           "learning_cycle_index": 12,
           "year_index": 1,
           "year_cycle_index": 12,
@@ -2421,12 +2753,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-07",
+          "planned_month": "2027-07",
           "learning_cycle_index": 13,
           "year_index": 2,
           "year_cycle_index": 1,
@@ -2438,12 +2772,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-08",
+          "planned_month": "2027-08",
           "learning_cycle_index": 14,
           "year_index": 2,
           "year_cycle_index": 2,
@@ -2455,12 +2791,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-09",
+          "planned_month": "2027-09",
           "learning_cycle_index": 15,
           "year_index": 2,
           "year_cycle_index": 3,
@@ -2472,12 +2810,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-10",
+          "planned_month": "2027-10",
           "learning_cycle_index": 16,
           "year_index": 2,
           "year_cycle_index": 4,
@@ -2489,12 +2829,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-11",
+          "planned_month": "2027-11",
           "learning_cycle_index": 17,
           "year_index": 2,
           "year_cycle_index": 5,
@@ -2506,12 +2848,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-12",
+          "planned_month": "2027-12",
           "learning_cycle_index": 18,
           "year_index": 2,
           "year_cycle_index": 6,
@@ -2523,12 +2867,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-01",
+          "planned_month": "2028-01",
           "learning_cycle_index": 19,
           "year_index": 2,
           "year_cycle_index": 7,
@@ -2540,12 +2886,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-02",
+          "planned_month": "2028-02",
           "learning_cycle_index": 20,
           "year_index": 2,
           "year_cycle_index": 8,
@@ -2557,12 +2905,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-03",
+          "planned_month": "2028-03",
           "learning_cycle_index": 21,
           "year_index": 2,
           "year_cycle_index": 9,
@@ -2574,12 +2924,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-04",
+          "planned_month": "2028-04",
           "learning_cycle_index": 22,
           "year_index": 2,
           "year_cycle_index": 10,
@@ -2591,12 +2943,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-05",
+          "planned_month": "2028-05",
           "learning_cycle_index": 23,
           "year_index": 2,
           "year_cycle_index": 11,
@@ -2608,12 +2962,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-06",
+          "planned_month": "2028-06",
           "learning_cycle_index": 24,
           "year_index": 2,
           "year_cycle_index": 12,
@@ -2625,12 +2981,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-07",
+          "planned_month": "2028-07",
           "learning_cycle_index": 25,
           "year_index": 3,
           "year_cycle_index": 1,
@@ -2642,12 +3000,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-08",
+          "planned_month": "2028-08",
           "learning_cycle_index": 26,
           "year_index": 3,
           "year_cycle_index": 2,
@@ -2661,12 +3021,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-09",
+          "planned_month": "2028-09",
           "learning_cycle_index": 27,
           "year_index": 3,
           "year_cycle_index": 3,
@@ -2678,12 +3040,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-10",
+          "planned_month": "2028-10",
           "learning_cycle_index": 28,
           "year_index": 3,
           "year_cycle_index": 4,
@@ -2695,12 +3059,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-11",
+          "planned_month": "2028-11",
           "learning_cycle_index": 29,
           "year_index": 3,
           "year_cycle_index": 5,
@@ -2712,12 +3078,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2028-12",
+          "planned_month": "2028-12",
           "learning_cycle_index": 30,
           "year_index": 3,
           "year_cycle_index": 6,
@@ -2729,12 +3097,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-01",
+          "planned_month": "2029-01",
           "learning_cycle_index": 31,
           "year_index": 3,
           "year_cycle_index": 7,
@@ -2746,12 +3116,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-02",
+          "planned_month": "2029-02",
           "learning_cycle_index": 32,
           "year_index": 3,
           "year_cycle_index": 8,
@@ -2765,12 +3137,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-03",
+          "planned_month": "2029-03",
           "learning_cycle_index": 33,
           "year_index": 3,
           "year_cycle_index": 9,
@@ -2784,12 +3158,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-04",
+          "planned_month": "2029-04",
           "learning_cycle_index": 34,
           "year_index": 3,
           "year_cycle_index": 10,
@@ -2803,12 +3179,14 @@
           ]
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-05",
+          "planned_month": "2029-05",
           "learning_cycle_index": 35,
           "year_index": 3,
           "year_cycle_index": 11,
@@ -2820,12 +3198,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-06",
+          "planned_month": "2029-06",
           "learning_cycle_index": 36,
           "year_index": 3,
           "year_cycle_index": 12,
@@ -2839,12 +3219,14 @@
       ],
       "checkpoints": [
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-07",
+          "planned_month": "2026-07",
           "learning_cycle_index": 1,
           "year_index": 1,
           "year_cycle_index": 1,
@@ -2856,12 +3238,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2026-08",
+          "planned_month": "2026-08",
           "learning_cycle_index": 2,
           "year_index": 1,
           "year_cycle_index": 2,
@@ -2873,12 +3257,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2027-07",
+          "planned_month": "2027-07",
           "learning_cycle_index": 13,
           "year_index": 2,
           "year_cycle_index": 1,
@@ -2890,12 +3276,14 @@
           "findings": []
         },
         {
+          "projection_type": "PLANNED",
           "class_name": "吴越三班",
           "actual_open_year_month": "2026-07",
           "cohort_month": 7,
           "template_key": "COHORT_MONTH_07",
           "template_label": "7月开班模板",
           "specified_date": "2029-06",
+          "planned_month": "2029-06",
           "learning_cycle_index": 36,
           "year_index": 3,
           "year_cycle_index": 12,
@@ -2907,6 +3295,27 @@
           "findings": []
         }
       ],
+      "planned_projection": {
+        "projection_type": "PLANNED",
+        "basis": "actual_open_year_month + planned month offset; not runtime cycle clock",
+        "cycle_count": 36,
+        "checkpoint_cycle_indexes": [
+          1,
+          2,
+          13,
+          36
+        ]
+      },
+      "current_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "吴越三班",
+        "status": "NOT_PROVIDED",
+        "source": "class_learning_cycles (runtime state required)",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_LOADED",
+        "schedule_override": null
+      },
       "findings": [
         {
           "specified_date": "2028-08",
@@ -2946,6 +3355,21 @@
       "exclusion_reason": "本次不设置小组学习会 36 周期强制要求",
       "cycle_projections": [],
       "checkpoints": [],
+      "planned_projection": {
+        "projection_type": "PLANNED",
+        "cycle_count": 0,
+        "checkpoint_cycle_indexes": []
+      },
+      "current_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "神仙班",
+        "status": "NOT_APPLICABLE",
+        "source": "learning_plan_scope",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_APPLICABLE",
+        "schedule_override": null
+      },
       "findings": []
     },
     {
@@ -2960,6 +3384,21 @@
       "exclusion_reason": "本次不设置小组学习会 36 周期强制要求",
       "cycle_projections": [],
       "checkpoints": [],
+      "planned_projection": {
+        "projection_type": "PLANNED",
+        "cycle_count": 0,
+        "checkpoint_cycle_indexes": []
+      },
+      "current_projection": {
+        "projection_type": "ACTUAL_CURRENT",
+        "class_name": "先锋班",
+        "status": "NOT_APPLICABLE",
+        "source": "learning_plan_scope",
+        "current_open_cycle": null,
+        "planned_month": null,
+        "actual_status": "NOT_APPLICABLE",
+        "schedule_override": null
+      },
       "findings": []
     }
   ]

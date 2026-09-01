@@ -8,6 +8,10 @@ from typing import Any
 from app.db import connect, execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids
+from app.services.learning_cycle_schedule import (
+    planned_class_meeting_at_for_cycle,
+    year_month,
+)
 
 
 CLASS_MEETING_STATUSES = {"PLANNED", "POSTPONED"}
@@ -52,6 +56,17 @@ def _cycle_query_datetime(connection, value: str) -> str:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return value
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    return parsed.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _storage_datetime(connection, value: str) -> str:
+    """Use the timestamp representation accepted by the active SQL driver."""
+
+    if isinstance(connection, sqlite3.Connection):
+        return value
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     if parsed.tzinfo is not None:
         parsed = parsed.astimezone(UTC).replace(tzinfo=None)
     return parsed.strftime("%Y-%m-%d %H:%M:%S")
@@ -156,13 +171,28 @@ def _active_binding(connection, class_org_unit_id: str) -> dict[str, Any] | None
     return dict(row) if row else None
 
 
+def _latest_binding(connection, class_org_unit_id: str) -> dict[str, Any] | None:
+    active = _active_binding(connection, class_org_unit_id)
+    if active:
+        return active
+    row = execute(
+        connection,
+        "SELECT b.*, p.plan_key, p.plan_name, p.version_label, p.duration_cycles "
+        "FROM class_learning_bindings b JOIN learning_plan_versions p ON p.id=b.plan_version_id "
+        "WHERE b.class_org_unit_id=? ORDER BY b.updated_at DESC, b.id DESC LIMIT 1",
+        (class_org_unit_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def _cycle_at(
     connection, binding_id: int, at: str
 ) -> dict[str, Any] | None:
     query_at = _cycle_query_datetime(connection, at)
     row = execute(
         connection,
-        "SELECT * FROM class_learning_cycles WHERE binding_id=? AND opened_at<=? "
+        "SELECT * FROM class_learning_cycles WHERE binding_id=? "
+        "AND cycle_status IN ('OPEN', 'CLOSED') AND opened_at<=? "
         "ORDER BY opened_at DESC, learning_cycle_index DESC LIMIT 1",
         (binding_id, query_at),
     ).fetchone()
@@ -170,6 +200,7 @@ def _cycle_at(
         row = execute(
             connection,
             "SELECT * FROM class_learning_cycles WHERE binding_id=? "
+            "AND cycle_status IN ('OPEN', 'CLOSED') "
             "ORDER BY learning_cycle_index LIMIT 1",
             (binding_id,),
         ).fetchone()
@@ -196,6 +227,235 @@ def _plan_cycle_for_track(
         (plan_version_id, cycle_index),
     ).fetchone()
     return dict(generic) if generic else None
+
+
+def _active_schedule_override(
+    connection, *, binding_id: int, learning_cycle_index: int
+) -> dict[str, Any] | None:
+    row = execute(
+        connection,
+        "SELECT * FROM class_learning_cycle_schedule_overrides "
+        "WHERE binding_id=? AND learning_cycle_index=? AND status='ACTIVE'",
+        (binding_id, learning_cycle_index),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def _schedule_overrides(
+    connection, *, binding_id: int
+) -> dict[int, dict[str, Any]]:
+    rows = execute(
+        connection,
+        "SELECT * FROM class_learning_cycle_schedule_overrides "
+        "WHERE binding_id=? AND status='ACTIVE' ORDER BY learning_cycle_index",
+        (binding_id,),
+    ).fetchall()
+    return {int(row["learning_cycle_index"]): dict(row) for row in rows}
+
+
+def _output_datetime(value: Any, field_name: str) -> str | None:
+    if value is None or not str(value).strip():
+        return None
+    return _normalize_datetime(str(value), field_name)
+
+
+def _schedule_override_payload(
+    override: dict[str, Any] | None, *, source: str = "OVERRIDE"
+) -> dict[str, Any] | None:
+    if not override:
+        return None
+    return {
+        "id": int(override["id"]) if override.get("id") is not None else None,
+        "planned_class_meeting_at": _output_datetime(
+            override.get("planned_class_meeting_at"), "计划班会时间"
+        ),
+        "adjustment_reason": override.get("adjustment_reason"),
+        "status": override.get("status", "ACTIVE"),
+        "source": source,
+    }
+
+
+def _cycle_schedule_item(
+    connection,
+    *,
+    binding: dict[str, Any],
+    learning_cycle_index: int,
+    cycle: dict[str, Any] | None,
+    override: dict[str, Any] | None,
+) -> dict[str, Any]:
+    cohort_month = binding.get("cohort_month")
+    default_planned = planned_class_meeting_at_for_cycle(
+        binding["started_at"], learning_cycle_index
+    )
+    cycle_planned = _output_datetime(
+        cycle.get("planned_class_meeting_at") if cycle else None,
+        "周期记录中的计划班会时间",
+    )
+    if override:
+        planned = _output_datetime(
+            override.get("planned_class_meeting_at"), "计划班会时间"
+        )
+        schedule_source = "OVERRIDE"
+        schedule_override = _schedule_override_payload(override)
+    elif cycle_planned:
+        planned = cycle_planned
+        schedule_source = "CYCLE_RECORD" if planned != default_planned else "DEFAULT"
+        schedule_override = (
+            _schedule_override_payload(
+                {
+                    "planned_class_meeting_at": planned,
+                    "adjustment_reason": cycle.get("adjustment_reason"),
+                    "status": "ACTIVE",
+                },
+                source="CYCLE_RECORD",
+            )
+            if planned != default_planned or cycle.get("adjustment_reason")
+            else None
+        )
+    else:
+        planned = default_planned
+        schedule_source = "DEFAULT"
+        schedule_override = None
+
+    instance_status = cycle.get("cycle_status") if cycle else "NOT_STARTED"
+    actual_status = {
+        "OPEN": "OPEN",
+        "CLOSED": "CLOSED",
+        "UPCOMING": "UPCOMING",
+    }.get(str(instance_status), "NOT_STARTED")
+    actual_start = (
+        _output_datetime(cycle.get("opened_at"), "实际周期开始时间")
+        if cycle and actual_status in {"OPEN", "CLOSED"}
+        else None
+    )
+    actual_meeting = _output_datetime(
+        cycle.get("actual_class_meeting_at") if cycle else None,
+        "实际班会时间",
+    )
+    plan_cycle_row = (
+        {"id": cycle["plan_cycle_id"]}
+        if cycle and cycle.get("plan_cycle_id")
+        else _plan_cycle_for_track(
+            connection,
+            plan_version_id=int(binding["plan_version_id"]),
+            cohort_month=cohort_month,
+            cycle_index=learning_cycle_index,
+        )
+    )
+    plan_cycle = (
+        _plan_cycle_payload(connection, int(plan_cycle_row["id"]))
+        if plan_cycle_row
+        else None
+    )
+    return {
+        "learning_cycle_index": learning_cycle_index,
+        "cohort_month": int(cohort_month) if cohort_month is not None else None,
+        "plan_cycle_id": plan_cycle.get("id") if plan_cycle else None,
+        "cycle_label": plan_cycle.get("cycle_label") if plan_cycle else None,
+        "planned_month": year_month(planned),
+        "default_planned_class_meeting_at": default_planned,
+        "planned_class_meeting_at": planned,
+        "schedule_source": schedule_source,
+        "schedule_override": schedule_override,
+        "actual_status": actual_status,
+        "cycle_status": instance_status,
+        "actual_start_at": actual_start,
+        "actual_class_meeting_at": actual_meeting,
+    }
+
+
+def _build_cycle_schedule(
+    connection, *, binding: dict[str, Any], as_of: str | None = None
+) -> dict[str, Any]:
+    effective_at = _normalize_datetime(as_of, "查询时间") or _now()
+    duration = int(binding["duration_cycles"])
+    cycle_rows = execute(
+        connection,
+        "SELECT * FROM class_learning_cycles WHERE binding_id=? "
+        "ORDER BY learning_cycle_index",
+        (binding["id"],),
+    ).fetchall()
+    cycles_by_index = {
+        int(row["learning_cycle_index"]): dict(row) for row in cycle_rows
+    }
+    overrides = _schedule_overrides(connection, binding_id=int(binding["id"]))
+    cycles = [
+        _cycle_schedule_item(
+            connection,
+            binding=binding,
+            learning_cycle_index=index,
+            cycle=cycles_by_index.get(index),
+            override=overrides.get(index),
+        )
+        for index in range(1, duration + 1)
+    ]
+    current = next(
+        (
+            item
+            for item in cycles
+            if item["actual_status"] == "OPEN"
+            and item["actual_start_at"]
+            and item["actual_start_at"] <= effective_at
+        ),
+        None,
+    )
+    has_future_open = any(
+        item["actual_status"] == "OPEN"
+        and item["actual_start_at"]
+        and item["actual_start_at"] > effective_at
+        for item in cycles
+    )
+    current_projection = {
+        "class_org_unit_id": binding["class_org_unit_id"],
+        "as_of": effective_at,
+        "current_open_cycle": current["learning_cycle_index"] if current else None,
+        "planned_month": current["planned_month"] if current else None,
+        "planned_class_meeting_at": current["planned_class_meeting_at"] if current else None,
+        "actual_status": current["actual_status"] if current else (
+            "NOT_STARTED" if has_future_open else "COMPLETED"
+        ),
+        "actual_start_at": current["actual_start_at"] if current else None,
+        "actual_class_meeting_at": current["actual_class_meeting_at"] if current else None,
+        "schedule_override": current["schedule_override"] if current else None,
+    }
+    planned_projection = [
+        {
+            key: item[key]
+            for key in (
+                "learning_cycle_index",
+                "cohort_month",
+                "planned_month",
+                "default_planned_class_meeting_at",
+                "planned_class_meeting_at",
+                "schedule_source",
+                "schedule_override",
+            )
+        }
+        for item in cycles
+    ]
+    actual_projection = [
+        {
+            key: item[key]
+            for key in (
+                "learning_cycle_index",
+                "cohort_month",
+                "actual_status",
+                "cycle_status",
+                "actual_start_at",
+                "actual_class_meeting_at",
+                "planned_month",
+                "schedule_override",
+            )
+        }
+        for item in cycles
+    ]
+    return {
+        "projection_model": "PLANNED_SCHEDULE_PLUS_ACTUAL_CLASS_MEETING_BOUNDARY",
+        "planned_projection": planned_projection,
+        "actual_projection": actual_projection,
+        "cycles": cycles,
+        "current_projection": current_projection,
+    }
 
 
 def _groups(connection, class_org_unit_id: str) -> list[dict[str, Any]]:
@@ -255,17 +515,7 @@ def _group_progress(
 def _progress_from_connection(
     connection, class_org_unit_id: str, *, at: str
 ) -> dict[str, Any]:
-    binding = _active_binding(connection, class_org_unit_id)
-    if not binding:
-        completed = execute(
-            connection,
-            "SELECT b.*, p.plan_key, p.plan_name, p.version_label, p.duration_cycles "
-            "FROM class_learning_bindings b JOIN learning_plan_versions p ON p.id=b.plan_version_id "
-            "WHERE b.class_org_unit_id=? ORDER BY b.updated_at DESC, b.id DESC LIMIT 1",
-            (class_org_unit_id,),
-        ).fetchone()
-        if completed:
-            binding = dict(completed)
+    binding = _latest_binding(connection, class_org_unit_id)
     if not binding:
         raise ValueError("该班级尚未绑定学习计划")
     cycle = _cycle_at(connection, int(binding["id"]), at)
@@ -291,6 +541,41 @@ def _progress_from_connection(
         },
         "current_cycle": cycle_payload,
     }
+
+
+def _binding_payload(binding: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": binding["id"],
+        "plan_version_id": binding["plan_version_id"],
+        "plan_key": binding["plan_key"],
+        "plan_name": binding["plan_name"],
+        "version_label": binding["version_label"],
+        "cohort_month": binding["cohort_month"],
+        "started_at": _output_datetime(binding["started_at"], "学习计划开始时间"),
+        "status": binding["status"],
+        "duration_cycles": int(binding["duration_cycles"]),
+    }
+
+
+def get_class_learning_schedule(
+    *, user_id: int, class_org_unit_id: str
+) -> dict[str, Any]:
+    _visible_class(class_org_unit_id, user_id)
+    connection = connect()
+    try:
+        binding = _latest_binding(connection, class_org_unit_id)
+        if not binding:
+            raise ValueError("该班级尚未绑定学习计划")
+        schedule = _build_cycle_schedule(
+            connection, binding=binding, as_of=_now()
+        )
+        return {
+            "class_org_unit_id": class_org_unit_id,
+            "binding": _binding_payload(binding),
+            **schedule,
+        }
+    finally:
+        connection.close()
 
 
 def get_class_learning_progress(
@@ -350,12 +635,15 @@ def bind_class_learning_plan(
             (class_org_unit_id, plan_version_id, cohort_month, start, actor_user_id, now, now),
         )
         binding_id = cursor.lastrowid
+        first_planned = planned_class_meeting_at_for_cycle(start, 1)
+        stored_first_planned = _storage_datetime(connection, first_planned)
         execute(
             connection,
             "INSERT INTO class_learning_cycles(binding_id, class_org_unit_id, learning_cycle_index, "
-            "plan_cycle_id, opened_at, class_meeting_status, group_meeting_policy, cycle_status, "
-            "created_at, updated_at) VALUES (?, ?, 1, ?, ?, 'PLANNED', 'REQUIRED', 'OPEN', ?, ?)",
-            (binding_id, class_org_unit_id, first_cycle["id"], start, now, now),
+            "plan_cycle_id, opened_at, planned_class_meeting_at, class_meeting_status, "
+            "group_meeting_policy, cycle_status, created_at, updated_at) "
+            "VALUES (?, ?, 1, ?, ?, ?, 'PLANNED', 'REQUIRED', 'OPEN', ?, ?)",
+            (binding_id, class_org_unit_id, first_cycle["id"], start, stored_first_planned, now, now),
         )
         write_audit(
             connection,
@@ -387,7 +675,14 @@ def update_current_learning_cycle(
         params: list[Any] = []
         if "planned_class_meeting_at" in updates:
             assignments.append("planned_class_meeting_at=?")
-            params.append(_normalize_datetime(updates.get("planned_class_meeting_at"), "计划班会时间"))
+            normalized_planned = _normalize_datetime(
+                updates.get("planned_class_meeting_at"), "计划班会时间"
+            )
+            params.append(
+                _storage_datetime(connection, normalized_planned)
+                if normalized_planned
+                else None
+            )
         if "class_meeting_status" in updates:
             status = str(updates["class_meeting_status"]).upper()
             if status not in CLASS_MEETING_STATUSES:
@@ -465,6 +760,201 @@ def update_current_learning_cycle(
             after={"cycle": dict(after), "group_tasks": updates.get("group_tasks", [])},
         )
         return _progress_from_connection(connection, class_org_unit_id, at=now)
+
+
+def set_learning_cycle_schedule_override(
+    *,
+    actor_user_id: int,
+    class_org_unit_id: str,
+    learning_cycle_index: int,
+    planned_class_meeting_at: str,
+    adjustment_reason: str,
+) -> dict[str, Any]:
+    """Set one class-cycle planned meeting date without moving the cycle clock.
+
+    Future cycles are intentionally stored in the override table because they
+    do not have a runtime ``class_learning_cycles`` row yet.  When the
+    preceding class meeting is confirmed, the existing engine opens that
+    cycle and copies the active override onto its runtime row.
+    """
+
+    _visible_class(class_org_unit_id, actor_user_id)
+    index = int(learning_cycle_index)
+    reason = str(adjustment_reason or "").strip()
+    if not reason:
+        raise ValueError("周期调整必须填写调整原因")
+    planned = _normalize_datetime(planned_class_meeting_at, "计划班会时间", required=True)
+    now = _now()
+    with transaction() as connection:
+        stored_planned = _storage_datetime(connection, planned)
+        binding = _active_binding(connection, class_org_unit_id)
+        if not binding:
+            raise ValueError("该班级尚未配置生效中的学习计划")
+        duration = int(binding["duration_cycles"])
+        if not 1 <= index <= duration:
+            raise ValueError(f"学习周期必须在 1 到 {duration} 之间")
+        plan_cycle = _plan_cycle_for_track(
+            connection,
+            plan_version_id=int(binding["plan_version_id"]),
+            cohort_month=binding.get("cohort_month"),
+            cycle_index=index,
+        )
+        if not plan_cycle:
+            raise ValueError(f"学习计划缺少第{index}学习周期")
+        cycle = execute(
+            connection,
+            "SELECT * FROM class_learning_cycles WHERE binding_id=? "
+            "AND learning_cycle_index=?",
+            (binding["id"], index),
+        ).fetchone()
+        if cycle and cycle["cycle_status"] == "CLOSED":
+            raise ValueError("已关闭的历史学习周期不可调整")
+        if cycle and cycle["actual_class_meeting_at"]:
+            raise ValueError("已确认实际班会的学习周期不可调整")
+        latest_materialized = execute(
+            connection,
+            "SELECT MAX(learning_cycle_index) AS learning_cycle_index "
+            "FROM class_learning_cycles WHERE binding_id=?",
+            (binding["id"],),
+        ).fetchone()["learning_cycle_index"]
+        if cycle is None and latest_materialized is not None and index <= int(latest_materialized):
+            raise ValueError("目标学习周期已进入历史，但找不到可调整的周期记录")
+        existing = execute(
+            connection,
+            "SELECT * FROM class_learning_cycle_schedule_overrides "
+            "WHERE binding_id=? AND learning_cycle_index=?",
+            (binding["id"], index),
+        ).fetchone()
+        before = dict(existing) if existing else None
+        if existing:
+            override_id = existing["id"]
+            execute(
+                connection,
+                "UPDATE class_learning_cycle_schedule_overrides SET "
+                "class_org_unit_id=?, planned_class_meeting_at=?, adjustment_reason=?, "
+                "status='ACTIVE', updated_by=?, updated_at=? WHERE id=?",
+                (
+                    class_org_unit_id,
+                    stored_planned,
+                    reason,
+                    actor_user_id,
+                    now,
+                    override_id,
+                ),
+            )
+            action = "learning.cycle.schedule_override.update"
+        else:
+            cursor = execute(
+                connection,
+                "INSERT INTO class_learning_cycle_schedule_overrides("
+                "binding_id, class_org_unit_id, learning_cycle_index, "
+                "planned_class_meeting_at, adjustment_reason, status, created_by, "
+                "updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)",
+                (
+                    binding["id"],
+                    class_org_unit_id,
+                    index,
+                    stored_planned,
+                    reason,
+                    actor_user_id,
+                    actor_user_id,
+                    now,
+                    now,
+                ),
+            )
+            override_id = cursor.lastrowid
+            action = "learning.cycle.schedule_override.create"
+        if cycle:
+            execute(
+                connection,
+                "UPDATE class_learning_cycles SET planned_class_meeting_at=?, "
+                "class_meeting_status='POSTPONED', adjustment_reason=?, updated_at=? "
+                "WHERE id=?",
+                (stored_planned, reason, now, cycle["id"]),
+            )
+        after = execute(
+            connection,
+            "SELECT * FROM class_learning_cycle_schedule_overrides WHERE id=?",
+            (override_id,),
+        ).fetchone()
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action=action,
+            resource_type="class_learning_cycle_schedule_override",
+            resource_id=str(override_id),
+            org_unit_id=class_org_unit_id,
+            purpose="调整班级单个学习周期计划班会时间",
+            before=before,
+            after=dict(after),
+        )
+        return _build_cycle_schedule(connection, binding=binding, as_of=now)
+
+
+def clear_learning_cycle_schedule_override(
+    *, actor_user_id: int, class_org_unit_id: str, learning_cycle_index: int
+) -> dict[str, Any]:
+    """Revoke one schedule override while retaining its audit history."""
+
+    _visible_class(class_org_unit_id, actor_user_id)
+    index = int(learning_cycle_index)
+    now = _now()
+    with transaction() as connection:
+        binding = _active_binding(connection, class_org_unit_id)
+        if not binding:
+            raise ValueError("该班级尚未配置生效中的学习计划")
+        duration = int(binding["duration_cycles"])
+        if not 1 <= index <= duration:
+            raise ValueError(f"学习周期必须在 1 到 {duration} 之间")
+        cycle = execute(
+            connection,
+            "SELECT * FROM class_learning_cycles WHERE binding_id=? "
+            "AND learning_cycle_index=?",
+            (binding["id"], index),
+        ).fetchone()
+        if cycle and cycle["cycle_status"] == "CLOSED":
+            raise ValueError("已关闭的历史学习周期不可调整")
+        existing = execute(
+            connection,
+            "SELECT * FROM class_learning_cycle_schedule_overrides "
+            "WHERE binding_id=? AND learning_cycle_index=? AND status='ACTIVE'",
+            (binding["id"], index),
+        ).fetchone()
+        if existing:
+            execute(
+                connection,
+                "UPDATE class_learning_cycle_schedule_overrides SET status='REVOKED', "
+                "updated_by=?, updated_at=? WHERE id=?",
+                (actor_user_id, now, existing["id"]),
+            )
+            if cycle and cycle["cycle_status"] == "OPEN":
+                default_planned = planned_class_meeting_at_for_cycle(
+                    binding["started_at"], index
+                )
+                execute(
+                    connection,
+                    "UPDATE class_learning_cycles SET planned_class_meeting_at=?, "
+                    "class_meeting_status='PLANNED', adjustment_reason=NULL, updated_at=? "
+                    "WHERE id=?",
+                    (_storage_datetime(connection, default_planned), now, cycle["id"]),
+                )
+            after = execute(
+                connection,
+                "SELECT * FROM class_learning_cycle_schedule_overrides WHERE id=?",
+                (existing["id"],),
+            ).fetchone()
+            write_audit(
+                connection,
+                actor_user_id=actor_user_id,
+                action="learning.cycle.schedule_override.revoke",
+                resource_type="class_learning_cycle_schedule_override",
+                resource_id=str(existing["id"]),
+                org_unit_id=class_org_unit_id,
+                purpose="撤销班级单个学习周期计划班会时间调整",
+                before=dict(existing),
+                after=dict(after),
+            )
+        return _build_cycle_schedule(connection, binding=binding, as_of=now)
 
 
 def _resolve_actual_class_meeting_at(
@@ -572,12 +1062,29 @@ def confirm_class_meeting(
             if not next_plan_cycle:
                 cohort_label = f"{binding['cohort_month']}月开班" if binding.get("cohort_month") else "通用"
                 raise ValueError(f"学习计划缺少{cohort_label}第{next_index}学习周期")
+            next_override = _active_schedule_override(
+                connection,
+                binding_id=int(binding["id"]),
+                learning_cycle_index=next_index,
+            )
+            next_planned = (
+                _output_datetime(next_override["planned_class_meeting_at"], "计划班会时间")
+                if next_override
+                else planned_class_meeting_at_for_cycle(binding["started_at"], next_index)
+            )
+            stored_next_planned = _storage_datetime(connection, next_planned)
+            next_status = "POSTPONED" if next_override else "PLANNED"
+            next_reason = next_override["adjustment_reason"] if next_override else None
             execute(
                 connection,
                 "INSERT INTO class_learning_cycles(binding_id, class_org_unit_id, learning_cycle_index, "
-                "plan_cycle_id, opened_at, class_meeting_status, group_meeting_policy, cycle_status, "
-                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'PLANNED', 'REQUIRED', 'OPEN', ?, ?)",
-                (binding["id"], class_org_unit_id, next_index, next_plan_cycle["id"], actual, now, now),
+                "plan_cycle_id, opened_at, planned_class_meeting_at, adjustment_reason, "
+                "class_meeting_status, group_meeting_policy, cycle_status, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'REQUIRED', 'OPEN', ?, ?)",
+                (
+                    binding["id"], class_org_unit_id, next_index, next_plan_cycle["id"],
+                    actual, stored_next_planned, next_reason, next_status, now, now,
+                ),
             )
             binding_status = "ACTIVE"
         else:

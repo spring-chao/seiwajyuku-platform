@@ -3,13 +3,22 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
+from fastapi.testclient import TestClient
+
 from app.db import execute, fetch_one, transaction
+from app.main import app
+from app.services import learning_cycles as learning_cycles_service
 from app.services.learning_cycles import (
     _cycle_query_datetime,
+    _storage_datetime,
     bind_class_learning_plan,
+    clear_learning_cycle_schedule_override,
     confirm_class_meeting,
+    get_class_learning_schedule,
     get_class_learning_progress,
     list_learning_plans,
+    set_learning_cycle_schedule_override,
     update_current_learning_cycle,
 )
 
@@ -18,6 +27,12 @@ def test_mysql_cycle_query_datetime_normalizes_iso_boundary() -> None:
     assert _cycle_query_datetime(
         object(), "2026-08-26T05:48:51.987654+00:00"
     ) == "2026-08-26 05:48:51"
+
+
+def test_mysql_cycle_storage_datetime_normalizes_iso_value() -> None:
+    assert _storage_datetime(
+        object(), "2026-08-26T05:48:51.987654+08:00"
+    ) == "2026-08-25 21:48:51"
 
 
 def _fixture() -> tuple[int, str, str, str]:
@@ -124,6 +139,55 @@ def _cohort_track_fixture() -> tuple[int, str, str, int]:
     return int(admin["id"]), class_1, class_4, int(plan_id)
 
 
+def _schedule_fixture() -> tuple[int, str, str]:
+    """Create two July-track classes for schedule override isolation tests."""
+
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin
+    suffix = uuid4().hex[:10]
+    class_a = f"l1-schedule-a-{suffix}"
+    class_b = f"l1-schedule-b-{suffix}"
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        for class_id, label in ((class_a, "A"), (class_b, "B")):
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'CLASS', 'org-suzhou', 1, ?, ?)",
+                (class_id, f"L1_SCHEDULE_{label}_{suffix}", f"L1周期调整测试班{label}-{suffix}", now, now),
+            )
+        execute(
+            connection,
+            "INSERT INTO learning_plan_versions(plan_key, plan_name, version_label, duration_cycles, status, created_at, updated_at) "
+            "VALUES (?, 'L1周期调整测试计划', ?, 9, 'PUBLISHED', ?, ?)",
+            (f"L1_SCHEDULE_{suffix}", f"2026-{suffix}", now, now),
+        )
+        plan_id = execute(connection, "SELECT last_insert_rowid() AS id").fetchone()["id"]
+        for cycle_index in range(1, 10):
+            execute(
+                connection,
+                "INSERT INTO learning_plan_cycles(plan_version_id, cohort_month, cycle_index, year_index, cycle_label, created_at, updated_at) "
+                "VALUES (?, 7, ?, ?, ?, ?, ?)",
+                (
+                    plan_id,
+                    cycle_index,
+                    1 if cycle_index <= 12 else 2,
+                    f"7月轨道第{cycle_index}周期",
+                    now,
+                    now,
+                ),
+            )
+    for class_id in (class_a, class_b):
+        bind_class_learning_plan(
+            actor_user_id=admin["id"],
+            class_org_unit_id=class_id,
+            plan_version_id=plan_id,
+            cohort_month=7,
+            started_at="2026-07-20T19:00:00+00:00",
+        )
+    return int(admin["id"]), class_a, class_b
+
+
 def test_group_meeting_before_class_meeting_stays_in_current_cycle() -> None:
     admin, class_id, _, _ = _fixture()
     before = get_class_learning_progress(
@@ -224,6 +288,226 @@ def test_cycle_progress_does_not_follow_natural_month() -> None:
     )
     assert progress["current_cycle"]["learning_cycle_index"] == 1
     assert progress["current_cycle"]["plan_cycle"]["cycle_label"] == "第1周期"
+
+
+def test_schedule_override_keeps_future_cycle_planned_until_class_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin, class_id, _ = _schedule_fixture()
+    schedule = set_learning_cycle_schedule_override(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        learning_cycle_index=8,
+        planned_class_meeting_at="2027-03-20T19:00:00+00:00",
+        adjustment_reason="春节期间暂停班会",
+    )
+    cycle_8 = schedule["cycles"][7]
+    assert schedule["current_projection"]["current_open_cycle"] == 1
+    assert cycle_8["learning_cycle_index"] == 8
+    assert cycle_8["default_planned_class_meeting_at"] == "2027-02-20T19:00:00+00:00"
+    assert cycle_8["planned_class_meeting_at"] == "2027-03-20T19:00:00+00:00"
+    assert cycle_8["planned_month"] == "2027-03"
+    assert cycle_8["schedule_source"] == "OVERRIDE"
+    assert cycle_8["actual_status"] == "NOT_STARTED"
+    assert cycle_8["schedule_override"]["adjustment_reason"] == "春节期间暂停班会"
+
+    actuals = (
+        datetime(2026, 8, 20, 19, tzinfo=UTC),
+        datetime(2026, 9, 20, 19, tzinfo=UTC),
+        datetime(2026, 10, 20, 19, tzinfo=UTC),
+        datetime(2026, 11, 20, 19, tzinfo=UTC),
+        datetime(2026, 12, 20, 19, tzinfo=UTC),
+        datetime(2027, 1, 20, 19, tzinfo=UTC),
+        datetime(2027, 2, 20, 19, tzinfo=UTC),
+    )
+    for cycle_index, actual in enumerate(actuals, start=1):
+        now = actual.replace(minute=1)
+        monkeypatch.setattr(
+            learning_cycles_service, "_now", lambda now=now: now.isoformat()
+        )
+        progress = confirm_class_meeting(
+            actor_user_id=admin,
+            class_org_unit_id=class_id,
+            actual_class_meeting_at=actual.isoformat(),
+            confirmation_reason=f"确认第{cycle_index}周期班会",
+        )
+        assert progress["current_cycle"]["learning_cycle_index"] == cycle_index + 1
+
+    runtime_schedule = get_class_learning_schedule(
+        user_id=admin, class_org_unit_id=class_id
+    )
+    assert runtime_schedule["current_projection"]["current_open_cycle"] == 8
+    assert runtime_schedule["current_projection"]["planned_month"] == "2027-03"
+
+    delayed = get_class_learning_progress(
+        user_id=admin,
+        class_org_unit_id=class_id,
+        at="2027-03-01T12:00:00+00:00",
+    )
+    assert delayed["current_cycle"]["learning_cycle_index"] == 8
+    assert delayed["current_cycle"]["plan_cycle"]["cycle_label"] == "7月轨道第8周期"
+    assert delayed["current_cycle"]["planned_class_meeting_at"] == "2027-03-20T19:00:00+00:00"
+
+    monkeypatch.setattr(
+        learning_cycles_service, "_now", lambda: "2027-03-20T20:00:00+00:00"
+    )
+    confirmed = confirm_class_meeting(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        actual_class_meeting_at="2027-03-20T19:00:00+00:00",
+        confirmation_reason="春节后确认第8周期班会",
+    )
+    assert confirmed["current_cycle"]["learning_cycle_index"] == 9
+    assert confirmed["current_cycle"]["opened_at"] == "2027-03-20T19:00:00+00:00"
+    history = get_class_learning_progress(
+        user_id=admin,
+        class_org_unit_id=class_id,
+        at="2027-03-20T19:00:00+00:00",
+    )
+    assert history["current_cycle"]["learning_cycle_index"] == 9
+
+
+def test_schedule_override_is_isolated_to_one_class() -> None:
+    admin, class_a, class_b = _schedule_fixture()
+    set_learning_cycle_schedule_override(
+        actor_user_id=admin,
+        class_org_unit_id=class_a,
+        learning_cycle_index=8,
+        planned_class_meeting_at="2027-03-20T19:00:00+00:00",
+        adjustment_reason="本班临时顺延",
+    )
+    class_a_schedule = get_class_learning_schedule(
+        user_id=admin, class_org_unit_id=class_a
+    )
+    class_b_schedule = get_class_learning_schedule(
+        user_id=admin, class_org_unit_id=class_b
+    )
+    assert class_a_schedule["cycles"][7]["schedule_source"] == "OVERRIDE"
+    assert class_b_schedule["cycles"][7]["schedule_source"] == "DEFAULT"
+    assert class_b_schedule["cycles"][7]["schedule_override"] is None
+
+
+def test_future_schedule_override_can_be_revoked_without_advancing_cycle() -> None:
+    admin, class_id, _ = _schedule_fixture()
+    set_learning_cycle_schedule_override(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        learning_cycle_index=2,
+        planned_class_meeting_at="2026-10-05T19:00:00+00:00",
+        adjustment_reason="临时顺延",
+    )
+    schedule = clear_learning_cycle_schedule_override(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        learning_cycle_index=2,
+    )
+    cycle_2 = schedule["cycles"][1]
+    assert cycle_2["schedule_source"] == "DEFAULT"
+    assert cycle_2["planned_class_meeting_at"] == "2026-08-20T19:00:00+00:00"
+    assert cycle_2["schedule_override"] is None
+    override = fetch_one(
+        "SELECT status FROM class_learning_cycle_schedule_overrides "
+        "WHERE binding_id=(SELECT id FROM class_learning_bindings WHERE class_org_unit_id=? LIMIT 1) "
+        "AND learning_cycle_index=2",
+        (class_id,),
+    )
+    assert override == {"status": "REVOKED"}
+
+
+def test_open_cycle_schedule_override_marks_postponed_and_can_restore_default() -> None:
+    admin, class_id, _ = _schedule_fixture()
+    updated = set_learning_cycle_schedule_override(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        learning_cycle_index=1,
+        planned_class_meeting_at="2026-08-20T19:00:00+00:00",
+        adjustment_reason="本周期班会顺延",
+    )
+    assert updated["current_projection"]["current_open_cycle"] == 1
+    assert updated["current_projection"]["schedule_override"]["adjustment_reason"] == "本周期班会顺延"
+    cycle = fetch_one(
+        "SELECT class_meeting_status, adjustment_reason FROM class_learning_cycles "
+        "WHERE class_org_unit_id=? AND learning_cycle_index=1",
+        (class_id,),
+    )
+    assert cycle == {
+        "class_meeting_status": "POSTPONED",
+        "adjustment_reason": "本周期班会顺延",
+    }
+
+    restored = clear_learning_cycle_schedule_override(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        learning_cycle_index=1,
+    )
+    assert restored["current_projection"]["schedule_override"] is None
+    cycle = fetch_one(
+        "SELECT class_meeting_status, planned_class_meeting_at, adjustment_reason "
+        "FROM class_learning_cycles WHERE class_org_unit_id=? AND learning_cycle_index=1",
+        (class_id,),
+    )
+    assert cycle == {
+        "class_meeting_status": "PLANNED",
+        "planned_class_meeting_at": "2026-07-20T19:00:00+00:00",
+        "adjustment_reason": None,
+    }
+
+
+def test_closed_cycle_schedule_cannot_be_rewritten() -> None:
+    admin, class_id, _, _ = _fixture()
+    confirm_class_meeting(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        actual_class_meeting_at="2026-08-20T19:00:00+00:00",
+        confirmation_reason="冻结历史周期",
+    )
+    with pytest.raises(ValueError, match="已关闭"):
+        set_learning_cycle_schedule_override(
+            actor_user_id=admin,
+            class_org_unit_id=class_id,
+            learning_cycle_index=1,
+            planned_class_meeting_at="2026-09-01T19:00:00+00:00",
+            adjustment_reason="不应修改历史",
+        )
+
+
+def test_schedule_api_exposes_read_and_class_cycle_override_operations() -> None:
+    _, class_id, _ = _schedule_fixture()
+    with TestClient(app) as client:
+        assert client.get(
+            f"/api/v1/classes/{class_id}/learning-cycle-schedule"
+        ).status_code == 401
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"username": "admin", "password": "test-admin-password"},
+        )
+        assert login.status_code == 200, login.text
+        headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+
+        initial = client.get(
+            f"/api/v1/classes/{class_id}/learning-cycle-schedule",
+            headers=headers,
+        )
+        assert initial.status_code == 200, initial.text
+        assert initial.json()["data"]["current_projection"]["current_open_cycle"] == 1
+
+        updated = client.put(
+            f"/api/v1/classes/{class_id}/learning-cycles/8/schedule-override",
+            headers=headers,
+            json={
+                "planned_class_meeting_at": "2027-03-20T19:00:00+00:00",
+                "adjustment_reason": "春节期间暂停班会",
+            },
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["data"]["cycles"][7]["schedule_source"] == "OVERRIDE"
+
+        cleared = client.delete(
+            f"/api/v1/classes/{class_id}/learning-cycles/8/schedule-override",
+            headers=headers,
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert cleared.json()["data"]["cycles"][7]["schedule_source"] == "DEFAULT"
 
 
 def test_cycle_boundary_is_timestamp_not_calendar_day() -> None:

@@ -1,9 +1,15 @@
-"""Audit class-instance projections onto the four learning-plan templates.
+"""Audit planned and runtime class-instance projections.
 
 This is a read-only audit artifact.  The input records are an explicitly
 confirmed scope baseline, not a runtime class-name rule and not a production
 database export.  An in-scope class is projected from its actual opening
-year-month; an out-of-scope class has no 36-cycle group-meeting requirement.
+year-month for the planned projection; an out-of-scope class has no 36-cycle
+group-meeting requirement.
+
+The planned projection is deliberately not an actual-cycle result.  Runtime
+actual/current state can be supplied separately from ``class_learning_cycles``
+with ``--actual-state``; without that optional input the artifact reports
+``NOT_PROVIDED`` instead of inventing production state.
 """
 
 from __future__ import annotations
@@ -33,6 +39,8 @@ DEFAULT_OUTPUT = DEFAULT_ROOT / "group-meeting-class-projection-audit-2026.1.jso
 IN_SCOPE = "GROUP_MEETING_36_CYCLES"
 OUT_OF_SCOPE = "OUT_OF_SCOPE"
 DEFAULT_CHECKPOINT_OFFSETS = (0, 1, 12, 35)
+PLANNED_PROJECTION = "PLANNED"
+ACTUAL_CURRENT_PROJECTION = "ACTUAL_CURRENT"
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -86,12 +94,14 @@ def _cycle_projection(
     mapping_status = mapping.get("status") if mapping else "MAPPING_MISSING"
     plan_match_status = _plan_match_status(plan_cycle, mapping)
     return {
+        "projection_type": PLANNED_PROJECTION,
         "class_name": class_name,
         "actual_open_year_month": actual_open_year_month,
         "cohort_month": cohort_month,
         "template_key": f"COHORT_MONTH_{cohort_month:02d}",
         "template_label": cohort_template_label(cohort_month),
         "specified_date": add_months(actual_open_year_month, learning_cycle_index - 1),
+        "planned_month": add_months(actual_open_year_month, learning_cycle_index - 1),
         "learning_cycle_index": learning_cycle_index,
         "year_index": year_index,
         "year_cycle_index": year_cycle_index_for_learning_cycle(learning_cycle_index),
@@ -101,6 +111,46 @@ def _cycle_projection(
         "flow_mapping_status": mapping_status,
         "plan_match_status": plan_match_status,
         "findings": [] if plan_match_status == "MATCHED" else [plan_match_status],
+    }
+
+
+def _current_projection(
+    *, row: dict[str, Any], actual_states: dict[str, Any]
+) -> dict[str, Any]:
+    """Return runtime state when explicitly supplied, otherwise a clear gap."""
+
+    class_name = str(row.get("class_name") or "").strip()
+    class_id = row.get("class_org_unit_id")
+    if str(row.get("learning_plan_scope") or "").strip() == OUT_OF_SCOPE:
+        return {
+            "projection_type": ACTUAL_CURRENT_PROJECTION,
+            "class_name": class_name,
+            "status": "NOT_APPLICABLE",
+            "source": "learning_plan_scope",
+            "current_open_cycle": None,
+            "planned_month": None,
+            "actual_status": "NOT_APPLICABLE",
+            "schedule_override": None,
+        }
+
+    state = actual_states.get(str(class_id)) if class_id else None
+    if state is None:
+        state = actual_states.get(class_name)
+    if not isinstance(state, dict):
+        state = None
+    return {
+        "projection_type": ACTUAL_CURRENT_PROJECTION,
+        "class_name": class_name,
+        "status": "LOADED" if state else "NOT_PROVIDED",
+        "source": (
+            state.get("source", "class_learning_cycles")
+            if state
+            else "class_learning_cycles (runtime state required)"
+        ),
+        "current_open_cycle": state.get("current_open_cycle") if state else None,
+        "planned_month": state.get("planned_month") if state else None,
+        "actual_status": state.get("actual_status", "NOT_LOADED") if state else "NOT_LOADED",
+        "schedule_override": state.get("schedule_override") if state else None,
     }
 
 
@@ -120,6 +170,7 @@ def _project_class(
     plan_cycles: dict[tuple[int, int], dict[str, Any]],
     mappings: dict[tuple[int, int, int], dict[str, Any]],
     duration_cycles: int,
+    actual_states: dict[str, Any],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     class_name = str(row.get("class_name") or "").strip()
     if not class_name:
@@ -139,6 +190,14 @@ def _project_class(
                 "exclusion_reason": row.get("exclusion_reason"),
                 "cycle_projections": [],
                 "checkpoints": [],
+                "planned_projection": {
+                    "projection_type": PLANNED_PROJECTION,
+                    "cycle_count": 0,
+                    "checkpoint_cycle_indexes": [],
+                },
+                "current_projection": _current_projection(
+                    row=row, actual_states=actual_states
+                ),
                 "findings": [],
             },
             [],
@@ -194,6 +253,17 @@ def _project_class(
             "plan_match_status": "MATCHED" if not findings else "REVIEW_REQUIRED",
             "cycle_projections": cycles,
             "checkpoints": checkpoints,
+            "planned_projection": {
+                "projection_type": PLANNED_PROJECTION,
+                "basis": "actual_open_year_month + planned month offset; not runtime cycle clock",
+                "cycle_count": duration_cycles,
+                "checkpoint_cycle_indexes": [
+                    item["learning_cycle_index"] for item in checkpoints
+                ],
+            },
+            "current_projection": _current_projection(
+                row=row, actual_states=actual_states
+            ),
             "findings": [
                 {
                     "specified_date": item["specified_date"],
@@ -209,11 +279,23 @@ def _project_class(
 
 
 def build_audit(
-    *, baseline_path: Path, plan_path: Path, mapping_path: Path
+    *,
+    baseline_path: Path,
+    plan_path: Path,
+    mapping_path: Path,
+    actual_state_path: Path | None = None,
 ) -> dict[str, Any]:
     baseline = _read(baseline_path)
     plan = _read(plan_path)
     mapping = _read(mapping_path)
+    actual_states: dict[str, Any] = {}
+    if actual_state_path is not None:
+        actual_payload = _read(actual_state_path)
+        if not isinstance(actual_payload, dict):
+            raise ValueError("实际周期状态必须是 JSON 对象")
+        actual_states = actual_payload.get("classes", actual_payload)
+        if not isinstance(actual_states, dict):
+            raise ValueError("实际周期状态必须是 classes 对象映射")
     duration_cycles = int(plan.get("duration_cycles") or 36)
     if duration_cycles != 36:
         raise ValueError("班级投影审计要求学习计划为 36 个周期")
@@ -234,6 +316,7 @@ def build_audit(
             plan_cycles=plan_cycles,
             mappings=mappings,
             duration_cycles=duration_cycles,
+            actual_states=actual_states,
         )
         projections.append(projection)
         projection_findings.extend(findings)
@@ -247,13 +330,14 @@ def build_audit(
     ]
     status_counts = Counter(item["plan_match_status"] for item in all_projected_cycles)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "plan_key": plan.get("plan_key"),
         "version_label": "2026.1",
         "status": "AUDIT_ONLY",
         "projection_model": (
-            "class_open_year_month -> learning_cycle_index -> "
-            "cohort_month_template -> group_meeting_flow"
+            "PLANNED: class_open_year_month -> learning_cycle_index -> "
+            "cohort_month_template -> group_meeting_flow; "
+            "ACTUAL_CURRENT: class_learning_cycles runtime state"
         ),
         "scope_source": baseline.get("scope_source"),
         "summary": {
@@ -270,8 +354,13 @@ def build_audit(
             "excluded_classes_have_no_findings": all(
                 not item["findings"] for item in out_of_scope
             ),
-            "template_months": list(COHORT_TEMPLATE_MONTHS),
+            "template_months": sorted(COHORT_TEMPLATE_MONTHS),
             "template_cycle_definition": "4个开班月份模板 × 36学习周期",
+            "projection_types": {
+                "planned": PLANNED_PROJECTION,
+                "actual_current": ACTUAL_CURRENT_PROJECTION,
+            },
+            "actual_projection_status": "LOADED" if actual_state_path else "NOT_PROVIDED",
         },
         "classes": projections,
     }
@@ -282,6 +371,12 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--baseline", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument(
+        "--actual-state",
+        type=Path,
+        default=None,
+        help="可选的 class_learning_cycles 当前状态 JSON；不提供时不虚构实际投影",
+    )
     args = parser.parse_args()
     root = args.root
     baseline_path = args.baseline or root / DEFAULT_BASELINE.name
@@ -290,10 +385,11 @@ def main() -> int:
         baseline_path=baseline_path,
         plan_path=root / "standard-3y-2026.json",
         mapping_path=root / "cycle-flow-mapping-2026.1.json",
+        actual_state_path=args.actual_state,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    output_path.write_bytes(
+        (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     )
     print(json.dumps(payload["summary"], ensure_ascii=False, sort_keys=True))
     return 0
