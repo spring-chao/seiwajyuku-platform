@@ -24,8 +24,8 @@
     </view>
     <view wx:else class="identity-card">
       <view class="identity-name">尚未绑定正式学员身份</view>
-      <view class="identity-copy">在册学长首次使用，输入姓名和手机号即可绑定。</view>
-      <button class="primary-button" bindtap="openBinding">绑定我的学员身份</button>
+      <view class="identity-copy">输入姓名和手机号即可绑定；如刚刚解除绑定，可重新确认学员身份。</view>
+      <button class="primary-button" bindtap="openBinding">{{bindingActionLabel}}</button>
     </view>
   </view>
 

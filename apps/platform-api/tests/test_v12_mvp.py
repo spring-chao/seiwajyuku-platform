@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import io
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from uuid import uuid4
@@ -11,7 +12,7 @@ import pytest
 from PIL import Image
 
 from app.core.privacy import protected_phone
-from app.db import execute, fetch_one, transaction
+from app.db import execute, fetch_all, fetch_one, transaction
 from app.main import app
 from app.services.enrollment import create_enrollment_link, rotate_enrollment_link
 from app.services.wechat_identity import exchange_wechat_code
@@ -186,6 +187,161 @@ def test_member_binding_masks_identity_and_revoke_closes_session() -> None:
             revoke = client.post("/api/v1/wechat/member-bindings/revoke", headers=headers)
             assert revoke.status_code == 200, revoke.text
             assert client.get("/api/v1/wechat/me", headers=headers).status_code == 401
+
+
+def test_member_binding_rebinds_same_wechat_after_revoke_and_rotates_old_tokens() -> None:
+    fixture = _seed_group_leader_fixture()
+    other_phone = _phone()
+    other_phone_fields = protected_phone(other_phone)
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE members SET phone_ciphertext=?, phone_hash=?, phone_last4=?, phone_masked=? WHERE id=?",
+            (
+                other_phone_fields["phone_ciphertext"],
+                other_phone_fields["phone_hash"],
+                other_phone_fields["phone_last4"],
+                other_phone_fields["phone_masked"],
+                fixture["other_member_id"],
+            ),
+        )
+
+    appid = f"v12-rebind-{fixture['suffix']}"
+    openid = f"same-wechat-{fixture['suffix']}"
+    with patch.dict(
+        os.environ,
+        {
+            "WECHAT_MEMBER_BINDING_ENABLED": "true",
+            "WECHAT_LOCAL_TEST_MODE": "false",
+            "WECHAT_MINIPROGRAM_APP_ID": appid,
+            "WECHAT_MINIPROGRAM_APP_SECRET": "v12-test-secret",
+        },
+    ), patch(
+        "app.services.wechat_identity.exchange_wechat_code",
+        return_value={"appid": appid, "openid": openid},
+    ), TestClient(app) as client:
+        def bind(name: str, phone: str):
+            return client.post(
+                "/api/v1/wechat/member-bindings/verify",
+                json={"code": "code", "name": name, "phone": phone},
+            )
+
+        first = bind("V1.2组长", fixture["phone"])
+        assert first.status_code == 200, first.text
+        first_token = first.json()["data"]["access_token"]
+
+        same_member = bind("V1.2组长", fixture["phone"])
+        assert same_member.status_code == 200, same_member.text
+
+        switch_without_revoke = bind("V1.2跨组学长", other_phone)
+        assert switch_without_revoke.status_code == 400
+        assert switch_without_revoke.json()["detail"] == "当前微信已绑定其他学员，请先解绑后再绑定"
+        assert client.get(
+            "/api/v1/wechat/me", headers={"Authorization": f"Bearer {first_token}"}
+        ).json()["data"]["member"]["member_id"] == fixture["member_id"]
+
+        revoked = client.post(
+            "/api/v1/wechat/member-bindings/revoke",
+            headers={"Authorization": f"Bearer {first_token}"},
+        )
+        assert revoked.status_code == 200, revoked.text
+        assert client.get(
+            "/api/v1/wechat/me", headers={"Authorization": f"Bearer {first_token}"}
+        ).status_code == 401
+
+        before_rebind = fetch_one(
+            "SELECT id, member_id, status, active_slot, token_version "
+            "FROM wechat_member_bindings WHERE appid=? AND openid=?",
+            (appid, openid),
+        )
+        assert before_rebind is not None
+        assert before_rebind["member_id"] == fixture["member_id"]
+        assert before_rebind["status"] == "REVOKED"
+        assert before_rebind["active_slot"] is None
+        assert before_rebind["token_version"] == 2
+
+        rebound = bind("V1.2跨组学长", other_phone)
+        assert rebound.status_code == 200, rebound.text
+        rebound_data = rebound.json()["data"]
+        assert rebound_data["member"]["member_id"] == fixture["other_member_id"]
+        assert client.get(
+            "/api/v1/wechat/me", headers={"Authorization": f"Bearer {first_token}"}
+        ).status_code == 401
+        assert client.get(
+            "/api/v1/wechat/me",
+            headers={"Authorization": f"Bearer {rebound_data['access_token']}"},
+        ).json()["data"]["member"]["member_id"] == fixture["other_member_id"]
+
+        after_rebind = fetch_one(
+            "SELECT id, member_id, status, active_slot, token_version "
+            "FROM wechat_member_bindings WHERE appid=? AND openid=?",
+            (appid, openid),
+        )
+        assert after_rebind["id"] == before_rebind["id"]
+        assert after_rebind["member_id"] == fixture["other_member_id"]
+        assert after_rebind["status"] == "VERIFIED"
+        assert after_rebind["active_slot"] == 1
+        assert after_rebind["token_version"] == 3
+
+        audits = fetch_all(
+            "SELECT action, before_json, after_json FROM audit_logs "
+            "WHERE resource_type='wechat_member_binding' AND resource_id=? ORDER BY id",
+            (str(after_rebind["id"]),),
+        )
+        rebind_audit = next(row for row in audits if row["action"] == "wechat.member_binding.rebind")
+        assert json.loads(rebind_audit["before_json"]) == {
+            "member_id": fixture["member_id"],
+            "status": "REVOKED",
+            "token_version": 2,
+        }
+        assert json.loads(rebind_audit["after_json"])["member_id"] == fixture["other_member_id"]
+        assert json.loads(rebind_audit["after_json"])["status"] == "VERIFIED"
+
+
+def test_member_binding_rejects_target_already_bound_to_another_wechat() -> None:
+    fixture = _seed_group_leader_fixture()
+    target_phone = _phone()
+    target_phone_fields = protected_phone(target_phone)
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE members SET phone_ciphertext=?, phone_hash=?, phone_last4=?, phone_masked=? WHERE id=?",
+            (
+                target_phone_fields["phone_ciphertext"],
+                target_phone_fields["phone_hash"],
+                target_phone_fields["phone_last4"],
+                target_phone_fields["phone_masked"],
+                fixture["other_member_id"],
+            ),
+        )
+
+    appid = f"v12-member-conflict-{fixture['suffix']}"
+    with patch.dict(
+        os.environ,
+        {
+            "WECHAT_MEMBER_BINDING_ENABLED": "true",
+            "WECHAT_LOCAL_TEST_MODE": "false",
+            "WECHAT_MINIPROGRAM_APP_ID": appid,
+            "WECHAT_MINIPROGRAM_APP_SECRET": "v12-test-secret",
+        },
+    ), patch(
+        "app.services.wechat_identity.exchange_wechat_code",
+        side_effect=[
+            {"appid": appid, "openid": "wechat-owner"},
+            {"appid": appid, "openid": "wechat-contender"},
+        ],
+    ), TestClient(app) as client:
+        owned = client.post(
+            "/api/v1/wechat/member-bindings/verify",
+            json={"code": "owner-code", "name": "V1.2跨组学长", "phone": target_phone},
+        )
+        assert owned.status_code == 200, owned.text
+        contender = client.post(
+            "/api/v1/wechat/member-bindings/verify",
+            json={"code": "contender-code", "name": "V1.2跨组学长", "phone": target_phone},
+        )
+        assert contender.status_code == 400
+        assert contender.json()["detail"] == "该学员已有微信绑定，如需更换请联系工作人员"
 
 
 def test_wechat_profile_returns_join_dates_and_safe_volunteer_history() -> None:

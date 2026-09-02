@@ -26,6 +26,10 @@ from app.services.volunteer_positions import STUDY_MEETING_MANAGE
 logger = logging.getLogger(__name__)
 
 WECHAT_SESSION_TOKEN_TYPE = "wechat_member_access"
+WECHAT_BINDING_NO_MATCH_MESSAGE = "姓名或手机号未匹配，请核对后重试"
+WECHAT_BINDING_AMBIGUOUS_MESSAGE = "姓名和手机号匹配到多名学员，请联系工作人员"
+WECHAT_BINDING_OPENID_CONFLICT_MESSAGE = "当前微信已绑定其他学员，请先解绑后再绑定"
+WECHAT_BINDING_MEMBER_CONFLICT_MESSAGE = "该学员已有微信绑定，如需更换请联系工作人员"
 WECHAT_BINDING_ROLES = {
     "volunteer_group_leader": "GROUP_LEADER",
     "volunteer_class_counselor": "CLASS_COUNSELOR",
@@ -35,7 +39,7 @@ WECHAT_BINDING_ROLES = {
 
 
 class WeChatIdentityError(ValueError):
-    """A safe, non-enumerating identity binding failure."""
+    """A safe, user-facing identity binding failure."""
 
 
 class WeChatProviderError(ValueError):
@@ -225,12 +229,12 @@ def verify_member_binding(*, code: str, name: str, phone: str) -> dict[str, Any]
     _require_binding_enabled()
     cleaned_name = (name or "").strip()
     if not cleaned_name or len(cleaned_name) > 120:
-        raise WeChatIdentityError("暂时无法完成身份匹配，请联系工作人员")
+        raise WeChatIdentityError(WECHAT_BINDING_NO_MATCH_MESSAGE)
     try:
         normalized_phone = normalize_phone(phone)
         hashed_phone = phone_hash(normalized_phone)
     except ValueError as exc:
-        raise WeChatIdentityError("暂时无法完成身份匹配，请联系工作人员") from exc
+        raise WeChatIdentityError(WECHAT_BINDING_NO_MATCH_MESSAGE) from exc
 
     identity = exchange_wechat_code(code)
     appid = identity.get("appid") or get_settings().wechat_miniprogram_app_id
@@ -238,27 +242,28 @@ def verify_member_binding(*, code: str, name: str, phone: str) -> dict[str, Any]
     if not appid or not openid:
         raise WeChatProviderError("微信身份服务暂时不可用，请稍后重试")
 
-    # Deliberately fetch at most two rows so duplicate data does not become an
-    # enumeration oracle.  The response is the same for zero and many matches.
+    # Deliberately fetch at most two rows so duplicate data is handled as an
+    # ambiguity without loading or returning an unbounded result set.
     matches = fetch_all(
         "SELECT id FROM members WHERE name=? AND phone_hash=? AND status='ACTIVE' LIMIT 2",
         (cleaned_name, hashed_phone),
     )
-    if len(matches) != 1:
-        raise WeChatIdentityError("暂时无法完成身份匹配，请联系工作人员")
+    if not matches:
+        raise WeChatIdentityError(WECHAT_BINDING_NO_MATCH_MESSAGE)
+    if len(matches) > 1:
+        raise WeChatIdentityError(WECHAT_BINDING_AMBIGUOUS_MESSAGE)
     member_id = int(matches[0]["id"])
 
-    # Isolated UX acceptance simulates distinct WeChat accounts when switching
-    # fixture people in a single developer tool. Never alter real provider IDs.
-    settings = get_settings()
-    if settings.wechat_local_test_mode and settings.app_env in {"dev", "test"}:
-        openid = f"local-test-member-{member_id}"
+    # Keep the local provider stub's openid stable so dev/test exercises the
+    # same identity lifecycle as the real provider. Tests that need multiple
+    # simulated accounts must patch exchange_wechat_code explicitly.
 
+    member: dict[str, Any] | None = None
     with transaction() as connection:
         now = _db_timestamp(connection)
         existing_openid = execute(
             connection,
-            "SELECT id, member_id, status FROM wechat_member_bindings "
+            "SELECT id, member_id, status, token_version FROM wechat_member_bindings "
             "WHERE appid=? AND openid=? LIMIT 1",
             (appid, openid),
         ).fetchone()
@@ -268,47 +273,81 @@ def verify_member_binding(*, code: str, name: str, phone: str) -> dict[str, Any]
             "WHERE appid=? AND member_id=? AND status='VERIFIED' LIMIT 1",
             (appid, member_id),
         ).fetchone()
-        if existing_openid and int(existing_openid["member_id"]) != member_id:
-            raise WeChatIdentityError("暂时无法完成身份匹配，请联系工作人员")
+
+        binding_token_version = 1
+        binding_action = "wechat.member_binding.verify"
+        binding_before: dict[str, Any] | None = None
+        if existing_openid:
+            existing_status = str(existing_openid["status"] or "")
+            existing_member_id = int(existing_openid["member_id"])
+            try:
+                existing_token_version = int(existing_openid["token_version"])
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise WeChatIdentityError("微信身份记录无效，请联系工作人员") from exc
+            if existing_token_version < 1:
+                raise WeChatIdentityError("微信身份记录无效，请联系工作人员")
+            if existing_status == "VERIFIED" and existing_member_id != member_id:
+                raise WeChatIdentityError(WECHAT_BINDING_OPENID_CONFLICT_MESSAGE)
+            if existing_status not in {"VERIFIED", "REVOKED"}:
+                raise WeChatIdentityError("微信身份记录无效，请联系工作人员")
+            binding_token_version = (
+                existing_token_version + 1
+                if existing_status == "REVOKED"
+                else existing_token_version
+            )
+            binding_before = {
+                "member_id": existing_member_id,
+                "status": existing_status,
+                "token_version": existing_token_version,
+            }
+            if existing_status == "REVOKED":
+                binding_action = "wechat.member_binding.rebind"
+
         if existing_member and existing_member["openid"] != openid:
-            # One effective binding per AppID/member.  A revoked row is
+            # One effective binding per AppID/member. A revoked row is
             # reactivated with the same openid; changing openid requires an
             # explicit revoke/rebind operation instead of silently stealing a
             # member's existing session.
-            raise WeChatIdentityError("该学员已有微信绑定，请先联系工作人员解绑")
+            raise WeChatIdentityError(WECHAT_BINDING_MEMBER_CONFLICT_MESSAGE)
 
         if existing_openid:
             binding_id = int(existing_openid["id"])
             execute(
                 connection,
                 "UPDATE wechat_member_bindings SET member_id=?, status='VERIFIED', active_slot=1, "
-                "verified_at=?, revoked_at=NULL, updated_at=? WHERE id=?",
-                (member_id, now, now, binding_id),
+                "token_version=?, verified_at=?, revoked_at=NULL, updated_at=? WHERE id=?",
+                (member_id, binding_token_version, now, now, binding_id),
             )
         else:
             cursor = execute(
                 connection,
                 "INSERT INTO wechat_member_bindings "
                 "(appid, openid, member_id, status, binding_source, verified_at, "
-                "active_slot, created_at, updated_at) VALUES (?, ?, ?, 'VERIFIED', "
-                "'MINIPROGRAM_SELF_SERVICE', ?, 1, ?, ?)",
-                (appid, openid, member_id, now, now, now),
+                "active_slot, token_version, created_at, updated_at) VALUES (?, ?, ?, 'VERIFIED', "
+                "'MINIPROGRAM_SELF_SERVICE', ?, 1, ?, ?, ?)",
+                (appid, openid, member_id, now, binding_token_version, now, now),
             )
             binding_id = int(cursor.lastrowid)
         write_audit(
             connection,
             actor_user_id=None,
-            action="wechat.member_binding.verify",
+            action=binding_action,
             resource_type="wechat_member_binding",
             resource_id=str(binding_id),
-            after={"member_id": member_id, "status": "VERIFIED", "appid": appid},
+            before=binding_before,
+            after={
+                "member_id": member_id,
+                "status": "VERIFIED",
+                "token_version": binding_token_version,
+                "appid": appid,
+            },
         )
         member = _member_payload(connection, member_id)
-    if not member:
-        raise WeChatIdentityError("暂时无法完成身份匹配，请联系工作人员")
+        if not member:
+            raise WeChatIdentityError("学员身份暂时不可用，请联系工作人员")
     token = create_token(
         binding_id,
-        1,
+        binding_token_version,
         WECHAT_SESSION_TOKEN_TYPE,
         timedelta(days=7),
     )
@@ -324,6 +363,9 @@ def resolve_member_session(token: str) -> dict[str, Any]:
     try:
         payload = decode_token(token, WECHAT_SESSION_TOKEN_TYPE)
         binding_id = int(payload["sub"])
+        token_version = int(payload["ver"])
+        if binding_id < 1 or token_version < 1:
+            raise ValueError("令牌版本无效")
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise WeChatIdentityError("微信身份登录已失效，请重新绑定") from exc
     connection = None
@@ -333,10 +375,12 @@ def resolve_member_session(token: str) -> dict[str, Any]:
         connection = connect()
         row = execute(
             connection,
-            "SELECT b.id AS binding_id, b.appid, b.member_id, m.status AS member_status "
+            "SELECT b.id AS binding_id, b.appid, b.member_id, b.token_version, "
+            "m.status AS member_status "
             "FROM wechat_member_bindings b JOIN members m ON m.id=b.member_id "
-            "WHERE b.id=? AND b.status='VERIFIED' AND m.status='ACTIVE' LIMIT 1",
-            (binding_id,),
+            "WHERE b.id=? AND b.status='VERIFIED' AND b.token_version=? "
+            "AND m.status='ACTIVE' LIMIT 1",
+            (binding_id, token_version),
         ).fetchone()
         if not row:
             raise WeChatIdentityError("微信身份登录已失效，请重新绑定")
@@ -350,6 +394,7 @@ def resolve_member_session(token: str) -> dict[str, Any]:
         "binding_id": int(row["binding_id"]),
         "appid": row["appid"],
         "member_id": int(row["member_id"]),
+        "token_version": int(row["token_version"]),
         "member": member,
     }
 
@@ -359,19 +404,33 @@ def revoke_member_binding(token: str) -> dict[str, Any]:
     session = resolve_member_session(token)
     with transaction() as connection:
         now = _db_timestamp(connection)
-        execute(
+        previous_token_version = int(session["token_version"])
+        next_token_version = previous_token_version + 1
+        updated = execute(
             connection,
             "UPDATE wechat_member_bindings SET status='REVOKED', revoked_at=?, updated_at=? "
-            ", active_slot=NULL WHERE id=? AND status='VERIFIED'",
-            (now, now, session["binding_id"]),
+            ", active_slot=NULL, token_version=? "
+            "WHERE id=? AND status='VERIFIED' AND token_version=?",
+            (now, now, next_token_version, session["binding_id"], previous_token_version),
         )
+        if updated.rowcount != 1:
+            raise WeChatIdentityError("微信身份登录已失效，请重新绑定")
         write_audit(
             connection,
             actor_user_id=None,
             action="wechat.member_binding.revoke",
             resource_type="wechat_member_binding",
             resource_id=str(session["binding_id"]),
-            after={"member_id": session["member_id"], "status": "REVOKED"},
+            before={
+                "member_id": session["member_id"],
+                "status": "VERIFIED",
+                "token_version": previous_token_version,
+            },
+            after={
+                "member_id": session["member_id"],
+                "status": "REVOKED",
+                "token_version": next_token_version,
+            },
         )
     return {"revoked": True}
 

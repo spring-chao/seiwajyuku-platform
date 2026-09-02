@@ -1,8 +1,8 @@
 <view class="page-shell">
   <view class="hero-card">
-    <view class="eyebrow">首次使用</view>
+    <view class="eyebrow">身份确认</view>
     <view class="hero-title">绑定我的学员身份</view>
-    <view class="hero-copy">输入正式入塾时登记的姓名和手机号。系统只会显示最小脱敏信息，不会公开查询其他学员。</view>
+    <view class="hero-copy">输入正式入塾时登记的姓名和手机号；如刚刚解除绑定，也可以在这里重新确认新的学员身份。系统只会显示最小脱敏信息，不会公开查询其他学员。</view>
   </view>
   <view class="section-card">
     <view class="field-row">

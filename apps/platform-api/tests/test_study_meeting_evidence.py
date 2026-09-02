@@ -246,7 +246,7 @@ def test_failed_upload_is_tracked_and_cleanup_retryable():
     assert cleanup_evidence(apply=True)["deleted"] >= 1
 
 
-def test_counselor_fixture_uses_group_capability_and_local_identity_switch(monkeypatch):
+def test_counselor_fixture_uses_group_capability_and_explicit_provider_identities(monkeypatch):
     leader = _seed_group_leader_fixture()
     counselor = _seed_group_leader_fixture()
     with transaction() as connection:
@@ -257,8 +257,15 @@ def test_counselor_fixture_uses_group_capability_and_local_identity_switch(monke
     assert targets[0]["position_name"] == "辅导员"
     monkeypatch.setenv("WECHAT_LOCAL_TEST_MODE", "true")
     monkeypatch.setenv("WECHAT_MINIPROGRAM_APP_ID", "b21-local-test")
-    a = verify_member_binding(code="dev-code", name="V1.2组长", phone=leader["phone"])
-    b = verify_member_binding(code="dev-code", name="V1.2组长", phone=counselor["phone"])
+    with patch(
+        "app.services.wechat_identity.exchange_wechat_code",
+        side_effect=[
+            {"appid": "b21-local-test", "openid": f"leader-{leader['suffix']}"},
+            {"appid": "b21-local-test", "openid": f"counselor-{counselor['suffix']}"},
+        ],
+    ):
+        a = verify_member_binding(code="dev-code", name="V1.2组长", phone=leader["phone"])
+        b = verify_member_binding(code="dev-code", name="V1.2组长", phone=counselor["phone"])
     assert a["member"]["member_id"] != b["member"]["member_id"]
     session = create(counselor)
     upload(counselor, session)

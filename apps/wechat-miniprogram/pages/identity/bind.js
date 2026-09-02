@@ -44,7 +44,12 @@ Page({
         success: () => wx.navigateBack({ delta: 1 })
       });
     } catch (error) {
-      wx.showToast({ title: error.message || "暂时无法完成绑定", icon: "none", duration: 2600 });
+      const message = error.message || "暂时无法完成绑定";
+      if (error.statusCode === 400) {
+        wx.showModal({ title: "无法绑定", content: message, showCancel: false });
+      } else {
+        wx.showToast({ title: message, icon: "none", duration: 2600 });
+      }
     } finally {
       this.setData({ loading: false });
     }

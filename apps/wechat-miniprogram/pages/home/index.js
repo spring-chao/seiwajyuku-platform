@@ -14,7 +14,8 @@ Page({
     serviceMessage: "",
     displayRole: "",
     displayScope: "",
-    errorMessage: ""
+    errorMessage: "",
+    bindingActionLabel: "绑定我的学员身份"
   },
 
   onShow() {
@@ -29,7 +30,8 @@ Page({
     const next = {
       portal: null, member: null, identityState: token ? "unknown" : "unbound",
       canManageStudyMeeting: false, isVolunteer: false, volunteerRoles: [],
-      serviceMessage: "", displayRole: "", displayScope: ""
+      serviceMessage: "", displayRole: "", displayScope: "",
+      bindingActionLabel: this.data.bindingActionLabel || "绑定我的学员身份"
     };
     if (token) {
       try {
@@ -136,7 +138,8 @@ Page({
           this._homeLoadVersion = (this._homeLoadVersion || 0) + 1;
           app.clearMemberSession();
           this.setData({ member: null, identityState: "unbound", canManageStudyMeeting: false,
-            isVolunteer: false, volunteerRoles: [], displayRole: "", displayScope: "", serviceMessage: "" });
+            isVolunteer: false, volunteerRoles: [], displayRole: "", displayScope: "", serviceMessage: "",
+            bindingActionLabel: "重新绑定我的学员身份" });
           wx.showToast({ title: "已解除绑定", icon: "success" });
           await this.loadHome();
         } catch (error) {

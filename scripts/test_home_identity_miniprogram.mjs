@@ -99,6 +99,7 @@ test('successful revoke clears capabilities and restores applicant entry', async
   await page.modal.success({ confirm: true });
   assert.equal(app.globalData.memberSessionToken, '');
   assert.equal(page.data.displayRole, '');
+  assert.equal(page.data.bindingActionLabel, '重新绑定我的学员身份');
   assert.equal(visible(enrollmentCondition, page.data), true);
   assert.equal(visible(studyCondition, page.data), false);
 });
