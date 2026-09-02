@@ -56,6 +56,26 @@ export type LearningPlanHealthClass = {
     learning_cycle_index: number;
     plan_cycle_id: number;
     cycle_status: string;
+    class_meeting_status: string;
+    group_meeting_policy: string;
+    opened_at?: string | null;
+    planned_class_meeting_at?: string | null;
+  } | null;
+  runtime_status: string;
+  business_expectation: {
+    class_name: string | null;
+    expected_plan_version: string | null;
+    expected_cohort_month: number | null;
+    expected_current_cycle: number | null;
+    meeting_status: string | null;
+    group_meeting_policy: string | null;
+    expected_runtime_status: string | null;
+    evidence_source: string | null;
+    confidence: string | null;
+    adjustment_reason: string | null;
+    migration_status: string | null;
+    candidate_org_unit_ids?: string[];
+    id_resolution_note?: string | null;
   } | null;
   group_count: number;
   volunteer_permission: "PASS" | "BLOCKED";

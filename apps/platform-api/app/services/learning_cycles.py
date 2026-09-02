@@ -13,6 +13,14 @@ from app.services.learning_cycle_schedule import (
     planned_class_meeting_at_for_cycle,
     year_month,
 )
+from app.services.learning_plan_baseline import (
+    actual_snapshot,
+    baseline_by_class_id,
+    baseline_summary,
+    compare_expectation,
+    load_baseline,
+    public_expectation,
+)
 
 
 CLASS_MEETING_STATUSES = {"PLANNED", "POSTPONED"}
@@ -246,6 +254,15 @@ def _latest_binding(connection, class_org_unit_id: str) -> dict[str, Any] | None
 def _cycle_at(
     connection, binding_id: int, at: str
 ) -> dict[str, Any] | None:
+    """Return the latest runtime cycle that has actually opened by ``at``.
+
+    A binding creates its first runtime row when the plan is configured so the
+    schedule can be projected in advance.  That row may have a future
+    ``opened_at``.  It must not be used as the current cycle before the formal
+    start boundary; callers need ``None`` so they can expose NOT_STARTED and
+    keep study-meeting registration closed.
+    """
+
     query_at = _cycle_query_datetime(connection, at)
     row = execute(
         connection,
@@ -254,14 +271,6 @@ def _cycle_at(
         "ORDER BY opened_at DESC, learning_cycle_index DESC LIMIT 1",
         (binding_id, query_at),
     ).fetchone()
-    if not row:
-        row = execute(
-            connection,
-            "SELECT * FROM class_learning_cycles WHERE binding_id=? "
-            "AND cycle_status IN ('OPEN', 'CLOSED') "
-            "ORDER BY learning_cycle_index LIMIT 1",
-            (binding_id,),
-        ).fetchone()
     return dict(row) if row else None
 
 
@@ -596,6 +605,32 @@ def _group_progress(
     return result
 
 
+def _runtime_status(
+    *,
+    binding: dict[str, Any],
+    cycle: dict[str, Any] | None,
+    at: str,
+) -> str:
+    """Map runtime facts to the small set of business-facing states.
+
+    ``NOT_STARTED`` is intentionally based on the binding start boundary, not
+    on a future cycle row that was materialized for schedule projection.
+    """
+
+    if cycle:
+        if str(cycle.get("class_meeting_status") or "").upper() == "POSTPONED":
+            return "POSTPONED"
+        if str(cycle.get("cycle_status") or "").upper() == "OPEN":
+            return "NORMAL"
+        if str(cycle.get("cycle_status") or "").upper() == "CLOSED":
+            return "COMPLETED"
+    started_at = _timestamp_as_datetime(binding.get("started_at"))
+    query_at = _timestamp_as_datetime(at)
+    if started_at and query_at and started_at > query_at:
+        return "NOT_STARTED"
+    return "MISSING_CURRENT_CYCLE"
+
+
 def _progress_from_connection(
     connection, class_org_unit_id: str, *, at: str
 ) -> dict[str, Any]:
@@ -604,16 +639,27 @@ def _progress_from_connection(
         raise ValueError("该班级尚未绑定学习计划")
     cycle = _cycle_at(connection, int(binding["id"]), at)
     if not cycle:
-        raise ValueError("学习计划尚未生成学习周期")
+        runtime_status = _runtime_status(binding=binding, cycle=None, at=at)
+        return {
+            "class_org_unit_id": class_org_unit_id,
+            "binding": _binding_payload(binding),
+            "current_cycle": None,
+            "current_status": runtime_status,
+            "actual_status": runtime_status,
+            "current_at": at,
+        }
     cycle_payload = dict(cycle)
     plan_cycle = _plan_cycle_payload(connection, int(cycle["plan_cycle_id"]))
     cycle_payload["plan_cycle"] = plan_cycle
     cycle_payload["groups"] = _group_progress(connection, cycle, class_org_unit_id)
     cycle_payload["current_at"] = at
+    runtime_status = _runtime_status(binding=binding, cycle=cycle, at=at)
     return {
         "class_org_unit_id": class_org_unit_id,
         "binding": _binding_payload(binding),
         "current_cycle": cycle_payload,
+        "current_status": runtime_status,
+        "actual_status": runtime_status,
     }
 
 
@@ -1328,7 +1374,10 @@ def scan_class_learning_plan_health(
                 "WHERE va.status='ACTIVE' AND pc.capability_key='STUDY_MEETING_MANAGE'",
             ).fetchall()
         ]
-        now_dt = _timestamp_as_datetime(_now()) or datetime.now(UTC)
+        scan_at = _now()
+        now_dt = _timestamp_as_datetime(scan_at) or datetime.now(UTC)
+        baseline = load_baseline()
+        baseline_index = baseline_by_class_id(baseline)
         name_counts: dict[str, int] = {}
         for row in class_rows:
             name_counts[str(row["name"])] = name_counts.get(str(row["name"]), 0) + 1
@@ -1344,12 +1393,21 @@ def scan_class_learning_plan_health(
             "group_relation_anomalies": 0,
             "group_meeting_config_missing": 0,
             "volunteer_permission_missing": 0,
+            "expected_cycle_mismatch": 0,
+            "expected_template_mismatch": 0,
+            "expected_plan_version_mismatch": 0,
+            "expected_status_mismatch": 0,
+            "manual_review_required": 0,
+            "baseline_id_name_mismatch": 0,
             "ready_classes": 0,
         }
         classes: list[dict[str, Any]] = []
         issues: list[dict[str, Any]] = []
+        class_ids_in_scope: set[str] = set()
         for class_row in class_rows:
+            class_ids_in_scope.add(str(class_row["id"]))
             class_issues: list[dict[str, Any]] = []
+            expectation = baseline_index.get(str(class_row["id"]))
             if name_counts.get(str(class_row["name"]), 0) > 1:
                 duplicate_ids = [
                     row["id"] for row in class_rows if row["name"] == class_row["name"]
@@ -1401,6 +1459,7 @@ def scan_class_learning_plan_health(
 
             current_cycle: dict[str, Any] | None = None
             plan_cycle: dict[str, Any] | None = None
+            runtime_status = "UNBOUND"
             if binding:
                 binding_payload = _binding_payload(binding)
                 plan_status = _public_plan_status(binding.get("plan_status"))
@@ -1424,17 +1483,21 @@ def scan_class_learning_plan_health(
                             suggested_action="按实际学习体系使用 1、4、7 或 10 月开班模板进行修正",
                         )
                     )
-                current_cycle = _cycle_at(connection, int(binding["id"]), _now())
+                current_cycle = _cycle_at(connection, int(binding["id"]), scan_at)
+                runtime_status = _runtime_status(
+                    binding=binding, cycle=current_cycle, at=scan_at
+                )
                 if not current_cycle:
-                    summary["missing_current_cycle"] += 1
-                    class_issues.append(
-                        _health_issue(
-                            class_row=class_row,
-                            issue_type="MISSING_CURRENT_CYCLE",
-                            current_data={"binding_id": binding["id"]},
-                            suggested_action="使用接续或当前设置修正生成明确的当前学习周期",
+                    if runtime_status != "NOT_STARTED":
+                        summary["missing_current_cycle"] += 1
+                        class_issues.append(
+                            _health_issue(
+                                class_row=class_row,
+                                issue_type="MISSING_CURRENT_CYCLE",
+                                current_data={"binding_id": binding["id"]},
+                                suggested_action="使用接续或当前设置修正生成明确的当前学习周期",
+                            )
                         )
-                    )
                 else:
                     plan_cycle_row = execute(
                         connection,
@@ -1475,6 +1538,65 @@ def scan_class_learning_plan_health(
                                 issue_type="GROUP_MEETING_CONFIG_MISSING",
                                 current_data={"plan_cycle_id": plan_cycle["id"]},
                                 suggested_action="补齐该计划周期的小组学习会配置后再进行真机验收",
+                            )
+                        )
+            if expectation:
+                expected_name = str(expectation.get("class_name") or "").strip()
+                if expected_name and expected_name != str(class_row["name"]):
+                    summary["baseline_id_name_mismatch"] += 1
+                    class_issues.append(
+                        _health_issue(
+                            class_row=class_row,
+                            issue_type="BASELINE_ID_NAME_MISMATCH",
+                            current_data={
+                                "baseline_class_name": expected_name,
+                                "actual_class_name": class_row["name"],
+                                "class_org_unit_id": class_row["id"],
+                            },
+                            suggested_action="历史组织 ID 与当前班级名称不一致，先核对当前组织主数据，禁止按名称自动改写。",
+                        )
+                    )
+                    expectation = None
+                elif expectation.get("migration_status") == "MANUAL_REVIEW_REQUIRED":
+                    summary["manual_review_required"] += 1
+                    class_issues.append(
+                        _health_issue(
+                            class_row=class_row,
+                            issue_type="MANUAL_REVIEW_REQUIRED",
+                            current_data={
+                                "business_expectation": public_expectation(expectation),
+                                "runtime_status": runtime_status,
+                            },
+                            suggested_action="业务确认模板、计划版本和实际班会次数后，再单独形成生产修正方案。",
+                        )
+                    )
+                elif binding:
+                    actual = actual_snapshot(
+                        binding=binding,
+                        current_cycle=current_cycle,
+                        runtime_status=runtime_status,
+                    )
+                    for mismatch in compare_expectation(expectation, actual):
+                        summary_key = {
+                            "EXPECTED_CYCLE_MISMATCH": "expected_cycle_mismatch",
+                            "EXPECTED_TEMPLATE_MISMATCH": "expected_template_mismatch",
+                            "EXPECTED_PLAN_VERSION_MISMATCH": "expected_plan_version_mismatch",
+                            "EXPECTED_STATUS_MISMATCH": "expected_status_mismatch",
+                        }[mismatch["issue_type"]]
+                        summary[summary_key] += 1
+                        class_issues.append(
+                            _health_issue(
+                                class_row=class_row,
+                                issue_type=mismatch["issue_type"],
+                                current_data={
+                                    "field": mismatch["field"],
+                                    "expected": mismatch["expected"],
+                                    "actual": mismatch["actual"],
+                                    "before": actual,
+                                    "proposed": public_expectation(expectation),
+                                    "binding_id": binding["id"],
+                                },
+                                suggested_action="先复核业务证据；确认后使用 CORRECTION 或当前状态修正，不自动创建新轮次。",
                             )
                         )
             groups = _groups(connection, class_row["id"])
@@ -1558,6 +1680,12 @@ def scan_class_learning_plan_health(
                     "MISSING_CURRENT_CYCLE",
                     "PLAN_CYCLE_MISMATCH",
                     "GROUP_MEETING_CONFIG_MISSING",
+                    "EXPECTED_CYCLE_MISMATCH",
+                    "EXPECTED_TEMPLATE_MISMATCH",
+                    "EXPECTED_PLAN_VERSION_MISMATCH",
+                    "EXPECTED_STATUS_MISMATCH",
+                    "MANUAL_REVIEW_REQUIRED",
+                    "BASELINE_ID_NAME_MISMATCH",
                 }
                 for item in class_issues
             ):
@@ -1575,9 +1703,21 @@ def scan_class_learning_plan_health(
                         "learning_cycle_index": current_cycle["learning_cycle_index"],
                         "plan_cycle_id": current_cycle["plan_cycle_id"],
                         "cycle_status": current_cycle["cycle_status"],
+                        "class_meeting_status": current_cycle["class_meeting_status"],
+                        "group_meeting_policy": current_cycle["group_meeting_policy"],
+                        "opened_at": _output_datetime(
+                            current_cycle.get("opened_at"), "实际周期开始时间"
+                        ),
+                        "planned_class_meeting_at": _output_datetime(
+                            current_cycle.get("planned_class_meeting_at"), "计划班会时间"
+                        ),
                     }
                     if current_cycle
                     else None
+                ),
+                "runtime_status": runtime_status,
+                "business_expectation": (
+                    public_expectation(expectation) if expectation else None
                 ),
                 "group_count": len(groups),
                 "volunteer_permission": "PASS" if volunteer_ok else "BLOCKED",
@@ -1590,6 +1730,15 @@ def scan_class_learning_plan_health(
         return {
             "generated_at": _now(),
             "scope": "VISIBLE_FORMAL_CLASSES",
+            "baseline": {
+                **baseline_summary(baseline),
+                "resolved_ids_in_scope": sum(
+                    1 for class_id in baseline_index if class_id in class_ids_in_scope
+                ),
+                "resolved_ids_out_of_scope": sum(
+                    1 for class_id in baseline_index if class_id not in class_ids_in_scope
+                ),
+            },
             "summary": summary,
             "classes": classes,
             "issues": issues,

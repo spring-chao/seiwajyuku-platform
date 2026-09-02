@@ -267,7 +267,8 @@ def test_restart_creates_new_round_and_preserves_previous_binding() -> None:
     )
     assert restarted["binding"]["learning_round"] == 2
     assert restarted["binding"]["transition_type"] == "RESTART"
-    assert restarted["current_cycle"]["learning_cycle_index"] == 1
+    assert restarted["current_cycle"] is None
+    assert restarted["current_status"] == "NOT_STARTED"
     old = fetch_one(
         "SELECT status, ended_at, ended_reason FROM class_learning_bindings "
         "WHERE class_org_unit_id=? AND learning_round=1",
@@ -332,12 +333,50 @@ def test_resume_starts_at_requested_cycle_without_switching_natural_progression(
     )
     assert resumed["binding"]["transition_type"] == "RESUME"
     assert resumed["binding"]["start_cycle_index"] == 8
-    assert resumed["current_cycle"]["learning_cycle_index"] == 8
-    assert resumed["current_cycle"]["plan_cycle"]["cycle_label"] == "生命周期第8期"
+    assert resumed["current_cycle"] is None
+    assert resumed["current_status"] == "NOT_STARTED"
     schedule = get_class_learning_schedule(user_id=admin, class_org_unit_id=class_id)
     assert schedule["cycles"][0]["actual_status"] == "SKIPPED"
     assert schedule["cycles"][0]["planned_class_meeting_at"] is None
     assert schedule["cycles"][7]["planned_class_meeting_at"] == "2027-10-01T19:00:00+00:00"
+
+
+def test_future_learning_round_is_not_started_before_formal_start() -> None:
+    admin, class_id, _, _ = _fixture()
+    new_plan_id = _insert_lifecycle_plan(
+        plan_key=f"L1_FUTURE_{uuid4().hex[:8]}",
+        version_label="2027",
+        cohort_month=10,
+    )
+    created = restart_class_learning_plan(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        plan_version_id=new_plan_id,
+        cohort_month=10,
+        started_at="2027-10-01T19:00:00+00:00",
+        reason="验证正式开始前不开放第1周期",
+    )
+    assert created["current_cycle"] is None
+    assert created["current_status"] == "NOT_STARTED"
+
+    before_start = get_class_learning_progress(
+        user_id=admin,
+        class_org_unit_id=class_id,
+        at="2027-09-30T19:00:00+00:00",
+    )
+    assert before_start["current_cycle"] is None
+    assert before_start["actual_status"] == "NOT_STARTED"
+
+    schedule = get_class_learning_schedule(user_id=admin, class_org_unit_id=class_id)
+    assert schedule["current_projection"]["current_open_cycle"] is None
+    assert schedule["current_projection"]["actual_status"] == "NOT_STARTED"
+
+    health = scan_class_learning_plan_health(
+        user_id=admin, class_org_unit_id=class_id
+    )
+    assert health["summary"]["missing_current_cycle"] == 0
+    assert health["classes"][0]["runtime_status"] == "NOT_STARTED"
+    assert health["classes"][0]["current_cycle"] is None
 
 
 def test_correction_changes_current_setup_without_creating_new_round() -> None:

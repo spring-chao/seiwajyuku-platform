@@ -84,10 +84,24 @@ const issueLabel = (issueType: string) => ({
   GROUP_CLASS_RELATION_MISMATCH: "小组与班级关系异常",
   NO_ACTIVE_GROUPS: "没有有效小组",
   VOLUNTEER_PERMISSION_MISSING: "志工权限未核验",
-  DUPLICATE_CLASS_NAME: "班级名称重复，需按 ID 核对"
+  DUPLICATE_CLASS_NAME: "班级名称重复，需按 ID 核对",
+  EXPECTED_CYCLE_MISMATCH: "业务预期周期不一致",
+  EXPECTED_TEMPLATE_MISMATCH: "业务预期模板不一致",
+  EXPECTED_PLAN_VERSION_MISMATCH: "业务预期计划版本不一致",
+  EXPECTED_STATUS_MISMATCH: "业务预期状态不一致",
+  MANUAL_REVIEW_REQUIRED: "需要人工确认",
+  BASELINE_ID_NAME_MISMATCH: "基线 ID 与名称不一致"
 }[issueType] ?? issueType);
 const statusType = (status: string) => status === "READY" ? "success" : "danger";
 const formatDateTime = (value?: string | null) => value ? value.replace("T", " ").replace("Z", "") : "—";
+const runtimeStatusLabel = (status?: string | null) => ({
+  NORMAL: "正常",
+  POSTPONED: "延期/暂停",
+  NOT_STARTED: "尚未开始",
+  COMPLETED: "已完成",
+  MISSING_CURRENT_CYCLE: "缺少当前周期",
+  UNBOUND: "未绑定"
+}[status || ""] ?? status ?? "—");
 const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
 const setDefaults = () => {
@@ -291,7 +305,16 @@ onMounted(load);
           </template>
         </el-table-column>
         <el-table-column label="当前周期" width="100">
-          <template #default="{ row }">{{ row.current_cycle?.learning_cycle_index || "—" }}</template>
+          <template #default="{ row }">{{ row.current_cycle?.learning_cycle_index || (row.runtime_status === "NOT_STARTED" ? "未开始" : "—") }}</template>
+        </el-table-column>
+        <el-table-column label="运行状态" width="110">
+          <template #default="{ row }">{{ runtimeStatusLabel(row.runtime_status) }}</template>
+        </el-table-column>
+        <el-table-column label="业务预期" min-width="170">
+          <template #default="{ row }">
+            <span v-if="row.business_expectation">{{ row.business_expectation.expected_plan_version || "版本待定" }} · {{ row.business_expectation.expected_cohort_month ? `${row.business_expectation.expected_cohort_month}月` : "模板待定" }} · {{ row.business_expectation.expected_current_cycle ?? "未开始/待确认" }}</span>
+            <span v-else class="muted">未提供</span>
+          </template>
         </el-table-column>
         <el-table-column label="小组" width="80" prop="group_count" />
         <el-table-column label="状态" width="100">
@@ -322,10 +345,19 @@ onMounted(load);
         <el-descriptions-item label="模板">{{ selectedClass.binding?.cohort_month ? `${selectedClass.binding.cohort_month}月` : "—" }}</el-descriptions-item>
         <el-descriptions-item label="学习轮次">{{ selectedClass.binding ? `第${selectedClass.binding.learning_round}轮` : "—" }}</el-descriptions-item>
         <el-descriptions-item label="当前周期">{{ selectedClass.current_cycle?.learning_cycle_index || "—" }}</el-descriptions-item>
+        <el-descriptions-item label="运行状态">{{ runtimeStatusLabel(selectedClass.runtime_status) }}</el-descriptions-item>
         <el-descriptions-item label="开始时间">{{ formatDateTime(selectedClass.binding?.started_at) }}</el-descriptions-item>
         <el-descriptions-item label="小组关系">{{ selectedClass.group_count }} 个有效小组</el-descriptions-item>
         <el-descriptions-item label="志工权限">{{ selectedClass.volunteer_permission === "PASS" ? "已通过" : "未通过" }}</el-descriptions-item>
       </el-descriptions>
+      <el-alert
+        v-if="selectedClass.business_expectation"
+        class="expectation-alert"
+        type="info"
+        :closable="false"
+        :title="`业务预期：${selectedClass.business_expectation.expected_plan_version || '版本待定'} · ${selectedClass.business_expectation.expected_cohort_month ? `${selectedClass.business_expectation.expected_cohort_month}月模板` : '模板待定'} · ${selectedClass.business_expectation.expected_current_cycle ?? '未开始/待确认'}`"
+        :description="selectedClass.business_expectation.adjustment_reason || `证据：${selectedClass.business_expectation.evidence_source || '未提供'}；状态：${selectedClass.business_expectation.migration_status || '未提供'}`"
+      />
 
       <el-tabs v-model="activeTab" class="management-tabs">
         <el-tab-pane label="首次绑定 / 当前修正" name="settings">
