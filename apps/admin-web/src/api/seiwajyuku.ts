@@ -2675,7 +2675,7 @@ export type LearningPlanCourseCreditRule = {
 export type LearningPlanCourseCreditConfig = {
   plan_key: string;
   version_label: string;
-  version_status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  version_status: "DRAFT" | "PUBLISHED" | "RETIRED" | "ARCHIVED";
   persisted: boolean;
   based_on_version_label?: string | null;
   available_credit_points: number[];

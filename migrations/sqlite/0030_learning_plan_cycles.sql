@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS learning_plan_versions (
     version_label TEXT NOT NULL,
     duration_cycles INTEGER NOT NULL DEFAULT 36 CHECK(duration_cycles BETWEEN 1 AND 240),
     status TEXT NOT NULL DEFAULT 'DRAFT'
-        CHECK(status IN ('DRAFT', 'PUBLISHED', 'ARCHIVED')),
+        CHECK(status IN ('DRAFT', 'PUBLISHED', 'ARCHIVED', 'RETIRED')),
     source_name TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,

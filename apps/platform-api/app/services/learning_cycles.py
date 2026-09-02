@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import UTC, datetime
 from typing import Any
@@ -18,6 +19,8 @@ CLASS_MEETING_STATUSES = {"PLANNED", "POSTPONED"}
 GROUP_MEETING_POLICIES = {"REQUIRED", "SUSPENDED", "WAIVED"}
 GROUP_TASK_STATUSES = {"PENDING", "COMPLETED", "WAIVED"}
 COHORT_TEMPLATE_MONTHS = {1, 4, 7, 10}
+LIFECYCLE_TRANSITIONS = {"INITIAL", "RESTART", "RESUME", "PLAN_SWITCH", "CORRECTION"}
+RETIREMENT_STORAGE_STATUS = "RETIRED"
 
 
 def _now() -> str:
@@ -72,6 +75,35 @@ def _storage_datetime(connection, value: str) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _public_plan_status(value: Any) -> str | None:
+    """Expose the business name RETIRED while keeping old storage compatible.
+
+    Releases before the lifecycle migration used ``ARCHIVED`` for a plan that
+    could no longer be selected.  Existing bindings must keep reading that
+    plan, so the service treats both values as retired and presents one stable
+    business vocabulary to the admin UI.
+    """
+
+    if value is None:
+        return None
+    return "RETIRED" if str(value).upper() in {"ARCHIVED", "RETIRED"} else str(value).upper()
+
+
+def _planned_at_for_binding_cycle(
+    binding: dict[str, Any], learning_cycle_index: int
+) -> str:
+    """Calculate a plan-relative schedule from this binding's formal start.
+
+    A RESUME binding can intentionally start at cycle 8.  Its cycle 8 is the
+    first runtime cycle of the new binding, so it must be scheduled one month
+    after the formal start, not eight months after it.
+    """
+
+    start_index = int(binding.get("start_cycle_index") or 1)
+    offset = max(1, int(learning_cycle_index) - start_index + 1)
+    return planned_class_meeting_at_for_cycle(binding["started_at"], offset)
+
+
 def _visible_class(class_org_unit_id: str, user_id: int) -> dict[str, Any]:
     unit = fetch_one(
         "SELECT id, name, unit_type, parent_id FROM org_units "
@@ -84,6 +116,28 @@ def _visible_class(class_org_unit_id: str, user_id: int) -> dict[str, Any]:
     if allowed is not None and class_org_unit_id not in allowed:
         raise PermissionError("班级不在组织授权范围内")
     return unit
+
+
+def _lock_class_for_update(connection, class_org_unit_id: str) -> None:
+    """Serialize lifecycle and cycle writes for one class.
+
+    The active-binding invariant is enforced in the service layer because the
+    MySQL schema must retain multiple historical bindings. Locking the class
+    row also covers the no-history case, where locking an empty binding result
+    would not protect two concurrent first-bind requests from both inserting.
+    """
+
+    lock_clause = (
+        " FOR UPDATE" if not isinstance(connection, sqlite3.Connection) else ""
+    )
+    row = execute(
+        connection,
+        "SELECT id FROM org_units WHERE id=? "
+        "AND unit_type IN ('CLASS', 'SPECIAL_COHORT') AND is_active=1" + lock_clause,
+        (class_org_unit_id,),
+    ).fetchone()
+    if not row:
+        raise ValueError("班级不存在或已停用")
 
 
 def _plan_cycle_payload(connection, plan_cycle_id: int) -> dict[str, Any] | None:
@@ -135,6 +189,7 @@ def list_learning_plans() -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
+            item["status"] = _public_plan_status(item.get("status"))
             cycles = execute(
                 connection,
                 "SELECT id, cohort_month FROM learning_plan_cycles "
@@ -159,13 +214,16 @@ def list_learning_plans() -> list[dict[str, Any]]:
         connection.close()
 
 
-def _active_binding(connection, class_org_unit_id: str) -> dict[str, Any] | None:
+def _active_binding(
+    connection, class_org_unit_id: str, *, for_update: bool = False
+) -> dict[str, Any] | None:
+    lock_clause = " FOR UPDATE" if for_update and not isinstance(connection, sqlite3.Connection) else ""
     row = execute(
         connection,
         "SELECT b.*, p.plan_key, p.plan_name, p.version_label, p.duration_cycles "
         "FROM class_learning_bindings b JOIN learning_plan_versions p ON p.id=b.plan_version_id "
         "WHERE b.class_org_unit_id=? AND b.status='ACTIVE' "
-        "ORDER BY b.started_at DESC, b.id DESC LIMIT 1",
+        "ORDER BY b.started_at DESC, b.id DESC LIMIT 1" + lock_clause,
         (class_org_unit_id,),
     ).fetchone()
     return dict(row) if row else None
@@ -284,9 +342,35 @@ def _cycle_schedule_item(
     override: dict[str, Any] | None,
 ) -> dict[str, Any]:
     cohort_month = binding.get("cohort_month")
-    default_planned = planned_class_meeting_at_for_cycle(
-        binding["started_at"], learning_cycle_index
-    )
+    start_index = int(binding.get("start_cycle_index") or 1)
+    if learning_cycle_index < start_index and cycle is None:
+        plan_cycle_row = _plan_cycle_for_track(
+            connection,
+            plan_version_id=int(binding["plan_version_id"]),
+            cohort_month=cohort_month,
+            cycle_index=learning_cycle_index,
+        )
+        plan_cycle = (
+            _plan_cycle_payload(connection, int(plan_cycle_row["id"]))
+            if plan_cycle_row
+            else None
+        )
+        return {
+            "learning_cycle_index": learning_cycle_index,
+            "cohort_month": int(cohort_month) if cohort_month is not None else None,
+            "plan_cycle_id": plan_cycle.get("id") if plan_cycle else None,
+            "cycle_label": plan_cycle.get("cycle_label") if plan_cycle else None,
+            "planned_month": None,
+            "default_planned_class_meeting_at": None,
+            "planned_class_meeting_at": None,
+            "schedule_source": "NOT_APPLICABLE",
+            "schedule_override": None,
+            "actual_status": "SKIPPED",
+            "cycle_status": "SKIPPED",
+            "actual_start_at": None,
+            "actual_class_meeting_at": None,
+        }
+    default_planned = _planned_at_for_binding_cycle(binding, learning_cycle_index)
     cycle_planned = _output_datetime(
         cycle.get("planned_class_meeting_at") if cycle else None,
         "周期记录中的计划班会时间",
@@ -528,17 +612,7 @@ def _progress_from_connection(
     cycle_payload["current_at"] = at
     return {
         "class_org_unit_id": class_org_unit_id,
-        "binding": {
-            "id": binding["id"],
-            "plan_version_id": binding["plan_version_id"],
-            "plan_key": binding["plan_key"],
-            "plan_name": binding["plan_name"],
-            "version_label": binding["version_label"],
-            "cohort_month": binding["cohort_month"],
-            "started_at": binding["started_at"],
-            "status": binding["status"],
-            "duration_cycles": binding["duration_cycles"],
-        },
+        "binding": _binding_payload(binding),
         "current_cycle": cycle_payload,
     }
 
@@ -554,6 +628,16 @@ def _binding_payload(binding: dict[str, Any]) -> dict[str, Any]:
         "started_at": _output_datetime(binding["started_at"], "学习计划开始时间"),
         "status": binding["status"],
         "duration_cycles": int(binding["duration_cycles"]),
+        "learning_round": int(binding.get("learning_round") or 1),
+        "start_cycle_index": int(binding.get("start_cycle_index") or 1),
+        "ended_at": _output_datetime(binding.get("ended_at"), "学习轮次结束时间"),
+        "ended_reason": binding.get("ended_reason"),
+        "previous_binding_id": (
+            int(binding["previous_binding_id"])
+            if binding.get("previous_binding_id") is not None
+            else None
+        ),
+        "transition_type": binding.get("transition_type") or "INITIAL",
     }
 
 
@@ -590,14 +674,455 @@ def get_class_learning_progress(
         connection.close()
 
 
+def _binding_by_id(connection, binding_id: int) -> dict[str, Any] | None:
+    row = execute(
+        connection,
+        "SELECT b.*, p.plan_key, p.plan_name, p.version_label, p.duration_cycles, "
+        "p.status AS plan_status "
+        "FROM class_learning_bindings b JOIN learning_plan_versions p ON p.id=b.plan_version_id "
+        "WHERE b.id=?",
+        (binding_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def _validate_cohort_month(cohort_month: int | None) -> int | None:
+    if cohort_month is None:
+        return None
+    value = int(cohort_month)
+    if value not in COHORT_TEMPLATE_MONTHS:
+        raise ValueError("开班月份模板必须是 1、4、7 或 10 月")
+    return value
+
+
+def _validate_start_cycle_index(start_cycle_index: int, duration: int) -> int:
+    index = int(start_cycle_index)
+    if not 1 <= index <= duration:
+        raise ValueError(f"起始学习周期必须在 1 到 {duration} 之间")
+    return index
+
+
+def _create_learning_binding(
+    connection,
+    *,
+    actor_user_id: int,
+    class_org_unit_id: str,
+    plan_version_id: int,
+    cohort_month: int | None,
+    started_at: str,
+    start_cycle_index: int,
+    transition_type: str,
+    previous_binding_id: int | None = None,
+) -> dict[str, Any]:
+    transition = str(transition_type or "").upper()
+    if transition not in LIFECYCLE_TRANSITIONS:
+        raise ValueError("未知的学习轮次变更类型")
+    plan = execute(
+        connection,
+        "SELECT * FROM learning_plan_versions WHERE id=?",
+        (plan_version_id,),
+    ).fetchone()
+    if not plan:
+        raise ValueError("学习计划版本不存在")
+    if str(plan["status"]).upper() != "PUBLISHED":
+        raise ValueError("新学习轮次只能选择已发布的学习计划版本")
+    duration = int(plan["duration_cycles"])
+    index = _validate_start_cycle_index(start_cycle_index, duration)
+    selected_cycle = _plan_cycle_for_track(
+        connection,
+        plan_version_id=plan_version_id,
+        cohort_month=cohort_month,
+        cycle_index=index,
+    )
+    if not selected_cycle:
+        cohort_label = f"{cohort_month}月开班" if cohort_month else "通用"
+        raise ValueError(f"学习计划缺少{cohort_label}第{index}学习周期")
+    latest_round = execute(
+        connection,
+        "SELECT COALESCE(MAX(learning_round), 0) AS learning_round "
+        "FROM class_learning_bindings WHERE class_org_unit_id=?",
+        (class_org_unit_id,),
+    ).fetchone()["learning_round"]
+    learning_round = int(latest_round or 0) + 1
+    now = _now()
+    stored_start = _storage_datetime(connection, started_at)
+    cursor = execute(
+        connection,
+        "INSERT INTO class_learning_bindings("
+        "class_org_unit_id, plan_version_id, cohort_month, started_at, status, "
+        "learning_round, start_cycle_index, previous_binding_id, transition_type, "
+        "created_by, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?)",
+        (
+            class_org_unit_id,
+            plan_version_id,
+            cohort_month,
+            stored_start,
+            learning_round,
+            index,
+            previous_binding_id,
+            transition,
+            actor_user_id,
+            now,
+            now,
+        ),
+    )
+    binding_id = int(cursor.lastrowid)
+    binding = _binding_by_id(connection, binding_id)
+    if not binding:
+        raise ValueError("创建学习轮次后无法读取绑定记录")
+    first_planned = _planned_at_for_binding_cycle(binding, index)
+    stored_first_planned = _storage_datetime(connection, first_planned)
+    execute(
+        connection,
+        "INSERT INTO class_learning_cycles(binding_id, class_org_unit_id, learning_cycle_index, "
+        "plan_cycle_id, opened_at, planned_class_meeting_at, class_meeting_status, "
+        "group_meeting_policy, cycle_status, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, 'PLANNED', 'REQUIRED', 'OPEN', ?, ?)",
+        (
+            binding_id,
+            class_org_unit_id,
+            index,
+            selected_cycle["id"],
+            stored_start,
+            stored_first_planned,
+            now,
+            now,
+        ),
+    )
+    return binding
+
+
 def bind_class_learning_plan(
-    *, actor_user_id: int, class_org_unit_id: str, plan_version_id: int,
-    cohort_month: int | None = None, started_at: str | None = None,
+    *,
+    actor_user_id: int,
+    class_org_unit_id: str,
+    plan_version_id: int,
+    cohort_month: int | None = None,
+    started_at: str | None = None,
+    start_cycle_index: int = 1,
+) -> dict[str, Any]:
+    """Create the first binding for a class.
+
+    A class with historical bindings must use the explicit RESUME or RESTART
+    operation.  This prevents a routine first-bind form from silently starting
+    another learning round after a previous round was ended.
+    """
+
+    _visible_class(class_org_unit_id, actor_user_id)
+    cohort_month = _validate_cohort_month(cohort_month)
+    start = _normalize_datetime(started_at, "学习计划开始时间") or _now()
+    now = _now()
+    with transaction() as connection:
+        _lock_class_for_update(connection, class_org_unit_id)
+        existing = execute(
+            connection,
+            "SELECT * FROM class_learning_bindings WHERE class_org_unit_id=? "
+            "AND status='ACTIVE' ORDER BY started_at DESC, id DESC LIMIT 1"
+            + (" FOR UPDATE" if not isinstance(connection, sqlite3.Connection) else ""),
+            (class_org_unit_id,),
+        ).fetchone()
+        if existing:
+            if (
+                int(existing["plan_version_id"]) == int(plan_version_id)
+                and int(existing["start_cycle_index"] or 1) == int(start_cycle_index)
+                and (existing["cohort_month"] or None) == cohort_month
+            ):
+                return _progress_from_connection(connection, class_org_unit_id, at=now)
+            raise ValueError("该班级已有生效中的学习计划绑定，请使用明确的学习轮次操作")
+        historical = execute(
+            connection,
+            "SELECT id FROM class_learning_bindings WHERE class_org_unit_id=? LIMIT 1",
+            (class_org_unit_id,),
+        ).fetchone()
+        if historical:
+            raise ValueError("该班级已有历史学习轮次，请使用“从指定周期接续”或“重新开始学习”")
+        binding = _create_learning_binding(
+            connection,
+            actor_user_id=actor_user_id,
+            class_org_unit_id=class_org_unit_id,
+            plan_version_id=plan_version_id,
+            cohort_month=cohort_month,
+            started_at=start,
+            start_cycle_index=start_cycle_index,
+            transition_type="INITIAL",
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="learning.binding.create",
+            resource_type="class_learning_binding",
+            resource_id=str(binding["id"]),
+            org_unit_id=class_org_unit_id,
+            purpose="首次绑定三年学习计划",
+            after=_binding_payload(binding),
+        )
+        return _progress_from_connection(connection, class_org_unit_id, at=now)
+
+
+def _start_learning_round(
+    *,
+    actor_user_id: int,
+    class_org_unit_id: str,
+    plan_version_id: int,
+    cohort_month: int | None,
+    started_at: str | None,
+    start_cycle_index: int,
+    transition_type: str,
+    reason: str,
 ) -> dict[str, Any]:
     _visible_class(class_org_unit_id, actor_user_id)
-    if cohort_month is not None and int(cohort_month) not in COHORT_TEMPLATE_MONTHS:
-        raise ValueError("开班月份模板必须是 1、4、7 或 10 月")
-    start = _normalize_datetime(started_at, "学习计划开始时间") or _now()
+    cohort_month = _validate_cohort_month(cohort_month)
+    normalized_reason = str(reason or "").strip()
+    if not normalized_reason:
+        raise ValueError("学习轮次变更必须填写原因")
+    start = _normalize_datetime(started_at, "本轮正式开始时间", required=True)
+    now = _now()
+    with transaction() as connection:
+        _lock_class_for_update(connection, class_org_unit_id)
+        active = _active_binding(connection, class_org_unit_id, for_update=True)
+        previous = active or _latest_binding(connection, class_org_unit_id)
+        before = _binding_payload(previous) if previous else None
+        if active:
+            execute(
+                connection,
+                "UPDATE class_learning_bindings SET status='ENDED', ended_at=?, ended_reason=?, updated_at=? "
+                "WHERE id=? AND status='ACTIVE'",
+                (_storage_datetime(connection, now), normalized_reason, now, active["id"]),
+            )
+        binding = _create_learning_binding(
+            connection,
+            actor_user_id=actor_user_id,
+            class_org_unit_id=class_org_unit_id,
+            plan_version_id=plan_version_id,
+            cohort_month=cohort_month,
+            started_at=start,
+            start_cycle_index=start_cycle_index,
+            transition_type=transition_type,
+            previous_binding_id=int(previous["id"]) if previous else None,
+        )
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action=f"learning.binding.{str(transition_type).lower()}",
+            resource_type="class_learning_binding",
+            resource_id=str(binding["id"]),
+            org_unit_id=class_org_unit_id,
+            purpose=normalized_reason,
+            before=before,
+            after={
+                "ended_binding_id": int(active["id"]) if active else None,
+                "new_binding": _binding_payload(binding),
+                "reason": normalized_reason,
+            },
+        )
+        return _progress_from_connection(connection, class_org_unit_id, at=now)
+
+
+def restart_class_learning_plan(
+    *,
+    actor_user_id: int,
+    class_org_unit_id: str,
+    plan_version_id: int,
+    cohort_month: int | None,
+    started_at: str | None,
+    reason: str,
+) -> dict[str, Any]:
+    return _start_learning_round(
+        actor_user_id=actor_user_id,
+        class_org_unit_id=class_org_unit_id,
+        plan_version_id=plan_version_id,
+        cohort_month=cohort_month,
+        started_at=started_at,
+        start_cycle_index=1,
+        transition_type="RESTART",
+        reason=reason,
+    )
+
+
+def resume_class_learning_plan(
+    *,
+    actor_user_id: int,
+    class_org_unit_id: str,
+    plan_version_id: int,
+    cohort_month: int | None,
+    started_at: str | None,
+    start_cycle_index: int,
+    reason: str,
+) -> dict[str, Any]:
+    return _start_learning_round(
+        actor_user_id=actor_user_id,
+        class_org_unit_id=class_org_unit_id,
+        plan_version_id=plan_version_id,
+        cohort_month=cohort_month,
+        started_at=started_at,
+        start_cycle_index=start_cycle_index,
+        transition_type="RESUME",
+        reason=reason,
+    )
+
+
+def correct_class_learning_plan(
+    *,
+    actor_user_id: int,
+    class_org_unit_id: str,
+    plan_version_id: int,
+    cohort_month: int | None,
+    learning_cycle_index: int,
+    reason: str,
+) -> dict[str, Any]:
+    """Correct the active round's current setup without starting a new round."""
+
+    _visible_class(class_org_unit_id, actor_user_id)
+    cohort_month = _validate_cohort_month(cohort_month)
+    normalized_reason = str(reason or "").strip()
+    if not normalized_reason:
+        raise ValueError("学习计划修正必须填写修正原因")
+    target_index = int(learning_cycle_index)
+    now = _now()
+    with transaction() as connection:
+        _lock_class_for_update(connection, class_org_unit_id)
+        binding = _active_binding(connection, class_org_unit_id, for_update=True)
+        if not binding:
+            raise ValueError("该班级尚未配置生效中的学习计划")
+        plan = execute(
+            connection,
+            "SELECT * FROM learning_plan_versions WHERE id=?",
+            (plan_version_id,),
+        ).fetchone()
+        if not plan:
+            raise ValueError("学习计划版本不存在")
+        plan_status = str(plan["status"]).upper()
+        if plan_status != "PUBLISHED" and not (
+            int(plan["id"]) == int(binding["plan_version_id"])
+            and plan_status in {"ARCHIVED", "RETIRED"}
+        ):
+            raise ValueError("当前设置修正只能选择已发布的学习计划版本")
+        duration = int(plan["duration_cycles"])
+        target_index = _validate_start_cycle_index(target_index, duration)
+        current = _cycle_at(connection, int(binding["id"]), now)
+        if not current or current["cycle_status"] != "OPEN":
+            raise ValueError("当前没有可修正的开放学习周期")
+        target_plan_cycle = _plan_cycle_for_track(
+            connection,
+            plan_version_id=plan_version_id,
+            cohort_month=cohort_month,
+            cycle_index=target_index,
+        )
+        if not target_plan_cycle:
+            cohort_label = f"{cohort_month}月开班" if cohort_month else "通用"
+            raise ValueError(f"学习计划缺少{cohort_label}第{target_index}学习周期")
+        collision = execute(
+            connection,
+            "SELECT id FROM class_learning_cycles WHERE binding_id=? AND learning_cycle_index=? AND id<>?",
+            (binding["id"], target_index, current["id"]),
+        ).fetchone()
+        if collision:
+            raise ValueError("目标学习周期已有历史记录，不能覆盖；请使用重新开始或接续")
+        before = {
+            "binding": _binding_payload(binding),
+            "cycle": dict(current),
+        }
+        execute(
+            connection,
+            "UPDATE class_learning_bindings SET plan_version_id=?, cohort_month=?, updated_at=? WHERE id=?",
+            (plan_version_id, cohort_month, now, binding["id"]),
+        )
+        execute(
+            connection,
+            "UPDATE class_learning_cycles SET learning_cycle_index=?, plan_cycle_id=?, "
+            "adjustment_reason=?, updated_at=? WHERE id=?",
+            (target_index, target_plan_cycle["id"], normalized_reason, now, current["id"]),
+        )
+        plan_task = _group_plan_task(connection, int(target_plan_cycle["id"]))
+        if plan_task:
+            execute(
+                connection,
+                "UPDATE group_learning_cycle_tasks SET plan_task_id=?, task_title=?, updated_at=? "
+                "WHERE class_learning_cycle_id=?",
+                (plan_task["id"], plan_task["title"], now, current["id"]),
+            )
+        corrected = _binding_by_id(connection, int(binding["id"]))
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="learning.binding.correction",
+            resource_type="class_learning_binding",
+            resource_id=str(binding["id"]),
+            org_unit_id=class_org_unit_id,
+            purpose=normalized_reason,
+            before=before,
+            after={
+                "binding": _binding_payload(corrected or binding),
+                "cycle": dict(
+                    execute(
+                        connection,
+                        "SELECT * FROM class_learning_cycles WHERE id=?",
+                        (current["id"],),
+                    ).fetchone()
+                ),
+                "reason": normalized_reason,
+            },
+        )
+        return _progress_from_connection(connection, class_org_unit_id, at=now)
+
+
+def recommend_learning_plan(*, started_at: str) -> dict[str, Any] | None:
+    """Recommend a published plan and cohort template for a new round.
+
+    The recommendation is advisory only.  The caller still has to confirm the
+    selected plan in the RESTART form, which keeps the decision auditable.
+    """
+
+    start = _normalize_datetime(started_at, "本轮正式开始时间", required=True)
+    parsed = datetime.fromisoformat(start)
+    cohort_month = max(
+        (month for month in COHORT_TEMPLATE_MONTHS if month <= parsed.month),
+        default=1,
+    )
+    rows = fetch_all(
+        "SELECT DISTINCT p.id, p.plan_key, p.plan_name, p.version_label, "
+        "p.duration_cycles, p.status, p.source_name, p.updated_at "
+        "FROM learning_plan_versions p JOIN learning_plan_cycles c "
+        "ON c.plan_version_id=p.id AND c.cycle_index=1 "
+        "AND (c.cohort_month=? OR c.cohort_month IS NULL) "
+        "WHERE p.status='PUBLISHED'",
+        (cohort_month,),
+    )
+    if not rows:
+        return None
+
+    def version_sort_key(row: dict[str, Any]) -> tuple[Any, ...]:
+        numbers = tuple(int(item) for item in re.findall(r"\d+", str(row.get("version_label") or "")))
+        return numbers or (0,), str(row.get("updated_at") or ""), int(row["id"])
+
+    selected = max(rows, key=version_sort_key)
+    return {
+        "started_at": start,
+        "plan_version_id": int(selected["id"]),
+        "plan_key": selected["plan_key"],
+        "plan_name": selected["plan_name"],
+        "version_label": selected["version_label"],
+        "duration_cycles": int(selected["duration_cycles"]),
+        "cohort_month": cohort_month,
+        "start_cycle_index": 1,
+        "selection_rule": "最新已发布版本 + 正式开始日期之前最近的 1/4/7/10 月模板",
+    }
+
+
+def retire_learning_plan(
+    *, actor_user_id: int, plan_version_id: int, reason: str
+) -> dict[str, Any]:
+    """Retire a plan for future rounds without interrupting active bindings.
+
+    New writes use ``RETIRED`` after the lifecycle migration. Existing rows
+    using the legacy ``ARCHIVED`` value are exposed as ``RETIRED`` as well, so
+    old active bindings remain readable during the rollout.
+    """
+
+    normalized_reason = str(reason or "").strip()
+    if not normalized_reason:
+        raise ValueError("计划版本退役必须填写原因")
     now = _now()
     with transaction() as connection:
         plan = execute(
@@ -607,55 +1132,471 @@ def bind_class_learning_plan(
         ).fetchone()
         if not plan:
             raise ValueError("学习计划版本不存在")
-        if plan["status"] != "PUBLISHED":
-            raise ValueError("只有已发布的学习计划版本才能绑定班级")
-        existing = execute(
-            connection,
-            "SELECT * FROM class_learning_bindings WHERE class_org_unit_id=? "
-            "AND status='ACTIVE' ORDER BY started_at DESC, id DESC LIMIT 1",
-            (class_org_unit_id,),
-        ).fetchone()
-        if existing:
-            if int(existing["plan_version_id"]) == int(plan_version_id):
-                return _progress_from_connection(connection, class_org_unit_id, at=now)
-            raise ValueError("该班级已有生效中的学习计划绑定")
-        first_cycle = _plan_cycle_for_track(
-            connection,
-            plan_version_id=plan_version_id,
-            cohort_month=cohort_month,
-            cycle_index=1,
-        )
-        if not first_cycle:
-            cohort_label = f"{cohort_month}月开班" if cohort_month else "通用"
-            raise ValueError(f"学习计划缺少{cohort_label}第1学习周期")
-        cursor = execute(
-            connection,
-            "INSERT INTO class_learning_bindings(class_org_unit_id, plan_version_id, cohort_month, "
-            "started_at, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?)",
-            (class_org_unit_id, plan_version_id, cohort_month, start, actor_user_id, now, now),
-        )
-        binding_id = cursor.lastrowid
-        first_planned = planned_class_meeting_at_for_cycle(start, 1)
-        stored_first_planned = _storage_datetime(connection, first_planned)
+        status = str(plan["status"]).upper()
+        if status == RETIREMENT_STORAGE_STATUS or status == "RETIRED":
+            return {
+                "id": int(plan["id"]),
+                "status": "RETIRED",
+                "changed": False,
+            }
+        if status != "PUBLISHED":
+            raise ValueError("只有已发布的学习计划版本才能退役")
+        before = dict(plan)
         execute(
             connection,
-            "INSERT INTO class_learning_cycles(binding_id, class_org_unit_id, learning_cycle_index, "
-            "plan_cycle_id, opened_at, planned_class_meeting_at, class_meeting_status, "
-            "group_meeting_policy, cycle_status, created_at, updated_at) "
-            "VALUES (?, ?, 1, ?, ?, ?, 'PLANNED', 'REQUIRED', 'OPEN', ?, ?)",
-            (binding_id, class_org_unit_id, first_cycle["id"], start, stored_first_planned, now, now),
+            "UPDATE learning_plan_versions SET status=?, updated_at=? WHERE id=?",
+            (RETIREMENT_STORAGE_STATUS, now, plan_version_id),
         )
+        active_count = execute(
+            connection,
+            "SELECT COUNT(*) AS count FROM class_learning_bindings "
+            "WHERE plan_version_id=? AND status='ACTIVE'",
+            (plan_version_id,),
+        ).fetchone()["count"]
+        after = dict(
+            execute(
+                connection,
+                "SELECT * FROM learning_plan_versions WHERE id=?",
+                (plan_version_id,),
+            ).fetchone()
+        )
+        after["status"] = "RETIRED"
+        after["active_binding_count"] = int(active_count)
         write_audit(
             connection,
             actor_user_id=actor_user_id,
-            action="learning.binding.create",
-            resource_type="class_learning_binding",
-            resource_id=str(binding_id),
-            org_unit_id=class_org_unit_id,
-            purpose="绑定三年学习计划",
-            after={"class_org_unit_id": class_org_unit_id, "plan_version_id": plan_version_id},
+            action="learning.plan.retire",
+            resource_type="learning_plan_version",
+            resource_id=str(plan_version_id),
+            purpose=normalized_reason,
+            before=before,
+            after=after,
         )
-        return _progress_from_connection(connection, class_org_unit_id, at=now)
+        return {"id": int(plan_version_id), "status": "RETIRED", "changed": True}
+
+
+def get_class_learning_plan_history(
+    *, user_id: int, class_org_unit_id: str
+) -> dict[str, Any]:
+    _visible_class(class_org_unit_id, user_id)
+    connection = connect()
+    try:
+        rows = execute(
+            connection,
+            "SELECT b.*, p.plan_key, p.plan_name, p.version_label, p.duration_cycles, "
+            "p.status AS plan_status FROM class_learning_bindings b "
+            "JOIN learning_plan_versions p ON p.id=b.plan_version_id "
+            "WHERE b.class_org_unit_id=? ORDER BY b.learning_round, b.started_at, b.id",
+            (class_org_unit_id,),
+        ).fetchall()
+        bindings: list[dict[str, Any]] = []
+        for row in rows:
+            binding = dict(row)
+            item = _binding_payload(binding)
+            item["plan_status"] = _public_plan_status(binding.get("plan_status"))
+            summary = execute(
+                connection,
+                "SELECT COUNT(*) AS materialized_cycles, "
+                "MAX(CASE WHEN cycle_status='CLOSED' THEN learning_cycle_index ELSE 0 END) AS "
+                "completed_through_cycle, "
+                "MAX(CASE WHEN cycle_status='OPEN' THEN learning_cycle_index ELSE 0 END) AS "
+                "open_cycle_index FROM class_learning_cycles WHERE binding_id=?",
+                (binding["id"],),
+            ).fetchone()
+            item["cycle_summary"] = {
+                "materialized_cycles": int(summary["materialized_cycles"] or 0),
+                "completed_through_cycle": int(summary["completed_through_cycle"] or 0),
+                "open_cycle_index": int(summary["open_cycle_index"] or 0) or None,
+            }
+            item["is_current"] = binding["status"] == "ACTIVE"
+            bindings.append(item)
+        event_rows = execute(
+            connection,
+            "SELECT action, resource_type, resource_id, purpose, result, before_json, "
+            "after_json, created_at FROM audit_logs "
+            "WHERE org_unit_id=? AND resource_type='class_learning_binding' "
+            "AND action LIKE ? ORDER BY created_at, id",
+            (class_org_unit_id, "learning.binding.%"),
+        ).fetchall()
+        events: list[dict[str, Any]] = []
+        for row in event_rows:
+            item = dict(row)
+            for field in ("before_json", "after_json"):
+                raw = item.pop(field, None)
+                if raw:
+                    try:
+                        item[field.removesuffix("_json")] = json.loads(raw)
+                    except (TypeError, json.JSONDecodeError):
+                        item[field.removesuffix("_json")] = None
+                else:
+                    item[field.removesuffix("_json")] = None
+            events.append(item)
+        return {
+            "class_org_unit_id": class_org_unit_id,
+            "current_binding": next((item for item in bindings if item["is_current"]), None),
+            "bindings": bindings,
+            "events": events,
+            "history_preserved": True,
+        }
+    finally:
+        connection.close()
+
+
+def _health_issue(
+    *,
+    class_row: dict[str, Any],
+    issue_type: str,
+    current_data: dict[str, Any],
+    suggested_action: str,
+) -> dict[str, Any]:
+    return {
+        "class_org_unit_id": class_row["id"],
+        "class_name": class_row["name"],
+        "unit_code": class_row.get("unit_code"),
+        "issue_type": issue_type,
+        "severity": "BLOCKER",
+        "current_data": current_data,
+        "suggested_action": suggested_action,
+    }
+
+
+def _timestamp_as_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def _scope_covers_class(
+    *, class_org_unit_id: str, appointment: dict[str, Any], parent_by_id: dict[str, Any]
+) -> bool:
+    if appointment.get("scope_type") == "UNIT":
+        return appointment.get("org_unit_id") == class_org_unit_id
+    current: str | None = class_org_unit_id
+    visited: set[str] = set()
+    while current and current not in visited:
+        if current == appointment.get("org_unit_id"):
+            return True
+        visited.add(current)
+        current = parent_by_id.get(current)
+    return False
+
+
+def scan_class_learning_plan_health(
+    *, user_id: int, class_org_unit_id: str | None = None
+) -> dict[str, Any]:
+    """Read-only GO/NO-GO scan for all visible formal learning classes."""
+
+    if class_org_unit_id:
+        _visible_class(class_org_unit_id, user_id)
+    allowed = accessible_org_ids(user_id)
+    connection = connect()
+    try:
+        query = (
+            "SELECT id, unit_code, name, unit_type, parent_id FROM org_units "
+            "WHERE unit_type IN ('CLASS', 'SPECIAL_COHORT') AND is_active=1"
+        )
+        params: list[Any] = []
+        if class_org_unit_id:
+            query += " AND id=?"
+            params.append(class_org_unit_id)
+        elif allowed is not None:
+            if not allowed:
+                rows = []
+            else:
+                placeholders = ", ".join("?" for _ in allowed)
+                query += f" AND id IN ({placeholders})"
+                params.extend(sorted(allowed))
+        if class_org_unit_id or allowed is None or allowed:
+            rows = execute(connection, query + " ORDER BY name, id", tuple(params)).fetchall()
+        class_rows = [dict(row) for row in rows]
+        parent_by_id = {
+            str(row["id"]): row["parent_id"]
+            for row in execute(connection, "SELECT id, parent_id FROM org_units").fetchall()
+        }
+        appointments = [
+            dict(row)
+            for row in execute(
+                connection,
+                "SELECT va.org_unit_id, va.scope_type, va.starts_at, va.ends_at "
+                "FROM volunteer_appointments va "
+                "JOIN volunteer_position_capabilities pc ON pc.position_key=va.appointment_key "
+                "WHERE va.status='ACTIVE' AND pc.capability_key='STUDY_MEETING_MANAGE'",
+            ).fetchall()
+        ]
+        now_dt = _timestamp_as_datetime(_now()) or datetime.now(UTC)
+        name_counts: dict[str, int] = {}
+        for row in class_rows:
+            name_counts[str(row["name"])] = name_counts.get(str(row["name"]), 0) + 1
+
+        summary: dict[str, Any] = {
+            "total_classes": len(class_rows),
+            "correctly_bound": 0,
+            "unbound": 0,
+            "multiple_active_bindings": 0,
+            "invalid_templates": 0,
+            "missing_current_cycle": 0,
+            "plan_cycle_mismatch": 0,
+            "group_relation_anomalies": 0,
+            "group_meeting_config_missing": 0,
+            "volunteer_permission_missing": 0,
+            "ready_classes": 0,
+        }
+        classes: list[dict[str, Any]] = []
+        issues: list[dict[str, Any]] = []
+        for class_row in class_rows:
+            class_issues: list[dict[str, Any]] = []
+            if name_counts.get(str(class_row["name"]), 0) > 1:
+                duplicate_ids = [
+                    row["id"] for row in class_rows if row["name"] == class_row["name"]
+                ]
+                class_issues.append(
+                    _health_issue(
+                        class_row=class_row,
+                        issue_type="DUPLICATE_CLASS_NAME",
+                        current_data={"class_org_unit_ids": duplicate_ids},
+                        suggested_action="按组织 ID 逐班确认，不自动合并或停用同名班级",
+                    )
+                )
+            binding_rows = [
+                dict(row)
+                for row in execute(
+                    connection,
+                    "SELECT b.*, p.plan_key, p.plan_name, p.version_label, p.duration_cycles, "
+                    "p.status AS plan_status FROM class_learning_bindings b "
+                    "JOIN learning_plan_versions p ON p.id=b.plan_version_id "
+                    "WHERE b.class_org_unit_id=? AND b.status='ACTIVE' "
+                    "ORDER BY b.started_at DESC, b.id DESC",
+                    (class_row["id"],),
+                ).fetchall()
+            ]
+            binding = binding_rows[0] if len(binding_rows) == 1 else None
+            if not binding_rows:
+                summary["unbound"] += 1
+                class_issues.append(
+                    _health_issue(
+                        class_row=class_row,
+                        issue_type="MISSING_BINDING",
+                        current_data={"active_binding_count": 0},
+                        suggested_action="在班级学习计划管理中选择已发布计划、模板和正式开始时间后首次绑定",
+                    )
+                )
+            elif len(binding_rows) > 1:
+                summary["multiple_active_bindings"] += 1
+                class_issues.append(
+                    _health_issue(
+                        class_row=class_row,
+                        issue_type="MULTIPLE_ACTIVE_BINDINGS",
+                        current_data={
+                            "active_binding_count": len(binding_rows),
+                            "binding_ids": [row["id"] for row in binding_rows],
+                        },
+                        suggested_action="由运营人员确认唯一当前轮次，禁止自动删除历史或抢占绑定",
+                    )
+                )
+
+            current_cycle: dict[str, Any] | None = None
+            plan_cycle: dict[str, Any] | None = None
+            if binding:
+                binding_payload = _binding_payload(binding)
+                plan_status = _public_plan_status(binding.get("plan_status"))
+                if plan_status not in {"PUBLISHED", "RETIRED"}:
+                    class_issues.append(
+                        _health_issue(
+                            class_row=class_row,
+                            issue_type="INVALID_PLAN_VERSION",
+                            current_data={"plan_version_id": binding["plan_version_id"], "status": plan_status},
+                            suggested_action="确认班级计划；正常延续可保留已退役旧版本，新的轮次请选择已发布版本",
+                        )
+                    )
+                cohort = binding.get("cohort_month")
+                if cohort not in COHORT_TEMPLATE_MONTHS:
+                    summary["invalid_templates"] += 1
+                    class_issues.append(
+                        _health_issue(
+                            class_row=class_row,
+                            issue_type="INVALID_COHORT_TEMPLATE",
+                            current_data={"cohort_month": cohort},
+                            suggested_action="按实际学习体系使用 1、4、7 或 10 月开班模板进行修正",
+                        )
+                    )
+                current_cycle = _cycle_at(connection, int(binding["id"]), _now())
+                if not current_cycle:
+                    summary["missing_current_cycle"] += 1
+                    class_issues.append(
+                        _health_issue(
+                            class_row=class_row,
+                            issue_type="MISSING_CURRENT_CYCLE",
+                            current_data={"binding_id": binding["id"]},
+                            suggested_action="使用接续或当前设置修正生成明确的当前学习周期",
+                        )
+                    )
+                else:
+                    plan_cycle_row = execute(
+                        connection,
+                        "SELECT pc.*, p.status AS plan_status FROM learning_plan_cycles pc "
+                        "JOIN learning_plan_versions p ON p.id=pc.plan_version_id WHERE pc.id=?",
+                        (current_cycle["plan_cycle_id"],),
+                    ).fetchone()
+                    plan_cycle = dict(plan_cycle_row) if plan_cycle_row else None
+                    mismatch = (
+                        plan_cycle is None
+                        or int(plan_cycle["plan_version_id"]) != int(binding["plan_version_id"])
+                        or int(plan_cycle["cycle_index"]) != int(current_cycle["learning_cycle_index"])
+                        or (
+                            binding.get("cohort_month") is not None
+                            and plan_cycle.get("cohort_month") not in (None, binding.get("cohort_month"))
+                        )
+                    )
+                    if mismatch:
+                        summary["plan_cycle_mismatch"] += 1
+                        class_issues.append(
+                            _health_issue(
+                                class_row=class_row,
+                                issue_type="PLAN_CYCLE_MISMATCH",
+                                current_data={
+                                    "current_cycle_index": current_cycle["learning_cycle_index"],
+                                    "current_plan_cycle_id": current_cycle["plan_cycle_id"],
+                                    "binding_plan_version_id": binding["plan_version_id"],
+                                    "plan_cycle": plan_cycle,
+                                },
+                                suggested_action="使用当前设置修正；若是新一轮则使用重新开始/接续，禁止偷偷改显示期数",
+                            )
+                        )
+                    elif not _group_plan_task(connection, int(plan_cycle["id"])):
+                        summary["group_meeting_config_missing"] += 1
+                        class_issues.append(
+                            _health_issue(
+                                class_row=class_row,
+                                issue_type="GROUP_MEETING_CONFIG_MISSING",
+                                current_data={"plan_cycle_id": plan_cycle["id"]},
+                                suggested_action="补齐该计划周期的小组学习会配置后再进行真机验收",
+                            )
+                        )
+            groups = _groups(connection, class_row["id"])
+            group_anomalies = 0
+            for group in groups:
+                member_count = execute(
+                    connection,
+                    "SELECT COUNT(DISTINCT r.member_id) AS count FROM member_org_relations r "
+                    "JOIN members m ON m.id=r.member_id "
+                    "WHERE r.org_unit_id=? AND r.relation_type='STUDY_GROUP' AND m.status='ACTIVE'",
+                    (group["id"],),
+                ).fetchone()["count"]
+                if int(member_count or 0) == 0:
+                    group_anomalies += 1
+                    class_issues.append(
+                        _health_issue(
+                            class_row=class_row,
+                            issue_type="GROUP_WITHOUT_ACTIVE_MEMBERS",
+                            current_data={"group_org_unit_id": group["id"], "group_name": group["name"]},
+                            suggested_action="按组织 ID 核对小组关系和学员主档，不从旧系统或姓名猜测回填",
+                        )
+                    )
+                mismatch_count = execute(
+                    connection,
+                    "SELECT COUNT(DISTINCT r.member_id) AS count FROM member_org_relations r "
+                    "JOIN members m ON m.id=r.member_id "
+                    "WHERE r.org_unit_id=? AND r.relation_type='STUDY_GROUP' AND m.status='ACTIVE' "
+                    "AND NOT EXISTS (SELECT 1 FROM member_org_relations cr "
+                    "WHERE cr.member_id=r.member_id AND cr.org_unit_id=? "
+                    "AND cr.relation_type='STUDY_CLASS')",
+                    (group["id"], class_row["id"]),
+                ).fetchone()["count"]
+                if int(mismatch_count or 0) > 0:
+                    group_anomalies += int(mismatch_count)
+                    class_issues.append(
+                        _health_issue(
+                            class_row=class_row,
+                            issue_type="GROUP_CLASS_RELATION_MISMATCH",
+                            current_data={"group_org_unit_id": group["id"], "member_count": int(mismatch_count)},
+                            suggested_action="核对学员的 STUDY_CLASS 与 STUDY_GROUP 关系，保留跨组参加事实不改正式归属",
+                        )
+                    )
+            if not groups:
+                group_anomalies += 1
+                class_issues.append(
+                    _health_issue(
+                        class_row=class_row,
+                        issue_type="NO_ACTIVE_GROUPS",
+                        current_data={"active_group_count": 0},
+                        suggested_action="先核对班级下的正式小组组织关系，再进行小组学习会验收",
+                    )
+                )
+            if group_anomalies:
+                summary["group_relation_anomalies"] += 1
+            volunteer_ok = any(
+                str(appointment.get("starts_at") or "")
+                and _timestamp_as_datetime(appointment.get("starts_at")) is not None
+                and (_timestamp_as_datetime(appointment.get("starts_at")) <= now_dt)
+                and (_timestamp_as_datetime(appointment.get("ends_at")) is None or _timestamp_as_datetime(appointment.get("ends_at")) >= now_dt)
+                and _scope_covers_class(
+                    class_org_unit_id=class_row["id"],
+                    appointment=appointment,
+                    parent_by_id=parent_by_id,
+                )
+                for appointment in appointments
+            )
+            if not volunteer_ok:
+                summary["volunteer_permission_missing"] += 1
+                class_issues.append(
+                    _health_issue(
+                        class_row=class_row,
+                        issue_type="VOLUNTEER_PERMISSION_MISSING",
+                        current_data={"capability": "STUDY_MEETING_MANAGE"},
+                        suggested_action="确认班主任/辅导员/组长等有效志工任职及组织范围后再做真机验收",
+                    )
+                )
+            if binding and not any(
+                item["issue_type"] in {
+                    "INVALID_PLAN_VERSION",
+                    "INVALID_COHORT_TEMPLATE",
+                    "MISSING_CURRENT_CYCLE",
+                    "PLAN_CYCLE_MISMATCH",
+                    "GROUP_MEETING_CONFIG_MISSING",
+                }
+                for item in class_issues
+            ):
+                summary["correctly_bound"] += 1
+            if not class_issues:
+                summary["ready_classes"] += 1
+            class_payload = {
+                "class_org_unit_id": class_row["id"],
+                "unit_code": class_row["unit_code"],
+                "class_name": class_row["name"],
+                "binding": _binding_payload(binding) if binding else None,
+                "plan_status": _public_plan_status(binding.get("plan_status")) if binding else None,
+                "current_cycle": (
+                    {
+                        "learning_cycle_index": current_cycle["learning_cycle_index"],
+                        "plan_cycle_id": current_cycle["plan_cycle_id"],
+                        "cycle_status": current_cycle["cycle_status"],
+                    }
+                    if current_cycle
+                    else None
+                ),
+                "group_count": len(groups),
+                "volunteer_permission": "PASS" if volunteer_ok else "BLOCKED",
+                "status": "READY" if not class_issues else "BLOCKED",
+                "issues": class_issues,
+            }
+            classes.append(class_payload)
+            issues.extend(class_issues)
+        summary["assessment"] = "GO" if class_rows and summary["ready_classes"] == len(class_rows) else "NO-GO"
+        return {
+            "generated_at": _now(),
+            "scope": "VISIBLE_FORMAL_CLASSES",
+            "summary": summary,
+            "classes": classes,
+            "issues": issues,
+            "assessment": summary["assessment"],
+        }
+    finally:
+        connection.close()
 
 
 def update_current_learning_cycle(
@@ -664,6 +1605,7 @@ def update_current_learning_cycle(
     _visible_class(class_org_unit_id, actor_user_id)
     now = _now()
     with transaction() as connection:
+        _lock_class_for_update(connection, class_org_unit_id)
         binding = _active_binding(connection, class_org_unit_id)
         if not binding:
             raise ValueError("该班级尚未绑定学习计划")
@@ -786,6 +1728,7 @@ def set_learning_cycle_schedule_override(
     planned = _normalize_datetime(planned_class_meeting_at, "计划班会时间", required=True)
     now = _now()
     with transaction() as connection:
+        _lock_class_for_update(connection, class_org_unit_id)
         stored_planned = _storage_datetime(connection, planned)
         binding = _active_binding(connection, class_org_unit_id)
         if not binding:
@@ -900,6 +1843,7 @@ def clear_learning_cycle_schedule_override(
     index = int(learning_cycle_index)
     now = _now()
     with transaction() as connection:
+        _lock_class_for_update(connection, class_org_unit_id)
         binding = _active_binding(connection, class_org_unit_id)
         if not binding:
             raise ValueError("该班级尚未配置生效中的学习计划")
@@ -928,9 +1872,7 @@ def clear_learning_cycle_schedule_override(
                 (actor_user_id, now, existing["id"]),
             )
             if cycle and cycle["cycle_status"] == "OPEN":
-                default_planned = planned_class_meeting_at_for_cycle(
-                    binding["started_at"], index
-                )
+                default_planned = _planned_at_for_binding_cycle(binding, index)
                 execute(
                     connection,
                     "UPDATE class_learning_cycles SET planned_class_meeting_at=?, "
@@ -995,6 +1937,7 @@ def confirm_class_meeting(
     _visible_class(class_org_unit_id, actor_user_id)
     now = _now()
     with transaction() as connection:
+        _lock_class_for_update(connection, class_org_unit_id)
         binding = _active_binding(connection, class_org_unit_id)
         if not binding:
             raise ValueError("该班级尚未绑定学习计划")
@@ -1070,7 +2013,7 @@ def confirm_class_meeting(
             next_planned = (
                 _output_datetime(next_override["planned_class_meeting_at"], "计划班会时间")
                 if next_override
-                else planned_class_meeting_at_for_cycle(binding["started_at"], next_index)
+                else _planned_at_for_binding_cycle(binding, next_index)
             )
             stored_next_planned = _storage_datetime(connection, next_planned)
             next_status = "POSTPONED" if next_override else "PLANNED"
@@ -1090,8 +2033,9 @@ def confirm_class_meeting(
         else:
             execute(
                 connection,
-                "UPDATE class_learning_bindings SET status='COMPLETED', updated_at=? WHERE id=?",
-                (now, binding["id"]),
+                "UPDATE class_learning_bindings SET status='COMPLETED', ended_at=?, "
+                "ended_reason='三年学习计划已完成', updated_at=? WHERE id=?",
+                (_storage_datetime(connection, now), now, binding["id"]),
             )
             binding_status = "COMPLETED"
         write_audit(

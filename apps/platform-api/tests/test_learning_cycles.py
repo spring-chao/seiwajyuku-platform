@@ -15,9 +15,16 @@ from app.services.learning_cycles import (
     bind_class_learning_plan,
     clear_learning_cycle_schedule_override,
     confirm_class_meeting,
+    correct_class_learning_plan,
     get_class_learning_schedule,
     get_class_learning_progress,
+    get_class_learning_plan_history,
     list_learning_plans,
+    recommend_learning_plan,
+    restart_class_learning_plan,
+    retire_learning_plan,
+    resume_class_learning_plan,
+    scan_class_learning_plan_health,
     set_learning_cycle_schedule_override,
     update_current_learning_cycle,
 )
@@ -214,6 +221,201 @@ def test_class_meeting_confirmation_opens_next_cycle_at_actual_start() -> None:
     assert confirmed["current_cycle"]["learning_cycle_index"] == 2
     assert after["current_cycle"]["learning_cycle_index"] == 2
     assert after["current_cycle"]["opened_at"] == "2026-08-20T19:00:00+00:00"
+
+
+def _insert_lifecycle_plan(*, plan_key: str, version_label: str, cohort_month: int, duration: int = 3) -> int:
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO learning_plan_versions(plan_key, plan_name, version_label, duration_cycles, status, created_at, updated_at) "
+            "VALUES (?, '生命周期测试计划', ?, ?, 'PUBLISHED', ?, ?)",
+            (plan_key, version_label, duration, now, now),
+        )
+        plan_id = int(execute(connection, "SELECT last_insert_rowid() AS id").fetchone()["id"])
+        for cycle_index in range(1, duration + 1):
+            execute(
+                connection,
+                "INSERT INTO learning_plan_cycles(plan_version_id, cohort_month, cycle_index, year_index, cycle_label, created_at, updated_at) "
+                "VALUES (?, ?, ?, 1, ?, ?, ?)",
+                (plan_id, cohort_month, cycle_index, f"生命周期第{cycle_index}期", now, now),
+            )
+            cycle_id = int(execute(connection, "SELECT last_insert_rowid() AS id").fetchone()["id"])
+            execute(
+                connection,
+                "INSERT INTO learning_plan_tasks(plan_cycle_id, task_type, title, is_required, sort_order, created_at, updated_at) "
+                "VALUES (?, 'GROUP_MEETING', ?, 1, 1, ?, ?)",
+                (cycle_id, f"生命周期第{cycle_index}期小组会", now, now),
+            )
+    return plan_id
+
+
+def test_restart_creates_new_round_and_preserves_previous_binding() -> None:
+    admin, class_id, _, _ = _fixture()
+    new_plan_id = _insert_lifecycle_plan(
+        plan_key=f"L1_RESTART_{uuid4().hex[:8]}",
+        version_label="2027",
+        cohort_month=10,
+    )
+    restarted = restart_class_learning_plan(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        plan_version_id=new_plan_id,
+        cohort_month=10,
+        started_at="2027-10-01T19:00:00+00:00",
+        reason="班级决定重新系统学习",
+    )
+    assert restarted["binding"]["learning_round"] == 2
+    assert restarted["binding"]["transition_type"] == "RESTART"
+    assert restarted["current_cycle"]["learning_cycle_index"] == 1
+    old = fetch_one(
+        "SELECT status, ended_at, ended_reason FROM class_learning_bindings "
+        "WHERE class_org_unit_id=? AND learning_round=1",
+        (class_id,),
+    )
+    assert old and old["status"] == "ENDED"
+    assert old["ended_at"]
+    assert old["ended_reason"] == "班级决定重新系统学习"
+    history = get_class_learning_plan_history(user_id=admin, class_org_unit_id=class_id)
+    assert len(history["bindings"]) == 2
+    assert history["history_preserved"] is True
+    assert any(event["action"] == "learning.binding.restart" for event in history["events"])
+
+
+def test_normal_progression_keeps_the_same_plan_and_learning_round() -> None:
+    admin, class_id, _, _ = _fixture()
+    plan_id = _insert_lifecycle_plan(
+        plan_key=f"L1_CONTINUE_{uuid4().hex[:8]}",
+        version_label="2027",
+        cohort_month=4,
+        duration=13,
+    )
+    restarted = restart_class_learning_plan(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        plan_version_id=plan_id,
+        cohort_month=4,
+        started_at="2024-01-01T19:00:00+00:00",
+        reason="为测试同一轮自然进阶建立历史样本",
+    )
+    binding_id = restarted["binding"]["id"]
+    for month in range(1, 13):
+        progressed = confirm_class_meeting(
+            actor_user_id=admin,
+            class_org_unit_id=class_id,
+            actual_class_meeting_at=f"2024-{month:02d}-20T19:00:00+00:00",
+            confirmation_reason=f"确认同一轮第{month}期班会",
+        )
+        assert progressed["binding"]["id"] == binding_id
+        assert progressed["binding"]["plan_version_id"] == plan_id
+        assert progressed["binding"]["cohort_month"] == 4
+        assert progressed["binding"]["learning_round"] == 2
+    assert progressed["current_cycle"]["learning_cycle_index"] == 13
+
+
+def test_resume_starts_at_requested_cycle_without_switching_natural_progression() -> None:
+    admin, class_id, _, _ = _fixture()
+    new_plan_id = _insert_lifecycle_plan(
+        plan_key=f"L1_RESUME_{uuid4().hex[:8]}",
+        version_label="2027",
+        cohort_month=4,
+        duration=9,
+    )
+    resumed = resume_class_learning_plan(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        plan_version_id=new_plan_id,
+        cohort_month=4,
+        started_at="2027-10-01T19:00:00+00:00",
+        start_cycle_index=8,
+        reason="历史资料不完整，运营确认从第8期接续",
+    )
+    assert resumed["binding"]["transition_type"] == "RESUME"
+    assert resumed["binding"]["start_cycle_index"] == 8
+    assert resumed["current_cycle"]["learning_cycle_index"] == 8
+    assert resumed["current_cycle"]["plan_cycle"]["cycle_label"] == "生命周期第8期"
+    schedule = get_class_learning_schedule(user_id=admin, class_org_unit_id=class_id)
+    assert schedule["cycles"][0]["actual_status"] == "SKIPPED"
+    assert schedule["cycles"][0]["planned_class_meeting_at"] is None
+    assert schedule["cycles"][7]["planned_class_meeting_at"] == "2027-10-01T19:00:00+00:00"
+
+
+def test_correction_changes_current_setup_without_creating_new_round() -> None:
+    admin, class_id, _, _ = _fixture()
+    corrected = correct_class_learning_plan(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        plan_version_id=fetch_one(
+            "SELECT plan_version_id FROM class_learning_bindings WHERE class_org_unit_id=? AND status='ACTIVE'",
+            (class_id,),
+        )["plan_version_id"],
+        cohort_month=4,
+        learning_cycle_index=2,
+        reason="运营核对后第2期才是当前周期",
+    )
+    assert corrected["binding"]["learning_round"] == 1
+    assert corrected["current_cycle"]["learning_cycle_index"] == 2
+    assert corrected["current_cycle"]["plan_cycle"]["cycle_label"] == "第2周期"
+    assert fetch_one(
+        "SELECT COUNT(*) AS count FROM class_learning_bindings WHERE class_org_unit_id=?",
+        (class_id,),
+    )["count"] == 1
+
+
+def test_health_scan_reports_missing_binding_as_blocker() -> None:
+    admin = int(fetch_one("SELECT id FROM app_users WHERE username='admin'")["id"])
+    suffix = uuid4().hex[:10]
+    class_id = f"l1-health-unbound-{suffix}"
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'CLASS', 'org-suzhou', 1, ?, ?)",
+            (class_id, f"L1_HEALTH_{suffix}", f"健康扫描未绑定班-{suffix}", now, now),
+        )
+    result = scan_class_learning_plan_health(user_id=admin, class_org_unit_id=class_id)
+    assert result["assessment"] == "NO-GO"
+    assert result["summary"]["total_classes"] == 1
+    assert result["summary"]["unbound"] == 1
+    assert result["issues"][0]["issue_type"] == "MISSING_BINDING"
+
+
+def test_retired_plan_is_not_selectable_for_new_round_but_active_round_keeps_reading() -> None:
+    admin, class_id, _, _ = _fixture()
+    plan_id = int(fetch_one(
+        "SELECT plan_version_id FROM class_learning_bindings WHERE class_org_unit_id=?",
+        (class_id,),
+    )["plan_version_id"])
+    retired = retire_learning_plan(
+        actor_user_id=admin,
+        plan_version_id=plan_id,
+        reason="年度计划迭代，停止新轮次选择",
+    )
+    assert retired == {"id": plan_id, "status": "RETIRED", "changed": True}
+    plan = next(item for item in list_learning_plans() if item["id"] == plan_id)
+    assert plan["status"] == "RETIRED"
+    progress = get_class_learning_progress(user_id=admin, class_org_unit_id=class_id)
+    assert progress["binding"]["plan_version_id"] == plan_id
+    corrected = correct_class_learning_plan(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        plan_version_id=plan_id,
+        cohort_month=4,
+        learning_cycle_index=1,
+        reason="退役旧计划仍需纠正当前轮次的周期显示",
+    )
+    assert corrected["binding"]["plan_version_id"] == plan_id
+    assert corrected["binding"]["transition_type"] == "INITIAL"
+    with pytest.raises(ValueError, match="已发布"):
+        restart_class_learning_plan(
+            actor_user_id=admin,
+            class_org_unit_id=class_id,
+            plan_version_id=plan_id,
+            cohort_month=10,
+            started_at="2027-10-01T19:00:00+00:00",
+            reason="不应选择已退役计划",
+        )
 
 
 def test_postponed_class_meeting_does_not_advance_cycle() -> None:
@@ -517,6 +719,36 @@ def test_schedule_api_exposes_read_and_class_cycle_override_operations() -> None
         )
         assert cleared.status_code == 200, cleared.text
         assert cleared.json()["data"]["cycles"][7]["schedule_source"] == "DEFAULT"
+
+
+def test_learning_plan_lifecycle_api_exposes_health_history_and_recommendation() -> None:
+    _, class_id, _, _ = _fixture()
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"username": "admin", "password": "test-admin-password"},
+        )
+        assert login.status_code == 200, login.text
+        headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+        health = client.get(
+            "/api/v1/classes/learning-plan-health",
+            params={"class_org_unit_id": class_id},
+            headers=headers,
+        )
+        assert health.status_code == 200, health.text
+        assert health.json()["data"]["summary"]["total_classes"] == 1
+        history = client.get(
+            f"/api/v1/classes/{class_id}/learning-plan-history", headers=headers
+        )
+        assert history.status_code == 200, history.text
+        assert history.json()["data"]["history_preserved"] is True
+        recommendation = client.get(
+            "/api/v1/learning-plans/recommendation",
+            params={"started_at": "2027-10-01T19:00:00Z"},
+            headers=headers,
+        )
+        assert recommendation.status_code == 200, recommendation.text
+        assert recommendation.json()["data"]["cohort_month"] == 10
 
 
 def test_cycle_boundary_is_timestamp_not_calendar_day() -> None:

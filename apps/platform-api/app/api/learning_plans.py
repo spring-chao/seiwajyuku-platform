@@ -13,9 +13,16 @@ from app.services.learning_cycles import (
     bind_class_learning_plan,
     confirm_class_meeting,
     clear_learning_cycle_schedule_override,
+    correct_class_learning_plan,
     get_class_learning_schedule,
     get_class_learning_progress,
+    get_class_learning_plan_history,
     list_learning_plans,
+    recommend_learning_plan,
+    restart_class_learning_plan,
+    resume_class_learning_plan,
+    retire_learning_plan,
+    scan_class_learning_plan_health,
     set_learning_cycle_schedule_override,
     update_current_learning_cycle,
 )
@@ -227,6 +234,33 @@ class LearningPlanBindingPayload(BaseModel):
     plan_version_id: int = Field(gt=0)
     cohort_month: Literal[1, 4, 7, 10] | None = None
     started_at: str | None = Field(default=None, max_length=64)
+    start_cycle_index: int = Field(default=1, ge=1, le=240)
+
+
+class LearningPlanRoundPayload(BaseModel):
+    plan_version_id: int = Field(gt=0)
+    cohort_month: Literal[1, 4, 7, 10] | None = None
+    started_at: str = Field(min_length=1, max_length=64)
+    start_cycle_index: int = Field(default=1, ge=1, le=240)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class LearningPlanRestartPayload(BaseModel):
+    plan_version_id: int = Field(gt=0)
+    cohort_month: Literal[1, 4, 7, 10]
+    started_at: str = Field(min_length=1, max_length=64)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class LearningPlanCorrectionPayload(BaseModel):
+    plan_version_id: int = Field(gt=0)
+    cohort_month: Literal[1, 4, 7, 10] | None = None
+    learning_cycle_index: int = Field(ge=1, le=240)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class LearningPlanRetirePayload(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
 
 
 class GroupLearningTaskUpdate(BaseModel):
@@ -272,6 +306,37 @@ class CourseCreditRuleVersionPayload(BaseModel):
 @router.get("/learning-plans")
 def learning_plans(user: dict = Depends(require_permission("plans:read"))) -> dict:
     return {"success": True, "data": list_learning_plans()}
+
+
+@router.get("/learning-plans/recommendation")
+def learning_plan_recommendation(
+    started_at: str = Query(min_length=1, max_length=64),
+    user: dict = Depends(require_permission("plans:read")),
+) -> dict:
+    try:
+        data = recommend_learning_plan(started_at=started_at)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if data is None:
+        raise HTTPException(404, "当前没有已发布的学习计划版本")
+    return {"success": True, "data": data}
+
+
+@router.post("/learning-plans/{plan_version_id}/retire")
+def retire_learning_plan_version(
+    plan_version_id: int,
+    payload: LearningPlanRetirePayload,
+    user: dict = Depends(require_permission("plans:publish")),
+) -> dict:
+    try:
+        data = retire_learning_plan(
+            actor_user_id=user["id"],
+            plan_version_id=plan_version_id,
+            reason=payload.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.get("/learning-plan-review")
@@ -429,7 +494,106 @@ def create_learning_plan_binding(
         data = bind_class_learning_plan(
             actor_user_id=user["id"], class_org_unit_id=class_org_unit_id,
             plan_version_id=payload.plan_version_id, cohort_month=payload.cohort_month,
+            started_at=payload.started_at, start_cycle_index=payload.start_cycle_index,
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/classes/learning-plan-health")
+def class_learning_plan_health(
+    class_org_unit_id: str | None = Query(default=None, max_length=64),
+    user: dict = Depends(require_permission("plans:read")),
+) -> dict:
+    try:
+        data = scan_class_learning_plan_health(
+            user_id=user["id"], class_org_unit_id=class_org_unit_id
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/classes/{class_org_unit_id}/learning-plan-history")
+def class_learning_plan_history(
+    class_org_unit_id: str,
+    user: dict = Depends(require_permission("plans:read")),
+) -> dict:
+    try:
+        data = get_class_learning_plan_history(
+            user_id=user["id"], class_org_unit_id=class_org_unit_id
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/classes/{class_org_unit_id}/learning-plan-resume")
+def resume_learning_plan(
+    class_org_unit_id: str,
+    payload: LearningPlanRoundPayload,
+    user: dict = Depends(require_permission("plans:period_write")),
+) -> dict:
+    try:
+        data = resume_class_learning_plan(
+            actor_user_id=user["id"],
+            class_org_unit_id=class_org_unit_id,
+            plan_version_id=payload.plan_version_id,
+            cohort_month=payload.cohort_month,
             started_at=payload.started_at,
+            start_cycle_index=payload.start_cycle_index,
+            reason=payload.reason,
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/classes/{class_org_unit_id}/learning-plan-restart")
+def restart_learning_plan(
+    class_org_unit_id: str,
+    payload: LearningPlanRestartPayload,
+    user: dict = Depends(require_permission("plans:period_write")),
+) -> dict:
+    try:
+        data = restart_class_learning_plan(
+            actor_user_id=user["id"],
+            class_org_unit_id=class_org_unit_id,
+            plan_version_id=payload.plan_version_id,
+            cohort_month=payload.cohort_month,
+            started_at=payload.started_at,
+            reason=payload.reason,
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/classes/{class_org_unit_id}/learning-plan-correction")
+def correct_learning_plan(
+    class_org_unit_id: str,
+    payload: LearningPlanCorrectionPayload,
+    user: dict = Depends(require_permission("plans:period_write")),
+) -> dict:
+    try:
+        data = correct_class_learning_plan(
+            actor_user_id=user["id"],
+            class_org_unit_id=class_org_unit_id,
+            plan_version_id=payload.plan_version_id,
+            cohort_month=payload.cohort_month,
+            learning_cycle_index=payload.learning_cycle_index,
+            reason=payload.reason,
         )
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc

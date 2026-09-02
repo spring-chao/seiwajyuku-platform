@@ -211,6 +211,25 @@ export default [
         }
       },
       {
+        path: "/operations/class-learning-plans",
+        name: "ClassLearningPlanManagement",
+        component: () =>
+          import("@/views/seiwajyuku/class-learning-plan-management.vue"),
+        meta: {
+          title: "班级学习计划",
+          icon: "ep/setting",
+          roles: [
+            "system_admin",
+            "operations_admin",
+            "ops_center_director",
+            "ops_center_operations",
+            "ops_center_management",
+            "regional_manager",
+            "volunteer_regional_lead"
+          ]
+        }
+      },
+      {
         path: "/operations/learning-plan-review",
         name: "LearningPlanReview",
         component: () => import("@/views/seiwajyuku/learning-plan-review.vue"),

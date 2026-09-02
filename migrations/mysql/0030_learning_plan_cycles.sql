@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS learning_plan_versions (
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     CONSTRAINT chk_learning_plan_duration CHECK(duration_cycles BETWEEN 1 AND 240),
-    CONSTRAINT chk_learning_plan_status CHECK(status IN ('DRAFT', 'PUBLISHED', 'ARCHIVED')),
+    CONSTRAINT chk_learning_plan_status CHECK(status IN ('DRAFT', 'PUBLISHED', 'ARCHIVED', 'RETIRED')),
     CONSTRAINT uq_learning_plan_version UNIQUE(plan_key, version_label)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
