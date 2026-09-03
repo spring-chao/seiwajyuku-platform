@@ -23,6 +23,7 @@ from app.services.learning_plan_baseline import (  # noqa: E402
     actual_snapshot,
     baseline_summary,
     compare_expectation,
+    is_learning_plan_binding_required,
     load_baseline,
     public_expectation,
 )
@@ -112,6 +113,10 @@ def _class_result(
         runtime_status=runtime_status,
     )
     result["actual"] = actual
+    if not is_learning_plan_binding_required(expected):
+        result["action"] = "NOT_APPLICABLE"
+        result["note"] = "该班级不纳入学习计划绑定管理；不创建或修正绑定。"
+        return result
     if expected.get("migration_status") == "MANUAL_REVIEW_REQUIRED":
         result["action"] = "MANUAL_CONFIRMATION"
         result["note"] = "该班级业务基线尚未确认，禁止自动绑定模板或修改生产数据。"

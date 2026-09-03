@@ -64,6 +64,8 @@ export type LearningPlanHealthClass = {
   runtime_status: string;
   business_expectation: {
     class_name: string | null;
+    learning_plan_scope?: "IN_SCOPE" | "OUT_OF_SCOPE";
+    binding_requirement?: "REQUIRED" | "NOT_REQUIRED";
     expected_plan_version: string | null;
     expected_cohort_month: number | null;
     expected_current_cycle: number | null;
@@ -78,8 +80,8 @@ export type LearningPlanHealthClass = {
     id_resolution_note?: string | null;
   } | null;
   group_count: number;
-  volunteer_permission: "PASS" | "BLOCKED";
-  status: "READY" | "BLOCKED";
+  volunteer_permission: "PASS" | "BLOCKED" | "NOT_APPLICABLE";
+  status: "READY" | "BLOCKED" | "NOT_APPLICABLE";
   issues: LearningPlanHealthIssue[];
 };
 

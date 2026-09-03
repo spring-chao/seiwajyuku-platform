@@ -348,30 +348,34 @@
     {
       "class_name": "先锋班",
       "class_org_unit_id": "bd517c68-eb80-497a-b415-1228812416f0",
+      "learning_plan_scope": "OUT_OF_SCOPE",
+      "binding_requirement": "NOT_REQUIRED",
       "expected_plan_version": null,
       "expected_cohort_month": null,
       "expected_current_cycle": null,
       "meeting_status": null,
       "group_meeting_policy": null,
       "expected_runtime_status": null,
-      "evidence_source": "PRODUCTION_READ_ONLY_ORG_UNITS_2026_09_03",
-      "confidence": "PENDING_CONFIRMATION",
-      "adjustment_reason": "本轮 V3 未提供该直属班的学习计划事实，暂不自动配置。",
-      "migration_status": "MANUAL_REVIEW_REQUIRED"
+      "evidence_source": "USER_CONFIRMED_2026_09_03",
+      "confidence": "CONFIRMED",
+      "adjustment_reason": "用户确认：先锋班不纳入学习计划绑定管理，也不要求小组学习会计划；不自动创建绑定。",
+      "migration_status": "NOT_APPLICABLE"
     },
     {
       "class_name": "神仙班",
       "class_org_unit_id": "ce2e8229-df19-40a4-8693-e1d27d6b0fa2",
+      "learning_plan_scope": "OUT_OF_SCOPE",
+      "binding_requirement": "NOT_REQUIRED",
       "expected_plan_version": null,
       "expected_cohort_month": null,
       "expected_current_cycle": null,
       "meeting_status": null,
       "group_meeting_policy": null,
       "expected_runtime_status": null,
-      "evidence_source": "PRODUCTION_READ_ONLY_ORG_UNITS_2026_09_03",
-      "confidence": "PENDING_CONFIRMATION",
-      "adjustment_reason": "本轮 V3 未提供该直属班的学习计划事实，暂不自动配置。",
-      "migration_status": "MANUAL_REVIEW_REQUIRED"
+      "evidence_source": "USER_CONFIRMED_2026_09_03",
+      "confidence": "CONFIRMED",
+      "adjustment_reason": "用户确认：神仙班不纳入学习计划绑定管理，也不要求小组学习会计划；不自动创建绑定。",
+      "migration_status": "NOT_APPLICABLE"
     },
     {
       "class_name": "炎武一班",

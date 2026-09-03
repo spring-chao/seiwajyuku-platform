@@ -18,6 +18,7 @@ from app.services.learning_plan_baseline import (
     baseline_by_class_id,
     baseline_summary,
     compare_expectation,
+    is_learning_plan_binding_required,
     load_baseline,
     public_expectation,
 )
@@ -1398,6 +1399,7 @@ def scan_class_learning_plan_health(
             "expected_plan_version_mismatch": 0,
             "expected_status_mismatch": 0,
             "manual_review_required": 0,
+            "not_applicable_classes": 0,
             "baseline_id_name_mismatch": 0,
             "ready_classes": 0,
         }
@@ -1408,6 +1410,15 @@ def scan_class_learning_plan_health(
             class_ids_in_scope.add(str(class_row["id"]))
             class_issues: list[dict[str, Any]] = []
             expectation = baseline_index.get(str(class_row["id"]))
+            expectation_name_matches = True
+            if expectation:
+                expected_name = str(expectation.get("class_name") or "").strip()
+                expectation_name_matches = not expected_name or expected_name == str(class_row["name"])
+            learning_plan_binding_required = (
+                is_learning_plan_binding_required(expectation)
+                if expectation and expectation_name_matches
+                else True
+            )
             if name_counts.get(str(class_row["name"]), 0) > 1:
                 duplicate_ids = [
                     row["id"] for row in class_rows if row["name"] == class_row["name"]
@@ -1433,16 +1444,20 @@ def scan_class_learning_plan_health(
                 ).fetchall()
             ]
             binding = binding_rows[0] if len(binding_rows) == 1 else None
+            plan_health_applicable = learning_plan_binding_required or bool(binding_rows)
+            if not learning_plan_binding_required:
+                summary["not_applicable_classes"] += 1
             if not binding_rows:
-                summary["unbound"] += 1
-                class_issues.append(
-                    _health_issue(
-                        class_row=class_row,
-                        issue_type="MISSING_BINDING",
-                        current_data={"active_binding_count": 0},
-                        suggested_action="在班级学习计划管理中选择已发布计划、模板和正式开始时间后首次绑定",
+                if learning_plan_binding_required:
+                    summary["unbound"] += 1
+                    class_issues.append(
+                        _health_issue(
+                            class_row=class_row,
+                            issue_type="MISSING_BINDING",
+                            current_data={"active_binding_count": 0},
+                            suggested_action="在班级学习计划管理中选择已发布计划、模板和正式开始时间后首次绑定",
+                        )
                     )
-                )
             elif len(binding_rows) > 1:
                 summary["multiple_active_bindings"] += 1
                 class_issues.append(
@@ -1459,7 +1474,7 @@ def scan_class_learning_plan_health(
 
             current_cycle: dict[str, Any] | None = None
             plan_cycle: dict[str, Any] | None = None
-            runtime_status = "UNBOUND"
+            runtime_status = "NOT_APPLICABLE" if not plan_health_applicable else "UNBOUND"
             if binding:
                 binding_payload = _binding_payload(binding)
                 plan_status = _public_plan_status(binding.get("plan_status"))
@@ -1557,6 +1572,8 @@ def scan_class_learning_plan_health(
                         )
                     )
                     expectation = None
+                elif not is_learning_plan_binding_required(expectation):
+                    pass
                 elif expectation.get("migration_status") == "MANUAL_REVIEW_REQUIRED":
                     summary["manual_review_required"] += 1
                     class_issues.append(
@@ -1601,69 +1618,72 @@ def scan_class_learning_plan_health(
                         )
             groups = _groups(connection, class_row["id"])
             group_anomalies = 0
-            for group in groups:
-                member_count = execute(
-                    connection,
-                    "SELECT COUNT(DISTINCT r.member_id) AS count FROM member_org_relations r "
-                    "JOIN members m ON m.id=r.member_id "
-                    "WHERE r.org_unit_id=? AND r.relation_type='STUDY_GROUP' AND m.status='ACTIVE'",
-                    (group["id"],),
-                ).fetchone()["count"]
-                if int(member_count or 0) == 0:
+            if plan_health_applicable:
+                for group in groups:
+                    member_count = execute(
+                        connection,
+                        "SELECT COUNT(DISTINCT r.member_id) AS count FROM member_org_relations r "
+                        "JOIN members m ON m.id=r.member_id "
+                        "WHERE r.org_unit_id=? AND r.relation_type='STUDY_GROUP' AND m.status='ACTIVE'",
+                        (group["id"],),
+                    ).fetchone()["count"]
+                    if int(member_count or 0) == 0:
+                        group_anomalies += 1
+                        class_issues.append(
+                            _health_issue(
+                                class_row=class_row,
+                                issue_type="GROUP_WITHOUT_ACTIVE_MEMBERS",
+                                current_data={"group_org_unit_id": group["id"], "group_name": group["name"]},
+                                suggested_action="按组织 ID 核对小组关系和学员主档，不从旧系统或姓名猜测回填",
+                            )
+                        )
+                    mismatch_count = execute(
+                        connection,
+                        "SELECT COUNT(DISTINCT r.member_id) AS count FROM member_org_relations r "
+                        "JOIN members m ON m.id=r.member_id "
+                        "WHERE r.org_unit_id=? AND r.relation_type='STUDY_GROUP' AND m.status='ACTIVE' "
+                        "AND NOT EXISTS (SELECT 1 FROM member_org_relations cr "
+                        "WHERE cr.member_id=r.member_id AND cr.org_unit_id=? "
+                        "AND cr.relation_type='STUDY_CLASS')",
+                        (group["id"], class_row["id"]),
+                    ).fetchone()["count"]
+                    if int(mismatch_count or 0) > 0:
+                        group_anomalies += int(mismatch_count)
+                        class_issues.append(
+                            _health_issue(
+                                class_row=class_row,
+                                issue_type="GROUP_CLASS_RELATION_MISMATCH",
+                                current_data={"group_org_unit_id": group["id"], "member_count": int(mismatch_count)},
+                                suggested_action="核对学员的 STUDY_CLASS 与 STUDY_GROUP 关系，保留跨组参加事实不改正式归属",
+                            )
+                        )
+                if not groups:
                     group_anomalies += 1
                     class_issues.append(
                         _health_issue(
                             class_row=class_row,
-                            issue_type="GROUP_WITHOUT_ACTIVE_MEMBERS",
-                            current_data={"group_org_unit_id": group["id"], "group_name": group["name"]},
-                            suggested_action="按组织 ID 核对小组关系和学员主档，不从旧系统或姓名猜测回填",
+                            issue_type="NO_ACTIVE_GROUPS",
+                            current_data={"active_group_count": 0},
+                            suggested_action="先核对班级下的正式小组组织关系，再进行小组学习会验收",
                         )
                     )
-                mismatch_count = execute(
-                    connection,
-                    "SELECT COUNT(DISTINCT r.member_id) AS count FROM member_org_relations r "
-                    "JOIN members m ON m.id=r.member_id "
-                    "WHERE r.org_unit_id=? AND r.relation_type='STUDY_GROUP' AND m.status='ACTIVE' "
-                    "AND NOT EXISTS (SELECT 1 FROM member_org_relations cr "
-                    "WHERE cr.member_id=r.member_id AND cr.org_unit_id=? "
-                    "AND cr.relation_type='STUDY_CLASS')",
-                    (group["id"], class_row["id"]),
-                ).fetchone()["count"]
-                if int(mismatch_count or 0) > 0:
-                    group_anomalies += int(mismatch_count)
-                    class_issues.append(
-                        _health_issue(
-                            class_row=class_row,
-                            issue_type="GROUP_CLASS_RELATION_MISMATCH",
-                            current_data={"group_org_unit_id": group["id"], "member_count": int(mismatch_count)},
-                            suggested_action="核对学员的 STUDY_CLASS 与 STUDY_GROUP 关系，保留跨组参加事实不改正式归属",
-                        )
-                    )
-            if not groups:
-                group_anomalies += 1
-                class_issues.append(
-                    _health_issue(
-                        class_row=class_row,
-                        issue_type="NO_ACTIVE_GROUPS",
-                        current_data={"active_group_count": 0},
-                        suggested_action="先核对班级下的正式小组组织关系，再进行小组学习会验收",
-                    )
-                )
             if group_anomalies:
                 summary["group_relation_anomalies"] += 1
-            volunteer_ok = any(
-                str(appointment.get("starts_at") or "")
-                and _timestamp_as_datetime(appointment.get("starts_at")) is not None
-                and (_timestamp_as_datetime(appointment.get("starts_at")) <= now_dt)
-                and (_timestamp_as_datetime(appointment.get("ends_at")) is None or _timestamp_as_datetime(appointment.get("ends_at")) >= now_dt)
-                and _scope_covers_class(
-                    class_org_unit_id=class_row["id"],
-                    appointment=appointment,
-                    parent_by_id=parent_by_id,
+            volunteer_ok = True
+            if plan_health_applicable:
+                volunteer_ok = any(
+                    str(appointment.get("starts_at") or "")
+                    and _timestamp_as_datetime(appointment.get("starts_at")) is not None
+                    and (_timestamp_as_datetime(appointment.get("starts_at")) <= now_dt)
+                    and (_timestamp_as_datetime(appointment.get("ends_at")) is None or _timestamp_as_datetime(appointment.get("ends_at")) >= now_dt)
+                    and _scope_covers_class(
+                        class_org_unit_id=class_row["id"],
+                        appointment=appointment,
+                        parent_by_id=parent_by_id,
+                    )
+                    for appointment in appointments
                 )
-                for appointment in appointments
-            )
-            if not volunteer_ok:
+            if plan_health_applicable and not volunteer_ok:
                 summary["volunteer_permission_missing"] += 1
                 class_issues.append(
                     _health_issue(
@@ -1692,6 +1712,13 @@ def scan_class_learning_plan_health(
                 summary["correctly_bound"] += 1
             if not class_issues:
                 summary["ready_classes"] += 1
+            class_status = (
+                "NOT_APPLICABLE"
+                if not plan_health_applicable and not class_issues
+                else "READY"
+                if not class_issues
+                else "BLOCKED"
+            )
             class_payload = {
                 "class_org_unit_id": class_row["id"],
                 "unit_code": class_row["unit_code"],
@@ -1720,8 +1747,14 @@ def scan_class_learning_plan_health(
                     public_expectation(expectation) if expectation else None
                 ),
                 "group_count": len(groups),
-                "volunteer_permission": "PASS" if volunteer_ok else "BLOCKED",
-                "status": "READY" if not class_issues else "BLOCKED",
+                "volunteer_permission": (
+                    "NOT_APPLICABLE"
+                    if not plan_health_applicable
+                    else "PASS"
+                    if volunteer_ok
+                    else "BLOCKED"
+                ),
+                "status": class_status,
                 "issues": class_issues,
             }
             classes.append(class_payload)

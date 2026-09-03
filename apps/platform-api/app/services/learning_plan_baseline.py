@@ -22,6 +22,27 @@ EXPECTED_ISSUE_TYPES = {
     "meeting_status": "EXPECTED_STATUS_MISMATCH",
     "group_meeting_policy": "EXPECTED_STATUS_MISMATCH",
 }
+LEARNING_PLAN_SCOPE_IN = "IN_SCOPE"
+LEARNING_PLAN_SCOPE_OUT = "OUT_OF_SCOPE"
+BINDING_REQUIREMENT_REQUIRED = "REQUIRED"
+BINDING_REQUIREMENT_NOT_REQUIRED = "NOT_REQUIRED"
+
+
+def is_learning_plan_binding_required(item: dict[str, Any]) -> bool:
+    """Return whether the class participates in plan-binding health gates.
+
+    Existing baseline rows predate the explicit scope fields and therefore
+    default to the normal, required behavior.  Either explicit out-of-scope
+    marker is sufficient to opt a class out; this keeps the read-only baseline
+    compatible while making the business decision unambiguous.
+    """
+
+    scope = str(item.get("learning_plan_scope") or "").strip().upper()
+    requirement = str(item.get("binding_requirement") or "").strip().upper()
+    return not (
+        scope == LEARNING_PLAN_SCOPE_OUT
+        or requirement == BINDING_REQUIREMENT_NOT_REQUIRED
+    )
 
 
 def find_baseline_path() -> Path | None:
@@ -74,8 +95,23 @@ def baseline_by_class_id(baseline: dict[str, Any]) -> dict[str, dict[str, Any]]:
 def public_expectation(item: dict[str, Any]) -> dict[str, Any]:
     """Return the review-safe expectation fields exposed by the health API."""
 
+    raw_scope = str(item.get("learning_plan_scope") or "").strip().upper()
+    raw_requirement = str(item.get("binding_requirement") or "").strip().upper()
+    scope = raw_scope or (
+        LEARNING_PLAN_SCOPE_OUT
+        if raw_requirement == BINDING_REQUIREMENT_NOT_REQUIRED
+        else LEARNING_PLAN_SCOPE_IN
+    )
+    requirement = raw_requirement or (
+        BINDING_REQUIREMENT_NOT_REQUIRED
+        if scope == LEARNING_PLAN_SCOPE_OUT
+        else BINDING_REQUIREMENT_REQUIRED
+    )
+
     return {
         "class_name": item.get("class_name"),
+        "learning_plan_scope": scope,
+        "binding_requirement": requirement,
         "expected_plan_version": item.get("expected_plan_version"),
         "expected_cohort_month": item.get("expected_cohort_month"),
         "expected_current_cycle": item.get("expected_current_cycle"),
@@ -122,6 +158,8 @@ def compare_expectation(
 ) -> list[dict[str, Any]]:
     """Return business mismatches without proposing or performing a write."""
 
+    if not is_learning_plan_binding_required(expectation):
+        return []
     if expectation.get("migration_status") == "MANUAL_REVIEW_REQUIRED":
         return []
     comparisons = (

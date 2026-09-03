@@ -420,6 +420,46 @@ def test_health_scan_reports_missing_binding_as_blocker() -> None:
     assert result["issues"][0]["issue_type"] == "MISSING_BINDING"
 
 
+def test_health_scan_treats_out_of_scope_class_as_not_applicable(monkeypatch: pytest.MonkeyPatch) -> None:
+    admin = int(fetch_one("SELECT id FROM app_users WHERE username='admin'")["id"])
+    suffix = uuid4().hex[:10]
+    class_id = f"l1-health-out-of-scope-{suffix}"
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'CLASS', 'org-suzhou', 1, ?, ?)",
+            (class_id, f"L1_HEALTH_OUT_{suffix}", "健康扫描不适用班", now, now),
+        )
+    monkeypatch.setattr(
+        learning_cycles_service,
+        "load_baseline",
+        lambda: {
+            "schema_version": 1,
+            "status": "DRY_RUN_ONLY",
+            "classes": [{
+                "class_name": "健康扫描不适用班",
+                "class_org_unit_id": class_id,
+                "learning_plan_scope": "OUT_OF_SCOPE",
+                "binding_requirement": "NOT_REQUIRED",
+                "migration_status": "NOT_APPLICABLE",
+            }],
+        },
+    )
+
+    result = scan_class_learning_plan_health(user_id=admin, class_org_unit_id=class_id)
+
+    row = result["classes"][0]
+    assert result["assessment"] == "GO"
+    assert result["summary"]["unbound"] == 0
+    assert result["summary"]["not_applicable_classes"] == 1
+    assert row["runtime_status"] == "NOT_APPLICABLE"
+    assert row["volunteer_permission"] == "NOT_APPLICABLE"
+    assert row["status"] == "NOT_APPLICABLE"
+    assert row["issues"] == []
+
+
 def test_retired_plan_is_not_selectable_for_new_round_but_active_round_keeps_reading() -> None:
     admin, class_id, _, _ = _fixture()
     plan_id = int(fetch_one(

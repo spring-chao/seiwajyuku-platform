@@ -72,6 +72,12 @@ const correctionPlans = computed(() => {
 });
 const summary = computed(() => health.value?.summary ?? {});
 const summaryNumber = (key: string) => Number(summary.value[key] ?? 0);
+const isBindingRequired = (item?: { business_expectation?: LearningPlanHealthClass["business_expectation"] | null } | null) => {
+  const expectation = item?.business_expectation;
+  return !expectation
+    || (expectation.binding_requirement !== "NOT_REQUIRED"
+      && expectation.learning_plan_scope !== "OUT_OF_SCOPE");
+};
 const issueLabel = (issueType: string) => ({
   MISSING_BINDING: "未绑定学习计划",
   MULTIPLE_ACTIVE_BINDINGS: "存在多个有效绑定",
@@ -92,7 +98,8 @@ const issueLabel = (issueType: string) => ({
   MANUAL_REVIEW_REQUIRED: "需要人工确认",
   BASELINE_ID_NAME_MISMATCH: "基线 ID 与名称不一致"
 }[issueType] ?? issueType);
-const statusType = (status: string) => status === "READY" ? "success" : "danger";
+const statusType = (status: string) => status === "READY" ? "success" : status === "NOT_APPLICABLE" ? "info" : "danger";
+const statusLabel = (status: string) => status === "READY" ? "可验收" : status === "NOT_APPLICABLE" ? "无需绑定" : "阻塞";
 const formatDateTime = (value?: string | null) => value ? value.replace("T", " ").replace("Z", "") : "—";
 const runtimeStatusLabel = (status?: string | null) => ({
   NORMAL: "正常",
@@ -100,8 +107,14 @@ const runtimeStatusLabel = (status?: string | null) => ({
   NOT_STARTED: "尚未开始",
   COMPLETED: "已完成",
   MISSING_CURRENT_CYCLE: "缺少当前周期",
-  UNBOUND: "未绑定"
+  UNBOUND: "未绑定",
+  NOT_APPLICABLE: "不适用"
 }[status || ""] ?? status ?? "—");
+const businessExpectationTitle = (item: LearningPlanHealthClass) => {
+  if (!isBindingRequired(item)) return "业务预期：无需绑定学习计划";
+  const expectation = item.business_expectation;
+  return `业务预期：${expectation?.expected_plan_version || "版本待定"} · ${expectation?.expected_cohort_month ? `${expectation.expected_cohort_month}月模板` : "模板待定"} · ${expectation?.expected_current_cycle ?? "未开始/待确认"}`;
+};
 const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
 const setDefaults = () => {
@@ -278,6 +291,7 @@ onMounted(load);
       <el-card shadow="never"><el-statistic title="正式班级" :value="summaryNumber('total_classes')" /></el-card>
       <el-card shadow="never"><el-statistic title="已正确绑定" :value="summaryNumber('correctly_bound')" /></el-card>
       <el-card shadow="never"><el-statistic title="未绑定" :value="summaryNumber('unbound')" /></el-card>
+      <el-card shadow="never"><el-statistic title="无需绑定" :value="summaryNumber('not_applicable_classes')" /></el-card>
       <el-card shadow="never"><el-statistic title="当前周期错位" :value="summaryNumber('plan_cycle_mismatch')" /></el-card>
       <el-card shadow="never"><el-statistic title="可验收班级" :value="summaryNumber('ready_classes')" /></el-card>
     </div>
@@ -301,6 +315,7 @@ onMounted(load);
         <el-table-column label="学习计划" min-width="190">
           <template #default="{ row }">
             <span v-if="row.binding">{{ row.binding.version_label }} · {{ row.binding.cohort_month || "通用" }}月</span>
+            <span v-else-if="!isBindingRequired(row)" class="muted">无需绑定</span>
             <span v-else class="muted">未绑定</span>
           </template>
         </el-table-column>
@@ -312,13 +327,14 @@ onMounted(load);
         </el-table-column>
         <el-table-column label="业务预期" min-width="170">
           <template #default="{ row }">
-            <span v-if="row.business_expectation">{{ row.business_expectation.expected_plan_version || "版本待定" }} · {{ row.business_expectation.expected_cohort_month ? `${row.business_expectation.expected_cohort_month}月` : "模板待定" }} · {{ row.business_expectation.expected_current_cycle ?? "未开始/待确认" }}</span>
+            <span v-if="row.business_expectation && !isBindingRequired(row)">无需绑定学习计划</span>
+            <span v-else-if="row.business_expectation">{{ row.business_expectation.expected_plan_version || "版本待定" }} · {{ row.business_expectation.expected_cohort_month ? `${row.business_expectation.expected_cohort_month}月` : "模板待定" }} · {{ row.business_expectation.expected_current_cycle ?? "未开始/待确认" }}</span>
             <span v-else class="muted">未提供</span>
           </template>
         </el-table-column>
         <el-table-column label="小组" width="80" prop="group_count" />
         <el-table-column label="状态" width="100">
-          <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status === "READY" ? "可验收" : "阻塞" }}</el-tag></template>
+          <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template>
         </el-table-column>
         <el-table-column label="异常" min-width="260">
           <template #default="{ row }">
@@ -335,12 +351,12 @@ onMounted(load);
             <span>{{ selectedClass.class_name }}</span>
             <span class="muted code">{{ selectedClass.class_org_unit_id }}</span>
           </div>
-          <el-tag :type="statusType(selectedClass.status)">{{ selectedClass.status === "READY" ? "数据可验收" : "存在发布阻塞" }}</el-tag>
+          <el-tag :type="statusType(selectedClass.status)">{{ selectedClass.status === "READY" ? "数据可验收" : selectedClass.status === "NOT_APPLICABLE" ? "无需绑定" : "存在发布阻塞" }}</el-tag>
         </div>
       </template>
 
       <el-descriptions :column="4" border class="current-summary">
-        <el-descriptions-item label="当前计划">{{ selectedClass.binding?.plan_name || "未绑定" }}</el-descriptions-item>
+        <el-descriptions-item label="当前计划">{{ selectedClass.binding?.plan_name || (isBindingRequired(selectedClass) ? "未绑定" : "无需绑定") }}</el-descriptions-item>
         <el-descriptions-item label="版本">{{ selectedClass.binding?.version_label || "—" }}</el-descriptions-item>
         <el-descriptions-item label="模板">{{ selectedClass.binding?.cohort_month ? `${selectedClass.binding.cohort_month}月` : "—" }}</el-descriptions-item>
         <el-descriptions-item label="学习轮次">{{ selectedClass.binding ? `第${selectedClass.binding.learning_round}轮` : "—" }}</el-descriptions-item>
@@ -348,28 +364,29 @@ onMounted(load);
         <el-descriptions-item label="运行状态">{{ runtimeStatusLabel(selectedClass.runtime_status) }}</el-descriptions-item>
         <el-descriptions-item label="开始时间">{{ formatDateTime(selectedClass.binding?.started_at) }}</el-descriptions-item>
         <el-descriptions-item label="小组关系">{{ selectedClass.group_count }} 个有效小组</el-descriptions-item>
-        <el-descriptions-item label="志工权限">{{ selectedClass.volunteer_permission === "PASS" ? "已通过" : "未通过" }}</el-descriptions-item>
+        <el-descriptions-item label="志工权限">{{ selectedClass.volunteer_permission === "NOT_APPLICABLE" ? "不适用" : selectedClass.volunteer_permission === "PASS" ? "已通过" : "未通过" }}</el-descriptions-item>
       </el-descriptions>
       <el-alert
         v-if="selectedClass.business_expectation"
         class="expectation-alert"
         type="info"
         :closable="false"
-        :title="`业务预期：${selectedClass.business_expectation.expected_plan_version || '版本待定'} · ${selectedClass.business_expectation.expected_cohort_month ? `${selectedClass.business_expectation.expected_cohort_month}月模板` : '模板待定'} · ${selectedClass.business_expectation.expected_current_cycle ?? '未开始/待确认'}`"
+        :title="businessExpectationTitle(selectedClass)"
         :description="selectedClass.business_expectation.adjustment_reason || `证据：${selectedClass.business_expectation.evidence_source || '未提供'}；状态：${selectedClass.business_expectation.migration_status || '未提供'}`"
       />
 
       <el-tabs v-model="activeTab" class="management-tabs">
         <el-tab-pane label="首次绑定 / 当前修正" name="settings">
-          <el-alert v-if="!selectedClass.binding" title="该班级尚未绑定学习计划，请先完成首次绑定。" type="warning" show-icon :closable="false" />
-          <el-form v-if="!selectedClass.binding" label-width="130px" class="operation-form">
+          <el-alert v-if="!selectedClass.binding && !isBindingRequired(selectedClass)" title="该班级不纳入学习计划绑定管理，无需绑定。" type="info" show-icon :closable="false" />
+          <el-alert v-if="!selectedClass.binding && isBindingRequired(selectedClass)" title="该班级尚未绑定学习计划，请先完成首次绑定。" type="warning" show-icon :closable="false" />
+          <el-form v-if="!selectedClass.binding && isBindingRequired(selectedClass)" label-width="130px" class="operation-form">
             <el-form-item label="学习计划版本"><el-select v-model="initialForm.plan_version_id" placeholder="选择已发布版本"><el-option v-for="plan in publishedPlans" :key="plan.id" :label="`${plan.version_label} · ${plan.plan_name}`" :value="plan.id" /></el-select></el-form-item>
             <el-form-item label="开班模板"><el-select v-model="initialForm.cohort_month"><el-option v-for="month in cohortOptions" :key="month" :label="`${month}月模板`" :value="month" /></el-select></el-form-item>
             <el-form-item label="正式开始时间"><el-input v-model="initialForm.started_at" placeholder="例如 2026-10-01T19:00:00Z" /></el-form-item>
             <el-form-item label="起始学习周期"><el-input-number v-model="initialForm.start_cycle_index" :min="1" :max="240" /></el-form-item>
             <el-form-item><el-button type="primary" :loading="saving" @click="saveInitial">完成首次绑定</el-button></el-form-item>
           </el-form>
-          <el-form v-else label-width="130px" class="operation-form">
+          <el-form v-if="selectedClass.binding" label-width="130px" class="operation-form">
             <el-alert title="当前设置修正不会新建学习轮次；若要从第1期重新学习，请使用‘重新开始学习’。" type="info" :closable="false" />
             <el-form-item label="学习计划版本"><el-select v-model="correctionForm.plan_version_id"><el-option v-for="plan in correctionPlans" :key="plan.id" :label="`${plan.version_label} · ${plan.plan_name}${plan.status === 'PUBLISHED' ? '' : ' · 当前旧版本'}`" :value="plan.id" /></el-select></el-form-item>
             <el-form-item label="开班模板"><el-select v-model="correctionForm.cohort_month"><el-option v-for="month in cohortOptions" :key="month" :label="`${month}月模板`" :value="month" /></el-select></el-form-item>
