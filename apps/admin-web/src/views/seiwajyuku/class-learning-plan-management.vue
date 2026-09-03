@@ -57,6 +57,11 @@ const cohortOptions = [1, 4, 7, 10];
 const selectedClass = computed<LearningPlanHealthClass | undefined>(() =>
   health.value?.classes.find(item => item.class_org_unit_id === selectedClassId.value)
 );
+const classOptions = computed(() =>
+  [...(health.value?.classes || [])].sort((left, right) =>
+    `${left.class_name}${left.unit_code}`.localeCompare(`${right.class_name}${right.unit_code}`, "zh-CN")
+  )
+);
 const publishedPlans = computed(() =>
   plans.value.filter(plan => plan.status === "PUBLISHED")
 );
@@ -180,6 +185,11 @@ const selectClass = async (row: LearningPlanHealthClass) => {
   await loadHistory();
 };
 
+const selectClassById = async (classOrgUnitId: string) => {
+  const row = health.value?.classes.find(item => item.class_org_unit_id === classOrgUnitId);
+  if (row) await selectClass(row);
+};
+
 const requireReason = (reason: string, label: string) => {
   if (!reason.trim()) {
     ElMessage.warning(`${label}必须填写原因`);
@@ -299,8 +309,25 @@ onMounted(load);
     <el-card shadow="never" class="classes-card">
       <template #header>
         <div class="section-header">
-          <span>逐班健康扫描</span>
-          <span class="muted">按组织 ID 识别班级，同名班级不会自动合并</span>
+          <div>
+            <span>逐班健康扫描</span>
+            <span class="muted">按组织 ID 识别班级，同名班级不会自动合并</span>
+          </div>
+          <el-select
+            v-model="selectedClassId"
+            class="class-selector"
+            filterable
+            clearable
+            placeholder="选择班级确认"
+            @change="selectClassById"
+          >
+            <el-option
+              v-for="item in classOptions"
+              :key="item.class_org_unit_id"
+              :label="`${item.class_name} · ${item.unit_code}`"
+              :value="item.class_org_unit_id"
+            />
+          </el-select>
         </div>
       </template>
       <el-table
@@ -447,7 +474,8 @@ onMounted(load);
 .page-subtitle, .muted { color: var(--el-text-color-secondary); font-size: 13px; }
 .page-subtitle { margin-top: 6px; margin-bottom: 16px; }
 .intro-card, .classes-card, .management-card { margin-bottom: 16px; }
-.stat-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.stat-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.class-selector { width: 360px; max-width: 100%; }
 .code { margin-left: 12px; font-family: monospace; }
 .current-summary { margin-bottom: 18px; }
 .management-tabs { margin-top: 18px; }
