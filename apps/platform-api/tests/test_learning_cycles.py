@@ -425,6 +425,36 @@ def test_health_scan_reports_missing_binding_as_blocker() -> None:
     assert result["issues"][0]["issue_type"] == "MISSING_BINDING"
 
 
+def test_health_scan_does_not_block_on_missing_volunteer_permission() -> None:
+    admin, class_id, group_a, group_b = _fixture()
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        for index, group_id in enumerate((group_a, group_b), start=1):
+            cursor = execute(
+                connection,
+                "INSERT INTO members(member_code, name, status, org_unit_id, created_at, updated_at) "
+                "VALUES (?, ?, 'ACTIVE', ?, ?, ?)",
+                (f"L1_HEALTH_MEMBER_{uuid4().hex[:12]}", f"健康扫描学员{index}", class_id, now, now),
+            )
+            member_id = int(cursor.lastrowid)
+            for relation_type, org_unit_id in (("STUDY_CLASS", class_id), ("STUDY_GROUP", group_id)):
+                execute(
+                    connection,
+                    "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, created_at, updated_at) "
+                    "VALUES (?, ?, ?, 1, ?, ?)",
+                    (member_id, org_unit_id, relation_type, now, now),
+                )
+
+    result = scan_class_learning_plan_health(user_id=admin, class_org_unit_id=class_id)
+    row = result["classes"][0]
+
+    assert result["assessment"] == "GO"
+    assert result["summary"]["volunteer_permission_missing"] == 1
+    assert row["volunteer_permission"] == "BLOCKED"
+    assert row["status"] == "READY"
+    assert all(issue["issue_type"] != "VOLUNTEER_PERMISSION_MISSING" for issue in row["issues"])
+
+
 def test_health_scan_treats_out_of_scope_class_as_not_applicable(monkeypatch: pytest.MonkeyPatch) -> None:
     admin = int(fetch_one("SELECT id FROM app_users WHERE username='admin'")["id"])
     suffix = uuid4().hex[:10]

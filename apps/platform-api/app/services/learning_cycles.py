@@ -1698,14 +1698,10 @@ def scan_class_learning_plan_health(
                 )
             if plan_health_applicable and not volunteer_ok:
                 summary["volunteer_permission_missing"] += 1
-                class_issues.append(
-                    _health_issue(
-                        class_row=class_row,
-                        issue_type="VOLUNTEER_PERMISSION_MISSING",
-                        current_data={"capability": "STUDY_MEETING_MANAGE"},
-                        suggested_action="确认班主任/辅导员/组长等有效志工任职及组织范围后再做真机验收",
-                    )
-                )
+                # Volunteer appointments remain an independent authorization for
+                # performing study-meeting operations. They are informational in
+                # this plan-health scan and must not turn a one-time class plan
+                # confirmation into a second publish gate.
             if binding and not any(
                 item["issue_type"] in {
                     "INVALID_PLAN_VERSION",

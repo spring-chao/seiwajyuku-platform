@@ -94,7 +94,7 @@ const issueLabel = (issueType: string) => ({
   GROUP_WITHOUT_ACTIVE_MEMBERS: "小组没有有效学员",
   GROUP_CLASS_RELATION_MISMATCH: "小组与班级关系异常",
   NO_ACTIVE_GROUPS: "没有有效小组",
-  VOLUNTEER_PERMISSION_MISSING: "志工权限未核验",
+  VOLUNTEER_PERMISSION_MISSING: "志工权限待另行核验",
   DUPLICATE_CLASS_NAME: "班级名称重复，需按 ID 核对",
   EXPECTED_CYCLE_MISMATCH: "业务预期周期不一致",
   EXPECTED_TEMPLATE_MISMATCH: "业务预期模板不一致",
@@ -105,6 +105,11 @@ const issueLabel = (issueType: string) => ({
 }[issueType] ?? issueType);
 const statusType = (status: string) => status === "READY" ? "success" : status === "NOT_APPLICABLE" ? "info" : "danger";
 const statusLabel = (status: string) => status === "READY" ? "可验收" : status === "NOT_APPLICABLE" ? "无需绑定" : "阻塞";
+const volunteerPermissionLabel = (permission: LearningPlanHealthClass["volunteer_permission"]) => permission === "NOT_APPLICABLE"
+  ? "不适用"
+  : permission === "PASS"
+    ? "已通过"
+    : "未核验（不影响学习计划确认）";
 const formatDateTime = (value?: string | null) => value ? value.replace("T", " ").replace("Z", "") : "—";
 const runtimeStatusLabel = (status?: string | null) => ({
   NORMAL: "正常",
@@ -397,7 +402,7 @@ onMounted(load);
         <el-descriptions-item label="运行状态">{{ runtimeStatusLabel(selectedClass.runtime_status) }}</el-descriptions-item>
         <el-descriptions-item label="开始日期">{{ formatDateOnly(selectedClass.binding?.started_at) }}</el-descriptions-item>
         <el-descriptions-item label="小组关系">{{ selectedClass.group_count }} 个有效小组</el-descriptions-item>
-        <el-descriptions-item label="志工权限">{{ selectedClass.volunteer_permission === "NOT_APPLICABLE" ? "不适用" : selectedClass.volunteer_permission === "PASS" ? "已通过" : "未通过" }}</el-descriptions-item>
+        <el-descriptions-item label="志工权限（另行校验）">{{ volunteerPermissionLabel(selectedClass.volunteer_permission) }}</el-descriptions-item>
       </el-descriptions>
       <el-alert
         v-if="selectedClass.business_expectation"
