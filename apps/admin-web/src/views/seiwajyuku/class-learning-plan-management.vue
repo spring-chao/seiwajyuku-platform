@@ -120,7 +120,13 @@ const businessExpectationTitle = (item: LearningPlanHealthClass) => {
   const expectation = item.business_expectation;
   return `业务预期：${expectation?.expected_plan_version || "版本待定"} · ${expectation?.expected_cohort_month ? `${expectation.expected_cohort_month}月模板` : "模板待定"} · ${expectation?.expected_current_cycle ?? "未开始/待确认"}`;
 };
-const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+const dateOnly = (value?: string | null) => value ? value.slice(0, 10) : "";
+const formatDateOnly = (value?: string | null) => dateOnly(value) || "—";
+const todayDate = () => {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+};
 
 const setDefaults = () => {
   const binding = selectedClass.value?.binding;
@@ -130,18 +136,18 @@ const setDefaults = () => {
   const cycle = selectedClass.value?.current_cycle?.learning_cycle_index ?? 1;
   initialForm.plan_version_id = planId;
   initialForm.cohort_month = cohort;
-  initialForm.started_at = binding?.started_at ?? nowIso();
+  initialForm.started_at = binding?.started_at ? dateOnly(binding.started_at) : todayDate();
   initialForm.start_cycle_index = binding?.start_cycle_index ?? 1;
   correctionForm.plan_version_id = planId;
   correctionForm.cohort_month = cohort;
   correctionForm.learning_cycle_index = cycle;
   resumeForm.plan_version_id = planId;
   resumeForm.cohort_month = cohort;
-  resumeForm.started_at = nowIso();
+  resumeForm.started_at = todayDate();
   resumeForm.start_cycle_index = cycle;
   restartForm.plan_version_id = defaultPlan?.id ?? planId;
   restartForm.cohort_month = 4;
-  restartForm.started_at = nowIso();
+  restartForm.started_at = todayDate();
 };
 
 const loadHistory = async () => {
@@ -389,7 +395,7 @@ onMounted(load);
         <el-descriptions-item label="学习轮次">{{ selectedClass.binding ? `第${selectedClass.binding.learning_round}轮` : "—" }}</el-descriptions-item>
         <el-descriptions-item label="当前周期">{{ selectedClass.current_cycle?.learning_cycle_index || "—" }}</el-descriptions-item>
         <el-descriptions-item label="运行状态">{{ runtimeStatusLabel(selectedClass.runtime_status) }}</el-descriptions-item>
-        <el-descriptions-item label="开始时间">{{ formatDateTime(selectedClass.binding?.started_at) }}</el-descriptions-item>
+        <el-descriptions-item label="开始日期">{{ formatDateOnly(selectedClass.binding?.started_at) }}</el-descriptions-item>
         <el-descriptions-item label="小组关系">{{ selectedClass.group_count }} 个有效小组</el-descriptions-item>
         <el-descriptions-item label="志工权限">{{ selectedClass.volunteer_permission === "NOT_APPLICABLE" ? "不适用" : selectedClass.volunteer_permission === "PASS" ? "已通过" : "未通过" }}</el-descriptions-item>
       </el-descriptions>
@@ -409,7 +415,7 @@ onMounted(load);
           <el-form v-if="!selectedClass.binding && isBindingRequired(selectedClass)" label-width="130px" class="operation-form">
             <el-form-item label="学习计划版本"><el-select v-model="initialForm.plan_version_id" placeholder="选择已发布版本"><el-option v-for="plan in publishedPlans" :key="plan.id" :label="`${plan.version_label} · ${plan.plan_name}`" :value="plan.id" /></el-select></el-form-item>
             <el-form-item label="开班模板"><el-select v-model="initialForm.cohort_month"><el-option v-for="month in cohortOptions" :key="month" :label="`${month}月模板`" :value="month" /></el-select></el-form-item>
-            <el-form-item label="正式开始时间"><el-input v-model="initialForm.started_at" placeholder="例如 2026-10-01T19:00:00Z" /></el-form-item>
+            <el-form-item label="正式开始日期"><el-date-picker v-model="initialForm.started_at" type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" placeholder="选择正式开始日期" /><span class="muted field-hint">只选日期，系统按当天起算</span></el-form-item>
             <el-form-item label="起始学习周期"><el-input-number v-model="initialForm.start_cycle_index" :min="1" :max="240" /></el-form-item>
             <el-form-item><el-button type="primary" :loading="saving" @click="saveInitial">完成首次绑定</el-button></el-form-item>
           </el-form>
@@ -428,7 +434,7 @@ onMounted(load);
           <el-form label-width="130px" class="operation-form">
             <el-form-item label="学习计划版本"><el-select v-model="resumeForm.plan_version_id"><el-option v-for="plan in publishedPlans" :key="plan.id" :label="`${plan.version_label} · ${plan.plan_name}`" :value="plan.id" /></el-select></el-form-item>
             <el-form-item label="开班模板"><el-select v-model="resumeForm.cohort_month"><el-option v-for="month in cohortOptions" :key="month" :label="`${month}月模板`" :value="month" /></el-select></el-form-item>
-            <el-form-item label="正式开始时间"><el-input v-model="resumeForm.started_at" placeholder="接续轮次实际开始时间" /></el-form-item>
+            <el-form-item label="正式开始日期"><el-date-picker v-model="resumeForm.started_at" type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" placeholder="选择接续开始日期" /><span class="muted field-hint">只选日期，系统按当天起算</span></el-form-item>
             <el-form-item label="起始学习周期"><el-input-number v-model="resumeForm.start_cycle_index" :min="1" :max="240" /></el-form-item>
             <el-form-item label="接续原因"><el-input v-model="resumeForm.reason" type="textarea" :rows="3" maxlength="1000" show-word-limit /></el-form-item>
             <el-form-item><el-button type="primary" :loading="saving" @click="saveResume">建立接续轮次</el-button></el-form-item>
@@ -438,7 +444,7 @@ onMounted(load);
         <el-tab-pane label="重新开始学习" name="restart">
           <el-alert title="重新开始只创建新的学习轮次，不会把旧 current_cycle 改成第1期，也不会删除任何学习事实。" type="warning" show-icon :closable="false" />
           <el-form label-width="130px" class="operation-form">
-            <el-form-item label="新轮次正式开始"><el-input v-model="restartForm.started_at" placeholder="例如 2027-10-01T19:00:00Z" /><el-button class="recommend-button" @click="recommendRestart">按日期推荐</el-button></el-form-item>
+            <el-form-item label="新轮次正式开始日期"><el-date-picker v-model="restartForm.started_at" type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" placeholder="选择新轮次开始日期" /><el-button class="recommend-button" @click="recommendRestart">按日期推荐</el-button><span class="muted field-hint">只选日期，系统按当天起算</span></el-form-item>
             <el-form-item label="推荐/确认版本"><el-select v-model="restartForm.plan_version_id"><el-option v-for="plan in publishedPlans" :key="plan.id" :label="`${plan.version_label} · ${plan.plan_name}`" :value="plan.id" /></el-select></el-form-item>
             <el-form-item label="新开班模板"><el-select v-model="restartForm.cohort_month"><el-option v-for="month in cohortOptions" :key="month" :label="`${month}月模板`" :value="month" /></el-select></el-form-item>
             <el-form-item label="重新开始原因"><el-input v-model="restartForm.reason" type="textarea" :rows="3" maxlength="1000" show-word-limit /></el-form-item>
@@ -454,7 +460,7 @@ onMounted(load);
             <el-table-column label="计划" min-width="180"><template #default="{ row }">{{ row.version_label }} · {{ row.plan_name }}</template></el-table-column>
             <el-table-column label="模板/起始期" width="120"><template #default="{ row }">{{ row.cohort_month || "通用" }}月 / 第{{ row.start_cycle_index }}期</template></el-table-column>
             <el-table-column label="状态" width="90" prop="status" />
-            <el-table-column label="开始/结束" min-width="190"><template #default="{ row }">{{ formatDateTime(row.started_at) }}<br />{{ row.ended_at ? formatDateTime(row.ended_at) : "进行中" }}</template></el-table-column>
+            <el-table-column label="开始/结束日期" min-width="190"><template #default="{ row }">{{ formatDateOnly(row.started_at) }}<br />{{ row.ended_at ? formatDateOnly(row.ended_at) : "进行中" }}</template></el-table-column>
             <el-table-column label="结束原因" min-width="200" prop="ended_reason" />
           </el-table>
           <div v-if="history?.events.length" class="audit-list">
@@ -480,8 +486,9 @@ onMounted(load);
 .current-summary { margin-bottom: 18px; }
 .management-tabs { margin-top: 18px; }
 .operation-form { max-width: 760px; padding: 18px 4px 0; }
-.operation-form :deep(.el-select), .operation-form :deep(.el-input) { width: 420px; max-width: 100%; }
+.operation-form :deep(.el-select), .operation-form :deep(.el-input), .operation-form :deep(.el-date-editor) { width: 420px; max-width: 100%; }
 .recommend-button { margin-left: 8px; }
+.field-hint { margin-left: 8px; }
 .history-table { margin-top: 18px; }
 .audit-list { margin-top: 18px; border-top: 1px solid var(--el-border-color-lighter); }
 .audit-item { display: grid; grid-template-columns: 180px 260px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--el-border-color-lighter); font-size: 13px; }

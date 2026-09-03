@@ -11,6 +11,7 @@ from app.main import app
 from app.services import learning_cycles as learning_cycles_service
 from app.services.learning_cycles import (
     _cycle_query_datetime,
+    _normalize_datetime,
     _storage_datetime,
     bind_class_learning_plan,
     clear_learning_cycle_schedule_override,
@@ -41,6 +42,10 @@ def test_mysql_cycle_storage_datetime_normalizes_iso_value() -> None:
     assert _storage_datetime(
         object(), "2026-08-26T05:48:51.987654+08:00"
     ) == "2026-08-25 21:48:51"
+
+
+def test_date_only_start_normalizes_to_utc_day_boundary() -> None:
+    assert _normalize_datetime("2026-09-03", "正式开始日期") == "2026-09-03T00:00:00+00:00"
 
 
 def _fixture() -> tuple[int, str, str, str]:

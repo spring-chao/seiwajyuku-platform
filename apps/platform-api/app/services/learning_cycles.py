@@ -30,6 +30,7 @@ GROUP_TASK_STATUSES = {"PENDING", "COMPLETED", "WAIVED"}
 COHORT_TEMPLATE_MONTHS = {1, 4, 7, 10}
 LIFECYCLE_TRANSITIONS = {"INITIAL", "RESTART", "RESUME", "PLAN_SWITCH", "CORRECTION"}
 RETIREMENT_STORAGE_STATUS = "RETIRED"
+DATE_ONLY_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _now() -> str:
@@ -37,11 +38,23 @@ def _now() -> str:
 
 
 def _normalize_datetime(value: str | None, field_name: str, *, required: bool = False) -> str | None:
+    """Normalize an ISO date or datetime to the service's UTC representation.
+
+    The admin UI records a formal start date rather than a precise time.  A
+    date-only value is therefore anchored at UTC midnight as a stable calendar
+    boundary; existing timezone-aware timestamps remain fully supported.
+    """
+
     if value is None or not str(value).strip():
         if required:
             raise ValueError(f"{field_name}不能为空")
         return None
-    text = str(value).strip().replace("Z", "+00:00")
+    raw = str(value).strip()
+    text = (
+        f"{raw}T00:00:00+00:00"
+        if DATE_ONLY_PATTERN.fullmatch(raw)
+        else raw.replace("Z", "+00:00")
+    )
     try:
         parsed = datetime.fromisoformat(text)
     except ValueError as exc:
