@@ -2050,7 +2050,6 @@ onMounted(async () => {
   font-size: 13px;
   white-space: nowrap;
 }
-}
 .action-filter {
   padding: 8px 12px;
   color: #657a71;
