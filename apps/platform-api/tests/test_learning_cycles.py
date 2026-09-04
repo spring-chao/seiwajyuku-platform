@@ -455,6 +455,78 @@ def test_health_scan_does_not_block_on_missing_volunteer_permission() -> None:
     assert all(issue["issue_type"] != "VOLUNTEER_PERMISSION_MISSING" for issue in row["issues"])
 
 
+def test_health_scan_uses_explicit_correction_as_business_truth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin, class_id, group_a, group_b = _fixture()
+    now = datetime.now(UTC).isoformat()
+    class_name = fetch_one("SELECT name FROM org_units WHERE id=?", (class_id,))["name"]
+    binding = fetch_one(
+        "SELECT b.*, p.version_label FROM class_learning_bindings b "
+        "JOIN learning_plan_versions p ON p.id=b.plan_version_id "
+        "WHERE b.class_org_unit_id=? AND b.status='ACTIVE'",
+        (class_id,),
+    )
+    assert binding
+    with transaction() as connection:
+        for index, group_id in enumerate((group_a, group_b), start=1):
+            cursor = execute(
+                connection,
+                "INSERT INTO members(member_code, name, status, org_unit_id, created_at, updated_at) "
+                "VALUES (?, ?, 'ACTIVE', ?, ?, ?)",
+                (f"L1_CORRECTION_MEMBER_{uuid4().hex[:12]}", f"修正确认学员{index}", class_id, now, now),
+            )
+            member_id = int(cursor.lastrowid)
+            for relation_type, org_unit_id in (("STUDY_CLASS", class_id), ("STUDY_GROUP", group_id)):
+                execute(
+                    connection,
+                    "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, created_at, updated_at) "
+                    "VALUES (?, ?, ?, 1, ?, ?)",
+                    (member_id, org_unit_id, relation_type, now, now),
+                )
+
+    monkeypatch.setattr(
+        learning_cycles_service,
+        "load_baseline",
+        lambda: {
+            "schema_version": 1,
+            "status": "DRY_RUN_ONLY",
+            "classes": [{
+                "class_name": class_name,
+                "class_org_unit_id": class_id,
+                "expected_plan_version": binding["version_label"],
+                "expected_cohort_month": 4,
+                "expected_current_cycle": 1,
+                "meeting_status": "PLANNED",
+                "group_meeting_policy": "REQUIRED",
+                "expected_runtime_status": "NORMAL",
+                "migration_status": "READY_FOR_DRY_RUN",
+            }],
+        },
+    )
+
+    before = scan_class_learning_plan_health(user_id=admin, class_org_unit_id=class_id)
+    assert before["classes"][0]["status"] == "READY"
+
+    correct_class_learning_plan(
+        actor_user_id=admin,
+        class_org_unit_id=class_id,
+        plan_version_id=binding["plan_version_id"],
+        cohort_month=4,
+        learning_cycle_index=2,
+        reason="运营确认实际已进入第2周期",
+    )
+
+    after = scan_class_learning_plan_health(user_id=admin, class_org_unit_id=class_id)
+    row = after["classes"][0]
+    assert after["assessment"] == "GO"
+    assert row["current_cycle"]["learning_cycle_index"] == 2
+    assert row["status"] == "READY"
+    assert after["summary"]["expected_cycle_mismatch"] == 0
+    assert row["business_expectation_resolution"]["mode"] == "EXPLICIT_CONFIRMATION"
+    assert row["business_expectation_resolution"]["reason"] == "运营确认实际已进入第2周期"
+
+
 def test_health_scan_treats_out_of_scope_class_as_not_applicable(monkeypatch: pytest.MonkeyPatch) -> None:
     admin = int(fetch_one("SELECT id FROM app_users WHERE username='admin'")["id"])
     suffix = uuid4().hex[:10]

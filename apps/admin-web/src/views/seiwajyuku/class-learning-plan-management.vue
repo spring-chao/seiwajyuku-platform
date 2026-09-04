@@ -140,7 +140,19 @@ const runtimeStatusLabel = (status?: string | null) => ({
 const businessExpectationTitle = (item: LearningPlanHealthClass) => {
   if (!isBindingRequired(item)) return "业务预期：无需绑定学习计划";
   const expectation = item.business_expectation;
-  return `业务预期：${expectation?.expected_plan_version || "版本待定"} · ${expectation?.expected_cohort_month ? `${expectation.expected_cohort_month}月模板` : "模板待定"} · ${expectation?.expected_current_cycle ?? "未开始/待确认"}`;
+  const baseline = `${expectation?.expected_plan_version || "版本待定"} · ${expectation?.expected_cohort_month ? `${expectation.expected_cohort_month}月模板` : "模板待定"} · ${expectation?.expected_current_cycle ?? "未开始/待确认"}`;
+  if (item.business_expectation_resolution?.mode === "EXPLICIT_CONFIRMATION") {
+    const corrected = `${item.binding?.version_label || "版本待定"} · ${item.binding?.cohort_month ? `${item.binding.cohort_month}月模板` : "模板待定"} · ${item.current_cycle?.learning_cycle_index ?? "未开始/待确认"}`;
+    return `已按人工修正为准：${corrected} · 原业务基线：${baseline}`;
+  }
+  return `业务基线：${baseline}`;
+};
+const businessExpectationDescription = (item: LearningPlanHealthClass) => {
+  const expectation = item.business_expectation;
+  if (item.business_expectation_resolution?.mode === "EXPLICIT_CONFIRMATION") {
+    return `已记录人工确认，按本次绑定/接续/重新开始/修正结果验收；原业务基线仅作参考。确认原因：${item.business_expectation_resolution.reason || "未提供"}`;
+  }
+  return expectation?.adjustment_reason || `证据：${expectation?.evidence_source || "未提供"}；状态：${expectation?.migration_status || "未提供"}`;
 };
 const dateOnly = (value?: string | null) => value ? value.slice(0, 10) : "";
 const formatDateOnly = (value?: string | null) => dateOnly(value) || "—";
@@ -434,7 +446,7 @@ onMounted(load);
         type="info"
         :closable="false"
         :title="businessExpectationTitle(selectedClass)"
-        :description="selectedClass.business_expectation.adjustment_reason || `证据：${selectedClass.business_expectation.evidence_source || '未提供'}；状态：${selectedClass.business_expectation.migration_status || '未提供'}`"
+        :description="businessExpectationDescription(selectedClass)"
       />
       <el-alert
         v-if="selectedClass.status === 'BLOCKED'"

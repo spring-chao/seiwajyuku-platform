@@ -79,6 +79,12 @@ export type LearningPlanHealthClass = {
     candidate_org_unit_ids?: string[];
     id_resolution_note?: string | null;
   } | null;
+  business_expectation_resolution?: {
+    mode: "BASELINE" | "EXPLICIT_CONFIRMATION";
+    action?: string;
+    confirmed_at?: string | null;
+    reason?: string | null;
+  } | null;
   group_count: number;
   volunteer_permission: "PASS" | "BLOCKED" | "NOT_APPLICABLE";
   status: "READY" | "BLOCKED" | "NOT_APPLICABLE";

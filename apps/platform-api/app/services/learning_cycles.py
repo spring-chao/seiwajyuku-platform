@@ -701,6 +701,50 @@ def _binding_payload(binding: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _latest_learning_plan_confirmation(
+    connection, *, binding_id: int
+) -> dict[str, Any] | None:
+    """Return the latest explicit lifecycle confirmation for a binding.
+
+    The checked-in business baseline is a review reference.  A successful
+    INITIAL, RESUME, RESTART, or CORRECTION operation is the auditable
+    per-class confirmation that supersedes that reference for the active
+    binding.  Reading the audit row here avoids adding another production
+    flag or treating an unrelated cycle note as a business acknowledgement.
+    """
+
+    row = execute(
+        connection,
+        "SELECT action, purpose, after_json, created_at FROM audit_logs "
+        "WHERE action IN ('learning.binding.create', 'learning.binding.resume', "
+        "'learning.binding.restart', 'learning.binding.plan_switch', "
+        "'learning.binding.correction') "
+        "AND resource_type='class_learning_binding' AND resource_id=? "
+        "AND result='SUCCESS' ORDER BY id DESC LIMIT 1",
+        (str(binding_id),),
+    ).fetchone()
+    if not row or not row["after_json"]:
+        return None
+    try:
+        payload = row["after_json"]
+        if not isinstance(payload, dict):
+            payload = json.loads(str(payload))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    binding_payload = payload.get("binding")
+    if not isinstance(binding_payload, dict):
+        return None
+    if str(binding_payload.get("id")) != str(binding_id):
+        return None
+    return {
+        "action": row["action"],
+        "confirmed_at": _output_datetime(row["created_at"], "人工确认时间"),
+        "reason": payload.get("reason") or row["purpose"],
+    }
+
+
 def get_class_learning_schedule(
     *, user_id: int, class_org_unit_id: str
 ) -> dict[str, Any]:
@@ -1487,8 +1531,12 @@ def scan_class_learning_plan_health(
 
             current_cycle: dict[str, Any] | None = None
             plan_cycle: dict[str, Any] | None = None
+            confirmation: dict[str, Any] | None = None
             runtime_status = "NOT_APPLICABLE" if not plan_health_applicable else "UNBOUND"
             if binding:
+                confirmation = _latest_learning_plan_confirmation(
+                    connection, binding_id=int(binding["id"])
+                )
                 binding_payload = _binding_payload(binding)
                 plan_status = _public_plan_status(binding.get("plan_status"))
                 if plan_status not in {"PUBLISHED", "RETIRED"}:
@@ -1587,7 +1635,10 @@ def scan_class_learning_plan_health(
                     expectation = None
                 elif not is_learning_plan_binding_required(expectation):
                     pass
-                elif expectation.get("migration_status") == "MANUAL_REVIEW_REQUIRED":
+                elif (
+                    expectation.get("migration_status") == "MANUAL_REVIEW_REQUIRED"
+                    and not confirmation
+                ):
                     summary["manual_review_required"] += 1
                     class_issues.append(
                         _health_issue(
@@ -1600,7 +1651,7 @@ def scan_class_learning_plan_health(
                             suggested_action="业务确认模板、计划版本和实际班会次数后，再单独形成生产修正方案。",
                         )
                     )
-                elif binding:
+                elif binding and not confirmation:
                     actual = actual_snapshot(
                         binding=binding,
                         current_cycle=current_cycle,
@@ -1754,6 +1805,16 @@ def scan_class_learning_plan_health(
                 "runtime_status": runtime_status,
                 "business_expectation": (
                     public_expectation(expectation) if expectation else None
+                ),
+                "business_expectation_resolution": (
+                    {
+                        "mode": "EXPLICIT_CONFIRMATION",
+                        **confirmation,
+                    }
+                    if confirmation and expectation
+                    else {"mode": "BASELINE"}
+                    if expectation
+                    else None
                 ),
                 "group_count": len(groups),
                 "volunteer_permission": (
