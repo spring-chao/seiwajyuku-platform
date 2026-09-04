@@ -162,16 +162,68 @@ const todayDate = () => {
   return local.toISOString().slice(0, 10);
 };
 
+const planMatchesExpectedVersion = (plan: LearningPlan, expected: string) =>
+  [plan.version_label, plan.plan_key, String(plan.id)].some(value =>
+    String(value || "").trim() === expected.trim()
+  );
+const initialBindingBaseline = computed(() => {
+  const item = selectedClass.value;
+  if (!item || item.binding || !isBindingRequired(item)) return null;
+  const expectation = item.business_expectation;
+  if (!expectation) return null;
+  const expectedPlanVersion = expectation.expected_plan_version?.trim() || "";
+  const matchedPlan = expectedPlanVersion
+    ? publishedPlans.value.find(plan =>
+        planMatchesExpectedVersion(plan, expectedPlanVersion)
+      )
+    : undefined;
+  return {
+    expectedPlanVersion,
+    matchedPlan,
+    expectedCohortMonth: expectation.expected_cohort_month,
+    expectedCurrentCycle: expectation.expected_current_cycle,
+    evidenceSource: expectation.evidence_source
+  };
+});
+const initialBindingPreviewDescription = computed(() => {
+  const baseline = initialBindingBaseline.value;
+  if (!baseline) {
+    return "该班级没有可回显的业务基线，当前表单值仅作默认值，请核对后再确认。";
+  }
+  const planText = baseline.matchedPlan
+    ? `${baseline.matchedPlan.version_label} · ${baseline.matchedPlan.plan_name}`
+    : baseline.expectedPlanVersion || "版本待定";
+  const cohortText = baseline.expectedCohortMonth
+    ? `${baseline.expectedCohortMonth}月模板`
+    : "模板待定";
+  const cycleText = baseline.expectedCurrentCycle
+    ? `第${baseline.expectedCurrentCycle}期`
+    : "周期待确认";
+  const sourceText = baseline.evidenceSource
+    ? `证据：${baseline.evidenceSource}`
+    : "暂未提供证据来源";
+  return `系统已回显：${planText} · ${cohortText} · ${cycleText}。${sourceText}；请核对后直接确认。`;
+});
+
 const setDefaults = () => {
   const binding = selectedClass.value?.binding;
-  const defaultPlan = publishedPlans.value[0];
+  const expectation = selectedClass.value?.business_expectation;
+  const expectedPlanVersion = expectation?.expected_plan_version?.trim() || "";
+  const baselinePlan = expectedPlanVersion
+    ? publishedPlans.value.find(plan =>
+        planMatchesExpectedVersion(plan, expectedPlanVersion)
+      )
+    : undefined;
+  const defaultPlan = baselinePlan || (!expectedPlanVersion ? publishedPlans.value[0] : undefined);
   const planId = binding?.plan_version_id ?? defaultPlan?.id ?? 0;
-  const cohort = binding?.cohort_month ?? 4;
-  const cycle = selectedClass.value?.current_cycle?.learning_cycle_index ?? 1;
+  const cohort = binding?.cohort_month ?? expectation?.expected_cohort_month ?? 4;
+  const cycle = binding
+    ? selectedClass.value?.current_cycle?.learning_cycle_index ?? 1
+    : expectation?.expected_current_cycle ?? 1;
   initialForm.plan_version_id = planId;
   initialForm.cohort_month = cohort;
   initialForm.started_at = binding?.started_at ? dateOnly(binding.started_at) : todayDate();
-  initialForm.start_cycle_index = binding?.start_cycle_index ?? 1;
+  initialForm.start_cycle_index = binding?.start_cycle_index ?? cycle;
   correctionForm.plan_version_id = planId;
   correctionForm.cohort_month = cohort;
   correctionForm.learning_cycle_index = cycle;
@@ -463,11 +515,19 @@ onMounted(load);
           <el-alert v-if="!selectedClass.binding && !isBindingRequired(selectedClass)" title="该班级不纳入学习计划绑定管理，无需绑定。" type="info" show-icon :closable="false" />
           <el-alert v-if="!selectedClass.binding && isBindingRequired(selectedClass)" title="该班级尚未绑定学习计划，请先完成首次绑定。" type="warning" show-icon :closable="false" />
           <el-form v-if="!selectedClass.binding && isBindingRequired(selectedClass)" label-width="130px" class="operation-form">
+            <el-alert
+              class="initial-confirmation-alert"
+              title="已按该班级业务基线回显，请核对后直接确认"
+              :description="initialBindingPreviewDescription"
+              :type="initialBindingBaseline?.matchedPlan ? 'info' : 'warning'"
+              show-icon
+              :closable="false"
+            />
             <el-form-item label="学习计划版本"><el-select v-model="initialForm.plan_version_id" placeholder="选择已发布版本"><el-option v-for="plan in publishedPlans" :key="plan.id" :label="`${plan.version_label} · ${plan.plan_name}`" :value="plan.id" /></el-select></el-form-item>
-            <el-form-item label="开班模板"><el-select v-model="initialForm.cohort_month"><el-option v-for="month in cohortOptions" :key="month" :label="`${month}月模板`" :value="month" /></el-select></el-form-item>
+            <el-form-item label="确认开班模板"><el-select v-model="initialForm.cohort_month"><el-option v-for="month in cohortOptions" :key="month" :label="`${month}月模板`" :value="month" /></el-select></el-form-item>
             <el-form-item label="正式开始日期"><el-date-picker v-model="initialForm.started_at" type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" placeholder="选择正式开始日期" /><span class="muted field-hint">只选日期，系统按当天起算</span></el-form-item>
-            <el-form-item label="起始学习周期"><el-input-number v-model="initialForm.start_cycle_index" :min="1" :max="240" /></el-form-item>
-            <el-form-item><el-button type="primary" :loading="saving" @click="saveInitial">完成首次绑定</el-button></el-form-item>
+            <el-form-item label="确认起始周期"><el-input-number v-model="initialForm.start_cycle_index" :min="1" :max="240" /></el-form-item>
+            <el-form-item><el-button type="primary" :loading="saving" :disabled="!initialForm.plan_version_id" @click="saveInitial">确认以上设置并完成首次绑定</el-button></el-form-item>
           </el-form>
           <el-form v-if="selectedClass.binding" label-width="130px" class="operation-form">
             <el-alert title="当前设置修正不会新建学习轮次；若要从第1期重新学习，请使用‘重新开始学习’。" type="info" :closable="false" />
@@ -537,6 +597,7 @@ onMounted(load);
 .health-issues-alert { margin-bottom: 18px; }
 .management-tabs { margin-top: 18px; }
 .operation-form { max-width: 760px; padding: 18px 4px 0; }
+.initial-confirmation-alert { margin-bottom: 18px; }
 .operation-form :deep(.el-select), .operation-form :deep(.el-input), .operation-form :deep(.el-date-editor) { width: 420px; max-width: 100%; }
 .recommend-button { margin-left: 8px; }
 .field-hint { margin-left: 8px; }
