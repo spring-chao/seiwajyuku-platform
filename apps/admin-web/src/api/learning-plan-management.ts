@@ -116,12 +116,20 @@ export const getLearningPlans = () =>
     "/api/v1/learning-plans"
   );
 
-export const getLearningPlanHealth = (classOrgUnitId?: string) =>
-  http.request<{ success: boolean; data: LearningPlanHealth }>(
+export const getLearningPlanHealth = (
+  classOrgUnitId?: string,
+  options?: { cacheBust?: boolean }
+) => {
+  const params = {
+    ...(classOrgUnitId ? { class_org_unit_id: classOrgUnitId } : {}),
+    ...(options?.cacheBust ? { _refresh: Date.now() } : {})
+  };
+  return http.request<{ success: boolean; data: LearningPlanHealth }>(
     "get",
     "/api/v1/classes/learning-plan-health",
-    { params: classOrgUnitId ? { class_org_unit_id: classOrgUnitId } : undefined }
+    { params: Object.keys(params).length ? params : undefined }
   );
+};
 
 export const getLearningPlanRecommendation = (startedAt: string) =>
   http.request<{ success: boolean; data: {

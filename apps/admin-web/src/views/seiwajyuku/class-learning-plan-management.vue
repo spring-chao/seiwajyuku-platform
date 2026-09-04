@@ -13,6 +13,7 @@ import {
   type LearningPlan,
   type LearningPlanHealth,
   type LearningPlanHealthClass,
+  type LearningPlanHealthIssue,
   type LearningPlanHistory
 } from "@/api/learning-plan-management";
 
@@ -110,6 +111,22 @@ const volunteerPermissionLabel = (permission: LearningPlanHealthClass["volunteer
   : permission === "PASS"
     ? "已通过"
     : "未核验（不影响学习计划确认）";
+const issueDescription = (issue: LearningPlanHealthIssue) => {
+  const expected = issue.current_data.expected;
+  const actual = issue.current_data.actual;
+  if (issue.issue_type === "EXPECTED_CYCLE_MISMATCH") {
+    return `业务预期第${expected ?? "—"}周期，当前第${actual ?? "—"}周期`;
+  }
+  if (issue.issue_type === "EXPECTED_TEMPLATE_MISMATCH") {
+    return `业务预期${expected ?? "—"}月模板，当前${actual ?? "—"}月模板`;
+  }
+  if (issue.issue_type === "EXPECTED_PLAN_VERSION_MISMATCH") {
+    return `业务预期计划版本 ${expected ?? "—"}，当前 ${actual ?? "—"}`;
+  }
+  return issueLabel(issue.issue_type);
+};
+const issueSummary = (item?: LearningPlanHealthClass) =>
+  item?.issues.map(issueDescription).join("；") || "请点击重新扫描查看最新结果";
 const formatDateTime = (value?: string | null) => value ? value.replace("T", " ").replace("Z", "") : "—";
 const runtimeStatusLabel = (status?: string | null) => ({
   NORMAL: "正常",
@@ -172,7 +189,7 @@ const load = async () => {
   error.value = "";
   try {
     const [healthResponse, plansResponse] = await Promise.all([
-      getLearningPlanHealth(),
+      getLearningPlanHealth(undefined, { cacheBust: true }),
       getLearningPlans()
     ]);
     health.value = healthResponse.data;
@@ -210,8 +227,15 @@ const requireReason = (reason: string, label: string) => {
 };
 
 const afterSave = async (message: string) => {
-  ElMessage.success(message);
   await load();
+  const current = selectedClass.value;
+  if (current?.status === "READY") {
+    ElMessage.success(`${message}，已重新扫描，当前状态：可验收`);
+  } else if (current?.status === "BLOCKED") {
+    ElMessage.warning(`${message}，已重新扫描；仍有阻塞：${issueSummary(current)}`);
+  } else {
+    ElMessage.success(`${message}，已重新扫描`);
+  }
 };
 
 const saveInitial = async () => {
@@ -412,6 +436,15 @@ onMounted(load);
         :title="businessExpectationTitle(selectedClass)"
         :description="selectedClass.business_expectation.adjustment_reason || `证据：${selectedClass.business_expectation.evidence_source || '未提供'}；状态：${selectedClass.business_expectation.migration_status || '未提供'}`"
       />
+      <el-alert
+        v-if="selectedClass.status === 'BLOCKED'"
+        class="health-issues-alert"
+        type="warning"
+        show-icon
+        :closable="false"
+        title="本次操作已保存，页面已重新扫描"
+        :description="`当前仍有阻塞：${issueSummary(selectedClass)}`"
+      />
 
       <el-tabs v-model="activeTab" class="management-tabs">
         <el-tab-pane label="首次绑定 / 当前修正" name="settings">
@@ -489,6 +522,7 @@ onMounted(load);
 .class-selector { width: 360px; max-width: 100%; }
 .code { margin-left: 12px; font-family: monospace; }
 .current-summary { margin-bottom: 18px; }
+.health-issues-alert { margin-bottom: 18px; }
 .management-tabs { margin-top: 18px; }
 .operation-form { max-width: 760px; padding: 18px 4px 0; }
 .operation-form :deep(.el-select), .operation-form :deep(.el-input), .operation-form :deep(.el-date-editor) { width: 420px; max-width: 100%; }
