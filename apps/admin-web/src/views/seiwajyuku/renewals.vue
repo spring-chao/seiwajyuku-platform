@@ -81,6 +81,7 @@ const cycleManagementExpanded = ref<string[]>([]);
 const secondaryView = ref<"WORKBENCH" | "LEDGER" | "COVERAGE">("WORKBENCH");
 const todayActionFilter = ref<"ALL" | RenewalTodayActionReason["code"]>("ALL");
 const stageFilter = ref<"ALL" | RenewalStageCode>("ALL");
+const todayActionSearch = ref("");
 const generatedScriptChannel = ref<"WECHAT" | "PHONE">("WECHAT");
 const scriptGenerated = ref(false);
 const filters = reactive<{
@@ -204,16 +205,33 @@ const stageCounts = computed(() => {
   });
   return counts;
 });
-const visibleTodayActions = computed(() =>
-  todayActions.value.items.filter(item => {
+const normalizeTodayActionSearch = (value: unknown) =>
+  String(value ?? "").trim().toLocaleLowerCase("zh-CN");
+const todayActionSearchText = (item: RenewalTodayAction) =>
+  [
+    item.member_name,
+    item.org_name,
+    item.class_name,
+    item.group_name,
+    item.member_id,
+    item.cycle_id
+  ]
+    .filter(value => value !== null && value !== undefined)
+    .map(normalizeTodayActionSearch)
+    .join(" ");
+const visibleTodayActions = computed(() => {
+  const query = normalizeTodayActionSearch(todayActionSearch.value);
+  return todayActions.value.items.filter(item => {
     const matchesStage =
       stageFilter.value === "ALL" || item.stage === stageFilter.value;
     const matchesReason =
       todayActionFilter.value === "ALL" ||
       item.reason_codes.includes(todayActionFilter.value);
-    return matchesStage && matchesReason;
-  })
-);
+    const matchesSearch =
+      !query || todayActionSearchText(item).includes(query);
+    return matchesStage && matchesReason && matchesSearch;
+  });
+});
 const visibleLedgerCycles = computed(() =>
   stageFilter.value === "ALL"
     ? cycles.value
@@ -522,6 +540,7 @@ function resetFilters() {
   });
   stageFilter.value = "ALL";
   todayActionFilter.value = "ALL";
+  todayActionSearch.value = "";
   secondaryView.value = "WORKBENCH";
   load();
 }
@@ -891,51 +910,65 @@ onMounted(async () => {
         </template>
       </el-alert>
       <div v-else v-loading="todayActionsLoading" class="today-actions-body">
-        <div class="today-actions-summary">
-          <button
-            class="action-filter"
-            :class="{
-              active: todayActionFilter === 'ALL' && stageFilter === 'ALL'
-            }"
-            @click="setTodayActionFilter('ALL')"
-          >
-            全部 <b>{{ todayActions.summary.total }}</b>
-          </button>
-          <button
-            class="action-filter overdue"
-            :class="{ active: todayActionFilter === 'FOLLOWUP_OVERDUE' }"
-            @click="setTodayActionFilter('FOLLOWUP_OVERDUE')"
-          >
-            逾期 <b>{{ todayActions.summary.overdue_count }}</b>
-          </button>
-          <button
-            class="action-filter today"
-            :class="{ active: todayActionFilter === 'FOLLOWUP_TODAY' }"
-            @click="setTodayActionFilter('FOLLOWUP_TODAY')"
-          >
-            今日约定 <b>{{ todayActions.summary.today_count }}</b>
-          </button>
-          <button
-            class="action-filter support"
-            :class="{ active: todayActionFilter === 'SUPPORT_NEEDED' }"
-            @click="setTodayActionFilter('SUPPORT_NEEDED')"
-          >
-            需要协助 <b>{{ todayActions.summary.support_needed_count }}</b>
-          </button>
-          <button
-            class="action-filter untouched"
-            :class="{ active: todayActionFilter === 'STAGE_UNTOUCHED' }"
-            @click="setTodayActionFilter('STAGE_UNTOUCHED')"
-          >
-            新阶段未触达 <b>{{ todayActions.summary.stage_untouched_count }}</b>
-          </button>
-          <button
-            class="action-filter"
-            :class="{ active: todayActionFilter === 'NEXT_STEP_MISSING' }"
-            @click="setTodayActionFilter('NEXT_STEP_MISSING')"
-          >
-            下一步缺失 <b>{{ todayActions.summary.next_step_missing_count }}</b>
-          </button>
+        <div class="today-actions-toolbar">
+          <div class="today-actions-summary">
+            <button
+              class="action-filter"
+              :class="{
+                active: todayActionFilter === 'ALL' && stageFilter === 'ALL'
+              }"
+              @click="setTodayActionFilter('ALL')"
+            >
+              全部 <b>{{ todayActions.summary.total }}</b>
+            </button>
+            <button
+              class="action-filter overdue"
+              :class="{ active: todayActionFilter === 'FOLLOWUP_OVERDUE' }"
+              @click="setTodayActionFilter('FOLLOWUP_OVERDUE')"
+            >
+              逾期 <b>{{ todayActions.summary.overdue_count }}</b>
+            </button>
+            <button
+              class="action-filter today"
+              :class="{ active: todayActionFilter === 'FOLLOWUP_TODAY' }"
+              @click="setTodayActionFilter('FOLLOWUP_TODAY')"
+            >
+              今日约定 <b>{{ todayActions.summary.today_count }}</b>
+            </button>
+            <button
+              class="action-filter support"
+              :class="{ active: todayActionFilter === 'SUPPORT_NEEDED' }"
+              @click="setTodayActionFilter('SUPPORT_NEEDED')"
+            >
+              需要协助 <b>{{ todayActions.summary.support_needed_count }}</b>
+            </button>
+            <button
+              class="action-filter untouched"
+              :class="{ active: todayActionFilter === 'STAGE_UNTOUCHED' }"
+              @click="setTodayActionFilter('STAGE_UNTOUCHED')"
+            >
+              新阶段未触达 <b>{{ todayActions.summary.stage_untouched_count }}</b>
+            </button>
+            <button
+              class="action-filter"
+              :class="{ active: todayActionFilter === 'NEXT_STEP_MISSING' }"
+              @click="setTodayActionFilter('NEXT_STEP_MISSING')"
+            >
+              下一步缺失 <b>{{ todayActions.summary.next_step_missing_count }}</b>
+            </button>
+          </div>
+          <div class="today-actions-search">
+            <el-input
+              v-model="todayActionSearch"
+              class="today-actions-search-input"
+              clearable
+              placeholder="搜索学长姓名、班级或小组"
+              aria-label="搜索今日关注学长"
+            />
+            <span class="today-actions-result"
+              >当前显示 {{ visibleTodayActions.length }} 人</span
+            >
+          </div>
         </div>
         <el-table
           :data="visibleTodayActions"
@@ -1989,11 +2022,34 @@ onMounted(async () => {
 .today-actions-error {
   margin-bottom: 14px;
 }
+.today-actions-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
 .today-actions-summary {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 14px;
+  min-width: 0;
+}
+.today-actions-search {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+.today-actions-search-input {
+  width: 300px;
+}
+.today-actions-result {
+  flex: 0 0 auto;
+  color: #82958d;
+  font-size: 13px;
+  white-space: nowrap;
+}
 }
 .action-filter {
   padding: 8px 12px;
@@ -2393,6 +2449,16 @@ onMounted(async () => {
   .content-grid {
     grid-template-columns: 1fr;
   }
+  .today-actions-toolbar {
+    flex-direction: column;
+  }
+  .today-actions-search {
+    width: 100%;
+  }
+  .today-actions-search-input {
+    flex: 1;
+    width: auto;
+  }
 }
 @media (max-width: 680px) {
   .renewal-page {
@@ -2427,6 +2493,16 @@ onMounted(async () => {
   .reference-grid,
   .guidance-grid {
     grid-template-columns: 1fr;
+  }
+  .today-actions-search {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .today-actions-search-input {
+    width: 100%;
+  }
+  .today-actions-result {
+    align-self: flex-start;
   }
 }
 </style>
