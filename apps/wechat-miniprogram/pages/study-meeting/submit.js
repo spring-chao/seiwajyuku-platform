@@ -3,6 +3,7 @@ const { request, uploadPhoto } = require("../../utils/request");
 const {
   applyLearningContentResults,
   normalizeMeetingPlan,
+  requiredLearningContentConfirmed,
   requiredLearningContentComplete,
   serializeLearningContentResults
 } = require("../../utils/study-meeting");
@@ -17,7 +18,7 @@ Page({
     loading: true, submitting: false, choosingPhoto: false, assignment: null,
     meetingPlanReady: false, meetingPlanError: "", meetingSteps: [],
     learningContentResults: [], requiredContentCount: 0, completedRequiredCount: 0,
-    allRequiredContentCompleted: true, homeCount: 0, crossCount: 0, totalCount: 0,
+    allRequiredContentConfirmed: true, allRequiredContentCompleted: true, homeCount: 0, crossCount: 0, totalCount: 0,
     crossSummary: "", errorMessage: "", photoPath: "", evidenceEnabled: false
   },
 
@@ -49,10 +50,12 @@ Page({
       );
       const requiredContentCount = learningContentResults.filter(item => item.required).length;
       const completedRequiredCount = learningContentResults.filter(item => item.required && item.completed).length;
+      const allRequiredContentConfirmed = requiredLearningContentConfirmed(learningContentResults);
       this.setData({ assignment,
         meetingPlanReady: Boolean(meetingPlan && hasCurrentCycle),
         meetingPlanError, meetingSteps: meetingPlan ? meetingPlan.steps : [],
         learningContentResults, requiredContentCount, completedRequiredCount,
+        allRequiredContentConfirmed,
         allRequiredContentCompleted: requiredLearningContentComplete(learningContentResults),
         homeCount, crossCount, totalCount: homeCount + crossCount,
         crossSummary: crossCount ? "，其他小组 " + crossCount + " 人" : "",
@@ -62,15 +65,17 @@ Page({
     }
   },
 
-  toggleLearningContent(event) {
+  setLearningContentCompletion(event) {
     if (this.data.submitting) return;
     const contentKey = String(event.currentTarget.dataset.contentKey || "");
+    const completed = event.currentTarget.dataset.completed === "yes";
     const learningContentResults = this.data.learningContentResults.map(item =>
-      item.contentKey === contentKey ? { ...item, completed: !item.completed } : item
+      item.contentKey === contentKey ? { ...item, completed, confirmed: true } : item
     );
     this.setData({
       learningContentResults,
       completedRequiredCount: learningContentResults.filter(item => item.required && item.completed).length,
+      allRequiredContentConfirmed: requiredLearningContentConfirmed(learningContentResults),
       allRequiredContentCompleted: requiredLearningContentComplete(learningContentResults)
     });
     const draft = app.globalData.studyMeetingDraft || {};
@@ -117,6 +122,9 @@ Page({
     if (this.data.submitting || this.data.choosingPhoto) return;
     if (!this.data.meetingPlanReady) {
       wx.showToast({ title: "当前学习周期内容尚未配置", icon: "none" }); return;
+    }
+    if (!this.data.allRequiredContentConfirmed) {
+      wx.showToast({ title: "请先确认本期必学是否已完成", icon: "none" }); return;
     }
     if (!this.data.allRequiredContentCompleted) {
       wx.showToast({ title: "请先确认本期必学内容已完成", icon: "none" }); return;

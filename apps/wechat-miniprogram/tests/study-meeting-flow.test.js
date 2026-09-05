@@ -115,8 +115,9 @@ test("study meeting submits one complete fact without legacy course selection", 
     await page.loadContext();
     page.setData({
       learningContentResults: [
-        { contentKey: "content-1", uiKey: "content-1-0", completed: true, required: true }
+        { contentKey: "content-1", uiKey: "content-1-0", completed: true, confirmed: true, required: true }
       ],
+      allRequiredContentConfirmed: true,
       allRequiredContentCompleted: true,
       photoPath: "temporary-photo.jpg"
     });

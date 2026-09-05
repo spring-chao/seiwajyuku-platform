@@ -19,6 +19,7 @@
 .flow-content { flex: 1; color: #5d4a4a; line-height: 1.55; font-size: 28rpx; }
 .learning-content { display: flex; align-items: flex-start; margin-top: 18rpx; padding: 20rpx; border: 1rpx solid #eee4df; border-radius: 16rpx; background: #fffaf7; }
 .learning-content.completed { border-color: #b88773; background: #fff1eb; }
+.learning-content.incomplete { border-color: #ddbe9a; background: #fffaf2; }
 .content-check { flex: 0 0 44rpx; color: #741f2b; font-size: 34rpx; font-weight: 700; }
 .content-main { flex: 1; }
 .content-title { color: #741f2b; line-height: 1.5; font-size: 29rpx; font-weight: 700; }
@@ -26,6 +27,14 @@
 .content-meta { display: flex; align-items: center; gap: 12rpx; margin-top: 12rpx; color: #806f6f; font-size: 23rpx; }
 .required-tag { padding: 4rpx 10rpx; border-radius: 999rpx; background: #f3dfd2; color: #741f2b; }
 .resource-hint { margin-top: 10rpx; color: #9a6b3b; font-size: 23rpx; }
+.content-choice-label { margin-top: 18rpx; color: #5d4a4a; font-size: 24rpx; font-weight: 600; }
+.completion-options { display: flex; margin-top: 12rpx; }
+.completion-option { flex: 1; min-height: 68rpx; margin: 0; padding: 0 12rpx; border: 1rpx solid #dccdc5; border-radius: 12rpx; color: #705d57; background: #fff; font-size: 24rpx; line-height: 66rpx; }
+.completion-option::after { border: 0; }
+.completion-option + .completion-option { margin-left: 14rpx; }
+.completion-option.selected-complete { border-color: #741f2b; color: #fff; background: #741f2b; }
+.completion-option.selected-incomplete { border-color: #c9905e; color: #7e532e; background: #fff1df; }
+.content-status { margin-top: 12rpx; color: #a36b35; font-size: 23rpx; line-height: 1.55; }
 .empty-card { color: #5d4a4a; }
 .notice-card { border-left: 8rpx solid #d79a83; }
 .checkmark { position: absolute; top: 24rpx; right: 22rpx; color: #741f2b; font-size: 32rpx; }

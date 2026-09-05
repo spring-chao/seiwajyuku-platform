@@ -3,6 +3,8 @@ const { request } = require("../../utils/request");
 const {
   applyLearningContentResults,
   normalizeMeetingPlan,
+  requiredLearningContentConfirmed,
+  requiredLearningContentComplete,
   serializeLearningContentResults
 } = require("../../utils/study-meeting");
 
@@ -14,6 +16,8 @@ Page({
     meetingSteps: [],
     learningContents: [],
     learningContentResults: [],
+    allRequiredContentConfirmed: true,
+    allRequiredContentCompleted: true,
     meetingPlanReady: false,
     meetingPlanError: "",
     errorMessage: "",
@@ -33,6 +37,8 @@ Page({
       meetingSteps: [],
       learningContents: [],
       learningContentResults: [],
+      allRequiredContentConfirmed: true,
+      allRequiredContentCompleted: true,
       meetingPlanReady: false,
       meetingPlanError: ""
     });
@@ -56,12 +62,16 @@ Page({
         learningContents,
         draft.learning_content_results
       );
+      const allRequiredContentConfirmed = requiredLearningContentConfirmed(learningContentResults);
+      const allRequiredContentCompleted = requiredLearningContentComplete(learningContentResults);
       this.setData({
         context,
         assignment,
         meetingSteps: meetingPlan ? meetingPlan.steps : [],
         learningContents,
         learningContentResults,
+        allRequiredContentConfirmed,
+        allRequiredContentCompleted,
         meetingPlanReady: Boolean(meetingPlan && hasCurrentCycle),
         meetingPlanError,
         selectedGroupId: selected,
@@ -77,12 +87,17 @@ Page({
     this.loadContext(groupId);
   },
 
-  toggleLearningContent(event) {
+  setLearningContentCompletion(event) {
     const contentKey = String(event.currentTarget.dataset.contentKey || "");
+    const completed = event.currentTarget.dataset.completed === "yes";
     const learningContentResults = this.data.learningContentResults.map(item =>
-      item.contentKey === contentKey ? { ...item, completed: !item.completed } : item
+      item.contentKey === contentKey ? { ...item, completed, confirmed: true } : item
     );
-    this.setData({ learningContentResults });
+    this.setData({
+      learningContentResults,
+      allRequiredContentConfirmed: requiredLearningContentConfirmed(learningContentResults),
+      allRequiredContentCompleted: requiredLearningContentComplete(learningContentResults)
+    });
     saveLearningContentResults(this.data.selectedGroupId, learningContentResults);
   },
 
@@ -98,6 +113,14 @@ Page({
     }
     if (!this.data.meetingPlanReady) {
       wx.showToast({ title: "当前学习周期内容尚未配置", icon: "none" });
+      return;
+    }
+    if (!this.data.allRequiredContentConfirmed) {
+      wx.showToast({ title: "请先确认本期必学是否已完成", icon: "none" });
+      return;
+    }
+    if (!this.data.allRequiredContentCompleted) {
+      wx.showToast({ title: "请完成本期必学后再继续登记", icon: "none" });
       return;
     }
     saveLearningContentResults(this.data.selectedGroupId, this.data.learningContentResults);

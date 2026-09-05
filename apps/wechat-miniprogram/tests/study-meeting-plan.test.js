@@ -6,6 +6,7 @@ const test = require("node:test");
 const {
   applyLearningContentResults,
   normalizeMeetingPlan,
+  requiredLearningContentConfirmed,
   requiredLearningContentComplete,
   serializeLearningContentResults
 } = require("../utils/study-meeting");
@@ -158,14 +159,17 @@ test("a delayed current cycle keeps its own content and rejects a different cycl
   assert.equal(normalizeMeetingPlan(samplePlan(9), 8), null);
 });
 
-test("learning content completion is a local UI state and keeps no course key", () => {
+test("learning content confirmation is a local UI state and keeps no course key", () => {
   const plan = normalizeMeetingPlan(samplePlan());
   const results = applyLearningContentResults(plan.learningContents, []);
   assert.equal(requiredLearningContentComplete(results), false);
+  assert.equal(requiredLearningContentConfirmed(results), false);
   results[0].completed = true;
+  results[0].confirmed = true;
   assert.equal(requiredLearningContentComplete(results), true);
+  assert.equal(requiredLearningContentConfirmed(results), true);
   assert.deepEqual(serializeLearningContentResults(results), [
-    { content_key: "video-1", completed: true }
+    { content_key: "video-1", completed: true, confirmed: true }
   ]);
 });
 
@@ -188,12 +192,37 @@ test("index renders current cycle and meeting plan, then preserves completion st
     assert.equal(harness.page.data.meetingPlanReady, true);
     assert.equal(harness.page.data.assignment.current_cycle.learning_cycle_index, 8);
     assert.deepEqual(harness.page.data.meetingSteps.map(item => item.content), ["观看指定视频并研讨", "空巴。"]);
-    harness.page.toggleLearningContent({ currentTarget: { dataset: { contentKey: "video-1" } } });
+    harness.page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: "video-1", completed: "yes" } } });
     harness.page.openMembers();
     assert.deepEqual(harness.app.globalData.studyMeetingDraft.learning_content_results, [
-      { content_key: "video-1", completed: true }
+      { content_key: "video-1", completed: true, confirmed: true }
     ]);
     assert.equal(harness.calls[0].navigation, "/pages/study-meeting/members?groupId=group-1");
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("required content marked incomplete cannot advance to attendee selection", async () => {
+  const harness = loadIndexPage({
+    data: {
+      selection_required: false,
+      selected_group_org_unit_id: "group-1",
+      assignment: {
+        class_name: "测试班",
+        group_name: "第一小组",
+        current_cycle: { learning_cycle_index: 8 },
+        meeting_plan: samplePlan(8)
+      },
+      assignments: []
+    }
+  });
+  try {
+    await harness.page.loadContext();
+    harness.page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: "video-1", completed: "no" } } });
+    harness.page.openMembers();
+    assert.equal(harness.calls.some(item => item.navigation), false);
+    assert.equal(harness.calls.at(-1).toast, "请完成本期必学后再继续登记");
   } finally {
     harness.cleanup();
   }
@@ -260,5 +289,8 @@ test("normal submit page no longer contains the legacy course picker", () => {
   assert.doesNotMatch(template, /今天看了在线课程吗/);
   assert.match(template, /本期小组学习会/);
   assert.match(template, /learningContentResults/);
+  assert.match(template, /本期是否已由全组完成学习/);
+  assert.match(template, /尚未完成/);
+  assert.match(template, /setLearningContentCompletion/);
   assert.match(template, /catchtap="openLearningContent"/);
 });

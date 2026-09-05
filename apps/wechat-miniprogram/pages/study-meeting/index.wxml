@@ -39,16 +39,24 @@
 
     <view wx:if="{{meetingPlanReady && learningContents.length}}" class="section-card">
       <view class="section-title">本期必学</view>
-      <view class="section-hint">由志工确认本次是否已由全组完成；不要求每位学员扫码。</view>
-      <view wx:for="{{learningContentResults}}" wx:key="uiKey" class="learning-content {{item.completed ? 'completed' : ''}}" data-content-key="{{item.contentKey}}" bindtap="toggleLearningContent">
-        <view class="content-check">{{item.completed ? '✓' : '○'}}</view>
+      <view class="section-hint">请由志工逐项选择全组是否已完成学习；不要求每位学员扫码。</view>
+      <view wx:for="{{learningContentResults}}" wx:key="uiKey" class="learning-content {{item.completed ? 'completed' : (item.confirmed ? 'incomplete' : '')}}">
+        <view class="content-check">{{item.completed ? '✓' : (item.confirmed ? '!' : '○')}}</view>
         <view class="content-main">
           <view class="content-title">{{item.title}}</view>
           <view wx:if="{{item.description}}" class="content-description">{{item.description}}</view>
           <view class="content-meta"><text wx:if="{{item.required}}" class="required-tag">必学</text><text>{{item.creditLabel}}</text></view>
           <view wx:if="{{item.hasResourceAccess}}" class="resource-hint" data-label="{{item.resourceLabel}}" catchtap="openLearningContent">{{item.resourceLabel}}</view>
+          <view class="content-choice-label">本期是否已由全组完成学习？</view>
+          <view class="completion-options">
+            <button class="completion-option {{item.confirmed && item.completed ? 'selected-complete' : ''}}" data-content-key="{{item.contentKey}}" data-completed="yes" bindtap="setLearningContentCompletion">已完成</button>
+            <button class="completion-option incomplete-option {{item.confirmed && !item.completed ? 'selected-incomplete' : ''}}" data-content-key="{{item.contentKey}}" data-completed="no" bindtap="setLearningContentCompletion">尚未完成</button>
+          </view>
+          <view wx:if="{{item.confirmed && !item.completed}}" class="content-status">请完成本期学习后，再继续登记本次学习会。</view>
         </view>
       </view>
+      <view wx:if="{{!allRequiredContentConfirmed}}" class="feature-hint warning">请先选择本期必学是否已完成。</view>
+      <view wx:elif="{{!allRequiredContentCompleted}}" class="feature-hint warning">本期必学尚未完成，完成后即可继续登记。</view>
     </view>
 
     <view wx:if="{{meetingPlanReady && !learningContents.length}}" class="section-card empty-card">

@@ -1,6 +1,10 @@
 <view class="page-shell">
   <scroll-view wx:if="{{state === 'ready' && !submitted}}" class="page-scroll" scroll-y>
     <view class="hero-card">
+      <view class="brand-lockup">
+        <image class="brand-logo" src="/assets/shenghe-brand-logo.png" mode="aspectFit" />
+        <view class="brand-slogan">提高心性 · 拓展经营</view>
+      </view>
       <view class="eyebrow">学长服务助手</view>
       <view class="hero-title">新学长信息登记</view>
       <view class="hero-copy">{{formMeta.subtitle}}</view>

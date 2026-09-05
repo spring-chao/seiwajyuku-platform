@@ -74,19 +74,34 @@ function applyLearningContentResults(contents, savedResults) {
   const saved = new Map(
     (Array.isArray(savedResults) ? savedResults : [])
       .filter(item => item && item.content_key)
-      .map(item => [String(item.content_key), item.completed === true])
+      .map(item => [String(item.content_key), {
+        completed: item.completed === true,
+        // Older local drafts only stored a true completion. Treat that as an
+        // explicit confirmation, while an old false value remains unanswered.
+        confirmed: item.confirmed === true || item.completed === true
+      }])
   );
-  return (Array.isArray(contents) ? contents : []).map(item => ({
-    ...item,
-    completed: saved.get(item.contentKey) === true
-  }));
+  return (Array.isArray(contents) ? contents : []).map(item => {
+    const result = saved.get(item.contentKey);
+    return {
+      ...item,
+      completed: Boolean(result && result.completed),
+      confirmed: Boolean(result && result.confirmed)
+    };
+  });
 }
 
 function serializeLearningContentResults(contents) {
   return (Array.isArray(contents) ? contents : []).map(item => ({
     content_key: item.contentKey,
-    completed: item.completed === true
+    completed: item.completed === true,
+    confirmed: item.confirmed === true
   }));
+}
+
+function requiredLearningContentConfirmed(contents) {
+  const required = (Array.isArray(contents) ? contents : []).filter(item => item.required);
+  return required.length === 0 || required.every(item => item.confirmed === true);
 }
 
 function requiredLearningContentComplete(contents) {
@@ -98,5 +113,6 @@ module.exports = {
   normalizeMeetingPlan,
   applyLearningContentResults,
   serializeLearningContentResults,
+  requiredLearningContentConfirmed,
   requiredLearningContentComplete
 };

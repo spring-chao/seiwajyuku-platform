@@ -6,6 +6,9 @@ const root = path.resolve(__dirname, "..");
 const js = fs.readFileSync(path.join(root, "pages/enrollment/index.js"), "utf8");
 const wxml = fs.readFileSync(path.join(root, "pages/enrollment/index.wxml"), "utf8");
 
+assert.match(wxml, /src="\/assets\/shenghe-brand-logo\.png"/);
+assert.match(wxml, /提高心性 · 拓展经营/);
+
 for (const label of [
   "性别",
   "政治面貌",
