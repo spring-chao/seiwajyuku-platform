@@ -6,8 +6,14 @@ const root = path.resolve(__dirname, "..");
 const js = fs.readFileSync(path.join(root, "pages/enrollment/index.js"), "utf8");
 const wxml = fs.readFileSync(path.join(root, "pages/enrollment/index.wxml"), "utf8");
 
-assert.match(wxml, /src="\/assets\/shenghe-brand-logo\.png"/);
+assert.match(wxml, /src="\/assets\/shenghe-brand-logo-jiangnan\.png"/);
+assert.doesNotMatch(wxml, /shenghe-brand-logo\.png"/);
+assert.doesNotMatch(wxml, /苏州盛和塾/);
 assert.match(wxml, /提高心性 · 拓展经营/);
+assert.match(wxml, /<view class="section-index">01<\/view>/);
+assert.match(wxml, /<view class="section-index">04<\/view>/);
+assert.match(wxml, /<view class="field-row">\s*<view class="field-label required">姓名<\/view>/);
+assert.match(wxml, /class="hero-duration">约 3–5 分钟完成<\/view>/);
 
 for (const label of [
   "性别",

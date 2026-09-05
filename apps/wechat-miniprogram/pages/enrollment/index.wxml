@@ -1,16 +1,23 @@
 <view class="page-shell">
   <scroll-view wx:if="{{state === 'ready' && !submitted}}" class="page-scroll" scroll-y>
     <view class="hero-card">
-      <view class="brand-lockup">
-        <image class="brand-logo" src="/assets/shenghe-brand-logo.png" mode="aspectFit" />
+      <view class="hero-brand">
+        <view class="brand-lockup">
+          <image class="brand-logo" src="/assets/shenghe-brand-logo-jiangnan.png" mode="aspectFit" />
+        </view>
         <view class="brand-slogan">提高心性 · 拓展经营</view>
       </view>
-      <view class="eyebrow">学长服务助手</view>
-      <view class="hero-title">新学长信息登记</view>
+      <view class="hero-divider"></view>
+      <view class="hero-meta">
+        <view class="eyebrow">学长服务助手</view>
+        <view class="hero-duration">约 3–5 分钟完成</view>
+      </view>
+      <view class="hero-title">{{formMeta.title}}</view>
       <view class="hero-copy">{{formMeta.subtitle}}</view>
     </view>
 
     <view class="purpose-card">
+      <view class="card-kicker">登记前先了解</view>
       <view class="purpose-title">这份资料会用于</view>
       <view wx:for="{{purposeItems}}" wx:key="title" class="purpose-item">
         <view class="purpose-number">{{index + 1}}</view>
@@ -19,11 +26,20 @@
           <view class="purpose-item-copy">{{item.description}}</view>
         </view>
       </view>
-      <view class="warm-tip">温馨提示：提交资料不代表已经正式入塾。工作人员审核资料、确认所属分中心及会费后，才会建立正式学员档案。本页面不进行任何转账或收费。</view>
+      <view class="warm-tip">
+        <view class="warm-tip-title">温馨提示</view>
+        <view>提交资料不代表已经正式入塾。工作人员审核资料、确认所属分中心及会费后，才会建立正式学员档案。本页面不进行任何转账或收费。</view>
+      </view>
     </view>
 
     <view class="section-card">
-      <view class="section-title">基础信息</view>
+      <view class="section-heading">
+        <view class="section-index">01</view>
+        <view class="section-heading-copy">
+          <view class="section-title">基础信息</view>
+          <view class="section-description">用于建立申请人基本档案</view>
+        </view>
+      </view>
       <view class="field-row">
         <view class="field-label required">姓名</view>
         <input class="field-input" data-field="name" value="{{form.name}}" bindinput="handleInput" placeholder="请填写真实姓名" />
@@ -65,7 +81,13 @@
     </view>
 
     <view class="section-card">
-      <view class="section-title">企业信息</view>
+      <view class="section-heading">
+        <view class="section-index">02</view>
+        <view class="section-heading-copy">
+          <view class="section-title">企业信息</view>
+          <view class="section-description">了解企业经营基本情况</view>
+        </view>
+      </view>
       <view class="field-row">
         <view class="field-label required">公司名称</view>
         <input class="field-input" data-field="company_name" value="{{form.company_name}}" bindinput="handleInput" placeholder="请手工填写企业全称" />
@@ -111,7 +133,13 @@
     </view>
 
     <view class="section-card">
-      <view class="section-title">开票信息</view>
+      <view class="section-heading">
+        <view class="section-index">03</view>
+        <view class="section-heading-copy">
+          <view class="section-title">开票信息</view>
+          <view class="section-description">按实际需要填写</view>
+        </view>
+      </view>
       <view class="section-hint">发票抬头和税号为手工填写，请提交前自行核对。</view>
       <view class="field-row picker-row">
         <view class="field-label required">发票类型</view>
@@ -132,7 +160,14 @@
     </view>
 
     <view class="section-card">
-      <view class="section-title">你希望通过学习服务获得什么？</view>
+      <view class="section-heading">
+        <view class="section-index">04</view>
+        <view class="section-heading-copy">
+          <view class="section-title">学习期望</view>
+          <view class="section-description">了解未来学习目标</view>
+        </view>
+      </view>
+      <view class="section-question">你希望通过学习服务获得什么？</view>
       <view class="field-row picker-row">
         <view class="field-label required">计划学习年限</view>
         <picker mode="selector" range="{{goalYearOptions}}" bindchange="handleGoalYearsChange">
@@ -170,7 +205,10 @@
     </view>
 
     <view class="rules-card">
-      <view class="section-title">加入守则与缴费说明</view>
+      <view class="support-heading">
+        <view class="support-kicker">05 · 重要说明</view>
+        <view class="section-title">加入守则与缴费说明</view>
+      </view>
       <view class="rules-copy">
         <view>学长服务助手面向认同稻盛哲学、经营学理念的企业经营者，提供相互学习、相互交流和共同成长的学习服务，致力于让幸福企业遍布苏城。</view>
         <view class="rules-paragraph">每一位准备加入本学习服务的学员，均需认真阅读并遵守以下加入守则。</view>
@@ -197,6 +235,10 @@
     </view>
 
     <view class="privacy-card">
+      <view class="support-heading">
+        <view class="support-kicker">06 · 隐私确认</view>
+        <view class="section-title">资料使用说明</view>
+      </view>
       <view class="consent-row" bindtap="togglePrivacy">
         <view class="checkbox {{privacyConsent ? 'checked' : ''}}">{{privacyConsent ? '✓' : ''}}</view>
         <view>我已阅读并同意<text class="privacy-link" catchtap="openPrivacyContract">《用户隐私保护指引》</text></view>
