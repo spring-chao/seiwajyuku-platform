@@ -76,7 +76,7 @@ page {
   box-sizing: border-box;
   align-items: center;
   justify-content: flex-start;
-  width: 300rpx;
+  width: 254rpx;
   padding: 14rpx 18rpx 12rpx 0;
   border: 1rpx solid rgba(234, 217, 198, 0.9);
   border-radius: 16rpx;
@@ -562,7 +562,7 @@ page {
   }
 
   .brand-lockup {
-    width: 270rpx;
+    width: 234rpx;
   }
 
   .brand-logo {
