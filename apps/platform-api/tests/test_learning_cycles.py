@@ -455,6 +455,79 @@ def test_health_scan_does_not_block_on_missing_volunteer_permission() -> None:
     assert all(issue["issue_type"] != "VOLUNTEER_PERMISSION_MISSING" for issue in row["issues"])
 
 
+def test_health_scan_uses_current_member_relations_for_group_class_checks() -> None:
+    admin, class_id, group_a, group_b = _fixture()
+    now = datetime.now(UTC).isoformat()
+
+    def add_member(
+        *, name: str, group_id: str, class_valid_until: str | None = None
+    ) -> int:
+        with transaction() as connection:
+            cursor = execute(
+                connection,
+                "INSERT INTO members(member_code, name, status, org_unit_id, created_at, updated_at) "
+                "VALUES (?, ?, 'ACTIVE', ?, ?, ?)",
+                (f"L1_RELATION_MEMBER_{uuid4().hex[:12]}", name, class_id, now, now),
+            )
+            member_id = int(cursor.lastrowid)
+            execute(
+                connection,
+                "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, "
+                "is_primary, valid_until, created_at, updated_at) "
+                "VALUES (?, ?, 'STUDY_CLASS', 1, ?, ?, ?)",
+                (member_id, class_id, class_valid_until, now, now),
+            )
+            execute(
+                connection,
+                "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, "
+                "is_primary, created_at, updated_at) "
+                "VALUES (?, ?, 'STUDY_GROUP', 1, ?, ?)",
+                (member_id, group_id, now, now),
+            )
+        return member_id
+
+    add_member(name="当前关系组员A", group_id=group_a)
+    add_member(name="当前关系组员B", group_id=group_b)
+    with transaction() as connection:
+        cursor = execute(
+            connection,
+            "INSERT INTO members(member_code, name, status, org_unit_id, created_at, updated_at) "
+            "VALUES (?, '历史小组关系组员', 'ACTIVE', ?, ?, ?)",
+            (f"L1_EXPIRED_GROUP_{uuid4().hex[:12]}", class_id, now, now),
+        )
+        expired_member_id = int(cursor.lastrowid)
+        execute(
+            connection,
+            "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, "
+            "is_primary, valid_until, created_at, updated_at) "
+            "VALUES (?, ?, 'STUDY_GROUP', 1, '2000-01-01', ?, ?)",
+            (expired_member_id, group_a, now, now),
+        )
+
+    ignored_history = scan_class_learning_plan_health(
+        user_id=admin, class_org_unit_id=class_id
+    )
+    assert ignored_history["classes"][0]["status"] == "READY"
+    assert ignored_history["summary"]["group_relation_anomalies"] == 0
+
+    add_member(
+        name="已结束班级关系组员",
+        group_id=group_b,
+        class_valid_until="2000-01-01",
+    )
+    result = scan_class_learning_plan_health(user_id=admin, class_org_unit_id=class_id)
+    row = result["classes"][0]
+    mismatch = next(
+        issue
+        for issue in row["issues"]
+        if issue["issue_type"] == "GROUP_CLASS_RELATION_MISMATCH"
+    )
+
+    assert row["status"] == "BLOCKED"
+    assert mismatch["current_data"]["group_org_unit_id"] == group_b
+    assert mismatch["current_data"]["member_count"] == 1
+
+
 def test_health_scan_uses_explicit_correction_as_business_truth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

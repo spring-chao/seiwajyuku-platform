@@ -1434,6 +1434,7 @@ def scan_class_learning_plan_health(
         ]
         scan_at = _now()
         now_dt = _timestamp_as_datetime(scan_at) or datetime.now(UTC)
+        relation_effective_date = now_dt.date().isoformat()
         baseline = load_baseline()
         baseline_index = baseline_by_class_id(baseline)
         name_counts: dict[str, int] = {}
@@ -1688,8 +1689,10 @@ def scan_class_learning_plan_health(
                         connection,
                         "SELECT COUNT(DISTINCT r.member_id) AS count FROM member_org_relations r "
                         "JOIN members m ON m.id=r.member_id "
-                        "WHERE r.org_unit_id=? AND r.relation_type='STUDY_GROUP' AND m.status='ACTIVE'",
-                        (group["id"],),
+                        "WHERE r.org_unit_id=? AND r.relation_type='STUDY_GROUP' AND m.status='ACTIVE' "
+                        "AND (r.valid_from IS NULL OR r.valid_from<=?) "
+                        "AND (r.valid_until IS NULL OR r.valid_until>=?)",
+                        (group["id"], relation_effective_date, relation_effective_date),
                     ).fetchone()["count"]
                     if int(member_count or 0) == 0:
                         group_anomalies += 1
@@ -1697,7 +1700,11 @@ def scan_class_learning_plan_health(
                             _health_issue(
                                 class_row=class_row,
                                 issue_type="GROUP_WITHOUT_ACTIVE_MEMBERS",
-                                current_data={"group_org_unit_id": group["id"], "group_name": group["name"]},
+                                current_data={
+                                    "group_org_unit_id": group["id"],
+                                    "group_name": group["name"],
+                                    "relation_effective_date": relation_effective_date,
+                                },
                                 suggested_action="按组织 ID 核对小组关系和学员主档，不从旧系统或姓名猜测回填",
                             )
                         )
@@ -1706,10 +1713,21 @@ def scan_class_learning_plan_health(
                         "SELECT COUNT(DISTINCT r.member_id) AS count FROM member_org_relations r "
                         "JOIN members m ON m.id=r.member_id "
                         "WHERE r.org_unit_id=? AND r.relation_type='STUDY_GROUP' AND m.status='ACTIVE' "
+                        "AND (r.valid_from IS NULL OR r.valid_from<=?) "
+                        "AND (r.valid_until IS NULL OR r.valid_until>=?) "
                         "AND NOT EXISTS (SELECT 1 FROM member_org_relations cr "
                         "WHERE cr.member_id=r.member_id AND cr.org_unit_id=? "
-                        "AND cr.relation_type='STUDY_CLASS')",
-                        (group["id"], class_row["id"]),
+                        "AND cr.relation_type='STUDY_CLASS' "
+                        "AND (cr.valid_from IS NULL OR cr.valid_from<=?) "
+                        "AND (cr.valid_until IS NULL OR cr.valid_until>=?))",
+                        (
+                            group["id"],
+                            relation_effective_date,
+                            relation_effective_date,
+                            class_row["id"],
+                            relation_effective_date,
+                            relation_effective_date,
+                        ),
                     ).fetchone()["count"]
                     if int(mismatch_count or 0) > 0:
                         group_anomalies += int(mismatch_count)
@@ -1717,7 +1735,12 @@ def scan_class_learning_plan_health(
                             _health_issue(
                                 class_row=class_row,
                                 issue_type="GROUP_CLASS_RELATION_MISMATCH",
-                                current_data={"group_org_unit_id": group["id"], "member_count": int(mismatch_count)},
+                                current_data={
+                                    "group_org_unit_id": group["id"],
+                                    "group_name": group["name"],
+                                    "member_count": int(mismatch_count),
+                                    "relation_effective_date": relation_effective_date,
+                                },
                                 suggested_action="核对学员的 STUDY_CLASS 与 STUDY_GROUP 关系，保留跨组参加事实不改正式归属",
                             )
                         )

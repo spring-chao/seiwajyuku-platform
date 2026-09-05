@@ -123,6 +123,13 @@ const issueDescription = (issue: LearningPlanHealthIssue) => {
   if (issue.issue_type === "EXPECTED_PLAN_VERSION_MISMATCH") {
     return `业务预期计划版本 ${expected ?? "—"}，当前 ${actual ?? "—"}`;
   }
+  if (issue.issue_type === "GROUP_WITHOUT_ACTIVE_MEMBERS") {
+    return `${String(issue.current_data.group_name || "某小组")}：没有当前有效学员`;
+  }
+  if (issue.issue_type === "GROUP_CLASS_RELATION_MISMATCH") {
+    const memberCount = Number(issue.current_data.member_count || 0);
+    return `${String(issue.current_data.group_name || "某小组")}：${memberCount} 位学员缺少当前班级关系`;
+  }
   return issueLabel(issue.issue_type);
 };
 const issueSummary = (item?: LearningPlanHealthClass) =>
@@ -464,7 +471,7 @@ onMounted(load);
         </el-table-column>
         <el-table-column label="异常" min-width="260">
           <template #default="{ row }">
-            <span>{{ row.issues.map((item: any) => issueLabel(item.issue_type)).join("；") || "—" }}</span>
+            <span>{{ row.issues.map((item: any) => issueDescription(item)).join("；") || "—" }}</span>
           </template>
         </el-table-column>
       </el-table>
