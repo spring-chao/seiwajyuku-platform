@@ -65,6 +65,12 @@ page {
   z-index: 1;
 }
 
+.hero-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
 .brand-lockup {
   display: inline-flex;
   box-sizing: border-box;
@@ -86,9 +92,11 @@ page {
 
 .brand-slogan {
   margin-top: 12rpx;
+  width: 300rpx;
   color: #e2cfa7;
   font-size: 22rpx;
   letter-spacing: 4rpx;
+  text-align: left;
 }
 
 .hero-divider {
@@ -558,6 +566,10 @@ page {
 
   .brand-logo {
     width: 234rpx;
+  }
+
+  .brand-slogan {
+    width: 270rpx;
   }
 
   .hero-duration {
