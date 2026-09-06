@@ -31,7 +31,7 @@ def _error(exc: Exception) -> HTTPException:
 @router.post("/dry-run/study-meetings/{session_id}")
 def dry_run_study_meeting(
     session_id: int,
-    user: dict = Depends(require_permission("plans:read")),
+    user: dict = Depends(require_permission("plans:credit_settlement_preview")),
 ) -> dict:
     try:
         return {
@@ -49,7 +49,7 @@ def dry_run_study_meeting_batch(
     class_org_unit_id: str | None = Query(default=None, max_length=64),
     learning_cycle_id: int | None = Query(default=None, ge=1),
     limit: int = Query(default=30, ge=1, le=500),
-    user: dict = Depends(require_permission("plans:read")),
+    user: dict = Depends(require_permission("plans:credit_settlement_preview")),
 ) -> dict:
     try:
         return {
@@ -70,7 +70,7 @@ def credit_entries(
     occurred_to: str | None = Query(default=None, max_length=32),
     credit_category: str | None = Query(default=None, max_length=32),
     source_type: str | None = Query(default=None, max_length=64),
-    user: dict = Depends(require_permission("plans:read")),
+    user: dict = Depends(require_permission("plans:credit_settlement_preview")),
 ) -> dict:
     try:
         data = list_credit_entries(
@@ -86,7 +86,7 @@ def credit_entries(
 @router.get("/members/{member_id}/summary")
 def credit_summary(
     member_id: int,
-    user: dict = Depends(require_permission("plans:read")),
+    user: dict = Depends(require_permission("plans:credit_settlement_preview")),
 ) -> dict:
     try:
         return {

@@ -23,5 +23,5 @@ DROP TABLE learning_credit_rules;
 DROP TABLE learning_credit_rule_versions;
 DELETE FROM role_permissions WHERE permission_key IN ('plans:credit_settlement_preview', 'plans:credit_settlement_manage');
 DELETE FROM permissions WHERE permission_key IN ('plans:credit_settlement_preview', 'plans:credit_settlement_manage');
-DELETE FROM schema_migrations WHERE version='0043_learning_credit_ledger.sql';
+DELETE FROM schema_migrations WHERE version='0046_learning_credit_ledger.sql';
 COMMIT;

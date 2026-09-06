@@ -88,8 +88,7 @@ def _scope_allows(actor_user_id: int, class_org_unit_id: str | None) -> bool:
 
 def _require_preview_permission(actor_user_id: int) -> None:
     user = user_context(actor_user_id) or {}
-    if "plans:credit_settlement_preview" not in user.get("permissions", []) and \
-            "plans:read" not in user.get("permissions", []):
+    if "plans:credit_settlement_preview" not in user.get("permissions", []):
         raise PermissionError("无权预览学分结算")
 
 
@@ -532,7 +531,7 @@ def member_credit_summary(*, actor_user_id: int, member_id: int) -> dict[str, An
     if allowed is None:
         rows = fetch_all(
             "SELECT credit_category, COALESCE(SUM(points), 0) AS points "
-            "FROM learning_credit_entries WHERE member_id=? AND status IN ('PENDING', 'POSTED') "
+            "FROM learning_credit_entries WHERE member_id=? AND status IN ('POSTED', 'REVERSED') "
             "GROUP BY credit_category",
             (member_id,),
         )
@@ -540,7 +539,7 @@ def member_credit_summary(*, actor_user_id: int, member_id: int) -> dict[str, An
         placeholders = ",".join("?" for _ in allowed)
         rows = fetch_all(
             "SELECT credit_category, COALESCE(SUM(points), 0) AS points "
-            "FROM learning_credit_entries WHERE member_id=? AND status IN ('PENDING', 'POSTED') "
+            "FROM learning_credit_entries WHERE member_id=? AND status IN ('POSTED', 'REVERSED') "
             f"AND class_org_unit_id IN ({placeholders}) GROUP BY credit_category",
             (member_id, *sorted(allowed)),
         )
@@ -599,10 +598,27 @@ def post_credit_entry(*, actor_user_id: int, item: dict[str, Any]) -> dict[str, 
         raise PermissionError("无权正式入账学分")
     if not item.get("rule_version") or not item.get("rule_snapshot"):
         raise LearningCreditError("正式入账必须冻结学分规则快照")
-    snapshot = item["rule_snapshot"]
-    if snapshot.get("rule_version_status") != "PUBLISHED" and snapshot.get("course_rule_version_status") != "PUBLISHED":
-        raise LearningCreditError("只有已发布规则才能正式入账")
+    if not item.get("rule_version_id") or not item.get("rule_key"):
+        raise LearningCreditError("正式入账必须绑定学分规则版本和规则键")
     with transaction() as connection:
+        rule = execute(
+            connection,
+            "SELECT v.id AS version_id, v.version_label, v.status AS version_status, "
+            "r.rule_key, r.credit_category, r.credit_type, r.status AS rule_status "
+            "FROM learning_credit_rule_versions v "
+            "JOIN learning_credit_rules r ON r.rule_version_id=v.id "
+            "WHERE v.id=? AND r.rule_key=? LIMIT 1",
+            (item["rule_version_id"], item["rule_key"]),
+        ).fetchone()
+        if not rule or rule["version_status"] != "PUBLISHED" or rule["rule_status"] != "ACTIVE":
+            raise LearningCreditError("只有数据库中已发布且启用的规则才能正式入账")
+        if str(rule["version_label"]) != str(item["rule_version"]):
+            raise LearningCreditError("学分规则版本标签与数据库不一致")
+        if (
+            str(rule["credit_category"]) != str(item["credit_category"])
+            or str(rule["credit_type"]) != str(item["credit_type"])
+        ):
+            raise LearningCreditError("学分规则类别或类型与数据库不一致")
         return _insert_entry(connection, item, status="POSTED", actor_user_id=actor_user_id)
 
 
@@ -671,6 +687,10 @@ def reverse_credit_entry(*, actor_user_id: int, entry_id: int, reason: str) -> d
         if not original:
             raise LearningCreditError("学分账本记录不存在")
         original = dict(original)
+        if not original.get("class_org_unit_id"):
+            raise PermissionError("无组织范围的学分记录不能由当前权限冲销")
+        if not _scope_allows(actor_user_id, original["class_org_unit_id"]):
+            raise PermissionError("学分记录不在当前组织授权范围内")
         existing = _existing_entry(connection, f"REVERSAL:{entry_id}")
         if existing:
             return _entry_payload(existing)

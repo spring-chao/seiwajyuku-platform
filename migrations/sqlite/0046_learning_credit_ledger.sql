@@ -1,4 +1,4 @@
--- 0043: G5 统一学分账本与学习成果结算 V1（C1-C5）
+-- 0046: G5 统一学分账本与学习成果结算 V1（C1-C5）
 -- 本迁移只建立可追溯模型和事实存储；正式结算仍由
 -- LEARNING_CREDIT_SETTLEMENT_ENABLED 独立控制，默认关闭。
 
@@ -132,6 +132,13 @@ WHERE rule_set_key='STANDARD_3Y_2026' AND version_label='2026.1';
 INSERT OR IGNORE INTO learning_credit_rules
     (rule_version_id, rule_key, credit_category, credit_type, settlement_model,
      points, cap_points, rule_snapshot_json, created_at, updated_at)
+SELECT id, 'MANUAL_ADJUSTMENT', 'STANDARD_LEARNING', 'MANUAL_ADJUSTMENT', 'MANUAL_ADJUSTMENT',
+       NULL, NULL, '{"points":"FROM_ADJUSTMENT"}', datetime('now'), datetime('now')
+FROM learning_credit_rule_versions
+WHERE rule_set_key='STANDARD_3Y_2026' AND version_label='2026.1';
+INSERT OR IGNORE INTO learning_credit_rules
+    (rule_version_id, rule_key, credit_category, credit_type, settlement_model,
+     points, cap_points, rule_snapshot_json, created_at, updated_at)
 SELECT id, 'EXCELLENT_SHARE', 'STANDARD_LEARNING', 'EXCELLENT_SHARE', 'MONTHLY_CAP',
        1, 5, '{"points":1,"cap_points":5,"period":"MONTH"}', datetime('now'), datetime('now')
 FROM learning_credit_rule_versions
@@ -168,9 +175,7 @@ VALUES ('plans:credit_settlement_manage', '正式结算与学分冲销', 'SENSIT
 INSERT OR IGNORE INTO role_permissions(role_key, permission_key)
 SELECT role_key, 'plans:credit_settlement_preview'
 FROM roles
-WHERE role_key IN ('system_admin', 'operations_admin', 'regional_manager',
-                   'ops_center_director', 'ops_center_operations',
-                   'ops_center_learning', 'ops_center_management', 'read_only');
+WHERE role_key IN ('system_admin', 'operations_admin', 'ops_center_learning', 'ops_center_management');
 INSERT OR IGNORE INTO role_permissions(role_key, permission_key)
 SELECT role_key, 'plans:credit_settlement_manage'
 FROM roles

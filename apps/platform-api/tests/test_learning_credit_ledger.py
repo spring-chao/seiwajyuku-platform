@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from fastapi.testclient import TestClient
 
+from app.core.security import create_token
 from app.db import execute, fetch_one, transaction
+from app.main import app
 from app.services.learning_credits import (
     dry_run_study_meeting_settlement,
+    member_credit_summary,
     post_credit_entry,
     reverse_credit_entry,
     settle_study_meeting,
@@ -15,14 +21,15 @@ from app.services.learning_credits import (
 from app.services.study_meetings import (
     confirm_study_meeting_course_completion,
 )
-from test_study_meeting_evidence import create
+from app.services.wechat_identity import verify_member_binding
+from test_study_meeting_evidence import create, photo
 from test_v12_mvp import _seed_group_leader_fixture
 
 
 @pytest.fixture(autouse=True)
 def credit_test_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("STUDY_MEETING_SUBMISSION_ENABLED", "true")
-    monkeypatch.setenv("STUDY_MEETING_EVIDENCE_ENABLED", "false")
+    monkeypatch.setenv("STUDY_MEETING_EVIDENCE_ENABLED", "true")
     monkeypatch.setenv("STUDY_MEETING_COURSE_EDIT_ENABLED", "true")
     monkeypatch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "false")
     monkeypatch.setenv("STUDY_EVIDENCE_LOCAL_ROOT", str(tmp_path))
@@ -114,6 +121,125 @@ def test_group_meeting_dry_run_is_cycle_once_and_does_not_write() -> None:
         f"GROUP_MEETING:{f['other_member_id']}:{f['learning_cycle_id']}",
     }
     assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == before
+    for _ in range(9):
+        repeated = dry_run_study_meeting_settlement(
+            actor_user_id=_admin_id(), session_id=session["id"]
+        )
+        assert repeated == preview
+        assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == before
+
+
+def test_dry_run_does_not_fallback_to_plans_read_permission() -> None:
+    with patch(
+        "app.services.learning_credits.user_context",
+        return_value={"permissions": ["plans:read"]},
+    ):
+        with pytest.raises(PermissionError, match="无权预览学分结算"):
+            dry_run_study_meeting_settlement(actor_user_id=_admin_id(), session_id=1)
+
+
+def test_normal_api_submit_path_stays_dry_run_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    f = _seed_group_leader_fixture()
+    key = "Y1-ACCOUNTING-ANALYSIS-TASK"
+    _use_credit_plan(f, key)
+    monkeypatch.setenv("WECHAT_LOCAL_TEST_MODE", "true")
+    monkeypatch.setenv("WECHAT_MEMBER_BINDING_ENABLED", "true")
+
+    with patch(
+        "app.services.wechat_identity.exchange_wechat_code",
+        return_value={
+            "appid": f"credit-test-{f['suffix']}",
+            "openid": f"credit-openid-{f['suffix']}",
+        },
+    ):
+        binding = verify_member_binding(code="dev-code", name="V1.2组长", phone=f["phone"])
+    member_headers = {"Authorization": "Bearer " + binding["access_token"]}
+    admin = fetch_one("SELECT id, token_version FROM app_users WHERE username='admin'")
+    admin_headers = {
+        "Authorization": "Bearer " + create_token(
+            admin["id"], admin["token_version"], "access", timedelta(minutes=5)
+        )
+    }
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/v1/study-meetings",
+            headers=member_headers,
+            json={
+                "group_org_unit_id": f["group_id"],
+                "member_ids": [f["member_id"]],
+                "cross_group_member_ids": [f["other_member_id"]],
+                "has_course": True,
+                "course_keys": [key],
+            },
+        )
+        assert created.status_code == 200, created.text
+        session_id = created.json()["data"]["id"]
+        uploaded = client.post(
+            f"/api/v1/study-meetings/{session_id}/evidence",
+            headers=member_headers,
+            files={"photo": ("study.jpg", photo(), "image/jpeg")},
+        )
+        assert uploaded.status_code == 200, uploaded.text
+        submitted = client.post(
+            f"/api/v1/study-meetings/{session_id}/submit",
+            headers=member_headers,
+        )
+        assert submitted.status_code == 200, submitted.text
+        assert submitted.json()["data"]["status"] == "SUBMITTED"
+
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE learning_plan_credit_rule_versions SET status='PUBLISHED' "
+            "WHERE plan_key=(SELECT p.plan_key FROM learning_plan_versions p "
+            "JOIN class_learning_bindings b ON b.plan_version_id=p.id "
+            "WHERE b.class_org_unit_id=?)",
+            (f["class_id"],),
+        )
+    before = fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]
+    with TestClient(app) as client:
+        preview = client.post(
+            f"/api/v1/learning-credits/dry-run/study-meetings/{session_id}",
+            headers=admin_headers,
+        )
+    assert preview.status_code == 200, preview.text
+    data = preview.json()["data"]
+    assert data["mode"] == "DRY_RUN"
+    assert data["persisted"] is False
+    assert data["totals"]["proposed_points"] == 88
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == before
+
+
+def test_reverse_rejects_unscoped_credit_entry() -> None:
+    actor = _admin_id()
+    version = fetch_one(
+        "SELECT id, version_label FROM learning_credit_rule_versions "
+        "WHERE rule_set_key='STANDARD_3Y_2026' AND version_label='2026.1'"
+    )
+    member_id = int(fetch_one("SELECT id FROM members ORDER BY id LIMIT 1")["id"])
+    key = f"UNSCOPED:{uuid4().hex}"
+    item = {
+        "member_id": member_id,
+        "credit_category": "STANDARD_LEARNING",
+        "credit_type": "MANUAL_ADJUSTMENT",
+        "points": 40,
+        "source_type": "MANUAL_ADJUSTMENT",
+        "source_id": key,
+        "rule_key": "MANUAL_ADJUSTMENT",
+        "rule_version": version["version_label"],
+        "rule_version_id": version["id"],
+        "rule_snapshot": {"reason": "组织范围测试"},
+        "occurred_at": "2026-09-06",
+        "idempotency_key": key,
+    }
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        original = post_credit_entry(actor_user_id=actor, item=item)
+        with pytest.raises(PermissionError, match="无组织范围"):
+            reverse_credit_entry(actor_user_id=actor, entry_id=original["id"], reason="范围测试")
+    assert fetch_one("SELECT status FROM learning_credit_entries WHERE id=?", (original["id"],))["status"] == "POSTED"
 
 
 def test_course_completion_fact_and_plan_rule_version_gate() -> None:
@@ -209,27 +335,37 @@ def test_settlement_posts_ready_group_entries_when_course_is_blocked() -> None:
 
 
 def test_ledger_reversal_is_append_only_and_idempotent() -> None:
+    f = _seed_group_leader_fixture()
     actor = _admin_id()
     key = f"MANUAL:{uuid4().hex}"
+    version = fetch_one(
+        "SELECT id, version_label FROM learning_credit_rule_versions "
+        "WHERE rule_set_key='STANDARD_3Y_2026' AND version_label='2026.1'"
+    )
+    assert version
     item = {
-        "member_id": int(fetch_one("SELECT id FROM members ORDER BY id LIMIT 1")["id"]),
+        "member_id": f["member_id"],
         "credit_category": "STANDARD_LEARNING",
         "credit_type": "MANUAL_ADJUSTMENT",
         "points": 40,
         "source_type": "MANUAL_ADJUSTMENT",
         "source_id": key,
+        "class_org_unit_id": f["class_id"],
         "rule_key": "MANUAL_ADJUSTMENT",
-        "rule_version": "2026.1",
-        "rule_snapshot": {"rule_version_status": "PUBLISHED", "reason": "测试补分"},
+        "rule_version": version["version_label"],
+        "rule_version_id": version["id"],
+        "rule_snapshot": {"reason": "测试补分"},
         "occurred_at": "2026-09-06",
         "idempotency_key": key,
     }
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
         original = post_credit_entry(actor_user_id=actor, item=item)
+        assert member_credit_summary(actor_user_id=actor, member_id=f["member_id"])["total_points"] == 40
         reversal = reverse_credit_entry(actor_user_id=actor, entry_id=original["id"], reason="核对后冲销")
         repeated = reverse_credit_entry(actor_user_id=actor, entry_id=original["id"], reason="核对后冲销")
     assert reversal["points"] == -40
     assert repeated["id"] == reversal["id"]
     assert fetch_one("SELECT status FROM learning_credit_entries WHERE id=?", (original["id"],))["status"] == "REVERSED"
     assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries WHERE idempotency_key=?", (f"REVERSAL:{original['id']}",))["n"] == 1
+    assert member_credit_summary(actor_user_id=actor, member_id=f["member_id"])["total_points"] == 0
