@@ -714,6 +714,76 @@ def _binding_payload(binding: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _credit_rule_version_audit_payload(
+    connection, version_id: int | None, *, course: bool
+) -> dict[str, Any] | None:
+    if version_id is None:
+        return None
+    if course:
+        row = execute(
+            connection,
+            "SELECT id, plan_key, version_label, status "
+            "FROM learning_plan_credit_rule_versions WHERE id=? LIMIT 1",
+            (version_id,),
+        ).fetchone()
+    else:
+        row = execute(
+            connection,
+            "SELECT id, rule_set_key, version_label, status "
+            "FROM learning_credit_rule_versions WHERE id=? LIMIT 1",
+            (version_id,),
+        ).fetchone()
+    if not row:
+        return {"id": int(version_id)}
+    result = dict(row)
+    result["id"] = int(result["id"])
+    return result
+
+
+def _correction_audit_snapshot(
+    connection, *, binding: dict[str, Any], cycle: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "plan_version": {
+            "id": int(binding["plan_version_id"]),
+            "plan_key": binding.get("plan_key"),
+            "version_label": binding.get("version_label"),
+        },
+        "cohort_month": binding.get("cohort_month"),
+        "learning_round": int(binding.get("learning_round") or 1),
+        "current_cycle": {
+            "id": int(cycle["id"]),
+            "learning_cycle_index": int(cycle["learning_cycle_index"]),
+            "plan_cycle_id": int(cycle["plan_cycle_id"]),
+        },
+        "generic_credit_rule_version": _credit_rule_version_audit_payload(
+            connection,
+            int(binding["credit_rule_version_id"])
+            if binding.get("credit_rule_version_id") is not None
+            else None,
+            course=False,
+        ),
+        "course_credit_rule_version": _credit_rule_version_audit_payload(
+            connection,
+            int(binding["course_credit_rule_version_id"])
+            if binding.get("course_credit_rule_version_id") is not None
+            else None,
+            course=True,
+        ),
+    }
+
+
+def _round_has_formal_credit_entries(connection, binding_id: int) -> bool:
+    row = execute(
+        connection,
+        "SELECT 1 FROM learning_credit_entries e "
+        "JOIN class_learning_cycles lc ON lc.id=e.learning_cycle_id "
+        "WHERE lc.binding_id=? AND e.status IN ('POSTED', 'REVERSED') LIMIT 1",
+        (binding_id,),
+    ).fetchone()
+    return bool(row)
+
+
 def _latest_learning_plan_confirmation(
     connection, *, binding_id: int
 ) -> dict[str, Any] | None:
@@ -1117,15 +1187,29 @@ def correct_class_learning_plan(
         if not plan:
             raise ValueError("学习计划版本不存在")
         plan_status = str(plan["status"]).upper()
-        if int(plan["id"]) != int(binding["plan_version_id"]):
-            raise ValueError(
-                "当前学习轮次已冻结学分规则版本，不能在原轮次切换学习计划；"
-                "请使用重新开始或接续"
+        plan_changed = int(plan["id"]) != int(binding["plan_version_id"])
+        credit_mapping = None
+        if plan_changed:
+            if plan_status != "PUBLISHED":
+                raise ValueError("跨学习计划修正只能选择已发布的学习计划版本")
+            credit_mapping = resolve_credit_rule_mapping(
+                connection,
+                plan_key=str(plan["plan_key"]),
+                version_label=str(plan["version_label"]),
             )
-        if plan_status != "PUBLISHED" and not (
-            int(plan["id"]) == int(binding["plan_version_id"])
-            and plan_status in {"ARCHIVED", "RETIRED"}
-        ):
+            if not credit_mapping:
+                raise ValueError(
+                    "RULE_MAPPING_MISSING:目标学习计划没有可用的显式学分规则映射"
+                )
+            # The ledger is the historical fact.  Do not rely on the current
+            # feature flag because an operator may close settlement after a
+            # round has already received POSTED/REVERSED entries.
+            if _round_has_formal_credit_entries(connection, int(binding["id"])):
+                raise ValueError(
+                    "当前学习轮次已有正式学分记录，不能直接更换学习计划版本，"
+                    "需要先走专门的学分重算/冲销修正流程"
+                )
+        elif plan_status != "PUBLISHED" and plan_status not in {"ARCHIVED", "RETIRED"}:
             raise ValueError("当前设置修正只能选择已发布的学习计划版本")
         duration = int(plan["duration_cycles"])
         target_index = _validate_start_cycle_index(target_index, duration)
@@ -1151,11 +1235,27 @@ def correct_class_learning_plan(
         before = {
             "binding": _binding_payload(binding),
             "cycle": dict(current),
+            "correction_snapshot": _correction_audit_snapshot(
+                connection, binding=binding, cycle=current
+            ),
         }
         execute(
             connection,
-            "UPDATE class_learning_bindings SET plan_version_id=?, cohort_month=?, updated_at=? WHERE id=?",
-            (plan_version_id, cohort_month, now, binding["id"]),
+            "UPDATE class_learning_bindings SET plan_version_id=?, cohort_month=?, "
+            "credit_rule_version_id=?, course_credit_rule_version_id=?, "
+            "transition_type='CORRECTION', updated_at=? WHERE id=?",
+            (
+                plan_version_id,
+                cohort_month,
+                credit_mapping["generic_rule_version_id"]
+                if credit_mapping
+                else binding.get("credit_rule_version_id"),
+                credit_mapping["course_credit_rule_version_id"]
+                if credit_mapping
+                else binding.get("course_credit_rule_version_id"),
+                now,
+                binding["id"],
+            ),
         )
         execute(
             connection,
@@ -1172,6 +1272,13 @@ def correct_class_learning_plan(
                 (plan_task["id"], plan_task["title"], now, current["id"]),
             )
         corrected = _binding_by_id(connection, int(binding["id"]))
+        corrected_cycle = dict(
+            execute(
+                connection,
+                "SELECT * FROM class_learning_cycles WHERE id=?",
+                (current["id"],),
+            ).fetchone()
+        )
         write_audit(
             connection,
             actor_user_id=actor_user_id,
@@ -1183,12 +1290,11 @@ def correct_class_learning_plan(
             before=before,
             after={
                 "binding": _binding_payload(corrected or binding),
-                "cycle": dict(
-                    execute(
-                        connection,
-                        "SELECT * FROM class_learning_cycles WHERE id=?",
-                        (current["id"],),
-                    ).fetchone()
+                "cycle": corrected_cycle,
+                "correction_snapshot": _correction_audit_snapshot(
+                    connection,
+                    binding=corrected or binding,
+                    cycle=corrected_cycle,
                 ),
                 "reason": normalized_reason,
             },

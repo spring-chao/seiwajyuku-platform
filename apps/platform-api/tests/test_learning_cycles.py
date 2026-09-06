@@ -665,7 +665,7 @@ def test_retired_plan_is_not_selectable_for_new_round_but_active_round_keeps_rea
         reason="退役旧计划仍需纠正当前轮次的周期显示",
     )
     assert corrected["binding"]["plan_version_id"] == plan_id
-    assert corrected["binding"]["transition_type"] == "INITIAL"
+    assert corrected["binding"]["transition_type"] == "CORRECTION"
     with pytest.raises(ValueError, match="已发布"):
         restart_class_learning_plan(
             actor_user_id=admin,
