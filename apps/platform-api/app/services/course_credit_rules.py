@@ -149,7 +149,14 @@ def list_course_credit_rules(
     plan_key: str = DEFAULT_PLAN_KEY,
     version_label: str = DEFAULT_VERSION_LABEL,
 ) -> dict[str, Any]:
-    entries = _catalog(plan_key)
+    try:
+        entries = _catalog(plan_key)
+    except ValueError:
+        # Persisted plan-specific rows are the source of truth for historical
+        # or newly introduced plan keys.  An absent catalog is represented as
+        # an empty immutable catalog and remains DRAFT until operations creates
+        # and publishes its rule version.
+        entries = []
     storage_available = _credit_schema_available()
     version = _version(plan_key, version_label)
     rows = _rule_rows(int(version["id"])) if version else []

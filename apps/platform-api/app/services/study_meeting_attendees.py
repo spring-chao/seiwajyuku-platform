@@ -133,6 +133,13 @@ def correct_attendees(*, actor_user_id: int, session_id: int, member_ids: list[i
         for removed_id in set(old) - set(member_ids):
             execute(connection, "DELETE FROM study_meeting_attendances WHERE study_meeting_session_id=? AND member_id=?",
                     (session_id, removed_id))
+            execute(
+                connection,
+                "DELETE FROM study_meeting_course_completions "
+                "WHERE member_id=? AND study_meeting_course_id IN "
+                "(SELECT id FROM study_meeting_courses WHERE study_meeting_session_id=?)",
+                (removed_id, session_id),
+            )
         for item in selected:
             member_id = item["member_id"]
             if member_id in old:
@@ -149,6 +156,17 @@ def correct_attendees(*, actor_user_id: int, session_id: int, member_ids: list[i
                         "VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)",
                         (session_id, member_id, item["group_org_unit_id"], session["study_group_org_unit_id"],
                          item["attendance_type"], actor_user_id, now, now))
+                # A roster correction does not assert that the newly added
+                # member completed every course.  The new completion fact must
+                # be explicitly confirmed before course credit can be posted.
+                execute(
+                    connection,
+                    "INSERT INTO study_meeting_course_completions "
+                    "(study_meeting_course_id, member_id, completion_status, confirmation_source, created_at, updated_at) "
+                    "SELECT id, ?, 'UNCONFIRMED', 'OPERATOR_CONFIRMATION', ?, ? "
+                    "FROM study_meeting_courses WHERE study_meeting_session_id=?",
+                    (member_id, now, now, session_id),
+                )
         after = _snapshot(connection, session_id)
         execute(connection, "UPDATE study_meeting_sessions SET updated_at=? WHERE id=?", (now, session_id))
         write_audit(connection, actor_user_id=actor_user_id, action="study_meeting.attendees_correct",

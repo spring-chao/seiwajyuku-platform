@@ -1,10 +1,10 @@
 """V1.2 MVP-B group study meeting fact capture.
 
 This module intentionally has no relationship with the legacy attendance
-tables and never advances a class learning cycle or settles credits.  It
-stores the people and course fact exactly as submitted by an authorized group
-leader/counsellor. B2.1 adds course detail snapshots and private photo evidence;
-review and credit settlement remain separate, disabled phases.
+tables and never advances a class learning cycle.  It stores the people,
+course snapshot, and per-member course completion fact exactly as submitted by
+an authorized group leader/counsellor. B2.1 adds course detail snapshots and
+private photo evidence; formal credit posting remains separately gated.
 """
 
 from __future__ import annotations
@@ -21,6 +21,8 @@ from app.core.settings import get_settings
 from app.db import connect, execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.course_credit_rules import (
+    DEFAULT_PLAN_KEY,
+    DEFAULT_VERSION_LABEL,
     get_group_meeting_credit_policy,
     list_course_credit_rules,
 )
@@ -141,8 +143,20 @@ def _active_group_members(connection, group_org_unit_id: str) -> list[dict[str, 
     ]
 
 
-def _course_rules() -> dict[str, dict[str, Any]]:
-    payload = list_course_credit_rules()
+def _course_rules(
+    plan_key: str = DEFAULT_PLAN_KEY,
+    version_label: str = DEFAULT_VERSION_LABEL,
+) -> dict[str, dict[str, Any]]:
+    try:
+        payload = list_course_credit_rules(plan_key, version_label)
+    except ValueError:
+        # A legacy/test binding may predate its persisted catalog.  Keep fact
+        # capture compatible, while the actual binding version is retained in
+        # every snapshot and the credit DRY-RUN blocks formal posting until
+        # that plan has its own published course rules.
+        payload = list_course_credit_rules()
+    if not payload.get("rules") and (plan_key, version_label) != (DEFAULT_PLAN_KEY, DEFAULT_VERSION_LABEL):
+        payload = list_course_credit_rules()
     return {str(rule["course_key"]): rule for rule in payload.get("rules", [])}
 
 
@@ -168,38 +182,80 @@ def _read_courses(connection, row: dict, details: list[dict] | None = None) -> l
             (row["id"],),
         ).fetchall()]
     if details:
-        return [{key: _serialize(value) for key, value in item.items()} for item in details]
+        result = []
+        for item in details:
+            payload = {key: _serialize(value) for key, value in item.items()}
+            if item.get("id"):
+                payload["completions"] = [
+                    {key: _serialize(value) for key, value in dict(completion).items()}
+                    for completion in execute(
+                        connection,
+                        "SELECT r.*, m.name AS member_name FROM study_meeting_course_completions r "
+                        "JOIN members m ON m.id=r.member_id "
+                        "WHERE r.study_meeting_course_id=? ORDER BY r.member_id",
+                        (item["id"],),
+                    ).fetchall()
+                ]
+            result.append(payload)
+        return result
     if not row.get("course_details_initialized") and row.get("course_key"):
         return [{
             "course_key": row["course_key"], "course_name_snapshot": row["course_name_snapshot"],
             "course_credit_snapshot": row["course_credit_snapshot"],
             "course_rule_status": "CONFIGURED" if row["course_credit_snapshot"] is not None else "PENDING",
-            "rule_reference_json": None, "legacy": True,
+            "rule_reference_json": None, "completion_status": "UNCONFIRMED", "legacy": True,
         }]
     return []
 
 
-def _course_snapshots(keys: list[str]) -> list[dict]:
+def _course_snapshots(
+    keys: list[str], *, plan_key: str = DEFAULT_PLAN_KEY,
+    version_label: str = DEFAULT_VERSION_LABEL,
+) -> list[dict]:
     if any(not isinstance(key, str) or not key or len(key) > 128 for key in keys):
         raise StudyMeetingError("课程编号无效")
     if len(keys) != len(set(keys)):
         raise StudyMeetingError("同一课程不能重复添加")
-    directory = list_course_credit_rules()
+    unresolved_plan = False
+    try:
+        directory = list_course_credit_rules(plan_key, version_label)
+    except ValueError:
+        directory = list_course_credit_rules()
+        unresolved_plan = True
+    if not directory.get("rules") and (plan_key, version_label) != (DEFAULT_PLAN_KEY, DEFAULT_VERSION_LABEL):
+        directory = list_course_credit_rules()
+        unresolved_plan = True
     rules = {item["course_key"]: item for item in directory["rules"]}
+    persisted_rule_version = fetch_one(
+        "SELECT id FROM learning_plan_credit_rule_versions WHERE plan_key=? AND version_label=? LIMIT 1",
+        (plan_key, version_label),
+    )
     snapshots = []
     for key in keys:
         rule = rules.get(key)
         if not rule:
             raise StudyMeetingError("课程不在当前课程积分目录中")
+        rule_status = "PENDING" if unresolved_plan else rule["status"]
         item = {
             "course_key": key, "course_name_snapshot": rule["course_name"],
-            "course_credit_snapshot": rule["credit_points"] if rule["status"] == "CONFIGURED" else None,
-            "course_rule_status": rule["status"],
+            "course_credit_snapshot": rule["credit_points"] if rule_status == "CONFIGURED" else None,
+            "course_rule_status": rule_status,
+            "credit_rule_version_id": persisted_rule_version["id"] if persisted_rule_version else None,
+            "plan_key": plan_key,
+            "plan_version_label": version_label,
         }
         reference = {
-            "plan_key": directory["plan_key"], "version_label": directory["version_label"],
+            # Keep the catalog identity for legacy/test fallback snapshots;
+            # binding identity is recorded separately and is the one used by
+            # settlement eligibility checks.
+            "plan_key": directory["plan_key"] if unresolved_plan else plan_key,
+            "version_label": directory["version_label"] if unresolved_plan else version_label,
+            "binding_plan_key": plan_key,
+            "binding_version_label": version_label,
             "rule_id": rule.get("id"), "rule_updated_at": _serialize(rule.get("updated_at")),
             "source": rule.get("source"), "version_status": directory["version_status"],
+            "source_catalog_plan_key": directory.get("plan_key"),
+            "unresolved_plan": unresolved_plan,
             "snapshot_sha256": hashlib.sha256(json.dumps(item, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
         }
         item["rule_reference_json"] = json.dumps(reference, ensure_ascii=False, sort_keys=True)
@@ -207,16 +263,58 @@ def _course_snapshots(keys: list[str]) -> list[dict]:
     return snapshots
 
 
-def _write_courses(connection, session_id: int, snapshots: list[dict]) -> None:
+def _write_courses(
+    connection, session_id: int, snapshots: list[dict], *,
+    attendee_member_ids: list[int] | None = None,
+    confirmed_by_member_id: int | None = None,
+    confirmed_by_user_id: int | None = None,
+    confirmation_source: str = "MEMBER_SUBMISSION",
+) -> None:
     now = _db_timestamp(connection)
     execute(connection, "DELETE FROM study_meeting_courses WHERE study_meeting_session_id=?", (session_id,))
     for item in snapshots:
+        completion_status = item.get("completion_status") or "CONFIRMED"
+        completed_at = now if completion_status == "CONFIRMED" else None
         execute(connection,
             "INSERT INTO study_meeting_courses(study_meeting_session_id, course_key, course_name_snapshot, "
-            "course_credit_snapshot, course_rule_status, rule_reference_json, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "course_credit_snapshot, course_rule_status, rule_reference_json, completion_status, completed_at, "
+            "confirmed_by_member_id, confirmed_by_user_id, completion_note, credit_rule_version_id, plan_key, "
+            "plan_version_label, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session_id, item["course_key"], item["course_name_snapshot"], item["course_credit_snapshot"],
-             item["course_rule_status"], item["rule_reference_json"], now, now))
+             item["course_rule_status"], item["rule_reference_json"], completion_status, completed_at,
+             confirmed_by_member_id, confirmed_by_user_id, item.get("completion_note"),
+             item.get("credit_rule_version_id"), item.get("plan_key"), item.get("plan_version_label"), now, now))
+        if isinstance(connection, sqlite3.Connection):
+            course_id = int(execute(connection, "SELECT last_insert_rowid() AS id").fetchone()["id"])
+        else:
+            course_id = int(execute(connection, "SELECT LAST_INSERT_ID() AS id").fetchone()["id"])
+        completion_facts = {
+            int(fact["member_id"]): fact
+            for fact in item.get("completions", [])
+            if fact.get("member_id") is not None
+        }
+        for member_id in attendee_member_ids or []:
+            fact = completion_facts.get(int(member_id))
+            member_status = fact.get("completion_status") if fact else completion_status
+            member_completed_at = fact.get("completed_at") if fact else completed_at
+            member_confirmed_by_member_id = (
+                fact.get("confirmed_by_member_id") if fact else confirmed_by_member_id
+            )
+            member_confirmed_by_user_id = (
+                fact.get("confirmed_by_user_id") if fact else confirmed_by_user_id
+            )
+            member_source = fact.get("confirmation_source") if fact else confirmation_source
+            member_note = fact.get("note") if fact else item.get("completion_note")
+            execute(
+                connection,
+                "INSERT INTO study_meeting_course_completions "
+                "(study_meeting_course_id, member_id, completion_status, completed_at, "
+                "confirmed_by_member_id, confirmed_by_user_id, confirmation_source, note, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (course_id, member_id, member_status, member_completed_at,
+                 member_confirmed_by_member_id, member_confirmed_by_user_id,
+                 member_source, member_note, now, now),
+            )
     # Includes the empty-list case, so clearing a legacy course cannot resurrect it.
     execute(connection, "UPDATE study_meeting_sessions SET course_details_initialized=1, updated_at=? WHERE id=?",
             (now, session_id))
@@ -525,6 +623,57 @@ def _validate_session_attendees(connection, session_row: Any) -> None:
                 raise StudyMeetingError("跨组参加记录与当前正式小组不一致")
 
 
+def _session_plan(connection, session_row: dict[str, Any]) -> dict[str, Any]:
+    row = execute(
+        connection,
+        "SELECT b.id AS binding_id, b.credit_rule_version_id, "
+        "p.plan_key, p.version_label, p.status AS plan_status "
+        "FROM class_learning_cycles lc "
+        "JOIN class_learning_bindings b ON b.id=lc.binding_id "
+        "JOIN learning_plan_versions p ON p.id=b.plan_version_id "
+        "WHERE lc.id=? LIMIT 1",
+        (session_row["learning_cycle_id"],),
+    ).fetchone()
+    if not row:
+        raise StudyMeetingError("学习会缺少有效学习计划版本")
+    return dict(row)
+
+
+def _validate_course_completions(connection, session_row: dict[str, Any]) -> None:
+    courses = execute(
+        connection,
+        "SELECT id, course_key FROM study_meeting_courses "
+        "WHERE study_meeting_session_id=? ORDER BY id",
+        (session_row["id"],),
+    ).fetchall()
+    if not courses:
+        if session_row.get("course_key") and not session_row.get("course_details_initialized"):
+            raise StudyMeetingError("课程缺少逐人实际完成事实，暂不能生成课程学分")
+        return
+    attendees = [
+        int(item["member_id"])
+        for item in execute(
+            connection,
+            "SELECT member_id FROM study_meeting_attendances WHERE study_meeting_session_id=?",
+            (session_row["id"],),
+        ).fetchall()
+    ]
+    for course in courses:
+        confirmed = {
+            int(item["member_id"])
+            for item in execute(
+                connection,
+                "SELECT member_id FROM study_meeting_course_completions "
+                "WHERE study_meeting_course_id=? AND completion_status='CONFIRMED'",
+                (course["id"],),
+            ).fetchall()
+        }
+        if set(attendees) != confirmed:
+            raise StudyMeetingError(
+                f"课程 {course['course_key']} 缺少全部参加学员的实际完成确认"
+            )
+
+
 def create_study_meeting(
     *,
     member_id: int,
@@ -557,13 +706,18 @@ def create_study_meeting(
     keys = course_keys if course_keys is not None else ([course_key] if course_key else [])
     if bool(keys) != has_course:
         raise StudyMeetingError("观看课程选项与课程列表不一致")
-    snapshots = _course_snapshots(keys)
     meeting_day = _parse_meeting_date(meeting_date)
     now = _now()
 
     with transaction() as connection:
         cycle_data = _current_cycle(connection, target["class_org_unit_id"])
         cycle = cycle_data["cycle"]
+        binding = cycle_data["binding"]
+        snapshots = _course_snapshots(
+            keys,
+            plan_key=str(binding["plan_key"]),
+            version_label=str(binding["version_label"]),
+        )
         home_placeholders = ",".join("?" for _ in home_ids)
         home_rows = execute(
             connection,
@@ -628,7 +782,14 @@ def create_study_meeting(
             ),
         )
         session_id = int(cursor.lastrowid)
-        _write_courses(connection, session_id, snapshots)
+        _write_courses(
+            connection,
+            session_id,
+            snapshots,
+            attendee_member_ids=[*home_ids, *cross_ids],
+            confirmed_by_member_id=member_id,
+            confirmation_source="MEMBER_SUBMISSION",
+        )
         for item in home_ids:
             execute(
                 connection,
@@ -695,9 +856,11 @@ def submit_study_meeting(*, member_id: int, session_id: int) -> dict[str, Any]:
         if int(current_cycle["id"]) != int(row["learning_cycle_id"]):
             raise StudyMeetingError("当前学习周期已变化，请重新登记本场学习会")
         _validate_session_attendees(connection, row)
-        course_rules = _course_rules()
+        plan = _session_plan(connection, row)
+        course_rules = _course_rules(str(plan["plan_key"]), str(plan["version_label"]))
         if any(item["course_key"] not in course_rules for item in _read_courses(connection, row)):
             raise StudyMeetingError("课程不在当前课程积分目录中")
+        _validate_course_completions(connection, row)
         from app.services.study_meeting_evidence import evidence_metadata
         if not evidence_metadata(connection, session_id):
             raise StudyMeetingError("请先上传一张学习合影")
@@ -869,6 +1032,7 @@ def can_edit_meeting_courses(actor_user_id: int) -> bool:
     user = user_context(actor_user_id) or {}
     return (
         settings.study_meeting_course_edit_enabled
+        and not settings.learning_credit_settlement_enabled
         and not settings.deployment_read_only
         and (not settings.is_production or settings.allow_production_mutations)
         and "study_meetings:courses_edit" in user.get("permissions", [])
@@ -880,7 +1044,7 @@ def correct_meeting_courses(*, actor_user_id: int, session_id: int,
                             note: str | None = None) -> dict:
     _require_write()
     if not can_edit_meeting_courses(actor_user_id):
-        raise StudyMeetingPermissionError("课程修正功能未开启或无此权限")
+        raise StudyMeetingPermissionError("课程修正功能未开启或无此权限；积分结算开启时禁止直接修正")
     with transaction() as connection:
         row = _lock_session(connection, session_id)
         if not _operation_scope_allows(actor_user_id, row["class_org_unit_id"]):
@@ -890,7 +1054,12 @@ def correct_meeting_courses(*, actor_user_id: int, session_id: int,
         before = _read_courses(connection, row)
         if sorted(item["course_key"] for item in before) != sorted(expected_course_keys):
             raise StudyMeetingError("课程已被其他人修改，请刷新后重试")
-        snapshots = _course_snapshots(course_keys)
+        plan = _session_plan(connection, row)
+        snapshots = _course_snapshots(
+            course_keys,
+            plan_key=str(plan["plan_key"]),
+            version_label=str(plan["version_label"]),
+        )
         # A correction adds/removes courses, not a hidden re-pricing of retained facts.
         old = {item["course_key"]: dict(item) for item in before}
         for previous in old.values():
@@ -901,11 +1070,125 @@ def correct_meeting_courses(*, actor_user_id: int, session_id: int,
                 }, ensure_ascii=False)
         snapshots = [old[item["course_key"]] if item["course_key"] in old
                      else item for item in snapshots]
-        _write_courses(connection, session_id, snapshots)
+        attendee_ids = [
+            int(item["member_id"])
+            for item in execute(
+                connection,
+                "SELECT member_id FROM study_meeting_attendances "
+                "WHERE study_meeting_session_id=? ORDER BY member_id",
+                (session_id,),
+            ).fetchall()
+        ]
+        _write_courses(
+            connection,
+            session_id,
+            snapshots,
+            attendee_member_ids=attendee_ids,
+            confirmed_by_user_id=actor_user_id,
+            confirmation_source="OPERATOR_CONFIRMATION",
+        )
         write_audit(connection, actor_user_id=actor_user_id, action="study_meeting.courses_correct",
                     resource_type="study_meeting_session", resource_id=str(session_id),
                     org_unit_id=row["class_org_unit_id"], purpose=(note or "").strip() or None,
                     before={"courses": before}, after={"courses": snapshots, "status": "SUBMITTED"})
+    return get_study_meeting_record_for_operations(actor_user_id=actor_user_id, session_id=session_id)
+
+
+def confirm_study_meeting_course_completion(
+    *, actor_user_id: int, session_id: int, course_key: str, member_id: int,
+    completion_status: str, note: str | None = None,
+) -> dict[str, Any]:
+    """Confirm the per-member course fact used by formal settlement.
+
+    This is intentionally an operator correction endpoint.  The member-facing
+    course selection creates a persisted fact, but an operator can explicitly
+    confirm, reject, or return that fact for review before C12 is opened.
+    """
+
+    _require_write()
+    if completion_status not in {"UNCONFIRMED", "CONFIRMED", "NOT_COMPLETED"}:
+        raise StudyMeetingError("课程完成状态无效")
+    if not isinstance(member_id, int) or member_id <= 0:
+        raise StudyMeetingError("学员编号无效")
+    if note is not None and (not isinstance(note, str) or len(note) > 1000):
+        raise StudyMeetingError("完成确认备注最多1000字")
+    if not can_edit_meeting_courses(actor_user_id):
+        raise StudyMeetingPermissionError("课程修正功能未开启或无此权限；积分结算开启时禁止直接修正")
+    with transaction() as connection:
+        session = _lock_session(connection, session_id)
+        if not _operation_scope_allows(actor_user_id, session["class_org_unit_id"]):
+            raise StudyMeetingPermissionError("学习会记录不在当前组织授权范围内")
+        if session["status"] != "SUBMITTED":
+            raise StudyMeetingError("仅能确认已提交学习会的课程完成事实")
+        course = execute(
+            connection,
+            "SELECT * FROM study_meeting_courses "
+            "WHERE study_meeting_session_id=? AND course_key=? LIMIT 1",
+            (session_id, course_key),
+        ).fetchone()
+        if not course:
+            raise StudyMeetingError("课程不在该学习会记录中")
+        attendee = execute(
+            connection,
+            "SELECT id FROM study_meeting_attendances "
+            "WHERE study_meeting_session_id=? AND member_id=? LIMIT 1",
+            (session_id, member_id),
+        ).fetchone()
+        if not attendee:
+            raise StudyMeetingError("该学员不是本场学习会参加人员")
+        before = execute(
+            connection,
+            "SELECT * FROM study_meeting_course_completions "
+            "WHERE study_meeting_course_id=? AND member_id=? LIMIT 1",
+            (course["id"], member_id),
+        ).fetchone()
+        if not before:
+            raise StudyMeetingError("课程完成事实不存在")
+        now = _db_timestamp(connection)
+        completed_at = now if completion_status == "CONFIRMED" else None
+        execute(
+            connection,
+            "UPDATE study_meeting_course_completions SET completion_status=?, completed_at=?, "
+            "confirmed_by_member_id=NULL, confirmed_by_user_id=?, confirmation_source='OPERATOR_CONFIRMATION', "
+            "note=?, updated_at=? WHERE study_meeting_course_id=? AND member_id=?",
+            (completion_status, completed_at, actor_user_id, (note or "").strip() or None,
+             now, course["id"], member_id),
+        )
+        completion_counts = execute(
+            connection,
+            "SELECT COUNT(*) AS total, "
+            "SUM(CASE WHEN completion_status='CONFIRMED' THEN 1 ELSE 0 END) AS confirmed, "
+            "SUM(CASE WHEN completion_status='NOT_COMPLETED' THEN 1 ELSE 0 END) AS rejected "
+            "FROM study_meeting_course_completions WHERE study_meeting_course_id=?",
+            (course["id"],),
+        ).fetchone()
+        aggregate = "CONFIRMED" if int(completion_counts["total"] or 0) > 0 and int(completion_counts["confirmed"] or 0) == int(completion_counts["total"] or 0) else (
+            "NOT_COMPLETED" if int(completion_counts["rejected"] or 0) > 0 else "UNCONFIRMED"
+        )
+        execute(
+            connection,
+            "UPDATE study_meeting_courses SET completion_status=?, completed_at=?, "
+            "confirmed_by_member_id=NULL, confirmed_by_user_id=?, completion_note=?, updated_at=? WHERE id=?",
+            (aggregate, now if aggregate == "CONFIRMED" else None, actor_user_id,
+             (note or "").strip() or None, now, course["id"]),
+        )
+        after = execute(
+            connection,
+            "SELECT * FROM study_meeting_course_completions "
+            "WHERE study_meeting_course_id=? AND member_id=? LIMIT 1",
+            (course["id"], member_id),
+        ).fetchone()
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="study_meeting.course_completion_confirm",
+            resource_type="study_meeting_course",
+            resource_id=str(course["id"]),
+            org_unit_id=session["class_org_unit_id"],
+            purpose=(note or "").strip() or "确认课程实际完成事实",
+            before={key: _serialize(value) for key, value in dict(before).items()},
+            after={key: _serialize(value) for key, value in dict(after).items()},
+        )
     return get_study_meeting_record_for_operations(actor_user_id=actor_user_id, session_id=session_id)
 
 

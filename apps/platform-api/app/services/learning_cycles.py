@@ -850,13 +850,19 @@ def _create_learning_binding(
     learning_round = int(latest_round or 0) + 1
     now = _now()
     stored_start = _storage_datetime(connection, started_at)
+    credit_rule = execute(
+        connection,
+        "SELECT id FROM learning_credit_rule_versions "
+        "WHERE rule_set_key=? AND version_label=? LIMIT 1",
+        (plan["plan_key"], plan["version_label"]),
+    ).fetchone()
     cursor = execute(
         connection,
         "INSERT INTO class_learning_bindings("
         "class_org_unit_id, plan_version_id, cohort_month, started_at, status, "
         "learning_round, start_cycle_index, previous_binding_id, transition_type, "
-        "created_by, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?)",
+        "credit_rule_version_id, created_by, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             class_org_unit_id,
             plan_version_id,
@@ -866,6 +872,7 @@ def _create_learning_binding(
             index,
             previous_binding_id,
             transition,
+            credit_rule["id"] if credit_rule else None,
             actor_user_id,
             now,
             now,

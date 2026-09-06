@@ -29,6 +29,7 @@ from app.api.wechat import router as wechat_router
 from app.api.study_meetings import router as study_meetings_router
 from app.api.study_evidence_cleanup import router as study_evidence_cleanup_router
 from app.api.learning_plans import router as learning_plans_router
+from app.api.learning_credits import router as learning_credits_router
 from app.api.member_roster_import import router as member_roster_import_router
 from app.api.plans import router as plans_router
 from app.api.operation_rhythm import router as operation_rhythm_router
@@ -64,6 +65,8 @@ READ_ONLY_ALLOWED_POST_PATHS = frozenset({
     # path available preserves the existing weekday sync while all other POST
     # writes remain blocked in read-only mode.
     "/api/v1/attendance/sync/scheduled",
+    # Credit dry-run only computes proposals and never persists ledger rows.
+    "/api/v1/learning-credits/dry-run/",
     # Agent/MCP read operations do not mutate business data. They are allowed
     # in a read-only deployment because every invocation is still audited.
     "/mcp/seiwajuku",
@@ -77,6 +80,7 @@ def read_only_request_allowed(method: str, path: str) -> bool:
         return True
     return method == "POST" and (
         path in READ_ONLY_ALLOWED_POST_PATHS
+        or any(path.startswith(item) for item in READ_ONLY_ALLOWED_POST_PATHS if item.endswith("/"))
         or path.startswith("/api/v1/members/")
         and path.endswith("/birthday-greeting-draft")
     )
@@ -193,6 +197,7 @@ app.include_router(wechat_router)
 app.include_router(study_meetings_router)
 app.include_router(study_evidence_cleanup_router)
 app.include_router(learning_plans_router)
+app.include_router(learning_credits_router)
 app.include_router(member_roster_import_router)
 app.include_router(plans_router)
 app.include_router(operation_rhythm_router)

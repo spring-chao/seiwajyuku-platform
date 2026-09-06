@@ -20,6 +20,7 @@ from app.services.study_meetings import (
     get_study_meeting_record_for_operations,
     list_study_meeting_records,
     correct_meeting_courses,
+    confirm_study_meeting_course_completion,
 )
 from app.services.study_meeting_evidence import upload_evidence, read_evidence
 from app.services.study_evidence_storage import MAX_BYTES
@@ -43,6 +44,13 @@ class StudyMeetingCreatePayload(BaseModel):
 class CourseCorrectionPayload(BaseModel):
     course_keys: list[str] = Field(max_length=500)
     expected_course_keys: list[str] = Field(max_length=500)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class CourseCompletionPayload(BaseModel):
+    course_key: str = Field(min_length=1, max_length=128)
+    member_id: int = Field(gt=0)
+    completion_status: str = Field(pattern="^(UNCONFIRMED|CONFIRMED|NOT_COMPLETED)$")
     note: str | None = Field(default=None, max_length=1000)
 
 
@@ -164,6 +172,21 @@ def correct_courses(session_id: int, payload: CourseCorrectionPayload,
     try:
         data = correct_meeting_courses(actor_user_id=user["id"], session_id=session_id,
                                        **payload.model_dump())
+        return {"success": True, "data": data}
+    except (StudyMeetingError, StudyMeetingPermissionError) as exc:
+        raise _business_error(exc) from exc
+
+
+@router.post("/records/{session_id}/course-completions")
+def confirm_course_completion(
+    session_id: int,
+    payload: CourseCompletionPayload,
+    user: dict = Depends(require_permission("study_meetings:courses_edit")),
+) -> dict:
+    try:
+        data = confirm_study_meeting_course_completion(
+            actor_user_id=user["id"], session_id=session_id, **payload.model_dump()
+        )
         return {"success": True, "data": data}
     except (StudyMeetingError, StudyMeetingPermissionError) as exc:
         raise _business_error(exc) from exc
