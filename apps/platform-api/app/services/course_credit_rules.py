@@ -186,6 +186,13 @@ def list_course_credit_rules(
 def _insert_catalog_rows(connection, version_id: int, entries: list[dict[str, Any]], actor_user_id: int | None) -> None:
     now = _now()
     for entry in entries:
+        # The immutable catalog predates the persisted-rule source enum and
+        # uses USER_CONFIRMED_REFERENCE for confirmed rows.  Normalize that
+        # descriptive value at the storage boundary instead of allowing a
+        # fresh draft clone to fail its database CHECK constraint.
+        source = entry.get("source")
+        if source not in {"BASELINE", "SYSTEM_DEFAULT", "OPERATIONS"}:
+            source = "BASELINE" if entry.get("status") == "CONFIGURED" else "SYSTEM_DEFAULT"
         execute(
             connection,
             "INSERT OR IGNORE INTO learning_plan_credit_rules "
@@ -202,7 +209,7 @@ def _insert_catalog_rows(connection, version_id: int, entries: list[dict[str, An
                 entry.get("year_index"),
                 int(entry.get("credit_points", 0)),
                 entry.get("status", "PENDING"),
-                entry.get("source", "SYSTEM_DEFAULT"),
+                source,
                 json.dumps(entry.get("aliases", []), ensure_ascii=False),
                 actor_user_id,
                 actor_user_id,
@@ -346,12 +353,19 @@ def create_course_credit_rule_version(
                 "SELECT course_key, course_name, year_index, credit_points, status, source, aliases_json FROM learning_plan_credit_rules WHERE rule_version_id=?",
                 (int(source["id"]),),
             ).fetchall()
-            for row in rows:
-                execute(
-                    connection,
-                    "INSERT INTO learning_plan_credit_rules (rule_version_id, course_key, course_name, year_index, credit_points, status, source, aliases_json, created_by, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (version_id, row["course_key"], row["course_name"], row["year_index"], row["credit_points"], row["status"], row["source"], row["aliases_json"], actor_user_id, actor_user_id, now, now),
-                )
+            if rows:
+                for row in rows:
+                    execute(
+                        connection,
+                        "INSERT INTO learning_plan_credit_rules (rule_version_id, course_key, course_name, year_index, credit_points, status, source, aliases_json, created_by, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (version_id, row["course_key"], row["course_name"], row["year_index"], row["credit_points"], row["status"], row["source"], row["aliases_json"], actor_user_id, actor_user_id, now, now),
+                    )
+            else:
+                # G5.3 publishes the audited 2026 policy version independently
+                # of the editable catalog rows.  A later draft revision still
+                # needs a complete starting directory, so materialize the
+                # immutable catalog when the source version is empty.
+                _insert_catalog_rows(connection, int(version_id), _catalog(plan_key), actor_user_id)
         else:
             _insert_catalog_rows(connection, int(version_id), _catalog(plan_key), actor_user_id)
         write_audit(

@@ -137,7 +137,8 @@ def _meeting_context(connection, event_group_id: int) -> dict[str, Any] | None:
         binding = execute(
             connection,
             "SELECT b.id AS binding_id, b.class_org_unit_id, b.plan_version_id, "
-            "b.credit_rule_version_id, b.started_at, b.status AS binding_status, "
+            "b.credit_rule_version_id, b.course_credit_rule_version_id, "
+            "b.started_at, b.status AS binding_status, "
             "p.plan_key, p.version_label, p.status AS plan_status "
             "FROM class_learning_bindings b "
             "JOIN learning_plan_versions p ON p.id=b.plan_version_id "
@@ -152,7 +153,8 @@ def _meeting_context(connection, event_group_id: int) -> dict[str, Any] | None:
             binding = execute(
                 connection,
                 "SELECT b.id AS binding_id, b.class_org_unit_id, b.plan_version_id, "
-                "b.credit_rule_version_id, b.started_at, b.status AS binding_status, "
+                "b.credit_rule_version_id, b.course_credit_rule_version_id, "
+                "b.started_at, b.status AS binding_status, "
                 "p.plan_key, p.version_label, p.status AS plan_status "
                 "FROM class_learning_bindings b "
                 "JOIN learning_plan_versions p ON p.id=b.plan_version_id "
@@ -170,6 +172,7 @@ def _meeting_context(connection, event_group_id: int) -> dict[str, Any] | None:
                 "class_org_unit_id": meeting.get("study_org_unit_id"),
                 "plan_version_id": None,
                 "credit_rule_version_id": None,
+                "course_credit_rule_version_id": None,
                 "started_at": None,
                 "binding_status": None,
                 "plan_key": None,
@@ -295,13 +298,18 @@ def _common_meeting_reasons(meeting: dict[str, Any]) -> list[str]:
         reasons.append("班会存在已取消或作废的签到场次")
     if not meeting.get("binding_id"):
         reasons.append("班级尚未绑定学习计划")
-    elif str(meeting.get("plan_status") or "") != "PUBLISHED":
+    elif str(meeting.get("plan_status") or "").upper() not in {
+        "PUBLISHED", "RETIRED", "ARCHIVED"
+    }:
         reasons.append("班级学习计划版本未发布")
     rule = meeting.get("credit_rule") or {}
     if not rule:
         reasons.append("班级学习会学分规则未绑定")
     else:
-        if rule.get("rule_version_status") != "PUBLISHED":
+        # A bound policy is historical data for this learning round.  Its
+        # retirement blocks only new bindings; it must not stop an existing
+        # round from being previewed or settled.
+        if rule.get("rule_version_status") not in {"PUBLISHED", "RETIRED"}:
             reasons.append("班级学习会学分规则版本未发布")
         if rule.get("rule_status") != "ACTIVE":
             reasons.append("班级学习会学分规则未启用")
@@ -311,10 +319,8 @@ def _common_meeting_reasons(meeting: dict[str, Any]) -> list[str]:
             reasons.append("班级学习会规则学分类型不一致")
         if rule.get("settlement_model") != "EVENT_ONCE":
             reasons.append("班级学习会规则结算模型不一致")
-        if rule.get("rule_set_key") != meeting.get("plan_key"):
-            reasons.append("班级学习会规则集与绑定学习计划不一致")
-        if rule.get("rule_version") != meeting.get("version_label"):
-            reasons.append("班级学习会规则版本与绑定学习计划不一致")
+        if not meeting.get("credit_rule_version_id"):
+            reasons.append("RULE_MAPPING_MISSING:班级尚未冻结班会学分规则版本")
     return _unique(reasons)
 
 
@@ -448,12 +454,14 @@ def _member_proposal(
         "points": "FROM_ATTENDANCE_SCORE",
         "source": "attendance_score_records",
         "rule_id": _as_int(rule.get("rule_id")),
-        "rule_set_key": meeting.get("plan_key"),
-        "rule_version": rule.get("rule_version") or meeting.get("version_label"),
+        "rule_set_key": rule.get("rule_set_key"),
+        "rule_version": rule.get("rule_version"),
         "rule_version_status": rule.get("rule_version_status"),
         "rule_status": rule.get("rule_status"),
         "rule_definition": _decode_json(rule.get("rule_snapshot_json")),
         "rule_settlement_model": rule.get("settlement_model"),
+        "plan_key": meeting.get("plan_key"),
+        "plan_version": meeting.get("version_label"),
         "binding_id": _as_int(meeting.get("binding_id")),
         "learning_cycle_id": _as_int(meeting.get("learning_cycle_id")),
         "score_records": score_details,
@@ -494,9 +502,7 @@ def _member_proposal(
         "source_id": str(meeting["id"]),
         "learning_cycle_id": _as_int(meeting.get("learning_cycle_id")),
         "rule_key": CLASS_MEETING_SCORE,
-        "rule_version": str(
-            rule.get("rule_version") or meeting.get("version_label") or ""
-        ),
+        "rule_version": str(rule.get("rule_version") or ""),
         "rule_version_id": _as_int(rule.get("rule_version_id")),
         "rule_snapshot": rule_snapshot,
         "occurred_at": meeting.get("event_date"),
@@ -582,6 +588,7 @@ def _build_preview(connection, event_group_id: int) -> dict[str, Any]:
             "version_label",
             "plan_status",
             "credit_rule_version_id",
+            "course_credit_rule_version_id",
             "learning_cycle_id",
             "cycle_index",
         )

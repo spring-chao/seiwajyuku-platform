@@ -17,12 +17,7 @@ from typing import Any
 from app.core.settings import get_settings
 from app.db import connect, execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
-from app.services.course_credit_rules import (
-    DEFAULT_PLAN_KEY,
-    DEFAULT_VERSION_LABEL,
-    get_group_meeting_credit_policy,
-    list_course_credit_rules,
-)
+from app.services.credit_rule_mapping import bound_course_rule_version, bound_generic_rule
 from app.services.iam import accessible_org_ids, user_context
 
 
@@ -92,27 +87,12 @@ def _require_preview_permission(actor_user_id: int) -> None:
         raise PermissionError("无权预览学分结算")
 
 
-def _rule_version(
-    connection, *, rule_set_key: str, version_label: str, rule_key: str | None = None
+def _bound_generic_rule(
+    connection, version_id: int | None, rule_key: str
 ) -> dict[str, Any] | None:
-    version = execute(
-        connection,
-        "SELECT * FROM learning_credit_rule_versions "
-        "WHERE rule_set_key=? AND version_label=? LIMIT 1",
-        (rule_set_key, version_label),
-    ).fetchone()
-    if not version:
-        return None
-    result = dict(version)
-    if rule_key:
-        rule = execute(
-            connection,
-            "SELECT * FROM learning_credit_rules "
-            "WHERE rule_version_id=? AND rule_key=? AND status='ACTIVE' LIMIT 1",
-            (result["id"], rule_key),
-        ).fetchone()
-        result["rule"] = dict(rule) if rule else None
-    return result
+    """Resolve a rule from the binding's frozen generic policy id."""
+
+    return bound_generic_rule(connection, version_id, rule_key)
 
 
 def _session_context(connection, session_id: int) -> dict[str, Any] | None:
@@ -121,8 +101,12 @@ def _session_context(connection, session_id: int) -> dict[str, Any] | None:
         "SELECT s.*, c.name AS class_name, g.name AS group_name, "
         "lc.learning_cycle_index AS cycle_index, lc.group_meeting_policy, "
         "b.id AS binding_id, b.credit_rule_version_id, "
+        "b.course_credit_rule_version_id, "
         "p.plan_key, p.version_label, p.status AS plan_status, "
-        "v.status AS generic_rule_version_status, v.version_label AS generic_rule_version_label "
+        "v.status AS generic_rule_version_status, v.version_label AS generic_rule_version_label, "
+        "cv.plan_key AS course_rule_plan_key, "
+        "cv.version_label AS course_rule_version_label, "
+        "cv.status AS course_rule_version_status "
         "FROM study_meeting_sessions s "
         "JOIN org_units c ON c.id=s.class_org_unit_id "
         "JOIN org_units g ON g.id=s.study_group_org_unit_id "
@@ -130,20 +114,12 @@ def _session_context(connection, session_id: int) -> dict[str, Any] | None:
         "JOIN class_learning_bindings b ON b.id=lc.binding_id "
         "JOIN learning_plan_versions p ON p.id=b.plan_version_id "
         "LEFT JOIN learning_credit_rule_versions v ON v.id=b.credit_rule_version_id "
+        "LEFT JOIN learning_plan_credit_rule_versions cv "
+        "ON cv.id=b.course_credit_rule_version_id "
         "WHERE s.id=? LIMIT 1",
         (session_id,),
     ).fetchone()
     return dict(row) if row else None
-
-
-def _course_rule_version_status(connection, plan_key: str, version_label: str) -> str:
-    row = execute(
-        connection,
-        "SELECT status FROM learning_plan_credit_rule_versions "
-        "WHERE plan_key=? AND version_label=? LIMIT 1",
-        (plan_key, version_label),
-    ).fetchone()
-    return str(row["status"]) if row else "DRAFT"
 
 
 def _existing_entry(connection, idempotency_key: str) -> dict[str, Any] | None:
@@ -173,18 +149,19 @@ def _attendance_proposals(connection, session: dict[str, Any]) -> list[dict[str,
         "WHERE a.study_meeting_session_id=? ORDER BY a.member_id",
         (session["id"],),
     ).fetchall()
-    policy = get_group_meeting_credit_policy()
-    exact_version = _rule_version(
+    exact_version = _bound_generic_rule(
         connection,
-        rule_set_key=str(session["plan_key"]),
-        version_label=str(session["version_label"]),
-        rule_key=GROUP_MEETING_ATTENDANCE,
+        session.get("credit_rule_version_id"),
+        GROUP_MEETING_ATTENDANCE,
     )
-    if not exact_version or int(exact_version["id"]) != int(session.get("credit_rule_version_id") or 0):
-        exact_version = None
     rule = (exact_version or {}).get("rule") or {}
-    points = rule.get("points") if rule.get("points") is not None else policy["credit_points_per_person"]
-    rule_status = (exact_version or {}).get("status") if rule else "UNRESOLVED"
+    # A missing frozen generic policy is a mapping failure, not permission to
+    # reuse the JSON default.  Keep the proposal visible with zero points so a
+    # DRY-RUN cannot imply that an unmapped round is ready for settlement.
+    raw_points = rule.get("points") if rule.get("points") is not None else None
+    points = float(raw_points) if raw_points is not None else 0.0
+    rule_status = (exact_version or {}).get("rule_version_status") if rule else "UNRESOLVED"
+    rule_version_label = (exact_version or {}).get("rule_version")
     rule_snapshot = {
         "rule_key": GROUP_MEETING_ATTENDANCE,
         "credit_category": STANDARD_LEARNING,
@@ -192,6 +169,9 @@ def _attendance_proposals(connection, session: dict[str, Any]) -> list[dict[str,
         "points": points,
         "plan_key": session["plan_key"],
         "plan_version": session["version_label"],
+        "rule_set_key": (exact_version or {}).get("rule_set_key"),
+        "rule_version": rule_version_label,
+        "rule_version_id": (exact_version or {}).get("rule_version_id"),
         "rule_version_status": rule_status,
         "source": "course-credit-rules-2026.json",
     }
@@ -205,8 +185,12 @@ def _attendance_proposals(connection, session: dict[str, Any]) -> list[dict[str,
             reasons.append("学习会尚未提交")
         if session.get("group_meeting_policy") != "REQUIRED":
             reasons.append(f"当前周期小组会政策为{session.get('group_meeting_policy')}")
-        if rule_status != "PUBLISHED":
+        if rule_status not in {"PUBLISHED", "RETIRED"}:
             reasons.append("小组会规则版本未发布或未绑定")
+        if not exact_version:
+            reasons.append("RULE_MAPPING_MISSING:班级尚未冻结小组会学分规则版本")
+        elif rule.get("points") is None:
+            reasons.append("小组会学分规则未配置有效分值")
         if existing:
             reasons.append("该学员在本学习周期已有账本记录")
         result.append({
@@ -221,8 +205,10 @@ def _attendance_proposals(connection, session: dict[str, Any]) -> list[dict[str,
             "learning_cycle_id": int(session["learning_cycle_id"]),
             "class_org_unit_id": session["class_org_unit_id"],
             "rule_key": GROUP_MEETING_ATTENDANCE,
-            "rule_version": str(session["version_label"]),
-            "rule_version_id": exact_version["id"] if exact_version else None,
+            "rule_version": str(rule_version_label or ""),
+            "rule_version_id": (
+                exact_version["rule_version_id"] if exact_version else None
+            ),
             "rule_snapshot": rule_snapshot,
             "idempotency_key": key,
             "existing_entry": _entry_payload(existing) if existing else None,
@@ -280,21 +266,33 @@ def _course_proposals(connection, session: dict[str, Any]) -> list[dict[str, Any
         return []
 
     result: list[dict[str, Any]] = []
-    plan_rule_status = _course_rule_version_status(
-        connection, str(session["plan_key"]), str(session["version_label"])
-    )
-    generic = _rule_version(
+    course_rule_version_id = session.get("course_credit_rule_version_id")
+    course_version = bound_course_rule_version(
         connection,
-        rule_set_key=str(session["plan_key"]),
-        version_label=str(session["version_label"]),
-        rule_key=COURSE_COMPLETION,
+        int(course_rule_version_id) if course_rule_version_id is not None else None,
     )
-    if not generic or int(generic["id"]) != int(session.get("credit_rule_version_id") or 0):
-        generic = None
-    generic_status = (generic or {}).get("status") if (generic or {}).get("rule") else "UNRESOLVED"
+    generic = _bound_generic_rule(
+        connection,
+        session.get("credit_rule_version_id"),
+        COURSE_COMPLETION,
+    )
+    generic_status = (generic or {}).get("rule_version_status") if (generic or {}).get("rule") else "UNRESOLVED"
+    course_rule_status = str(course_version["status"]).upper() if course_version else "MISSING"
+    generic_rule_version_label = (generic or {}).get("rule_version")
     for row in rows:
         points = row.get("course_credit_snapshot")
-        points_value = float(points) if points is not None else 0.0
+        row_rule_version_id = row.get("credit_rule_version_id")
+        mapping_missing = not course_version or row_rule_version_id is None
+        mapping_mismatch = bool(
+            course_version
+            and row_rule_version_id is not None
+            and int(row_rule_version_id) != int(course_version["id"])
+        )
+        points_value = (
+            float(points)
+            if points is not None and not mapping_missing and not mapping_mismatch
+            else 0.0
+        )
         reference = _decode(row.get("rule_reference_json"))
         for_key = f"COURSE:{int(row['member_id'])}:{row['course_key']}:{int(session['binding_id'])}"
         existing = _existing_entry(connection, for_key)
@@ -305,17 +303,34 @@ def _course_proposals(connection, session: dict[str, Any]) -> list[dict[str, Any
             reasons.append("课程实际完成尚未确认")
         if points is None or row.get("course_rule_status") != "CONFIGURED":
             reasons.append("该课程当前没有已确认总部学分")
-        if plan_rule_status != "PUBLISHED":
-            reasons.append("该学习计划对应的课程积分版本未发布")
-        if generic_status != "PUBLISHED":
+        if mapping_missing:
+            reasons.append("RULE_MAPPING_MISSING:班级尚未冻结课程积分规则版本")
+        if mapping_mismatch:
+            reasons.append("课程快照与班级冻结的课程积分规则版本不一致")
+        if course_version and course_rule_status not in {"PUBLISHED", "RETIRED", "ARCHIVED"}:
+            reasons.append("该绑定的课程积分版本未发布")
+        if generic_status not in {"PUBLISHED", "RETIRED"}:
             reasons.append("课程完成规则版本未发布或未绑定")
-        if reference.get("plan_key") and reference.get("plan_key") != session["plan_key"]:
+        snapshot_course_version_id = reference.get("course_rule_version_id")
+        if (
+            course_version
+            and snapshot_course_version_id is not None
+            and int(snapshot_course_version_id) != int(course_version["id"])
+        ):
+            reasons.append("课程快照规则版本与班级冻结版本不一致")
+        if reference.get("binding_plan_key") and reference.get("binding_plan_key") != session["plan_key"]:
             reasons.append("课程快照与班级学习计划版本不一致")
-        if reference.get("version_label") and reference.get("version_label") != session["version_label"]:
+        if reference.get("binding_version_label") and reference.get("binding_version_label") != session["version_label"]:
             reasons.append("课程快照与班级学习计划版本不一致")
         if existing:
             reasons.append("该学员在本学习轮次已有课程账本记录")
-        no_credit = points is not None and float(points) == 0 and row.get("course_rule_status") == "CONFIGURED"
+        no_credit = (
+            points is not None
+            and float(points) == 0
+            and row.get("course_rule_status") == "CONFIGURED"
+            and not mapping_missing
+            and not mapping_mismatch
+        )
         if no_credit:
             reasons = [reason for reason in reasons if "没有已确认总部学分" not in reason]
         result.append({
@@ -332,7 +347,7 @@ def _course_proposals(connection, session: dict[str, Any]) -> list[dict[str, Any
             "learning_cycle_id": int(session["learning_cycle_id"]),
             "class_org_unit_id": session["class_org_unit_id"],
             "rule_key": row["course_key"],
-            "rule_version": str(row.get("plan_version_label") or session["version_label"]),
+            "rule_version": str(generic_rule_version_label or ""),
             # The ledger FK points to the generic rule version.  The course
             # row's credit_rule_version_id is the plan-specific course-rule
             # version and is retained inside the frozen snapshot separately.
@@ -344,9 +359,13 @@ def _course_proposals(connection, session: dict[str, Any]) -> list[dict[str, Any
                 "points": points,
                 "course_name": row.get("course_name_snapshot"),
                 "course_rule_status": row.get("course_rule_status"),
-                "course_rule_version_status": plan_rule_status,
-                "course_rule_version_id": row.get("credit_rule_version_id"),
+                "course_rule_version_status": course_rule_status,
+                "course_rule_version_id": course_version["id"] if course_version else row.get("credit_rule_version_id"),
+                "course_rule_plan_key": course_version["plan_key"] if course_version else reference.get("course_rule_plan_key"),
+                "course_rule_version_label": course_version["version_label"] if course_version else reference.get("course_rule_version_label"),
                 "rule_version_status": generic_status,
+                "generic_rule_set_key": (generic or {}).get("rule_set_key"),
+                "generic_rule_version": generic_rule_version_label,
                 "generic_rule_version_id": session.get("credit_rule_version_id"),
                 "plan_key": session["plan_key"],
                 "plan_version": session["version_label"],
@@ -364,6 +383,21 @@ def _course_proposals(connection, session: dict[str, Any]) -> list[dict[str, Any
             "reasons": reasons,
         })
     return result
+
+
+def _ledger_count(connection) -> int:
+    row = execute(connection, "SELECT COUNT(*) AS count FROM learning_credit_entries").fetchone()
+    return int(row["count"] or 0)
+
+
+def _write_proof(connection, before: int) -> dict[str, Any]:
+    after = _ledger_count(connection)
+    return {
+        "writes_performed": False,
+        "ledger_entries_before": before,
+        "ledger_entries_after": after,
+        "ledger_entries_delta": after - before,
+    }
 
 
 def _build_study_meeting_preview(connection, session_id: int) -> dict[str, Any]:
@@ -424,7 +458,10 @@ def dry_run_study_meeting_settlement(*, actor_user_id: int, session_id: int) -> 
             raise LearningCreditError("学习会记录不存在")
         if not _scope_allows(actor_user_id, session["class_org_unit_id"]):
             raise PermissionError("学习会记录不在当前组织授权范围内")
-        return _build_study_meeting_preview(connection, session_id)
+        before = _ledger_count(connection)
+        preview = _build_study_meeting_preview(connection, session_id)
+        preview["write_proof"] = _write_proof(connection, before)
+        return preview
     finally:
         connection.close()
 
@@ -445,6 +482,7 @@ def dry_run_study_meetings(
         raise LearningCreditError("DRY-RUN数量必须在1到500之间")
     connection = connect()
     try:
+        before = _ledger_count(connection)
         conditions = ["s.status='SUBMITTED'"]
         params: list[Any] = []
         if class_org_unit_id:
@@ -471,7 +509,7 @@ def dry_run_study_meetings(
             "blocked_entry_count": sum(item["totals"]["blocked_entry_count"] for item in sessions),
             "duplicate_entry_count": sum(item["totals"]["duplicate_entry_count"] for item in sessions),
         }
-        return {
+        result = {
             "mode": "DRY_RUN",
             "persisted": False,
             "class_org_unit_id": class_org_unit_id,
@@ -480,6 +518,8 @@ def dry_run_study_meetings(
             "sessions": sessions,
             "totals": totals,
         }
+        result["write_proof"] = _write_proof(connection, before)
+        return result
     finally:
         connection.close()
 
@@ -591,6 +631,33 @@ def _insert_entry(connection, item: dict[str, Any], *, status: str, actor_user_i
         return _entry_payload(existing)
 
 
+def _rule_version_is_frozen_for_item(
+    connection, *, item: dict[str, Any], rule_version_id: int
+) -> bool:
+    """Allow a retired policy only for an already-bound learning round."""
+
+    if item.get("learning_cycle_id") is not None:
+        row = execute(
+            connection,
+            "SELECT 1 FROM class_learning_cycles lc "
+            "JOIN class_learning_bindings b ON b.id=lc.binding_id "
+            "WHERE lc.id=? AND b.credit_rule_version_id=? LIMIT 1",
+            (item["learning_cycle_id"], rule_version_id),
+        ).fetchone()
+        # A supplied cycle is the strongest binding boundary.  Do not fall
+        # back to another round on the same class if this cycle disagrees.
+        return bool(row)
+    if item.get("class_org_unit_id"):
+        row = execute(
+            connection,
+            "SELECT 1 FROM class_learning_bindings "
+            "WHERE class_org_unit_id=? AND credit_rule_version_id=? LIMIT 1",
+            (item["class_org_unit_id"], rule_version_id),
+        ).fetchone()
+        return bool(row)
+    return False
+
+
 def post_credit_entry(*, actor_user_id: int, item: dict[str, Any]) -> dict[str, Any]:
     _settlement_enabled()
     user = user_context(actor_user_id) or {}
@@ -610,8 +677,19 @@ def post_credit_entry(*, actor_user_id: int, item: dict[str, Any]) -> dict[str, 
             "WHERE v.id=? AND r.rule_key=? LIMIT 1",
             (item["rule_version_id"], item["rule_key"]),
         ).fetchone()
-        if not rule or rule["version_status"] != "PUBLISHED" or rule["rule_status"] != "ACTIVE":
-            raise LearningCreditError("只有数据库中已发布且启用的规则才能正式入账")
+        version_status = str(rule["version_status"]).upper() if rule else ""
+        version_allowed = version_status == "PUBLISHED" or (
+            version_status == "RETIRED"
+            and _rule_version_is_frozen_for_item(
+                connection,
+                item=item,
+                rule_version_id=int(rule["version_id"]),
+            )
+        )
+        if not rule or not version_allowed or rule["rule_status"] != "ACTIVE":
+            raise LearningCreditError(
+                "只有数据库中已发布，或已绑定且已退役的启用规则才能正式入账"
+            )
         if str(rule["version_label"]) != str(item["rule_version"]):
             raise LearningCreditError("学分规则版本标签与数据库不一致")
         if (

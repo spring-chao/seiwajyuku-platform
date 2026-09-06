@@ -22,8 +22,9 @@ def _actor_id() -> int:
 
 def test_catalog_has_first_year_defaults_and_pending_new_courses():
     data = list_course_credit_rules()
-    assert data["version_status"] == "DRAFT"
+    assert data["version_status"] == "PUBLISHED"
     assert data["persisted"] is False
+    assert data["can_edit"] is False
     rules = {item["course_key"]: item for item in data["rules"]}
     assert rules["Y1-KYOCERA-ANNUAL-PLAN"]["credit_points"] == 40
     assert rules["Y1-KYOCERA-ANNUAL-PLAN"]["status"] == "CONFIGURED"
@@ -36,10 +37,17 @@ def test_catalog_has_first_year_defaults_and_pending_new_courses():
 
 def test_update_is_versioned_and_audited():
     actor_id = _actor_id()
+    draft_version = create_course_credit_rule_version(
+        actor_user_id=actor_id,
+        plan_key="STANDARD_3Y_2026",
+        version_label="audit-test-draft",
+        based_on_version_label="2026.1",
+    )
+    assert draft_version["version_status"] == "DRAFT"
     result = update_course_credit_rule(
         actor_user_id=actor_id,
         plan_key="STANDARD_3Y_2026",
-        version_label="2026.1",
+        version_label="audit-test-draft",
         course_key="AUTO-QR-AMOEBA-INTRODUCTION",
         course_name="阿米巴经营之概论",
         credit_points=20,

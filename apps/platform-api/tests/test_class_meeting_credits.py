@@ -52,12 +52,16 @@ def _bind_class_meeting_rule(fixture: dict) -> None:
     assert binding
     now = _now()
     with transaction() as connection:
-        version = execute(
-            connection,
-            "SELECT id FROM learning_credit_rule_versions "
-            "WHERE rule_set_key=? AND version_label=? LIMIT 1",
-            (binding["plan_key"], binding["version_label"]),
-        ).fetchone()
+        version_id = binding["credit_rule_version_id"]
+        version = (
+            execute(
+                connection,
+                "SELECT id FROM learning_credit_rule_versions WHERE id=? LIMIT 1",
+                (version_id,),
+            ).fetchone()
+            if version_id is not None
+            else None
+        )
         if not version:
             version_cursor = execute(
                 connection,

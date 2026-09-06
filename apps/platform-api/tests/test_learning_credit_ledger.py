@@ -85,6 +85,12 @@ def _use_credit_plan(f: dict, course_key: str | None = None) -> None:
             rule_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
             execute(
                 connection,
+                "UPDATE class_learning_bindings SET course_credit_rule_version_id=? "
+                "WHERE class_org_unit_id=?",
+                (rule_id, f["class_id"]),
+            )
+            execute(
+                connection,
                 "INSERT INTO learning_plan_credit_rules "
                 "(rule_version_id, course_key, course_name, year_index, credit_points, status, source, aliases_json, created_at, updated_at) "
                 "VALUES (?, ?, ?, 1, 40, 'CONFIGURED', 'BASELINE', '[]', ?, ?)",

@@ -21,11 +21,10 @@ from app.core.settings import get_settings
 from app.db import connect, execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.course_credit_rules import (
-    DEFAULT_PLAN_KEY,
-    DEFAULT_VERSION_LABEL,
     get_group_meeting_credit_policy,
     list_course_credit_rules,
 )
+from app.services.credit_rule_mapping import bound_course_rule_version
 from app.services.learning_cycles import _active_binding, _cycle_at
 from app.services.learning_cycles import _plan_cycle_payload
 from app.services.group_meeting_plan import (
@@ -143,21 +142,57 @@ def _active_group_members(connection, group_org_unit_id: str) -> list[dict[str, 
     ]
 
 
-def _course_rules(
-    plan_key: str = DEFAULT_PLAN_KEY,
-    version_label: str = DEFAULT_VERSION_LABEL,
-) -> dict[str, dict[str, Any]]:
-    try:
-        payload = list_course_credit_rules(plan_key, version_label)
-    except ValueError:
-        # A legacy/test binding may predate its persisted catalog.  Keep fact
-        # capture compatible, while the actual binding version is retained in
-        # every snapshot and the credit DRY-RUN blocks formal posting until
-        # that plan has its own published course rules.
-        payload = list_course_credit_rules()
-    if not payload.get("rules") and (plan_key, version_label) != (DEFAULT_PLAN_KEY, DEFAULT_VERSION_LABEL):
-        payload = list_course_credit_rules()
-    return {str(rule["course_key"]): rule for rule in payload.get("rules", [])}
+def _course_rule_directory_for_binding(
+    connection, binding: dict[str, Any]
+) -> dict[str, Any]:
+    """Resolve course metadata through the binding's frozen policy id.
+
+    When a binding has not been mapped yet, the immutable default catalog is
+    used only to keep the submitted course fact readable.  Its points are
+    deliberately discarded and the snapshot is marked PENDING so settlement
+    cannot mistake that catalog lookup for a bound course policy.
+    """
+
+    course_rule_version_id = binding.get("course_credit_rule_version_id")
+    course_version = bound_course_rule_version(
+        connection,
+        int(course_rule_version_id) if course_rule_version_id is not None else None,
+    )
+    if course_version:
+        directory = list_course_credit_rules(
+            str(course_version["plan_key"]), str(course_version["version_label"])
+        )
+        return {
+            **directory,
+            "mapping_status": "BOUND",
+            "course_rule_version_id": int(course_version["id"]),
+            "course_rule_plan_key": course_version["plan_key"],
+            "course_rule_version_label": course_version["version_label"],
+            "course_rule_version_status": course_version["status"],
+        }
+
+    # This is an explicit missing-mapping path, not a pricing fallback.  The
+    # returned directory is metadata-only; _course_snapshots() sets every
+    # captured point to NULL/PENDING below.
+    directory = list_course_credit_rules()
+    metadata_rules = [
+        {
+            **rule,
+            "credit_points": 0,
+            "status": "PENDING",
+            "persisted": False,
+        }
+        for rule in directory.get("rules", [])
+    ]
+    return {
+        **directory,
+        "rules": metadata_rules,
+        "mapping_status": "RULE_MAPPING_MISSING",
+        "course_rule_version_id": None,
+        "course_rule_plan_key": None,
+        "course_rule_version_label": None,
+        "course_rule_version_status": "MISSING",
+    }
 
 
 def _require_write() -> None:
@@ -209,53 +244,49 @@ def _read_courses(connection, row: dict, details: list[dict] | None = None) -> l
 
 
 def _course_snapshots(
-    keys: list[str], *, plan_key: str = DEFAULT_PLAN_KEY,
-    version_label: str = DEFAULT_VERSION_LABEL,
+    connection, keys: list[str], *, binding: dict[str, Any]
 ) -> list[dict]:
     if any(not isinstance(key, str) or not key or len(key) > 128 for key in keys):
         raise StudyMeetingError("课程编号无效")
     if len(keys) != len(set(keys)):
         raise StudyMeetingError("同一课程不能重复添加")
-    unresolved_plan = False
-    try:
-        directory = list_course_credit_rules(plan_key, version_label)
-    except ValueError:
-        directory = list_course_credit_rules()
-        unresolved_plan = True
-    if not directory.get("rules") and (plan_key, version_label) != (DEFAULT_PLAN_KEY, DEFAULT_VERSION_LABEL):
-        directory = list_course_credit_rules()
-        unresolved_plan = True
+    directory = _course_rule_directory_for_binding(connection, binding)
+    mapping_missing = directory["mapping_status"] != "BOUND"
     rules = {item["course_key"]: item for item in directory["rules"]}
-    persisted_rule_version = fetch_one(
-        "SELECT id FROM learning_plan_credit_rule_versions WHERE plan_key=? AND version_label=? LIMIT 1",
-        (plan_key, version_label),
-    )
     snapshots = []
     for key in keys:
         rule = rules.get(key)
         if not rule:
             raise StudyMeetingError("课程不在当前课程积分目录中")
-        rule_status = "PENDING" if unresolved_plan else rule["status"]
+        rule_status = "PENDING" if mapping_missing else rule["status"]
         item = {
             "course_key": key, "course_name_snapshot": rule["course_name"],
-            "course_credit_snapshot": rule["credit_points"] if rule_status == "CONFIGURED" else None,
+            "course_credit_snapshot": (
+                rule["credit_points"]
+                if rule_status == "CONFIGURED" and not mapping_missing
+                else None
+            ),
             "course_rule_status": rule_status,
-            "credit_rule_version_id": persisted_rule_version["id"] if persisted_rule_version else None,
-            "plan_key": plan_key,
-            "plan_version_label": version_label,
+            "credit_rule_version_id": directory["course_rule_version_id"],
+            "plan_key": binding["plan_key"],
+            "plan_version_label": binding["version_label"],
         }
         reference = {
-            # Keep the catalog identity for legacy/test fallback snapshots;
-            # binding identity is recorded separately and is the one used by
-            # settlement eligibility checks.
-            "plan_key": directory["plan_key"] if unresolved_plan else plan_key,
-            "version_label": directory["version_label"] if unresolved_plan else version_label,
-            "binding_plan_key": plan_key,
-            "binding_version_label": version_label,
+            "mapping_status": directory["mapping_status"],
+            # These legacy aliases describe the course-policy namespace.  The
+            # binding learning-plan identity is kept separately below.
+            "plan_key": directory.get("plan_key"),
+            "version_label": directory.get("version_label"),
+            "binding_plan_key": binding["plan_key"],
+            "binding_version_label": binding["version_label"],
+            "course_rule_version_id": directory["course_rule_version_id"],
+            "course_rule_plan_key": directory["course_rule_plan_key"],
+            "course_rule_version_label": directory["course_rule_version_label"],
             "rule_id": rule.get("id"), "rule_updated_at": _serialize(rule.get("updated_at")),
-            "source": rule.get("source"), "version_status": directory["version_status"],
+            "source": rule.get("source"),
+            "version_status": directory["course_rule_version_status"],
             "source_catalog_plan_key": directory.get("plan_key"),
-            "unresolved_plan": unresolved_plan,
+            "unresolved_plan": mapping_missing,
             "snapshot_sha256": hashlib.sha256(json.dumps(item, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
         }
         item["rule_reference_json"] = json.dumps(reference, ensure_ascii=False, sort_keys=True)
@@ -627,6 +658,7 @@ def _session_plan(connection, session_row: dict[str, Any]) -> dict[str, Any]:
     row = execute(
         connection,
         "SELECT b.id AS binding_id, b.credit_rule_version_id, "
+        "b.course_credit_rule_version_id, "
         "p.plan_key, p.version_label, p.status AS plan_status "
         "FROM class_learning_cycles lc "
         "JOIN class_learning_bindings b ON b.id=lc.binding_id "
@@ -714,9 +746,9 @@ def create_study_meeting(
         cycle = cycle_data["cycle"]
         binding = cycle_data["binding"]
         snapshots = _course_snapshots(
+            connection,
             keys,
-            plan_key=str(binding["plan_key"]),
-            version_label=str(binding["version_label"]),
+            binding=binding,
         )
         home_placeholders = ",".join("?" for _ in home_ids)
         home_rows = execute(
@@ -857,7 +889,11 @@ def submit_study_meeting(*, member_id: int, session_id: int) -> dict[str, Any]:
             raise StudyMeetingError("当前学习周期已变化，请重新登记本场学习会")
         _validate_session_attendees(connection, row)
         plan = _session_plan(connection, row)
-        course_rules = _course_rules(str(plan["plan_key"]), str(plan["version_label"]))
+        course_rule_directory = _course_rule_directory_for_binding(connection, plan)
+        course_rules = {
+            str(rule["course_key"]): rule
+            for rule in course_rule_directory["rules"]
+        }
         if any(item["course_key"] not in course_rules for item in _read_courses(connection, row)):
             raise StudyMeetingError("课程不在当前课程积分目录中")
         _validate_course_completions(connection, row)
@@ -1014,16 +1050,27 @@ def get_study_meeting_record_for_operations(
     if not _operation_scope_allows(actor_user_id, row["class_org_unit_id"]):
         raise StudyMeetingPermissionError("学习会记录不在当前组织授权范围内")
     connection = connect()
+    course_options: list[dict[str, Any]] = []
     try:
         result = _session_payload(connection, session_id)
+        can_edit_courses = (
+            bool(result)
+            and can_edit_meeting_courses(actor_user_id)
+            and result["status"] == "SUBMITTED"
+        )
+        if can_edit_courses:
+            plan = _session_plan(connection, result)
+            course_options = list(
+                _course_rule_directory_for_binding(connection, plan)["rules"]
+            )
     finally:
         connection.close()
     if not result:
         raise StudyMeetingError("学习会记录不存在")
-    result["can_edit_courses"] = can_edit_meeting_courses(actor_user_id) and result["status"] == "SUBMITTED"
+    result["can_edit_courses"] = can_edit_courses
     from app.services.study_meeting_attendees import can_edit_attendees
     result["can_edit_attendees"] = can_edit_attendees(actor_user_id) and result["status"] == "SUBMITTED"
-    result["course_options"] = list(_course_rules().values()) if result["can_edit_courses"] else []
+    result["course_options"] = course_options
     return result
 
 
@@ -1056,9 +1103,9 @@ def correct_meeting_courses(*, actor_user_id: int, session_id: int,
             raise StudyMeetingError("课程已被其他人修改，请刷新后重试")
         plan = _session_plan(connection, row)
         snapshots = _course_snapshots(
+            connection,
             course_keys,
-            plan_key=str(plan["plan_key"]),
-            version_label=str(plan["version_label"]),
+            binding=plan,
         )
         # A correction adds/removes courses, not a hidden re-pricing of retained facts.
         old = {item["course_key"]: dict(item) for item in before}

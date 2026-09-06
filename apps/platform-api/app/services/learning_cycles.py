@@ -22,6 +22,7 @@ from app.services.learning_plan_baseline import (
     load_baseline,
     public_expectation,
 )
+from app.services.credit_rule_mapping import resolve_credit_rule_mapping
 
 
 CLASS_MEETING_STATUSES = {"PLANNED", "POSTPONED"}
@@ -698,6 +699,18 @@ def _binding_payload(binding: dict[str, Any]) -> dict[str, Any]:
             else None
         ),
         "transition_type": binding.get("transition_type") or "INITIAL",
+        # These are frozen policy references for this learning round.  They
+        # deliberately do not reuse the learning-plan identity strings.
+        "credit_rule_version_id": (
+            int(binding["credit_rule_version_id"])
+            if binding.get("credit_rule_version_id") is not None
+            else None
+        ),
+        "course_credit_rule_version_id": (
+            int(binding["course_credit_rule_version_id"])
+            if binding.get("course_credit_rule_version_id") is not None
+            else None
+        ),
     }
 
 
@@ -850,19 +863,18 @@ def _create_learning_binding(
     learning_round = int(latest_round or 0) + 1
     now = _now()
     stored_start = _storage_datetime(connection, started_at)
-    credit_rule = execute(
+    credit_mapping = resolve_credit_rule_mapping(
         connection,
-        "SELECT id FROM learning_credit_rule_versions "
-        "WHERE rule_set_key=? AND version_label=? LIMIT 1",
-        (plan["plan_key"], plan["version_label"]),
-    ).fetchone()
+        plan_key=str(plan["plan_key"]),
+        version_label=str(plan["version_label"]),
+    )
     cursor = execute(
         connection,
         "INSERT INTO class_learning_bindings("
         "class_org_unit_id, plan_version_id, cohort_month, started_at, status, "
         "learning_round, start_cycle_index, previous_binding_id, transition_type, "
-        "credit_rule_version_id, created_by, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?)",
+        "credit_rule_version_id, course_credit_rule_version_id, created_by, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             class_org_unit_id,
             plan_version_id,
@@ -872,7 +884,8 @@ def _create_learning_binding(
             index,
             previous_binding_id,
             transition,
-            credit_rule["id"] if credit_rule else None,
+            credit_mapping["generic_rule_version_id"] if credit_mapping else None,
+            credit_mapping["course_credit_rule_version_id"] if credit_mapping else None,
             actor_user_id,
             now,
             now,
@@ -1104,6 +1117,11 @@ def correct_class_learning_plan(
         if not plan:
             raise ValueError("学习计划版本不存在")
         plan_status = str(plan["status"]).upper()
+        if int(plan["id"]) != int(binding["plan_version_id"]):
+            raise ValueError(
+                "当前学习轮次已冻结学分规则版本，不能在原轮次切换学习计划；"
+                "请使用重新开始或接续"
+            )
         if plan_status != "PUBLISHED" and not (
             int(plan["id"]) == int(binding["plan_version_id"])
             and plan_status in {"ARCHIVED", "RETIRED"}
