@@ -13,6 +13,10 @@ from app.services.learning_credits import (
     reverse_credit_entry,
     settle_study_meeting,
 )
+from app.services.class_meeting_credits import (
+    dry_run_class_meeting_settlement,
+    dry_run_class_meetings,
+)
 
 
 router = APIRouter(prefix="/api/v1/learning-credits", tags=["learning-credits"])
@@ -26,6 +30,47 @@ def _error(exc: Exception) -> HTTPException:
     if isinstance(exc, PermissionError):
         return HTTPException(403, str(exc))
     return HTTPException(400, str(exc))
+
+
+@router.post("/dry-run/class-meetings/{event_group_id}")
+def dry_run_class_meeting(
+    event_group_id: int,
+    user: dict = Depends(require_permission("plans:credit_settlement_preview")),
+) -> dict:
+    """Project one attendance event group into the learning-credit model."""
+    try:
+        return {
+            "success": True,
+            "data": dry_run_class_meeting_settlement(
+                actor_user_id=user["id"], event_group_id=event_group_id
+            ),
+        }
+    except (LearningCreditError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/dry-run/class-meetings")
+def dry_run_class_meeting_batch(
+    class_org_unit_id: str | None = Query(default=None, max_length=64),
+    event_date_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    event_date_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    limit: int = Query(default=30, ge=1, le=500),
+    user: dict = Depends(require_permission("plans:credit_settlement_preview")),
+) -> dict:
+    """Project class meetings in a class/date window without writing credits."""
+    try:
+        return {
+            "success": True,
+            "data": dry_run_class_meetings(
+                actor_user_id=user["id"],
+                class_org_unit_id=class_org_unit_id,
+                event_date_from=event_date_from,
+                event_date_to=event_date_to,
+                limit=limit,
+            ),
+        }
+    except (LearningCreditError, PermissionError) as exc:
+        raise _error(exc) from exc
 
 
 @router.post("/dry-run/study-meetings/{session_id}")
