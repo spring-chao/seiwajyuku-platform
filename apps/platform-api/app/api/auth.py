@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from app.core.security import create_token, decode_token, token_hash
 from app.core.settings import get_settings
 from app.db import execute, fetch_one, transaction
-from app.services.iam import authenticate, user_context
+from app.services.iam import authenticate, set_request_permission, user_context
 
 
 router = APIRouter(prefix="/api/v1", tags=["auth"])
@@ -41,9 +41,13 @@ def current_user(
 
 
 def require_permission(permission: str):
-    def dependency(user: dict = Depends(current_user)) -> dict:
+    async def dependency(user: dict = Depends(current_user)) -> dict:
         if permission not in user["permissions"]:
             raise HTTPException(403, "无此操作权限")
+        # Services below this dependency resolve organization scopes against
+        # this exact permission. It prevents an IAM 2.0 employee's separate
+        # role/scope grants from being combined as a Cartesian product.
+        set_request_permission(permission)
         return user
 
     return dependency
@@ -80,4 +84,3 @@ def refresh(payload: RefreshPayload) -> dict:
 @router.get("/me")
 def me(user: dict = Depends(current_user)) -> dict:
     return {"success": True, "data": user}
-

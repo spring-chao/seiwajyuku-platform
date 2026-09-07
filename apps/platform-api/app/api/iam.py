@@ -106,6 +106,7 @@ def add_user(
             password=payload.password,
             roles=payload.roles,
             scopes=[scope.model_dump() for scope in payload.scopes],
+            actor_roles=actor.get("roles", []),
         )
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
@@ -128,6 +129,7 @@ def reset_password(
     actor: dict = Depends(require_permission("iam:manage")),
 ) -> dict:
     try:
+        assert_identity_write_enabled()
         reset_user_password(
             actor["id"], actor.get("roles", []), user_id,
             password=payload.password, reason=payload.reason,

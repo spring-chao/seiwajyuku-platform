@@ -16,6 +16,7 @@ from app.api.class_roster_org_import import router as class_roster_org_import_ro
 from app.api.followups import router as followups_router
 from app.api.iam import router as iam_router
 from app.api.identity_admin import router as identity_admin_router
+from app.api.staff_management import router as staff_management_router
 from app.api.integrations import router as integrations_router
 from app.api.legacy_operations import router as legacy_operations_router
 from app.api.member_care_actions import router as member_care_actions_router
@@ -38,7 +39,7 @@ from app.api.members import router as members_router
 from app.api.system import router as system_router
 from app.core.settings import get_settings
 from app.migrations import run_migrations
-from app.services.iam import seed_iam
+from app.services.iam import clear_request_permission, seed_iam
 from app.core.study_photo_body_limit import StudyPhotoBodyLimit
 
 
@@ -144,6 +145,17 @@ app.add_middleware(StudyPhotoBodyLimit)
 
 
 @app.middleware("http")
+async def iam_permission_context_guard(request: Request, call_next):
+    # ContextVars are request-local, but clearing at both boundaries also
+    # protects tests and any middleware task reuse from a stale permission.
+    clear_request_permission()
+    try:
+        return await call_next(request)
+    finally:
+        clear_request_permission()
+
+
+@app.middleware("http")
 async def deployment_read_only_guard(request: Request, call_next):
     if settings.deployment_read_only and not read_only_request_allowed(
         request.method, request.url.path
@@ -190,6 +202,7 @@ app.include_router(auth_router)
 app.include_router(agent_router)
 app.include_router(iam_router)
 app.include_router(identity_admin_router)
+app.include_router(staff_management_router)
 app.include_router(imports_router)
 app.include_router(class_roster_preflight_router)
 app.include_router(class_roster_org_import_router)

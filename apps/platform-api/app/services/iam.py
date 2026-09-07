@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 import sqlite3
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 
 from app.core.privacy import mask_login_identifier
@@ -85,6 +86,49 @@ ROLE_PERMISSIONS = {
         "followups:manage", "contact:reveal", "renewals:read",
     },
     "read_only": {"org:read", "plans:read", "members:read", "renewals:read"},
+    # IAM 2.0 employee roles deliberately use business capabilities rather
+    # than a job title. Positions remain in operations_position_assignments.
+    # None of these templates receives a C7 settlement permission: C7 keeps
+    # its independent role and release gates.
+    "employee_operations_lead": {
+        "org:read", "org:manage", "plans:read", "plans:period_write",
+        "members:read", "members:manage", "members:detail_view",
+        "followups:manage", "renewals:read", "renewals:manage",
+        "exports:normal", "attendance:sync", "attendance:adjudicate",
+        "enrollment:read", "enrollment:review", "enrollment:payment_confirm",
+        "enrollment:enroll", "enrollment:manage_link",
+    },
+    "employee_operations_management": {
+        "org:read", "plans:read", "plans:period_write", "members:read",
+        "members:detail_view", "followups:manage", "renewals:read",
+    },
+    "employee_member_management": {
+        "org:read", "members:read", "members:manage", "members:detail_view",
+        "followups:manage", "exports:normal",
+    },
+    "employee_learning_management": {
+        "org:read", "plans:read", "members:read", "members:detail_view",
+        "attendance:adjudicate",
+    },
+    "employee_development_management": {
+        "org:read", "members:read", "members:manage", "members:detail_view",
+        "followups:manage", "enrollment:read", "enrollment:review",
+        "enrollment:enroll",
+    },
+    "employee_renewal_management": {
+        "org:read", "members:read", "members:detail_view", "renewals:read",
+        "renewals:manage",
+    },
+    "employee_finance_management": {
+        "org:read", "renewals:read", "renewals:manage", "enrollment:read",
+        "enrollment:payment_confirm",
+    },
+    "employee_data_management": {
+        "org:read", "members:read", "members:detail_view", "exports:normal",
+    },
+    "employee_administration_management": {
+        "org:read", "members:read", "members:detail_view", "followups:manage",
+    },
     "ops_center_director": {
         "org:read", "org:manage", "plans:read", "plans:period_write",
         "plans:import_global", "plans:publish", "members:read", "members:manage",
@@ -168,6 +212,15 @@ ROLE_NAMES = {
     "class_counselor": "班主任/辅导员/班委",
     "group_leader": "组长/组委",
     "read_only": "只读观察员",
+    "employee_operations_lead": "运营中心负责人",
+    "employee_operations_management": "运营管理",
+    "employee_member_management": "学员管理",
+    "employee_learning_management": "学习践行管理",
+    "employee_development_management": "发展建设管理",
+    "employee_renewal_management": "续费管理",
+    "employee_finance_management": "财务管理",
+    "employee_data_management": "数据管理",
+    "employee_administration_management": "行政管理",
     "ops_center_director": "运营中心负责人",
     "ops_center_operations": "分中心运营专员",
     "ops_center_learning": "学习践行专员",
@@ -185,6 +238,77 @@ ROLE_NAMES = {
     "volunteer_group_committee": "组委志工",
     "volunteer_activity": "专项活动志工",
 }
+
+# These keys are the only business roles selectable through the ordinary
+# staff-management drawer. Legacy position templates remain available only for
+# compatibility previews, while SYSTEM/RESTRICTED roles stay outside it.
+EMPLOYEE_ASSIGNABLE_ROLE_KEYS = frozenset(
+    {
+        "employee_operations_lead",
+        "employee_operations_management",
+        "employee_member_management",
+        "employee_learning_management",
+        "employee_development_management",
+        "employee_renewal_management",
+        "employee_finance_management",
+        "employee_data_management",
+        "employee_administration_management",
+        "read_only",
+    }
+)
+
+POSITION_NAMES = {
+    "operations_admin": "运营管理员（兼容岗位）",
+    "ops_center_director": "运营中心负责人",
+    "ops_center_operations": "运营专员",
+    "ops_center_learning": "学习践行专员",
+    "ops_center_development": "发展建设专员",
+    "ops_center_management": "运营管理专员",
+    "ops_center_data": "数据专员",
+    "ops_center_finance": "财务专员",
+    "ops_center_administration": "行政专员",
+}
+
+# Direct legacy role assignment remains available for expert workflows, but
+# system-level and RESTRICTED-capability templates must never be delegated by
+# an ordinary IAM operator. The regular staff drawer does not expose these
+# keys at all; this guard also protects the lower-level legacy endpoint.
+HIGHEST_ADMIN_ROLE_KEYS = frozenset({"system_admin"})
+SYSTEM_OR_RESTRICTED_ROLE_KEYS = frozenset(
+    {
+        "system_admin",
+        "technical_admin",
+        "data_security_admin",
+        "operations_admin",
+        *(
+            role_key
+            for role_key, permissions in ROLE_PERMISSIONS.items()
+            if any(PERMISSIONS[permission][1] == "RESTRICTED" for permission in permissions)
+        ),
+    }
+)
+
+
+# A FastAPI endpoint already knows the requested permission before its service
+# calls resolve an organization scope. Keeping it in a ContextVar lets the
+# established service layer become role-scope-aware without a broad and risky
+# signature change. Direct service calls retain the legacy aggregate behavior
+# unless they explicitly pass a permission.
+_request_permission: ContextVar[str | None] = ContextVar(
+    "iam_request_permission", default=None
+)
+
+
+def set_request_permission(permission: str) -> None:
+    _request_permission.set(permission)
+
+
+def clear_request_permission() -> None:
+    _request_permission.set(None)
+
+
+def current_request_permission() -> str | None:
+    return _request_permission.get()
 
 
 def seed_iam() -> None:
@@ -338,31 +462,51 @@ def user_context(user_id: int) -> dict | None:
         )
     ]
     identity_enabled = get_settings().identity_authorization_enabled
-    position_roles = [
-        row["position_key"]
-        for row in fetch_all(
-            "SELECT DISTINCT pa.position_key FROM account_person_links apl "
-            "JOIN operations_employments oe ON oe.person_id=apl.person_id "
-            "JOIN operations_position_assignments pa ON pa.employment_id=oe.id "
-            "WHERE apl.user_id=? AND oe.employment_status IN ('PLANNED','ACTIVE') "
-            "AND (oe.started_on IS NULL OR oe.started_on<=?) "
-            "AND (oe.ended_on IS NULL OR oe.ended_on>=?) "
-            "AND pa.status IN ('PLANNED','ACTIVE') "
-            "AND (pa.valid_from IS NULL OR pa.valid_from<=?) "
-            "AND (pa.valid_until IS NULL OR pa.valid_until>=?)",
-            (user_id, now, now, now, now),
-        )
-    ] if identity_enabled else []
-    volunteer_roles = [
-        row["appointment_key"]
-        for row in fetch_all(
-            "SELECT DISTINCT va.appointment_key FROM account_person_links apl "
-            "JOIN volunteer_appointments va ON va.person_id=apl.person_id "
-            "WHERE apl.user_id=? AND va.status IN ('PLANNED','ACTIVE') "
-            "AND va.starts_at<=? AND (va.ends_at IS NULL OR va.ends_at>=?)",
-            (user_id, now, now),
-        )
-    ] if identity_enabled else []
+    # An employment switches to explicit authorization as soon as it has any
+    # grant record. The EXISTS check intentionally does not filter by dates or
+    # status: an expired/revoked explicit grant must not silently fall back to
+    # a job-title permission template.
+    legacy_position_rows = fetch_all(
+        "SELECT DISTINCT oe.id AS employment_id, pa.position_key FROM account_person_links apl "
+        "JOIN operations_employments oe ON oe.person_id=apl.person_id "
+        "JOIN operations_position_assignments pa ON pa.employment_id=oe.id "
+        "WHERE apl.user_id=? AND oe.employment_status IN ('PLANNED','ACTIVE') "
+        "AND (oe.started_on IS NULL OR oe.started_on<=?) "
+        "AND (oe.ended_on IS NULL OR oe.ended_on>=?) "
+        "AND pa.status IN ('PLANNED','ACTIVE') "
+        "AND (pa.valid_from IS NULL OR pa.valid_from<=?) "
+        "AND (pa.valid_until IS NULL OR pa.valid_until>=?) "
+        "AND NOT EXISTS (SELECT 1 FROM employee_authorization_grants eag "
+        "WHERE eag.employment_id=oe.id)",
+        (user_id, now, now, now, now),
+    ) if identity_enabled else []
+    position_roles = [row["position_key"] for row in legacy_position_rows]
+    explicit_employee_grants = fetch_all(
+        "SELECT eag.id, eag.employment_id, eag.role_key, eag.org_unit_id, "
+        "eag.scope_type, eag.valid_from, eag.valid_until, eag.status "
+        "FROM account_person_links apl "
+        "JOIN operations_employments oe ON oe.person_id=apl.person_id "
+        "JOIN employee_authorization_grants eag ON eag.employment_id=oe.id "
+        "JOIN roles r ON r.role_key=eag.role_key AND r.is_active=1 "
+        "WHERE apl.user_id=? AND oe.employment_status IN ('PLANNED','ACTIVE') "
+        "AND (oe.started_on IS NULL OR oe.started_on<=?) "
+        "AND (oe.ended_on IS NULL OR oe.ended_on>=?) "
+        "AND eag.status IN ('PLANNED','ACTIVE') "
+        "AND (eag.valid_from IS NULL OR eag.valid_from<=?) "
+        "AND (eag.valid_until IS NULL OR eag.valid_until>=?)",
+        (user_id, now, now, now, now),
+    ) if identity_enabled else []
+    explicit_roles = [row["role_key"] for row in explicit_employee_grants]
+    volunteer_grants = fetch_all(
+        "SELECT DISTINCT va.id, va.appointment_key AS role_key, va.org_unit_id, "
+        "va.scope_type, va.starts_at AS valid_from, va.ends_at AS valid_until, va.status "
+        "FROM account_person_links apl "
+        "JOIN volunteer_appointments va ON va.person_id=apl.person_id "
+        "WHERE apl.user_id=? AND va.status IN ('PLANNED','ACTIVE') "
+        "AND va.starts_at<=? AND (va.ends_at IS NULL OR va.ends_at>=?)",
+        (user_id, now, now),
+    ) if identity_enabled else []
+    volunteer_roles = [row["role_key"] for row in volunteer_grants]
     technical_roles = [
         "technical_admin"
         for row in fetch_all(
@@ -373,7 +517,9 @@ def user_context(user_id: int) -> dict | None:
             (user_id, now, now),
         )
     ] if identity_enabled else []
-    roles = sorted(set(direct_roles + position_roles + volunteer_roles + technical_roles))
+    roles = sorted(
+        set(direct_roles + position_roles + explicit_roles + volunteer_roles + technical_roles)
+    )
     user["roles"] = roles
     if roles:
         placeholders = ",".join("?" for _ in roles)
@@ -394,7 +540,7 @@ def user_context(user_id: int) -> dict | None:
         "AND (valid_until IS NULL OR valid_until>=?)",
         (user_id, now, now),
     )
-    employment_scopes = fetch_all(
+    legacy_employment_scopes = fetch_all(
         "SELECT esr.scope_type, esr.org_unit_id, esr.valid_from, esr.valid_until "
         "FROM account_person_links apl "
         "JOIN operations_employments oe ON oe.person_id=apl.person_id "
@@ -404,19 +550,18 @@ def user_context(user_id: int) -> dict | None:
         "AND (oe.ended_on IS NULL OR oe.ended_on>=?) "
         "AND esr.status IN ('PLANNED','ACTIVE') "
         "AND (esr.valid_from IS NULL OR esr.valid_from<=?) "
-        "AND (esr.valid_until IS NULL OR esr.valid_until>=?)",
+        "AND (esr.valid_until IS NULL OR esr.valid_until>=?) "
+        "AND NOT EXISTS (SELECT 1 FROM employee_authorization_grants eag "
+        "WHERE eag.employment_id=oe.id)",
         (user_id, now, now, now, now),
     ) if identity_enabled else []
-    volunteer_scopes = fetch_all(
-        "SELECT va.scope_type, va.org_unit_id, va.starts_at AS valid_from, "
-        "va.ends_at AS valid_until FROM account_person_links apl "
-        "JOIN volunteer_appointments va ON va.person_id=apl.person_id "
-        "WHERE apl.user_id=? AND va.status IN ('PLANNED','ACTIVE') "
-        "AND va.starts_at<=? AND (va.ends_at IS NULL OR va.ends_at>=?)",
-        (user_id, now, now),
-    ) if identity_enabled else []
     unique_scopes: dict[tuple, dict] = {}
-    for scope in direct_scopes + employment_scopes + volunteer_scopes:
+    for scope in (
+        direct_scopes
+        + legacy_employment_scopes
+        + volunteer_grants
+        + explicit_employee_grants
+    ):
         key = (
             scope["scope_type"], scope.get("org_unit_id"),
             str(scope.get("valid_from")), str(scope.get("valid_until")),
@@ -424,7 +569,7 @@ def user_context(user_id: int) -> dict | None:
         unique_scopes[key] = scope
     user["scopes"] = list(unique_scopes.values())
     subjects: list[str] = []
-    if position_roles:
+    if position_roles or explicit_employee_grants:
         subjects.append("OPERATIONS_EMPLOYEE")
     if volunteer_roles:
         subjects.append("VOLUNTEER")
@@ -439,7 +584,7 @@ def user_context(user_id: int) -> dict | None:
         subjects.append("MEMBER")
     user["subject_contexts"] = subjects
     user["language_context"] = (
-        "OPERATIONS" if position_roles else
+        "OPERATIONS" if position_roles or explicit_employee_grants else
         "VOLUNTEER" if volunteer_roles else
         "TECHNICAL" if technical_roles else
         "LEGACY"
@@ -447,20 +592,38 @@ def user_context(user_id: int) -> dict | None:
     user["authorization_sources"] = {
         "legacy_roles": direct_roles,
         "employment_positions": position_roles,
+        "explicit_employee_grants": explicit_employee_grants,
         "volunteer_appointments": volunteer_roles,
         "technical_assignments": technical_roles,
+        # Kept as named source sets so role+scope evaluation can be performed
+        # without treating every current role as valid in every current scope.
+        "legacy_direct_scopes": direct_scopes,
+        "legacy_employee_scopes": legacy_employment_scopes,
+        "volunteer_grants": volunteer_grants,
     }
     return user
 
 
-def accessible_org_ids(user_id: int) -> set[str] | None:
-    scopes = user_context(user_id)
-    if not scopes:
+def _roles_with_permission(role_keys: list[str], permission: str) -> set[str]:
+    if not role_keys:
         return set()
-    if any(item["scope_type"] == "ALL" for item in scopes["scopes"]):
+    placeholders = ",".join("?" for _ in role_keys)
+    return {
+        row["role_key"]
+        for row in fetch_all(
+            "SELECT DISTINCT rp.role_key FROM role_permissions rp "
+            "JOIN roles r ON r.role_key=rp.role_key AND r.is_active=1 "
+            f"WHERE rp.permission_key=? AND rp.role_key IN ({placeholders})",
+            (permission, *role_keys),
+        )
+    }
+
+
+def _expand_scope_rows(scope_rows: list[dict]) -> set[str] | None:
+    if any(item.get("scope_type") == "ALL" for item in scope_rows):
         return None
     allowed: set[str] = set()
-    for grant in scopes["scopes"]:
+    for grant in scope_rows:
         org_id = grant.get("org_unit_id")
         if not org_id:
             continue
@@ -477,6 +640,43 @@ def accessible_org_ids(user_id: int) -> set[str] | None:
     return allowed
 
 
+def accessible_org_ids(user_id: int, permission: str | None = None) -> set[str] | None:
+    """Resolve organization access, optionally bound to one permission.
+
+    No explicit permission preserves the pre-IAM2 aggregate result for legacy
+    direct callers. HTTP request paths obtain their required permission from
+    ``require_permission`` automatically, so an explicit employee grant never
+    turns into a role-union × scope-union authorization in normal requests.
+    """
+    context = user_context(user_id)
+    if not context:
+        return set()
+    permission = permission or current_request_permission()
+    if not permission:
+        return _expand_scope_rows(context["scopes"])
+    if permission not in context["permissions"]:
+        return set()
+
+    sources = context["authorization_sources"]
+    scope_rows: list[dict] = []
+    if _roles_with_permission(sources["legacy_roles"], permission):
+        scope_rows.extend(sources["legacy_direct_scopes"])
+    if _roles_with_permission(sources["employment_positions"], permission):
+        scope_rows.extend(sources["legacy_employee_scopes"])
+    for grant in sources["explicit_employee_grants"]:
+        if _roles_with_permission([grant["role_key"]], permission):
+            scope_rows.append(grant)
+    for grant in sources["volunteer_grants"]:
+        if _roles_with_permission([grant["role_key"]], permission):
+            scope_rows.append(grant)
+    return _expand_scope_rows(scope_rows)
+
+
+def permission_allows_org(user_id: int, permission: str, org_unit_id: str) -> bool:
+    allowed = accessible_org_ids(user_id, permission)
+    return allowed is None or org_unit_id in allowed
+
+
 def create_user(
     actor_user_id: int,
     *,
@@ -485,7 +685,17 @@ def create_user(
     password: str,
     roles: list[str],
     scopes: list[dict],
+    actor_roles: list[str] | None = None,
 ) -> int:
+    requested_roles = set(roles)
+    # ``None`` is retained for established trusted service callers. Every
+    # HTTP call supplies actor roles and therefore receives the hard gate.
+    if (
+        actor_roles is not None
+        and requested_roles.intersection(SYSTEM_OR_RESTRICTED_ROLE_KEYS)
+        and not HIGHEST_ADMIN_ROLE_KEYS.intersection(actor_roles)
+    ):
+        raise PermissionError("只有平台系统管理员可以授予系统或受限角色")
     now = datetime.now(UTC).isoformat()
     with transaction() as connection:
         cursor = execute(

@@ -305,7 +305,7 @@ export default [
     path: "/system-settings",
     name: "SystemSettings",
     component: Layout,
-    redirect: "/operations/identity-admin",
+    redirect: "/operations/staff-management",
     meta: {
       icon: "ep/setting",
       title: "管理员设置",
@@ -313,12 +313,24 @@ export default [
     },
     children: [
       {
+        path: "/operations/staff-management",
+        name: "StaffManagement",
+        component: () => import("@/views/seiwajyuku/staff-management.vue"),
+        meta: {
+          title: "专职人员管理",
+          icon: "ep/user-filled",
+          showParent: true,
+          roles: ["system_admin", "technical_admin"]
+        }
+      },
+      {
         path: "/operations/account-management",
         name: "AccountManagement",
         component: () => import("@/views/seiwajyuku/account-management.vue"),
         meta: {
           title: "账号管理",
           icon: "ep/user-filled",
+          showLink: false,
           roles: ["system_admin", "technical_admin"]
         }
       },
@@ -330,6 +342,7 @@ export default [
           title: "身份与任职",
           icon: "ep/key",
           showParent: true,
+          showLink: false,
           roles: ["system_admin", "technical_admin"]
         }
       },
