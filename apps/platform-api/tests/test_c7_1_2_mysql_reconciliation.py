@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from app.db import connect, execute, fetch_one, transaction
+from app.db import connect, execute, fetch_all, fetch_one, transaction
 from app.migrations import MIGRATION_ROOT, run_migrations
 from app.services.hq_reading_import import (
     HQ_SOURCE_TYPE,
@@ -146,7 +146,7 @@ def test_c7_1_2_mysql_import_dry_run_parity_and_safe_rollback() -> None:
         original_filename="mysql-hq-reading.xlsx",
         content=content,
     )
-    _confirm(
+    confirmation = _confirm(
         imported,
         {
             ("MySQL普通学员", "1组", None): fixture["member_ids"]["learner"],
@@ -154,7 +154,28 @@ def test_c7_1_2_mysql_import_dry_run_parity_and_safe_rollback() -> None:
             ("MySQL空组学员", None, None): fixture["member_ids"]["nogroup"],
         },
     )
-    assert _hq_fact_count(fixture) == 2
+    fact_count = _hq_fact_count(fixture)
+    assert fact_count == 2, json.dumps(
+        {
+            "fact_count": fact_count,
+            "confirmation": confirmation,
+            "observations": fetch_all(
+                "SELECT source_name, source_group_name, recording_status, "
+                "match_status, personal_credit_eligible, eligibility_reason "
+                "FROM hq_reading_import_observations WHERE target_class_org_unit_id=? "
+                "ORDER BY id",
+                (fixture["class_id"],),
+            ),
+            "facts": fetch_all(
+                "SELECT member_id, class_org_unit_id, binding_id, occurred_on, source_id "
+                "FROM learning_credit_activity_facts WHERE source_type=? AND class_org_unit_id=? "
+                "ORDER BY id",
+                (HQ_SOURCE_TYPE, fixture["class_id"]),
+            ),
+        },
+        ensure_ascii=False,
+        default=str,
+    )
     ledger_before = int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"])
     preview = dry_run_hq_reading_import(
         actor_user_id=_admin_id(), batch_id=int(imported["batch"]["batch_id"])
