@@ -185,6 +185,56 @@ jobs:
           name: b21-mysql-results
           path: b21-mysql.xml
 
+  learning-credit-mysql:
+    # Disposable, isolated MySQL database for the C7.1.1 migration and
+    # rollback gate.  This job never uses production credentials or data.
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: c7-ci-root
+          MYSQL_DATABASE: seiwajyuku_c7_ci
+          MYSQL_USER: c7_test
+          MYSQL_PASSWORD: c7-ci-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pc7-ci-root"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 18
+    env:
+      APP_ENV: test
+      DATABASE_URL: mysql+pymysql://c7_test:c7-ci-password@127.0.0.1:3306/seiwajyuku_c7_ci?charset=utf8mb4
+      DEPLOYMENT_READ_ONLY: "false"
+      RUN_BOOTSTRAP_ON_STARTUP: "false"
+      ALLOW_PRODUCTION_MUTATIONS: "false"
+      LEARNING_CREDIT_SETTLEMENT_ENABLED: "false"
+      BOOTSTRAP_ADMIN_USERNAME: admin
+      BOOTSTRAP_ADMIN_PASSWORD: c7-ci-admin-password
+      PYTHONPATH: apps/platform-api
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/platform-api/requirements.txt
+      - run: pip install -r apps/platform-api/requirements.txt
+      - name: Run C7.1.1 isolated MySQL migration, parity and safe rollback gate
+        run: >-
+          python -m pytest
+          apps/platform-api/tests/test_c7_1_1_mysql_reconciliation.py
+          -q --junitxml=c7-1-1-mysql.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: c7-1-1-mysql-results
+          path: c7-1-1-mysql.xml
+          if-no-files-found: warn
+
   mysql-staging:
     runs-on: ubuntu-latest
     services:
@@ -292,6 +342,7 @@ jobs:
       - cloud-function-cleanup
       - api-container
       - study-meeting-mysql
+      - learning-credit-mysql
       - mysql-staging
     runs-on: ubuntu-latest
     steps:

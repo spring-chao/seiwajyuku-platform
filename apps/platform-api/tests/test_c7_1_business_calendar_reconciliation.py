@@ -17,6 +17,11 @@ from app.services.learning_activity_credits import (
     record_learning_activity_fact,
     save_business_calendar,
 )
+from c7_1_1_parity import (
+    EXPECTED_DAILY_READING_SIGNATURE,
+    EXPECTED_EXCELLENT_SHARE_SIGNATURE,
+    preview_parity_signature,
+)
 from test_learning_activity_credits import _admin_id, _fixture, _ledger_count
 
 
@@ -161,6 +166,7 @@ def test_official_2026_calendar_import_publish_and_c7_dry_run_are_zero_write() -
         assert daily_entries["2027-01-01"]["status"] == "BLOCKED"
         assert daily_entries["2027-01-01"]["reasons"] == ["BUSINESS_CALENDAR_MISSING"]
         assert daily["totals"]["proposed_points"] == 3.0
+        assert preview_parity_signature(daily) == EXPECTED_DAILY_READING_SIGNATURE
         assert daily["settlement_enabled"] is False
         assert daily["formal_settlement_allowed"] is False
         assert daily["write_proof"]["ledger_entries_delta"] == 0
@@ -175,6 +181,10 @@ def test_official_2026_calendar_import_publish_and_c7_dry_run_are_zero_write() -
         assert excellent["entries"][-1]["reasons"] == ["MONTHLY_CAP_REACHED"]
         assert excellent["totals"]["proposed_points"] == 5.0
         assert excellent["totals"]["proposed_entry_count"] == 5
+        assert (
+            preview_parity_signature(excellent)
+            == EXPECTED_EXCELLENT_SHARE_SIGNATURE
+        )
         assert excellent["settlement_enabled"] is False
         assert excellent["formal_settlement_allowed"] is False
         assert excellent["write_proof"]["ledger_entries_delta"] == 0
