@@ -1,0 +1,35 @@
+{
+  "schema_version": "C7.1.2.3-READONLY-SNAPSHOT-V1",
+  "source": {
+    "environment": "<production-or-authorized-readonly-replica>",
+    "extraction_mode": "READ_ONLY_CONSISTENT_SNAPSHOT",
+    "attestation": {
+      "status": "PENDING",
+      "reference": "<approved-data-owner-or-DBA-ticket-reference>"
+    }
+  },
+  "scope": {
+    "class_name": "吴越三班",
+    "class_org_unit_id": "<copy-only-the-single-approved-candidate-id>",
+    "window_start": "2026-08-31",
+    "window_end": "2026-09-04"
+  },
+  "source_group_mappings": {
+    "1组": "<group-org-unit-id>",
+    "2组": "<group-org-unit-id>",
+    "3组": "<group-org-unit-id>",
+    "4组": "<group-org-unit-id>",
+    "5组": "<group-org-unit-id>",
+    "精进组": "<advanced-group-org-unit-id>"
+  },
+  "files": {
+    "class_candidates": {"path": "class_candidates.csv", "row_count": 0, "sha256": ""},
+    "org_units": {"path": "org_units.csv", "row_count": 0, "sha256": ""},
+    "members": {"path": "members.csv", "row_count": 0, "sha256": ""},
+    "member_org_relations": {"path": "member_org_relations.csv", "row_count": 0, "sha256": ""},
+    "class_learning_bindings": {"path": "class_learning_bindings.csv", "row_count": 0, "sha256": ""},
+    "class_learning_cycles": {"path": "class_learning_cycles.csv", "row_count": 0, "sha256": ""},
+    "learning_plan_versions": {"path": "learning_plan_versions.csv", "row_count": 0, "sha256": ""},
+    "schema_migrations": {"path": "schema_migrations.csv", "row_count": 0, "sha256": ""}
+  }
+}
