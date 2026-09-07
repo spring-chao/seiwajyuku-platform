@@ -599,8 +599,11 @@ def _row_eligibility(
     denominator = False
     numerator = False
     try:
-        occurred = date.fromisoformat(row["occurred_on"])
-    except (TypeError, ValueError):
+        # SQLite returns the stored ISO text while MySQL returns a native
+        # datetime.date for DATE columns.  Use the shared workbook/date
+        # parser so both dialects apply the same occurrence-date rules.
+        occurred = _parse_date(row["occurred_on"])
+    except (TypeError, ValueError, LearningCreditError):
         return {
             "personal": False,
             "denominator": False,
