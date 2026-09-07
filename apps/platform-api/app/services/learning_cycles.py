@@ -938,6 +938,10 @@ def _create_learning_binding(
         plan_key=str(plan["plan_key"]),
         version_label=str(plan["version_label"]),
     )
+    if not credit_mapping:
+        raise ValueError(
+            "RULE_MAPPING_MISSING:该学习计划尚未配置可用的学分规则映射，不能开启新的学习轮次"
+        )
     cursor = execute(
         connection,
         "INSERT INTO class_learning_bindings("
@@ -954,8 +958,8 @@ def _create_learning_binding(
             index,
             previous_binding_id,
             transition,
-            credit_mapping["generic_rule_version_id"] if credit_mapping else None,
-            credit_mapping["course_credit_rule_version_id"] if credit_mapping else None,
+            credit_mapping["generic_rule_version_id"],
+            credit_mapping["course_credit_rule_version_id"],
             actor_user_id,
             now,
             now,

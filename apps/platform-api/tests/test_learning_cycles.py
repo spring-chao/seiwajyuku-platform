@@ -48,6 +48,34 @@ def test_date_only_start_normalizes_to_utc_day_boundary() -> None:
     assert _normalize_datetime("2026-09-03", "正式开始日期") == "2026-09-03T00:00:00+00:00"
 
 
+def _add_test_credit_mapping(
+    connection, *, plan_key: str, version_label: str, now: str
+) -> None:
+    policy = execute(
+        connection,
+        "SELECT generic_rule_version_id, course_credit_rule_version_id "
+        "FROM learning_plan_credit_rule_mappings "
+        "WHERE plan_key='standard-3y' AND plan_version_label='2026' "
+        "AND status='ACTIVE' LIMIT 1",
+    ).fetchone()
+    assert policy
+    execute(
+        connection,
+        "INSERT INTO learning_plan_credit_rule_mappings "
+        "(plan_key, plan_version_label, generic_rule_version_id, "
+        "course_credit_rule_version_id, status, mapping_source, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, 'ACTIVE', 'LEARNING_CYCLES_TEST', ?, ?)",
+        (
+            plan_key,
+            version_label,
+            policy["generic_rule_version_id"],
+            policy["course_credit_rule_version_id"],
+            now,
+            now,
+        ),
+    )
+
+
 def _fixture() -> tuple[int, str, str, str]:
     admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
     assert admin
@@ -70,13 +98,18 @@ def _fixture() -> tuple[int, str, str, str]:
                 "VALUES (?, ?, ?, 'GROUP', ?, 1, ?, ?)",
                 (group_id, f"L1_G{index}_{suffix}", f"L1测试组{index}-{suffix}", class_id, now, now),
             )
+        plan_key = f"L1_{suffix}"
+        version_label = f"2026-{suffix}"
         execute(
             connection,
             "INSERT INTO learning_plan_versions(plan_key, plan_name, version_label, duration_cycles, status, created_at, updated_at) "
             "VALUES (?, 'L1测试三年计划', ?, 3, 'PUBLISHED', ?, ?)",
-            (f"L1_{suffix}", f"2026-{suffix}", now, now),
+            (plan_key, version_label, now, now),
         )
         plan_id = execute(connection, "SELECT last_insert_rowid() AS id").fetchone()["id"]
+        _add_test_credit_mapping(
+            connection, plan_key=plan_key, version_label=version_label, now=now
+        )
         for cycle_index in range(1, 4):
             execute(
                 connection,
@@ -119,13 +152,18 @@ def _cohort_track_fixture() -> tuple[int, str, str, int]:
                 "VALUES (?, ?, ?, 'CLASS', 'org-suzhou', 1, ?, ?)",
                 (class_id, f"L1_TRACK_{cohort_month}_{suffix}", f"L1批次测试班{cohort_month}-{suffix}", now, now),
             )
+        plan_key = f"L1_TRACK_{suffix}"
+        version_label = f"2026-{suffix}"
         execute(
             connection,
             "INSERT INTO learning_plan_versions(plan_key, plan_name, version_label, duration_cycles, status, created_at, updated_at) "
             "VALUES (?, 'L1批次测试计划', ?, 2, 'PUBLISHED', ?, ?)",
-            (f"L1_TRACK_{suffix}", f"2026-{suffix}", now, now),
+            (plan_key, version_label, now, now),
         )
         plan_id = execute(connection, "SELECT last_insert_rowid() AS id").fetchone()["id"]
+        _add_test_credit_mapping(
+            connection, plan_key=plan_key, version_label=version_label, now=now
+        )
         for cohort_month in (1, 4):
             for cycle_index in (1, 2):
                 execute(
@@ -169,13 +207,18 @@ def _schedule_fixture() -> tuple[int, str, str]:
                 "VALUES (?, ?, ?, 'CLASS', 'org-suzhou', 1, ?, ?)",
                 (class_id, f"L1_SCHEDULE_{label}_{suffix}", f"L1周期调整测试班{label}-{suffix}", now, now),
             )
+        plan_key = f"L1_SCHEDULE_{suffix}"
+        version_label = f"2026-{suffix}"
         execute(
             connection,
             "INSERT INTO learning_plan_versions(plan_key, plan_name, version_label, duration_cycles, status, created_at, updated_at) "
             "VALUES (?, 'L1周期调整测试计划', ?, 9, 'PUBLISHED', ?, ?)",
-            (f"L1_SCHEDULE_{suffix}", f"2026-{suffix}", now, now),
+            (plan_key, version_label, now, now),
         )
         plan_id = execute(connection, "SELECT last_insert_rowid() AS id").fetchone()["id"]
+        _add_test_credit_mapping(
+            connection, plan_key=plan_key, version_label=version_label, now=now
+        )
         for cycle_index in range(1, 10):
             execute(
                 connection,
@@ -238,6 +281,9 @@ def _insert_lifecycle_plan(*, plan_key: str, version_label: str, cohort_month: i
             (plan_key, version_label, duration, now, now),
         )
         plan_id = int(execute(connection, "SELECT last_insert_rowid() AS id").fetchone()["id"])
+        _add_test_credit_mapping(
+            connection, plan_key=plan_key, version_label=version_label, now=now
+        )
         for cycle_index in range(1, duration + 1):
             execute(
                 connection,

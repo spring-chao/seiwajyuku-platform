@@ -9,7 +9,12 @@ import pytest
 from app.db import connect, execute, fetch_one, transaction
 from app.services.credit_rule_mapping import resolve_credit_rule_mapping
 from app.services.learning_credits import post_credit_entry
-from app.services.learning_cycles import correct_class_learning_plan, restart_class_learning_plan
+from app.services.learning_cycles import (
+    bind_class_learning_plan,
+    correct_class_learning_plan,
+    restart_class_learning_plan,
+    resume_class_learning_plan,
+)
 from test_v12_mvp import _seed_group_leader_fixture
 
 
@@ -96,20 +101,74 @@ def _create_plan(*, mapped: bool) -> int:
 
 
 def _start_wrong_round(fixture: dict, admin_id: int) -> dict:
+    """Insert a legacy active binding whose policy references are missing.
+
+    This deliberately bypasses the lifecycle service.  G5.3.2 makes the
+    service reject an unmapped new round, while historical NULL bindings must
+    remain available for the CORRECTION repair path under test.
+    """
+
     wrong_plan_id = _create_plan(mapped=False)
-    result = restart_class_learning_plan(
-        actor_user_id=admin_id,
-        class_org_unit_id=fixture["class_id"],
-        plan_version_id=wrong_plan_id,
-        cohort_month=4,
-        started_at=_now(),
-        reason="G5.3.1 建立待修正的错误计划绑定",
+    previous = fetch_one(
+        "SELECT id, learning_round FROM class_learning_bindings "
+        "WHERE class_org_unit_id=? AND status='ACTIVE' "
+        "ORDER BY started_at DESC, id DESC LIMIT 1",
+        (fixture["class_id"],),
     )
+    assert previous
+    plan_cycle = fetch_one(
+        "SELECT id FROM learning_plan_cycles "
+        "WHERE plan_version_id=? AND cohort_month=4 AND cycle_index=1",
+        (wrong_plan_id,),
+    )
+    assert plan_cycle
+    now = _now()
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE class_learning_bindings SET status='ENDED', ended_at=?, "
+            "ended_reason=?, updated_at=? WHERE id=? AND status='ACTIVE'",
+            (now, "G5.3.2 legacy unmapped test fixture", now, previous["id"]),
+        )
+        binding_cursor = execute(
+            connection,
+            "INSERT INTO class_learning_bindings("
+            "class_org_unit_id, plan_version_id, cohort_month, started_at, status, "
+            "learning_round, start_cycle_index, previous_binding_id, transition_type, "
+            "credit_rule_version_id, course_credit_rule_version_id, created_by, created_at, updated_at) "
+            "VALUES (?, ?, 4, ?, 'ACTIVE', ?, 1, ?, 'RESTART', NULL, NULL, ?, ?, ?)",
+            (
+                fixture["class_id"],
+                wrong_plan_id,
+                now,
+                int(previous["learning_round"] or 1) + 1,
+                previous["id"],
+                admin_id,
+                now,
+                now,
+            ),
+        )
+        binding_id = int(binding_cursor.lastrowid)
+        execute(
+            connection,
+            "INSERT INTO class_learning_cycles("
+            "binding_id, class_org_unit_id, learning_cycle_index, plan_cycle_id, opened_at, "
+            "class_meeting_status, group_meeting_policy, cycle_status, created_at, updated_at) "
+            "VALUES (?, ?, 1, ?, ?, 'PLANNED', 'REQUIRED', 'OPEN', ?, ?)",
+            (
+                binding_id,
+                fixture["class_id"],
+                plan_cycle["id"],
+                now,
+                now,
+                now,
+            ),
+        )
     binding = fetch_one(
         "SELECT b.id, b.plan_version_id, b.learning_round, b.cohort_month, "
         "b.credit_rule_version_id, b.course_credit_rule_version_id "
         "FROM class_learning_bindings b WHERE b.id=?",
-        (result["binding"]["id"],),
+        (binding_id,),
     )
     assert binding
     return dict(binding)
@@ -132,6 +191,101 @@ def _mapping_for_plan(plan_id: int) -> dict:
         connection.close()
     assert mapping
     return mapping
+
+
+def test_unmapped_initial_binding_is_rejected_without_creating_a_round() -> None:
+    fixture = _seed_group_leader_fixture()
+    admin_id = _admin_id()
+    plan_id = _create_plan(mapped=False)
+    before = int(
+        fetch_one(
+            "SELECT COUNT(*) AS n FROM class_learning_bindings "
+            "WHERE class_org_unit_id=?",
+            (fixture["other_class_id"],),
+        )["n"]
+    )
+
+    with pytest.raises(ValueError, match="RULE_MAPPING_MISSING"):
+        bind_class_learning_plan(
+            actor_user_id=admin_id,
+            class_org_unit_id=fixture["other_class_id"],
+            plan_version_id=plan_id,
+            cohort_month=4,
+            started_at=_now(),
+        )
+
+    assert int(
+        fetch_one(
+            "SELECT COUNT(*) AS n FROM class_learning_bindings "
+            "WHERE class_org_unit_id=?",
+            (fixture["other_class_id"],),
+        )["n"]
+    ) == before
+    assert fetch_one(
+        "SELECT id FROM class_learning_bindings "
+        "WHERE class_org_unit_id=? AND plan_version_id=?",
+        (fixture["other_class_id"], plan_id),
+    ) is None
+
+
+@pytest.mark.parametrize("transition", ["RESTART", "RESUME"])
+def test_unmapped_new_round_is_rejected_without_ending_active_binding(
+    transition: str,
+) -> None:
+    fixture = _seed_group_leader_fixture()
+    admin_id = _admin_id()
+    plan_id = _create_plan(mapped=False)
+    active_before = fetch_one(
+        "SELECT id, plan_version_id, learning_round, status, ended_at "
+        "FROM class_learning_bindings WHERE class_org_unit_id=? AND status='ACTIVE'",
+        (fixture["class_id"],),
+    )
+    assert active_before
+    binding_count_before = int(
+        fetch_one(
+            "SELECT COUNT(*) AS n FROM class_learning_bindings WHERE class_org_unit_id=?",
+            (fixture["class_id"],),
+        )["n"]
+    )
+
+    with pytest.raises(ValueError, match="RULE_MAPPING_MISSING"):
+        if transition == "RESTART":
+            restart_class_learning_plan(
+                actor_user_id=admin_id,
+                class_org_unit_id=fixture["class_id"],
+                plan_version_id=plan_id,
+                cohort_month=4,
+                started_at=_now(),
+                reason="G5.3.2 未映射计划不得重新开始",
+            )
+        else:
+            resume_class_learning_plan(
+                actor_user_id=admin_id,
+                class_org_unit_id=fixture["class_id"],
+                plan_version_id=plan_id,
+                cohort_month=4,
+                started_at=_now(),
+                start_cycle_index=1,
+                reason="G5.3.2 未映射计划不得接续",
+            )
+
+    active_after = fetch_one(
+        "SELECT id, plan_version_id, learning_round, status, ended_at "
+        "FROM class_learning_bindings WHERE class_org_unit_id=? AND status='ACTIVE'",
+        (fixture["class_id"],),
+    )
+    assert active_after == active_before
+    assert int(
+        fetch_one(
+            "SELECT COUNT(*) AS n FROM class_learning_bindings WHERE class_org_unit_id=?",
+            (fixture["class_id"],),
+        )["n"]
+    ) == binding_count_before
+    assert fetch_one(
+        "SELECT id FROM class_learning_bindings "
+        "WHERE class_org_unit_id=? AND plan_version_id=?",
+        (fixture["class_id"], plan_id),
+    ) is None
 
 
 def test_cross_plan_correction_keeps_binding_round_and_updates_frozen_mapping() -> None:
