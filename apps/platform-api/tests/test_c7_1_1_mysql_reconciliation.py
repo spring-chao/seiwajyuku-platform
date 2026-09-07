@@ -145,7 +145,12 @@ def test_c7_1_1_mysql_forward_dry_run_parity_and_loss_averse_rollback() -> None:
     """Exercise 0049 and its guards entirely inside disposable MySQL."""
 
     assert os.getenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "false").lower() == "false"
-    assert run_migrations() == []
+    # The combined C7 MySQL job may run the newer 0050 gate first.  That gate
+    # deliberately exercises an empty 0050 rollback, so run_migrations() can
+    # legitimately re-apply 0050 here.  This test owns the 0049 contract and
+    # must only require that 0049 is already present.
+    applied = run_migrations()
+    assert "0049_c7_learning_activity_and_business_calendar.sql" not in applied
     migration_row = fetch_one(
         "SELECT version FROM schema_migrations "
         "WHERE version='0049_c7_learning_activity_and_business_calendar.sql'"
