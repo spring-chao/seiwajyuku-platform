@@ -319,6 +319,7 @@ jobs:
       - name: Verify MySQL rollback preserves legacy data
         run: |
           for rollback in \
+            migrations/rollback/mysql/0051_iam2_staff_authorization.down.sql \
             migrations/rollback/mysql/0020_member_company_headcount_and_tenure_override.down.sql \
             migrations/rollback/mysql/0019_member_service_signal_feedback.down.sql \
             migrations/rollback/mysql/0018_legacy_member_activity_facts.down.sql \
@@ -334,7 +335,7 @@ jobs:
           done
           new_tables="$(docker exec "${{ job.services.mysql.id }}" \
             mysql -N -uroot -pci-root-password seiwajyuku_restore \
-            -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('operating_institutions','person_profiles','account_person_links','operations_employments','operations_position_assignments','employee_service_responsibilities','volunteer_appointments','technical_admin_assignments','followup_service_invitations','followup_collaborators','member_change_history','member_merge_history','member_activity_facts','member_service_signal_feedback');")"
+            -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('operating_institutions','person_profiles','account_person_links','operations_employments','operations_position_assignments','employee_service_responsibilities','volunteer_appointments','technical_admin_assignments','followup_service_invitations','followup_collaborators','member_change_history','member_merge_history','member_activity_facts','member_service_signal_feedback','employee_profile_details','employee_authorization_grants');")"
           legacy_tables="$(docker exec "${{ job.services.mysql.id }}" \
             mysql -N -uroot -pci-root-password seiwajyuku_restore \
             -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('members','member_org_relations','attendance_records','attendance_score_records','followup_tasks','audit_logs');")"
