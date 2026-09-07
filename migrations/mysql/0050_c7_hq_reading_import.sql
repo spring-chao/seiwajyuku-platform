@@ -1,5 +1,5 @@
 -- 0050: C7.1.2 HQ daily-reading import batches, source identities, and observations.
--- This migration stores traceable source facts only; it creates no ledger entries.
+-- This migration stores traceable source facts only and creates no ledger entries.
 
 CREATE TABLE IF NOT EXISTS hq_reading_import_batches (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
