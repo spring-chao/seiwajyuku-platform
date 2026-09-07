@@ -461,6 +461,7 @@ def record_learning_activity_fact(
     title: str | None = None,
     metadata: dict[str, Any] | None = None,
     binding_id: int | None = None,
+    _allow_controlled_source: bool = False,
 ) -> dict[str, Any]:
     """Persist one source fact, never a score or a ledger entry.
 
@@ -491,6 +492,18 @@ def record_learning_activity_fact(
     final_source_id = str(source_id or "").strip()
     if not SOURCE_TYPE_RE.fullmatch(final_source_type):
         raise LearningCreditError("事实来源类型格式不正确")
+    if (
+        final_type == DAILY_READING
+        and final_source_type == "HQ_READING_EXPORT"
+        and not _allow_controlled_source
+    ):
+        raise LearningCreditError("总部每日读书事实必须通过受控Excel导入入口")
+    if (
+        final_type == EXCELLENT_SHARE
+        and final_source_type == "EXCELLENT_SHARE_MANUAL_VERIFIED"
+        and not _allow_controlled_source
+    ):
+        raise LearningCreditError("手工核验优秀分享必须通过受控核验入口")
     if not final_source_id or len(final_source_id) > 255:
         raise LearningCreditError("事实来源编号不能为空且不能超过255个字符")
     if title is not None and len(str(title)) > 255:
@@ -550,7 +563,7 @@ def record_learning_activity_fact(
                     "metadata_json",
                 )
             }
-            if all(str(comparable.get(key)) == str(fact.get(key)) for key in fact):
+            if all(str(comparable.get(key)) == str(fact.get(key)) for key in comparable):
                 result = _activity_fact_payload(existing)
                 result["duplicate"] = True
                 return result

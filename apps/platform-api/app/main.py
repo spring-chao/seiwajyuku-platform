@@ -81,6 +81,10 @@ def read_only_request_allowed(method: str, path: str) -> bool:
     return method == "POST" and (
         path in READ_ONLY_ALLOWED_POST_PATHS
         or any(path.startswith(item) for item in READ_ONLY_ALLOWED_POST_PATHS if item.endswith("/"))
+        or (
+            path.startswith("/api/v1/learning-credits/hq-reading/")
+            and path.endswith("/dry-run")
+        )
         or path.startswith("/api/v1/members/")
         and path.endswith("/birthday-greeting-draft")
     )

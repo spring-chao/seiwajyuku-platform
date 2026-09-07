@@ -186,7 +186,8 @@ jobs:
           path: b21-mysql.xml
 
   learning-credit-mysql:
-    # Disposable, isolated MySQL database for the C7.1.1 migration and
+    # Disposable, isolated MySQL database for the C7.1.2 and C7.1.1 migration
+    # gates.
     # rollback gate.  This job never uses production credentials or data.
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -223,16 +224,17 @@ jobs:
           cache: pip
           cache-dependency-path: apps/platform-api/requirements.txt
       - run: pip install -r apps/platform-api/requirements.txt
-      - name: Run C7.1.1 isolated MySQL migration, parity and safe rollback gate
+      - name: Run C7.1.2 HQ-reading import and C7.1.1 isolated MySQL gates
         run: >-
           python -m pytest
+          apps/platform-api/tests/test_c7_1_2_mysql_reconciliation.py
           apps/platform-api/tests/test_c7_1_1_mysql_reconciliation.py
-          -q --junitxml=c7-1-1-mysql.xml
+          -q --junitxml=c7-1-2-mysql.xml
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: c7-1-1-mysql-results
-          path: c7-1-1-mysql.xml
+          name: c7-1-2-mysql-results
+          path: c7-1-2-mysql.xml
           if-no-files-found: warn
 
   mysql-staging:

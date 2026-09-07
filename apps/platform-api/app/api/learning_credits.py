@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.auth import require_permission
@@ -25,6 +25,12 @@ from app.services.learning_activity_credits import (
     get_business_calendar,
     record_learning_activity_fact,
     save_business_calendar,
+)
+from app.services.hq_reading_import import (
+    confirm_hq_reading_identities,
+    dry_run_hq_reading_import,
+    import_hq_reading_workbook,
+    record_manual_verified_excellent_share,
 )
 
 
@@ -52,6 +58,29 @@ class LearningActivityFactPayload(BaseModel):
     binding_id: int | None = Field(default=None, gt=0)
 
 
+class HqIdentityConfirmation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_identity_key: str = Field(min_length=1, max_length=255)
+    member_id: int = Field(gt=0)
+
+
+class HqIdentityConfirmationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmations: list[HqIdentityConfirmation] = Field(min_length=1, max_length=500)
+
+
+class ManualExcellentSharePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    member_id: int = Field(gt=0)
+    class_org_unit_id: str = Field(min_length=1, max_length=64)
+    occurred_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    note: str | None = Field(default=None, max_length=1000)
+    evidence: str | None = Field(default=None, max_length=1000)
+
+
 class BusinessCalendarDayPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -75,6 +104,80 @@ def _error(exc: Exception) -> HTTPException:
     if isinstance(exc, PermissionError):
         return HTTPException(403, str(exc))
     return HTTPException(400, str(exc))
+
+
+def _read_hq_workbook_name(workbook: UploadFile) -> str:
+    if not (workbook.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(400, "总部每日读书导入只接受 .xlsx 工作簿")
+    return workbook.filename or "hq-reading-export.xlsx"
+
+
+@router.post("/hq-reading/import")
+async def import_hq_reading(
+    target_class_org_unit_id: str = Form(..., min_length=1, max_length=64),
+    workbook: UploadFile = File(...),
+    user: dict = Depends(require_permission("plans:hq_reading_import_manage")),
+) -> dict:
+    filename = _read_hq_workbook_name(workbook)
+    content = await workbook.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(400, "总部每日读书工作簿超过20MB限制")
+    try:
+        data = import_hq_reading_workbook(
+            actor_user_id=user["id"],
+            target_class_org_unit_id=target_class_org_unit_id,
+            original_filename=filename,
+            content=content,
+        )
+        return {"success": True, "data": data}
+    except (LearningCreditError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/hq-reading/{batch_id}/confirm-identities")
+def confirm_hq_reading(
+    batch_id: int,
+    payload: HqIdentityConfirmationPayload,
+    user: dict = Depends(require_permission("plans:hq_reading_import_manage")),
+) -> dict:
+    try:
+        data = confirm_hq_reading_identities(
+            actor_user_id=user["id"],
+            batch_id=batch_id,
+            confirmations=[item.model_dump() for item in payload.confirmations],
+        )
+        return {"success": True, "data": data}
+    except (LearningCreditError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/hq-reading/{batch_id}/dry-run")
+def dry_run_hq_reading(
+    batch_id: int,
+    limit: int = Query(default=500, ge=1, le=5000),
+    user: dict = Depends(require_permission("plans:credit_settlement_preview")),
+) -> dict:
+    try:
+        data = dry_run_hq_reading_import(
+            actor_user_id=user["id"], batch_id=batch_id, limit=limit
+        )
+        return {"success": True, "data": data}
+    except (LearningCreditError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/excellent-shares/manual-verified")
+def create_manual_verified_excellent_share(
+    payload: ManualExcellentSharePayload,
+    user: dict = Depends(require_permission("plans:hq_reading_import_manage")),
+) -> dict:
+    try:
+        data = record_manual_verified_excellent_share(
+            actor_user_id=user["id"], **payload.model_dump()
+        )
+        return {"success": True, "data": data}
+    except (LearningCreditError, PermissionError) as exc:
+        raise _error(exc) from exc
 
 
 @router.post("/dry-run/daily-reading")
