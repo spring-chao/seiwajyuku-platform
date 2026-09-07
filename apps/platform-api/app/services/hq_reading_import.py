@@ -67,7 +67,7 @@ _HEADER_ALIASES: dict[str, set[str]] = {
     "group": {"小组", "所属小组", "组别", "学习小组", "group", "groupname"},
     "recording": {"录音", "录音状态", "录音完成", "录音情况", "recording", "recordingstatus"},
     "masked_account": {
-        "账号", "脱敏账号", "会员账号", "学号", "编号", "手机号", "手机号脱敏",
+        "账户", "账号", "脱敏账号", "会员账号", "学号", "编号", "手机号", "手机号脱敏",
         "maskedaccount", "account", "membercode",
     },
     "is_staff": {"工作人员", "人员类型", "身份", "是否工作人员", "staff", "staffflag"},

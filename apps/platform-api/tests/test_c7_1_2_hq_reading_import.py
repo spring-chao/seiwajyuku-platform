@@ -615,6 +615,24 @@ def test_only_recording_field_controls_completion_and_dates_are_business_dates()
     assert all(row["occurred_on"] == "2026-03-02" for row in parsed["rows"])
 
 
+def test_real_world_account_header_is_used_for_identity_matching() -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "导出数据"
+    sheet.append(["姓名", "账户", "小组", "日期", "录音"])
+    sheet.append(["真实文件学员", "150****0566", "1组", "2026-08-31", "按时完成"])
+    output = BytesIO()
+    workbook.save(output)
+
+    parsed = parse_hq_reading_workbook(
+        output.getvalue(), target_class_org_unit_id="class"
+    )
+
+    assert parsed["row_count"] == 1
+    assert parsed["rows"][0]["masked_account"] == "150****0566"
+    assert parsed["rows"][0]["recording_status"] == "COMPLETE"
+
+
 def test_same_member_same_date_collapses_to_one_daily_credit_even_with_two_source_facts() -> None:
     fixture = _hq_fixture(
         specs=[
