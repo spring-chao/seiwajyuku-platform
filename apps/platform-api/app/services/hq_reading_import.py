@@ -373,8 +373,110 @@ def _group_type(source_group_name: str | None, class_name: str) -> str:
     return UNKNOWN
 
 
+def _window_contains(
+    row: dict[str, Any],
+    *,
+    occurred_on: date,
+    start_field: str,
+    end_field: str,
+) -> bool:
+    """Return whether a stored date window covers one source business date.
+
+    MySQL can return native ``date`` values while SQLite returns ISO text, so
+    use the same parser as the workbook instead of comparing driver-specific
+    representations. Invalid master-data windows fail closed.
+    """
+
+    try:
+        starts = (
+            _parse_date(row.get(start_field), start_field)
+            if row.get(start_field) not in (None, "")
+            else None
+        )
+        ends = (
+            _parse_date(row.get(end_field), end_field)
+            if row.get(end_field) not in (None, "")
+            else None
+        )
+    except LearningCreditError:
+        return False
+    return (starts is None or starts <= occurred_on) and (
+        ends is None or ends >= occurred_on
+    )
+
+
+def _organization_covers_dates(
+    row: dict[str, Any], *, occurred_dates: list[date]
+) -> bool:
+    return bool(occurred_dates) and all(
+        _window_contains(
+            row,
+            occurred_on=occurred_on,
+            start_field="active_from",
+            end_field="active_until",
+        )
+        for occurred_on in occurred_dates
+    )
+
+
+def _relation_covers_dates(
+    connection,
+    *,
+    member_id: int,
+    org_unit_id: str,
+    relation_type: str,
+    occurred_dates: list[date],
+) -> bool:
+    """Require exactly one effective relation for every actual source date.
+
+    Candidate selection must not offer a member who joined later, left
+    earlier, or has an ambiguous overlapping relation in the source window.
+    """
+
+    rows = [
+        dict(row)
+        for row in execute(
+            connection,
+            "SELECT r.valid_from, r.valid_until, o.active_from, o.active_until "
+            "FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id "
+            "WHERE r.member_id=? AND r.org_unit_id=? AND r.relation_type=?",
+            (member_id, org_unit_id, relation_type),
+        ).fetchall()
+    ]
+    if not rows or not occurred_dates:
+        return False
+    for occurred_on in occurred_dates:
+        effective = [
+            row
+            for row in rows
+            if _window_contains(
+                row,
+                occurred_on=occurred_on,
+                start_field="valid_from",
+                end_field="valid_until",
+            )
+            and _window_contains(
+                row,
+                occurred_on=occurred_on,
+                start_field="active_from",
+                end_field="active_until",
+            )
+        ]
+        if len(effective) != 1:
+            return False
+    return True
+
+
+def _occurrence_dates(rows: list[dict[str, Any]]) -> list[date]:
+    return sorted({_parse_date(row["occurred_on"]) for row in rows})
+
+
 def _group_mapping(
-    connection, *, class_row: dict[str, Any], source_group_name: str | None
+    connection,
+    *,
+    class_row: dict[str, Any],
+    source_group_name: str | None,
+    occurred_dates: list[date],
 ) -> tuple[str | None, str, str | None]:
     group_type = _group_type(source_group_name, str(class_row["name"]))
     source = _compact(source_group_name)
@@ -386,37 +488,56 @@ def _group_mapping(
         names.add(source[len(class_name) :])
     groups = execute(
         connection,
-        "SELECT id, name FROM org_units "
-        "WHERE parent_id=? AND unit_type='GROUP' AND is_active=1",
+        "SELECT id, name, active_from, active_until FROM org_units "
+        "WHERE parent_id=? AND unit_type='GROUP'",
         (class_row["id"],),
     ).fetchall()
-    matches = [row for row in groups if _compact(row["name"]) in names]
+    matches = [
+        row
+        for row in groups
+        if _compact(row["name"]) in names
+        and _organization_covers_dates(dict(row), occurred_dates=occurred_dates)
+    ]
     if len(matches) != 1:
         return None, group_type, "GROUP_MAPPING_MISSING"
     return str(matches[0]["id"]), group_type, None
 
 
 def _member_candidates(
-    connection, *, class_id: str, mapped_group_id: str | None, name: str
+    connection,
+    *,
+    class_id: str,
+    mapped_group_id: str | None,
+    name: str,
+    occurred_dates: list[date],
 ) -> list[dict[str, Any]]:
-    params: list[Any] = [class_id, name]
-    group_clause = ""
-    if mapped_group_id:
-        group_clause = (
-            " AND EXISTS (SELECT 1 FROM member_org_relations gr "
-            "WHERE gr.member_id=m.id AND gr.org_unit_id=? "
-            "AND gr.relation_type='STUDY_GROUP')"
-        )
-        params.append(mapped_group_id)
     rows = execute(
         connection,
         "SELECT DISTINCT m.id, m.member_code, m.name, m.phone_masked, m.phone_last4 "
-        "FROM members m JOIN member_org_relations cr ON cr.member_id=m.id "
-        "WHERE cr.org_unit_id=? AND cr.relation_type='STUDY_CLASS' "
-        "AND m.name=?" + group_clause + " ORDER BY m.id",
-        tuple(params),
+        "FROM members m WHERE m.name=? ORDER BY m.id",
+        (name,),
     ).fetchall()
-    return [dict(row) for row in rows]
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        member_id = int(row["id"])
+        if not _relation_covers_dates(
+            connection,
+            member_id=member_id,
+            org_unit_id=class_id,
+            relation_type="STUDY_CLASS",
+            occurred_dates=occurred_dates,
+        ):
+            continue
+        if mapped_group_id and not _relation_covers_dates(
+            connection,
+            member_id=member_id,
+            org_unit_id=mapped_group_id,
+            relation_type="STUDY_GROUP",
+            occurred_dates=occurred_dates,
+        ):
+            continue
+        result.append(dict(row))
+    return result
 
 
 def _account_matches(source: str | None, member: dict[str, Any]) -> bool:
@@ -452,6 +573,7 @@ def _match_person(
     person: dict[str, Any],
     mapped_group_id: str | None,
     group_reason: str | None,
+    occurred_dates: list[date],
 ) -> dict[str, Any]:
     key = person["source_identity_key"]
     if group_reason:
@@ -485,6 +607,7 @@ def _match_person(
             class_id=str(class_row["id"]),
             mapped_group_id=mapped_group_id,
             name=person["name"],
+            occurred_dates=occurred_dates,
         )
         if not any(int(candidate["id"]) == int(existing_dict["member_id"]) for candidate in candidates):
             # The source identity is already permanently bound.  If the
@@ -497,6 +620,7 @@ def _match_person(
                 class_id=str(class_row["id"]),
                 mapped_group_id=None,
                 name=person["name"],
+                occurred_dates=occurred_dates,
             )
             if any(
                 int(candidate["id"]) == int(existing_dict["member_id"])
@@ -529,6 +653,7 @@ def _match_person(
         class_id=str(class_row["id"]),
         mapped_group_id=mapped_group_id,
         name=person["name"],
+        occurred_dates=occurred_dates,
     )
     if person.get("masked_account"):
         account_candidates = [
@@ -578,9 +703,18 @@ def _group_relations_at(
         "JOIN org_units g ON g.id=r.org_unit_id "
         "WHERE r.member_id=? AND r.relation_type='STUDY_GROUP' "
         "AND g.parent_id=? AND g.unit_type='GROUP' "
+        "AND (g.active_from IS NULL OR g.active_from<=?) "
+        "AND (g.active_until IS NULL OR g.active_until>=?) "
         "AND (r.valid_from IS NULL OR r.valid_from<=?) "
         "AND (r.valid_until IS NULL OR r.valid_until>=?)",
-        (member_id, class_id, occurred_on.isoformat(), occurred_on.isoformat()),
+        (
+            member_id,
+            class_id,
+            occurred_on.isoformat(),
+            occurred_on.isoformat(),
+            occurred_on.isoformat(),
+            occurred_on.isoformat(),
+        ),
     ).fetchall()
     return [str(row["org_unit_id"]) for row in rows]
 
@@ -1251,11 +1385,12 @@ def import_hq_reading_workbook(
         person_mapping: dict[str, tuple[str | None, str, str | None]] = {}
         for key in sorted(people):
             person = people[key]
-            first = person["rows"][0]
+            occurred_dates = _occurrence_dates(person["rows"])
             mapped_group_id, group_type, group_reason = _group_mapping(
                 connection,
                 class_row=class_row,
                 source_group_name=person.get("group"),
+                occurred_dates=occurred_dates,
             )
             person_mapping[key] = (mapped_group_id, group_type, group_reason)
             if person.get("person_conflict"):
@@ -1273,6 +1408,7 @@ def import_hq_reading_workbook(
                     person=person,
                     mapped_group_id=mapped_group_id,
                     group_reason=group_reason,
+                    occurred_dates=occurred_dates,
                 )
             person_matches[key] = match
             person_views.append(
@@ -1396,13 +1532,19 @@ def _load_batch(connection, batch_id: int) -> dict[str, Any]:
 
 
 def _validate_confirm_member(
-    connection, *, class_id: str, observation: dict[str, Any], member_id: int
+    connection,
+    *,
+    class_id: str,
+    observations: list[dict[str, Any]],
+    member_id: int,
 ) -> dict[str, Any]:
+    observation = observations[0]
     candidates = _member_candidates(
         connection,
         class_id=class_id,
         mapped_group_id=observation.get("mapped_group_org_unit_id"),
         name=observation["source_name"],
+        occurred_dates=_occurrence_dates(observations),
     )
     member = next((item for item in candidates if int(item["id"]) == int(member_id)), None)
     if not member:
@@ -1460,7 +1602,7 @@ def confirm_hq_reading_identities(
             member = _validate_confirm_member(
                 connection,
                 class_id=batch["target_class_org_unit_id"],
-                observation=first,
+                observations=observations,
                 member_id=member_id,
             )
             existing = execute(

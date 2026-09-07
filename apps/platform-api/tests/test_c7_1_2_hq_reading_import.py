@@ -381,6 +381,134 @@ def test_group_types_drive_personal_and_class_rate_flags() -> None:
     ]
 
 
+def test_historical_group_node_is_valid_for_source_date_even_when_not_currently_active() -> None:
+    fixture = _hq_fixture(
+        specs=[
+            {
+                "key": "learner",
+                "name": "历史小组学员",
+                "group": "1组",
+                "masked_account": "138****5111",
+                "last4": "5111",
+            }
+        ]
+    )
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE org_units SET is_active=0, active_from='2020-01-01', "
+            "active_until='2026-03-02' WHERE id=?",
+            (fixture["group_ids"]["1组"],),
+        )
+
+    imported = _import(
+        fixture,
+        [_row(name="历史小组学员", occurred_on="2026-03-02", account="138****5111")],
+    )
+    identity = imported["identities"][0]
+    assert identity["mapped_group_org_unit_id"] == fixture["group_ids"]["1组"]
+    assert identity["match_status"] == "AUTO_MATCHED"
+
+    _confirm(
+        imported,
+        {("历史小组学员", "1组", "138****5111"): fixture["member_ids"]["learner"]},
+    )
+    observation = _observations(_batch_id(imported))[0]
+    assert observation["personal_credit_eligible"] == 1
+    assert observation["class_rate_denominator_eligible"] == 1
+    assert _hq_fact_count(fixture) == 1
+
+
+def test_member_joining_after_source_date_is_not_a_candidate_or_confirmable() -> None:
+    fixture = _hq_fixture(
+        specs=[
+            {
+                "key": "later",
+                "name": "后来入班学员",
+                "group": "1组",
+                "masked_account": "138****5222",
+                "last4": "5222",
+            }
+        ]
+    )
+    member_id = fixture["member_ids"]["later"]
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE member_org_relations SET valid_from='2026-03-03' "
+            "WHERE member_id=? AND relation_type='STUDY_CLASS'",
+            (member_id,),
+        )
+        execute(
+            connection,
+            "UPDATE member_org_relations SET valid_from='2026-03-03' "
+            "WHERE member_id=? AND relation_type='STUDY_GROUP'",
+            (member_id,),
+        )
+
+    imported = _import(
+        fixture,
+        [_row(name="后来入班学员", occurred_on="2026-03-02", account="138****5222")],
+    )
+    assert imported["identities"][0]["match_status"] == "MEMBER_MAPPING_REQUIRED"
+    with pytest.raises(LearningCreditError, match="不能建立"):
+        _confirm(
+            imported,
+            {("后来入班学员", "1组", "138****5222"): member_id},
+        )
+    assert _hq_fact_count(fixture) == 0
+    assert int(
+        fetch_one(
+            "SELECT COUNT(*) AS n FROM hq_reading_source_identities "
+            "WHERE target_class_org_unit_id=?",
+            (fixture["class_id"],),
+        )["n"]
+    ) == 0
+
+
+def test_unresolved_no_group_identity_does_not_block_regular_group_dry_run() -> None:
+    fixture = _hq_fixture(
+        specs=[{"key": "regular", "name": "正常组学员", "group": "1组"}]
+    )
+    imported = _import(
+        fixture,
+        [
+            _row(name="正常组学员"),
+            _row(name="空小组未匹配", group=None),
+        ],
+    )
+    identities = {item["source_name"]: item for item in imported["identities"]}
+    assert identities["空小组未匹配"]["match_status"] == "MEMBER_MAPPING_REQUIRED"
+
+    _confirm(
+        imported,
+        {("正常组学员", "1组", None): fixture["member_ids"]["regular"]},
+        names={"正常组学员"},
+    )
+    calendar_id = _calendar(fixture, {"2026-03-02": "NORMAL_WORKDAY"})
+    try:
+        preview = dry_run_hq_reading_import(
+            actor_user_id=_admin_id(), batch_id=_batch_id(imported)
+        )
+    finally:
+        _remove_calendar(calendar_id)
+    details = {row["source_name"]: row for row in preview["details"]}
+    assert details["正常组学员"]["projected_status"] == "READY"
+    assert details["空小组未匹配"]["projected_status"] == "BLOCKED"
+    assert details["空小组未匹配"]["personal_credit_eligible"] is False
+    assert details["空小组未匹配"]["class_rate_denominator_eligible"] is False
+    assert preview["class_rates"] == [
+        {
+            "occurred_on": "2026-03-02",
+            "denominator_person_count": 1,
+            "numerator_person_count": 1,
+            "rate": 1.0,
+            "denominator_basis": "unique_person_id",
+            "numerator_basis": "unique_person_id",
+        }
+    ]
+
+
 def test_matching_uses_group_and_masked_account_and_never_name_only() -> None:
     fixture = _hq_fixture(
         specs=[

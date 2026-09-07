@@ -759,8 +759,9 @@ def _member_relation_reason(
 ) -> str | None:
     rows = execute(
         connection,
-        "SELECT valid_from, valid_until FROM member_org_relations "
-        "WHERE member_id=? AND org_unit_id=? AND relation_type='STUDY_CLASS'",
+        "SELECT r.valid_from, r.valid_until, o.active_from, o.active_until "
+        "FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id "
+        "WHERE r.member_id=? AND r.org_unit_id=? AND r.relation_type='STUDY_CLASS'",
         (member_id, class_org_unit_id),
     ).fetchall()
     active = []
@@ -768,10 +769,14 @@ def _member_relation_reason(
         try:
             valid_from = _parse_optional_date(row["valid_from"])
             valid_until = _parse_optional_date(row["valid_until"])
+            active_from = _parse_optional_date(row["active_from"])
+            active_until = _parse_optional_date(row["active_until"])
         except LearningCreditError:
             return "MEMBER_CLASS_RELATION_INVALID"
         if (valid_from is None or valid_from <= occurred_on) and (
             valid_until is None or valid_until >= occurred_on
+        ) and (active_from is None or active_from <= occurred_on) and (
+            active_until is None or active_until >= occurred_on
         ):
             active.append(row)
     if not active:
