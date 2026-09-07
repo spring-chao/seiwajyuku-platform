@@ -770,13 +770,23 @@ def test_cycle_coverage_exposes_member_master_gaps_instead_of_hiding_them() -> N
         ),
     }
     with transaction() as connection:
-        execute(
+        # Maintaining a past renewal month now creates a single audited
+        # historical cycle.  Keep the fixture deterministic without trying to
+        # insert a second row against the deliberate member/year uniqueness
+        # constraint.
+        existing = execute(
             connection,
-            "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, "
-            "status, created_at, updated_at) VALUES (?, ?, ?, 8, "
-            "'PENDING_FIRST_CONTACT', ?, ?)",
-            (member_ids["synced"], year, org_id, now, now),
-        )
+            "SELECT id FROM renewal_cycles WHERE member_id=? AND renewal_year=?",
+            (member_ids["synced"], year),
+        ).fetchone()
+        if not existing:
+            execute(
+                connection,
+                "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, "
+                "status, created_at, updated_at) VALUES (?, ?, ?, 8, "
+                "'PENDING_FIRST_CONTACT', ?, ?)",
+                (member_ids["synced"], year, org_id, now, now),
+            )
 
     coverage = list_cycle_coverage(
         admin["id"],

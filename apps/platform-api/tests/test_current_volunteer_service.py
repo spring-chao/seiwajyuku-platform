@@ -210,13 +210,24 @@ def test_edit_profile_does_not_present_inactive_group_as_current_formal_scope() 
             (data["group_id"],),
         )
 
-    profile = get_member_edit_profile(int(data["member_id"]), actor)
-    assert profile["group_org_unit_id"] is None
-    assert profile["group_org_name"] is None
-    with pytest.raises(ValueError, match="正式小组"):
-        set_member_current_volunteer_position(
-            actor, int(data["member_id"]), "volunteer_group_leader"
-        )
+    try:
+        profile = get_member_edit_profile(int(data["member_id"]), actor)
+        assert profile["group_org_unit_id"] is None
+        assert profile["group_org_name"] is None
+        with pytest.raises(ValueError, match="正式小组"):
+            set_member_current_volunteer_position(
+                actor, int(data["member_id"]), "volunteer_group_leader"
+            )
+    finally:
+        # The suite intentionally shares an isolated schema.  Restore the
+        # test-only state so aggregate roster integrity checks remain about
+        # their own fixtures, not this negative-path setup.
+        with transaction() as connection:
+            execute(
+                connection,
+                "UPDATE org_units SET is_active=1 WHERE id=?",
+                (data["group_id"],),
+            )
 
 
 def test_date_only_group_relation_is_current_for_profile_and_group_role() -> None:

@@ -401,22 +401,30 @@ def test_historical_group_node_is_valid_for_source_date_even_when_not_currently_
             (fixture["group_ids"]["1组"],),
         )
 
-    imported = _import(
-        fixture,
-        [_row(name="历史小组学员", occurred_on="2026-03-02", account="138****5111")],
-    )
-    identity = imported["identities"][0]
-    assert identity["mapped_group_org_unit_id"] == fixture["group_ids"]["1组"]
-    assert identity["match_status"] == "AUTO_MATCHED"
+    try:
+        imported = _import(
+            fixture,
+            [_row(name="历史小组学员", occurred_on="2026-03-02", account="138****5111")],
+        )
+        identity = imported["identities"][0]
+        assert identity["mapped_group_org_unit_id"] == fixture["group_ids"]["1组"]
+        assert identity["match_status"] == "AUTO_MATCHED"
 
-    _confirm(
-        imported,
-        {("历史小组学员", "1组", "138****5111"): fixture["member_ids"]["learner"]},
-    )
-    observation = _observations(_batch_id(imported))[0]
-    assert observation["personal_credit_eligible"] == 1
-    assert observation["class_rate_denominator_eligible"] == 1
-    assert _hq_fact_count(fixture) == 1
+        _confirm(
+            imported,
+            {("历史小组学员", "1组", "138****5111"): fixture["member_ids"]["learner"]},
+        )
+        observation = _observations(_batch_id(imported))[0]
+        assert observation["personal_credit_eligible"] == 1
+        assert observation["class_rate_denominator_eligible"] == 1
+        assert _hq_fact_count(fixture) == 1
+    finally:
+        with transaction() as connection:
+            execute(
+                connection,
+                "UPDATE org_units SET is_active=1, active_from=NULL, active_until=NULL WHERE id=?",
+                (fixture["group_ids"]["1组"],),
+            )
 
 
 def test_member_joining_after_source_date_is_not_a_candidate_or_confirmable() -> None:

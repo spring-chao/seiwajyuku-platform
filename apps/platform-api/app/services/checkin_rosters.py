@@ -182,7 +182,14 @@ def roster_integrity_summary() -> dict[str, Any]:
         "SELECT COUNT(*) AS invalid_count "
         "FROM member_org_relations mor "
         "LEFT JOIN org_units o ON o.id=mor.org_unit_id "
-        "WHERE o.id IS NULL OR o.is_active=0",
+        "WHERE o.id IS NULL OR ("
+        "(mor.valid_from IS NULL OR mor.valid_from<=?) "
+        "AND (mor.valid_until IS NULL OR mor.valid_until>=?) "
+        "AND (o.is_active=0 "
+        "OR (o.active_from IS NOT NULL AND o.active_from>?) "
+        "OR (o.active_until IS NOT NULL AND o.active_until<?))"
+        ")",
+        (now, now, now, now),
     )
     class_member_count = sum(row["member_count"] for row in options["classes"])
     group_member_count = sum(row["member_count"] for row in options["groups"])

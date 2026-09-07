@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
@@ -76,7 +76,10 @@ if (app && app.window?.navigationBarTitleText !== "学长服务助手") {
   errors.push("app.json navigationBarTitleText 必须为 学长服务助手");
 }
 
-for (const file of walk(appRoot).filter((item) => /\.(js|json|md|wxml|wxss)$/.test(item))) {
+for (const file of walk(appRoot).filter((item) =>
+  /\.(js|json|md|wxml|wxss)$/.test(item) &&
+  !relative(appRoot, item).startsWith(`tests${sep}`)
+)) {
   const source = readFileSync(file, "utf8");
   if (source.includes("盛和塾")) {
     errors.push(`${relative(repoRoot, file)} 仍包含禁止的用户可见品牌文案：盛和塾`);

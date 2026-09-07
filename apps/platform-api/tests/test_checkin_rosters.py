@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime
 from unittest.mock import patch
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -157,6 +158,37 @@ class CheckinRosterIntegrationTests(unittest.TestCase):
         self.assertEqual(data["invalid_relation_count"], 0)
         self.assertTrue(data["passed"])
         self.assertNotIn("members", data)
+
+    def test_integrity_summary_ignores_expired_relation_to_retired_group(self) -> None:
+        before = roster_integrity_summary()["invalid_relation_count"]
+        now = datetime.now(UTC).isoformat()
+        suffix = uuid4().hex[:10]
+        group_id = f"roster-retired-group-{suffix}"
+        with transaction() as connection:
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, "
+                "active_from, active_until, is_active, created_at, updated_at) "
+                "VALUES (?, ?, '历史名单组', 'GROUP', 'roster-class', "
+                "'2020-01-01', '2020-01-31', 0, ?, ?)",
+                (group_id, f"ROSTER_RETIRED_{suffix}", now, now),
+            )
+            member_id = execute(
+                connection,
+                "INSERT INTO members(member_code, name, org_unit_id, status, created_at, updated_at) "
+                "VALUES (?, '历史名单学长', 'roster-center', 'ACTIVE', ?, ?)",
+                (f"ROSTER_RETIRED_MEMBER_{suffix}", now, now),
+            ).lastrowid
+            execute(
+                connection,
+                "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, "
+                "is_primary, valid_from, valid_until, source_type, created_at, updated_at) "
+                "VALUES (?, ?, 'STUDY_GROUP', 1, '2020-01-01', '2020-01-31', 'TEST', ?, ?)",
+                (member_id, group_id, now, now),
+            )
+
+        after = roster_integrity_summary()["invalid_relation_count"]
+        self.assertEqual(after, before)
 
     def test_cross_class_members_require_exact_name_and_exclude_event_class(self) -> None:
         rows = cross_class_members(

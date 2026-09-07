@@ -72,7 +72,7 @@ test("meeting content is confirmed locally and submit payload has no legacy cour
   await page.loadContext();
   assert.equal(page.data.learningContentResults.length, 1);
   assert.equal(page.data.allRequiredContentCompleted, false);
-  page.toggleLearningContent({ currentTarget: { dataset: { contentKey: "content-1" } } });
+  page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: "content-1", completed: "yes" } } });
   assert.equal(page.data.allRequiredContentCompleted, true);
   page.data.photoPath = "/tmp/small.jpg";
   page.data.evidenceEnabled = true;
@@ -87,7 +87,7 @@ test("one photo is compressed; retry reuses server draft and does not reupload",
   const { page, calls, app, failNextSubmit } = harness();
   page.data.evidenceEnabled = true;
   await page.loadContext();
-  page.toggleLearningContent({ currentTarget: { dataset: { contentKey: "content-1" } } });
+  page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: "content-1", completed: "yes" } } });
   await page.choosePhoto();
   assert.equal(page.data.photoPath, "/tmp/small.jpg");
   assert.equal(calls.filter(item => item.compressed).length, 1);
@@ -106,7 +106,7 @@ test("concurrent taps submit once and points are never sent by the leader", asyn
   page.data.evidenceEnabled = true;
   page.data.photoPath = "/tmp/small.jpg";
   await page.loadContext();
-  page.toggleLearningContent({ currentTarget: { dataset: { contentKey: "content-1" } } });
+  page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: "content-1", completed: "yes" } } });
   await Promise.all([page.submit(), page.submit()]);
   const creates = calls.filter(item => item.path === "/api/v1/study-meetings");
   assert.equal(creates.length, 1);

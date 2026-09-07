@@ -34,6 +34,10 @@ def _seed_group_leader_fixture() -> dict:
     other_group_id = f"v12-group-other-{suffix}"
     other_class_id = f"v12-class-other-{suffix}"
     now = _stamp()
+    # These fixtures exercise an already-open learning round.  A fixed past
+    # boundary avoids a MySQL DATETIME precision race at the instant a test
+    # creates the cycle, and keeps historical C6 event fixtures in scope.
+    fixture_started_at = "2020-01-01T00:00:00+00:00"
     phone = _phone()
     phone_fields = protected_phone(phone)
     with transaction() as connection:
@@ -122,13 +126,13 @@ def _seed_group_leader_fixture() -> dict:
         binding_cursor = execute(
             connection,
             "INSERT INTO class_learning_bindings(class_org_unit_id, plan_version_id, cohort_month, started_at, status, created_at, updated_at) VALUES (?, ?, 1, ?, 'ACTIVE', ?, ?)",
-            (class_id, plan_id, now, now, now),
+            (class_id, plan_id, fixture_started_at, now, now),
         )
         binding_id = int(binding_cursor.lastrowid)
         cycle_cursor = execute(
             connection,
             "INSERT INTO class_learning_cycles(binding_id, class_org_unit_id, learning_cycle_index, plan_cycle_id, opened_at, class_meeting_status, group_meeting_policy, cycle_status, created_at, updated_at) VALUES (?, ?, 1, ?, ?, 'PLANNED', 'REQUIRED', 'OPEN', ?, ?)",
-            (binding_id, class_id, plan_cycle_id, now, now, now),
+            (binding_id, class_id, plan_cycle_id, fixture_started_at, now, now),
         )
         learning_cycle_id = int(cycle_cursor.lastrowid)
     return {
