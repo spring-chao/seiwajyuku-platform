@@ -24,6 +24,8 @@ PERMISSIONS = {
     "plans:credit_rules_manage": ("维护学习计划课程积分标准", "SENSITIVE"),
     "plans:credit_settlement_preview": ("预览学分结算与对账", "INTERNAL"),
     "plans:credit_settlement_manage": ("正式结算与学分冲销", "SENSITIVE"),
+    "plans:business_calendar_manage": ("维护年度工作日日历", "SENSITIVE"),
+    "plans:credit_activity_fact_manage": ("维护每日读书与优秀分享事实", "SENSITIVE"),
     "study_meetings:courses_edit": ("修正已提交学习会课程", "SENSITIVE"),
     "study_meetings:attendees_edit": ("修正已提交学习会参加人员", "SENSITIVE"),
     "plans:period_write": ("维护本区域年度MP", "SENSITIVE"),
@@ -58,7 +60,7 @@ ROLE_PERMISSIONS = {
     "operations_admin": {
         "study_meetings:courses_edit",
         "study_meetings:attendees_edit",
-        "org:read", "org:manage", "plans:read", "plans:credit_rules_manage", "plans:credit_settlement_preview", "plans:credit_settlement_manage", "plans:period_write", "plans:import_global", "plans:publish",
+        "org:read", "org:manage", "plans:read", "plans:credit_rules_manage", "plans:credit_settlement_preview", "plans:credit_settlement_manage", "plans:business_calendar_manage", "plans:credit_activity_fact_manage", "plans:period_write", "plans:import_global", "plans:publish",
         "members:read", "members:manage", "members:detail_view", "members:enterprise_view",
         "followups:manage", "exports:normal", "audit:read",
         "integrations:manage", "renewals:read", "renewals:manage",
@@ -99,7 +101,7 @@ ROLE_PERMISSIONS = {
         "enrollment:enroll",
     },
     "ops_center_learning": {
-        "org:read", "plans:read", "plans:credit_rules_manage", "plans:credit_settlement_preview", "plans:credit_settlement_manage", "members:read", "members:detail_view",
+        "org:read", "plans:read", "plans:credit_rules_manage", "plans:credit_settlement_preview", "plans:credit_settlement_manage", "plans:business_calendar_manage", "plans:credit_activity_fact_manage", "members:read", "members:detail_view",
         "followups:manage", "attendance:adjudicate",
     },
     "ops_center_development": {
@@ -108,7 +110,7 @@ ROLE_PERMISSIONS = {
         "enrollment:read", "enrollment:review", "enrollment:enroll",
     },
     "ops_center_management": {
-        "org:read", "plans:read", "plans:credit_rules_manage", "plans:credit_settlement_preview", "plans:credit_settlement_manage", "plans:period_write", "plans:publish",
+        "org:read", "plans:read", "plans:credit_rules_manage", "plans:credit_settlement_preview", "plans:credit_settlement_manage", "plans:business_calendar_manage", "plans:credit_activity_fact_manage", "plans:period_write", "plans:publish",
         "members:read", "audit:read",
     },
     "ops_center_data": {

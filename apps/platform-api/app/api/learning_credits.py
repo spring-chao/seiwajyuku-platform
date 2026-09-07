@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.auth import require_permission
 from app.services.learning_credits import (
@@ -17,6 +19,13 @@ from app.services.class_meeting_credits import (
     dry_run_class_meeting_settlement,
     dry_run_class_meetings,
 )
+from app.services.learning_activity_credits import (
+    dry_run_daily_reading,
+    dry_run_excellent_shares,
+    get_business_calendar,
+    record_learning_activity_fact,
+    save_business_calendar,
+)
 
 
 router = APIRouter(prefix="/api/v1/learning-credits", tags=["learning-credits"])
@@ -26,10 +35,139 @@ class ReversalPayload(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
 
 
+class LearningActivityFactPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    activity_type: str = Field(pattern="^(DAILY_READING|EXCELLENT_SHARE)$")
+    member_id: int = Field(gt=0)
+    class_org_unit_id: str = Field(min_length=1, max_length=64)
+    occurred_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    source_type: str = Field(min_length=1, max_length=128)
+    source_id: str = Field(min_length=1, max_length=255)
+    participation_status: str = Field(
+        default="RECORDED", pattern="^(RECORDED|CONFIRMED|REJECTED|CANCELLED)$"
+    )
+    title: str | None = Field(default=None, max_length=255)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    binding_id: int | None = Field(default=None, gt=0)
+
+
+class BusinessCalendarDayPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    business_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    day_type: str = Field(
+        pattern="^(NORMAL_WORKDAY|WEEKEND|HOLIDAY|ADJUSTED_WORKDAY)$"
+    )
+    note: str | None = Field(default=None, max_length=500)
+
+
+class BusinessCalendarPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    calendar_year: int = Field(ge=2000, le=2100)
+    version_label: str = Field(min_length=1, max_length=64)
+    status: str = Field(default="DRAFT", pattern="^(DRAFT|PUBLISHED)$")
+    days: list[BusinessCalendarDayPayload] = Field(default_factory=list, max_length=366)
+
+
 def _error(exc: Exception) -> HTTPException:
     if isinstance(exc, PermissionError):
         return HTTPException(403, str(exc))
     return HTTPException(400, str(exc))
+
+
+@router.post("/dry-run/daily-reading")
+def dry_run_daily_reading_activity(
+    member_id: int | None = Query(default=None, ge=1),
+    class_org_unit_id: str | None = Query(default=None, max_length=64),
+    occurred_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    occurred_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    limit: int = Query(default=500, ge=1, le=500),
+    user: dict = Depends(require_permission("plans:credit_settlement_preview")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": dry_run_daily_reading(
+                actor_user_id=user["id"],
+                member_id=member_id,
+                class_org_unit_id=class_org_unit_id,
+                occurred_from=occurred_from,
+                occurred_to=occurred_to,
+                limit=limit,
+            ),
+        }
+    except (LearningCreditError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/dry-run/excellent-shares")
+def dry_run_excellent_share_activity(
+    member_id: int | None = Query(default=None, ge=1),
+    class_org_unit_id: str | None = Query(default=None, max_length=64),
+    occurred_from: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    occurred_to: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    limit: int = Query(default=500, ge=1, le=500),
+    user: dict = Depends(require_permission("plans:credit_settlement_preview")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": dry_run_excellent_shares(
+                actor_user_id=user["id"],
+                member_id=member_id,
+                class_org_unit_id=class_org_unit_id,
+                occurred_from=occurred_from,
+                occurred_to=occurred_to,
+                limit=limit,
+            ),
+        }
+    except (LearningCreditError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/activity-facts")
+def create_learning_activity_fact(
+    payload: LearningActivityFactPayload,
+    user: dict = Depends(require_permission("plans:credit_activity_fact_manage")),
+) -> dict:
+    try:
+        data = record_learning_activity_fact(
+            actor_user_id=user["id"], **payload.model_dump()
+        )
+        return {"success": True, "data": data}
+    except (LearningCreditError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/business-calendars/{calendar_year}")
+def business_calendar(
+    calendar_year: int,
+    user: dict = Depends(require_permission("plans:credit_settlement_preview")),
+) -> dict:
+    try:
+        return {"success": True, "data": get_business_calendar(calendar_year=calendar_year)}
+    except (LearningCreditError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/business-calendars")
+def save_business_calendar_endpoint(
+    payload: BusinessCalendarPayload,
+    user: dict = Depends(require_permission("plans:business_calendar_manage")),
+) -> dict:
+    try:
+        data = save_business_calendar(
+            actor_user_id=user["id"],
+            calendar_year=payload.calendar_year,
+            version_label=payload.version_label,
+            status=payload.status,
+            days=[day.model_dump() for day in payload.days],
+        )
+        return {"success": True, "data": data}
+    except (LearningCreditError, PermissionError) as exc:
+        raise _error(exc) from exc
 
 
 @router.post("/dry-run/class-meetings/{event_group_id}")
