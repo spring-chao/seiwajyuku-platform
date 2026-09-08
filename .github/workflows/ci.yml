@@ -65,7 +65,7 @@ jobs:
           MINIPROGRAM_EXPECTED_ENVIRONMENT: PRODUCTION
           MINIPROGRAM_EXPECTED_API_BASE_URL: https://shengheshu-d2g2zyyl99f6c6fc2-1453587887.ap-shanghai.app.tcloudbase.com/platform
       - name: Study meeting plan, attendance and photo tests
-        run: node --test scripts/test_study_meeting_miniprogram.mjs scripts/test_home_identity_miniprogram.mjs scripts/test_miniprogram_portal.mjs scripts/test_profile_miniprogram.mjs apps/wechat-miniprogram/tests/current-volunteer-service.test.js apps/wechat-miniprogram/tests/enrollment-form.test.js apps/wechat-miniprogram/tests/learning-summary.test.js apps/wechat-miniprogram/tests/study-meeting-flow.test.js apps/wechat-miniprogram/tests/study-meeting-plan.test.js
+        run: node --test scripts/test_study_meeting_miniprogram.mjs scripts/test_home_identity_miniprogram.mjs scripts/test_miniprogram_portal.mjs scripts/test_profile_miniprogram.mjs apps/wechat-miniprogram/tests/current-volunteer-service.test.js apps/wechat-miniprogram/tests/enrollment-form.test.js apps/wechat-miniprogram/tests/learning-summary.test.js apps/wechat-miniprogram/tests/staff-mobile-operations.test.js apps/wechat-miniprogram/tests/study-meeting-flow.test.js apps/wechat-miniprogram/tests/study-meeting-plan.test.js
 
   cloud-function-cleanup:
     runs-on: ubuntu-latest
@@ -321,6 +321,7 @@ jobs:
       - name: Verify MySQL rollback preserves legacy data
         run: |
           for rollback in \
+            migrations/rollback/mysql/0053_volunteer2_service_organizations.down.sql \
             migrations/rollback/mysql/0051_iam2_staff_authorization.down.sql \
             migrations/rollback/mysql/0020_member_company_headcount_and_tenure_override.down.sql \
             migrations/rollback/mysql/0019_member_service_signal_feedback.down.sql \
@@ -337,7 +338,7 @@ jobs:
           done
           new_tables="$(docker exec "${{ job.services.mysql.id }}" \
             mysql -N -uroot -pci-root-password seiwajyuku_restore \
-            -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('operating_institutions','person_profiles','account_person_links','operations_employments','operations_position_assignments','employee_service_responsibilities','volunteer_appointments','technical_admin_assignments','followup_service_invitations','followup_collaborators','member_change_history','member_merge_history','member_activity_facts','member_service_signal_feedback','employee_profile_details','employee_authorization_grants');")"
+            -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('operating_institutions','person_profiles','account_person_links','operations_employments','operations_position_assignments','employee_service_responsibilities','volunteer_appointments','technical_admin_assignments','followup_service_invitations','followup_collaborators','member_change_history','member_merge_history','member_activity_facts','member_service_signal_feedback','employee_profile_details','employee_authorization_grants','volunteer_position_profiles','volunteer_service_units','volunteer_appointment_recommendation_rules','volunteer_appointment_links');")"
           legacy_tables="$(docker exec "${{ job.services.mysql.id }}" \
             mysql -N -uroot -pci-root-password seiwajyuku_restore \
             -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('members','member_org_relations','attendance_records','attendance_score_records','followup_tasks','audit_logs');")"

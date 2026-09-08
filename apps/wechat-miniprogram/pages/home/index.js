@@ -2,6 +2,23 @@ const app = getApp();
 const { request } = require("../../utils/request");
 const { resolveVolunteerServices } = require("../../utils/volunteer-services");
 
+function clearLocalSession() {
+  if (typeof app.clearPersonSession === "function") {
+    app.clearPersonSession();
+    return;
+  }
+  // Keep the shipped member-only pages and their lightweight test harnesses
+  // compatible while the app-level credential becomes person-scoped.
+  if (typeof app.clearMemberSession === "function") {
+    app.clearMemberSession();
+    return;
+  }
+  if (app.globalData) {
+    app.globalData.personSessionToken = "";
+    app.globalData.memberSessionToken = "";
+  }
+}
+
 Page({
   data: {
     loading: true,
@@ -64,7 +81,7 @@ Page({
           }
         } catch (error) {
           if (error.statusCode === 401) {
-            app.clearMemberSession();
+            clearLocalSession();
             next.identityState = "unbound";
             next.member = null;
           } else if (error.statusCode !== 403 && error.statusCode !== 404) {
@@ -77,7 +94,7 @@ Page({
             next.operationEntries = (workbench.data && workbench.data.entries) || [];
           } catch (error) {
             if (error.statusCode === 401) {
-              app.clearPersonSession();
+              clearLocalSession();
               next.identityState = "unbound";
               next.member = null;
               next.isEmployee = false;
@@ -89,7 +106,7 @@ Page({
       } catch (error) {
         if (!current()) return;
         if (error.statusCode === 401) {
-          app.clearMemberSession();
+          clearLocalSession();
           next.identityState = "unbound";
           next.member = null;
         } else {
@@ -165,7 +182,7 @@ Page({
         try {
           await request("/api/v1/wechat/member-bindings/revoke", { method: "POST", auth: true });
           this._homeLoadVersion = (this._homeLoadVersion || 0) + 1;
-          app.clearPersonSession();
+          clearLocalSession();
           this.setData({ member: null, identityState: "unbound", canManageStudyMeeting: false,
             isVolunteer: false, volunteerRoles: [], displayRole: "", displayScope: "", serviceMessage: "",
             bindingActionLabel: "重新绑定我的身份", isEmployee: false, operationEntries: [], identities: null });
