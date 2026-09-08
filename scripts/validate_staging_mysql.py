@@ -524,13 +524,17 @@ def main() -> int:
     seed_iam()
 
     candidates, issues = build_candidates()
-    if len(candidates) != 4 or len(issues) != 2:
+    # M003/M004 are real roster members used by the IAM2 volunteer fixtures.
+    # Their primary-region relations are valid backfill candidates, so the
+    # expected preview includes them in addition to M001's class/group rows
+    # and M002's primary-region row.
+    if len(candidates) != 6 or len(issues) != 2:
         raise AssertionError(
             {"candidate_count": len(candidates), "issue_count": len(issues)}
         )
     inserted = apply_candidates(candidates, actor_user_id=1)
     repeated = apply_candidates(candidates, actor_user_id=1)
-    if inserted != 4 or repeated != 0:
+    if inserted != 6 or repeated != 0:
         raise AssertionError({"inserted": inserted, "repeated": repeated})
 
     result = {

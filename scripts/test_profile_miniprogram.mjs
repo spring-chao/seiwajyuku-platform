@@ -82,8 +82,8 @@ test("profile uses member dates and formal volunteer endpoints", async () => {
       position_name: "辅导员",
       scope_name: "卓越组",
       status_name: "服务中",
-      starts_at: "2026-08-01T00:00:00+00:00",
-      ends_at: null
+      created_at: "2026-08-01T00:00:00+00:00",
+      ended_at: null
     }]
   });
 
@@ -93,7 +93,7 @@ test("profile uses member dates and formal volunteer endpoints", async () => {
   assert.notEqual(page.data.joinDateLabel, "暂未记录");
   assert.equal(page.data.currentVolunteerServices[0].positionName, "辅导员");
   assert.equal(page.data.currentVolunteerServices[0].scopeName, "卓越组");
-  assert.equal(page.data.volunteerAppointments[0].rangeLabel, "2026年8月 ～ 至今");
+  assert.equal(page.data.volunteerAppointments[0].rangeLabel, "系统确认：2026年8月");
   assert.equal(page.data.volunteerAppointments[0].statusName, "服务中");
   assert.ok(calls.includes("/api/v1/wechat/volunteer-services"));
   assert.ok(calls.includes("/api/v1/wechat/volunteer-history"));
