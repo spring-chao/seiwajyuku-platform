@@ -24,7 +24,19 @@ const assignment = position_name => ({
 
 function harness({ bound = false, assignments = [], meError, serviceError, meResponse, serviceResponse } = {}) {
   const calls = [];
-  const app = { globalData: { memberSessionToken: bound ? 'synthetic-session' : '' }, clearMemberSession() { this.globalData.memberSessionToken = ''; } };
+  const app = {
+    globalData: {
+      personSessionToken: bound ? 'synthetic-session' : '',
+      memberSessionToken: bound ? 'synthetic-session' : ''
+    },
+    clearPersonSession() {
+      this.globalData.personSessionToken = '';
+      this.globalData.memberSessionToken = '';
+    },
+    clearMemberSession() {
+      this.clearPersonSession();
+    }
+  };
   const request = async path => {
     calls.push(path);
     if (path.endsWith('/me')) { if (meError) throw meError; return meResponse ? meResponse() : { data: { member } }; }
@@ -97,6 +109,7 @@ test('successful revoke clears capabilities and restores applicant entry', async
   await page.loadHome();
   page.unbind();
   await page.modal.success({ confirm: true });
+  assert.equal(app.globalData.personSessionToken, '');
   assert.equal(app.globalData.memberSessionToken, '');
   assert.equal(page.data.displayRole, '');
   assert.equal(page.data.bindingActionLabel, '重新绑定我的身份');

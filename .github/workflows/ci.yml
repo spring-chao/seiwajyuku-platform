@@ -318,10 +318,64 @@ jobs:
           # relations, so the staging backfill contains six legacy relations.
           test "$source_counts" = "${expected_migration_count}:6:3:4"
           test "$restore_counts" = "$source_counts"
-      - name: Verify MySQL rollback preserves legacy data
+      - name: Verify Volunteer 2 guarded rollback on populated snapshot
         run: |
+          set -euo pipefail
+          mysql_container="${{ job.services.mysql.id }}"
+          docker exec "$mysql_container" \
+            mysql -uroot -pci-root-password \
+            -e "CREATE DATABASE seiwajyuku_rollback_empty CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
+          docker exec "$mysql_container" \
+            mysqldump -uroot -pci-root-password \
+            --no-data --routines --triggers seiwajyuku_restore \
+            | docker exec -i "$mysql_container" \
+              mysql -uroot -pci-root-password seiwajyuku_rollback_empty
+
+          # 0053 must be removed before any predecessor can drop
+          # volunteer_appointments.  Its own guard remains authoritative.
+          docker exec -i "$mysql_container" \
+            mysql -uroot -pci-root-password seiwajyuku_restore \
+            < migrations/rollback/mysql/0053_volunteer2_service_organizations.down.sql
+          volunteer2_tables="$(docker exec "$mysql_container" \
+            mysql -N -uroot -pci-root-password seiwajyuku_restore \
+            -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('volunteer_service_units','volunteer_position_profiles','volunteer_appointment_recommendation_rules','volunteer_appointment_links');")"
+          volunteer2_columns="$(docker exec "$mysql_container" \
+            mysql -N -uroot -pci-root-password seiwajyuku_restore \
+            -e "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND ((table_name='volunteer_appointments' AND column_name='volunteer_service_unit_id') OR (table_name='wechat_member_bindings' AND column_name IN ('person_id','verified_user_id')));")"
+          test "$volunteer2_tables" = "0"
+          test "$volunteer2_columns" = "0"
+
+          # The restored fixture contains formal member-linked appointments.
+          # 0052 must refuse to discard that authority data, and the failed
+          # attempt must not mutate the populated snapshot.
+          set +e
+          rollback_output="$(docker exec -i "$mysql_container" \
+            mysql -uroot -pci-root-password seiwajyuku_restore \
+            < migrations/rollback/mysql/0052_volunteer_membership_authority.down.sql 2>&1)"
+          rollback_status=$?
+          set -e
+          printf '%s\n' "$rollback_output"
+          test "$rollback_status" -ne 0
+          linked_appointments="$(docker exec "$mysql_container" \
+            mysql -N -uroot -pci-root-password seiwajyuku_restore \
+            -e "SELECT COUNT(*) FROM volunteer_appointments WHERE member_id IS NOT NULL;")"
+          member_id_columns="$(docker exec "$mysql_container" \
+            mysql -N -uroot -pci-root-password seiwajyuku_restore \
+            -e "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='volunteer_appointments' AND column_name='member_id';")"
+          legacy_counts="$(docker exec "$mysql_container" \
+            mysql -N -uroot -pci-root-password seiwajyuku_restore \
+            -e "SELECT CONCAT((SELECT COUNT(*) FROM member_org_relations),':',(SELECT COUNT(*) FROM attendance_score_records));")"
+          test "$linked_appointments" -gt 0
+          test "$member_id_columns" = "1"
+          test "$legacy_counts" = "6:3"
+
+      - name: Verify clean MySQL rollback schema
+        run: |
+          set -euo pipefail
+          mysql_container="${{ job.services.mysql.id }}"
           for rollback in \
             migrations/rollback/mysql/0053_volunteer2_service_organizations.down.sql \
+            migrations/rollback/mysql/0052_volunteer_membership_authority.down.sql \
             migrations/rollback/mysql/0051_iam2_staff_authorization.down.sql \
             migrations/rollback/mysql/0020_member_company_headcount_and_tenure_override.down.sql \
             migrations/rollback/mysql/0019_member_service_signal_feedback.down.sql \
@@ -333,29 +387,29 @@ jobs:
             migrations/rollback/mysql/0013_identity_multi_position_compat.down.sql \
             migrations/rollback/mysql/0012_followup_service_invitations.down.sql \
             migrations/rollback/mysql/0011_identity_appointments.down.sql; do
-            docker exec -i "${{ job.services.mysql.id }}" \
-              mysql -uroot -pci-root-password seiwajyuku_restore < "$rollback"
+            docker exec -i "$mysql_container" \
+              mysql -uroot -pci-root-password seiwajyuku_rollback_empty < "$rollback"
           done
-          new_tables="$(docker exec "${{ job.services.mysql.id }}" \
-            mysql -N -uroot -pci-root-password seiwajyuku_restore \
-            -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('operating_institutions','person_profiles','account_person_links','operations_employments','operations_position_assignments','employee_service_responsibilities','volunteer_appointments','technical_admin_assignments','followup_service_invitations','followup_collaborators','member_change_history','member_merge_history','member_activity_facts','member_service_signal_feedback','employee_profile_details','employee_authorization_grants','volunteer_position_profiles','volunteer_service_units','volunteer_appointment_recommendation_rules','volunteer_appointment_links');")"
-          legacy_tables="$(docker exec "${{ job.services.mysql.id }}" \
-            mysql -N -uroot -pci-root-password seiwajyuku_restore \
+          new_tables="$(docker exec "$mysql_container" \
+            mysql -N -uroot -pci-root-password seiwajyuku_rollback_empty \
+            -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('operating_institutions','person_profiles','account_person_links','operations_employments','operations_position_assignments','employee_service_responsibilities','volunteer_appointments','technical_admin_assignments','followup_service_invitations','followup_collaborators','member_change_history','member_merge_history','member_activity_facts','member_service_signal_feedback','employee_profile_details','employee_authorization_grants','volunteer_service_units','volunteer_position_profiles','volunteer_appointment_recommendation_rules','volunteer_appointment_links');")"
+          v2_columns="$(docker exec "$mysql_container" \
+            mysql -N -uroot -pci-root-password seiwajyuku_rollback_empty \
+            -e "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND ((table_name='volunteer_appointments' AND column_name IN ('member_id','volunteer_service_unit_id')) OR (table_name='wechat_member_bindings' AND column_name IN ('person_id','verified_user_id')));")"
+          legacy_tables="$(docker exec "$mysql_container" \
+            mysql -N -uroot -pci-root-password seiwajyuku_rollback_empty \
             -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('members','member_org_relations','attendance_records','attendance_score_records','followup_tasks','audit_logs');")"
-          renewal_columns="$(docker exec "${{ job.services.mysql.id }}" \
-            mysql -N -uroot -pci-root-password seiwajyuku_restore \
+          renewal_columns="$(docker exec "$mysql_container" \
+            mysql -N -uroot -pci-root-password seiwajyuku_rollback_empty \
             -e "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND ((table_name='renewal_import_batches' AND column_name='preview_ciphertext') OR (table_name='renewal_import_staging' AND column_name IN ('history_note_ciphertext','assistance_note_ciphertext','raw_json_ciphertext')));")"
-          phone_index="$(docker exec "${{ job.services.mysql.id }}" \
-            mysql -N -uroot -pci-root-password seiwajyuku_restore \
+          phone_index="$(docker exec "$mysql_container" \
+            mysql -N -uroot -pci-root-password seiwajyuku_rollback_empty \
             -e "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='members' AND index_name='uq_members_phone_hash';")"
-          legacy_counts="$(docker exec "${{ job.services.mysql.id }}" \
-            mysql -N -uroot -pci-root-password seiwajyuku_restore \
-            -e "SELECT CONCAT((SELECT COUNT(*) FROM member_org_relations),':',(SELECT COUNT(*) FROM attendance_score_records));")"
           test "$new_tables" = "0"
+          test "$v2_columns" = "0"
           test "$legacy_tables" = "6"
           test "$renewal_columns" = "0"
           test "$phone_index" = "0"
-          test "$legacy_counts" = "6:3"
 
   build-provenance:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
