@@ -347,6 +347,30 @@ export default [
         }
       },
       {
+        path: "/operations/volunteer-management",
+        name: "VolunteerManagement",
+        component: () => import("@/views/seiwajyuku/volunteer-management.vue"),
+        meta: {
+          title: "志工任职管理",
+          icon: "ep/connection",
+          showParent: true,
+          roles: [
+            "system_admin",
+            "technical_admin",
+            "operations_admin",
+            "ops_center_director",
+            "ops_center_operations",
+            "ops_center_learning",
+            "ops_center_development",
+            "employee_operations_lead",
+            "employee_operations_management",
+            "employee_member_management",
+            "employee_learning_management",
+            "employee_development_management"
+          ]
+        }
+      },
+      {
         path: "/operations/organization-management",
         name: "OrganizationManagement",
         component: () =>

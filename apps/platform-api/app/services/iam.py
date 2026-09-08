@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 import sqlite3
+from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 
@@ -321,6 +322,14 @@ _request_permission: ContextVar[str | None] = ContextVar(
     "iam_request_permission", default=None
 )
 
+# A mini-program worker is authenticated by a person-level WeChat binding,
+# not by issuing the browser's backend JWT into WeChat.  The temporary context
+# below lets existing business services evaluate the exact IAM2 grant selected
+# for the mobile action without creating a second mobile role/scope model.
+_mobile_iam_principal: ContextVar[dict | None] = ContextVar(
+    "iam_mobile_principal", default=None
+)
+
 
 def set_request_permission(permission: str) -> None:
     _request_permission.set(permission)
@@ -332,6 +341,112 @@ def clear_request_permission() -> None:
 
 def current_request_permission() -> str | None:
     return _request_permission.get()
+
+
+def current_mobile_iam_principal() -> dict | None:
+    return _mobile_iam_principal.get()
+
+
+def clear_mobile_iam_principal() -> None:
+    _mobile_iam_principal.set(None)
+
+
+@contextmanager
+def mobile_iam_context(principal: dict, permission: str | None = None):
+    """Apply one verified employee's IAM2 grants to an existing service call."""
+
+    principal_token = _mobile_iam_principal.set(principal)
+    permission_token = _request_permission.set(permission)
+    try:
+        yield
+    finally:
+        _request_permission.reset(permission_token)
+        _mobile_iam_principal.reset(principal_token)
+
+
+def resolve_employee_mobile_principal(
+    person_id: str,
+    *,
+    verified_user_id: int | None,
+) -> dict | None:
+    """Resolve a staff mobile identity strictly from live IAM2 facts.
+
+    A verified backend account is mandatory.  Employment dates and grant dates
+    remain archive fields here, matching the current IAM2 staff semantics;
+    account state, employment state and explicit grant state are the gates.
+    """
+
+    if not person_id or not verified_user_id:
+        return None
+    user = fetch_one(
+        "SELECT u.id, u.display_name, u.token_version, apl.person_id "
+        "FROM app_users u JOIN account_person_links apl ON apl.user_id=u.id "
+        "JOIN person_profiles p ON p.id=apl.person_id "
+        "WHERE u.id=? AND apl.person_id=? AND u.is_active=1 AND p.status='ACTIVE'",
+        (verified_user_id, person_id),
+    )
+    if not user:
+        return None
+    employments = fetch_all(
+        "SELECT oe.id, oi.name AS institution_name, oe.department_name "
+        "FROM operations_employments oe "
+        "JOIN operating_institutions oi ON oi.id=oe.institution_id "
+        "WHERE oe.person_id=? AND oe.employment_status='ACTIVE' ORDER BY oe.id DESC",
+        (person_id,),
+    )
+    if not employments:
+        return None
+    employment_ids = [int(row["id"]) for row in employments]
+    placeholders = ",".join("?" for _ in employment_ids)
+    grants = fetch_all(
+        "SELECT eag.id, eag.employment_id, eag.role_key, eag.org_unit_id, eag.scope_type, "
+        "eag.valid_from, eag.valid_until, eag.status "
+        "FROM employee_authorization_grants eag "
+        "JOIN roles r ON r.role_key=eag.role_key AND r.is_active=1 "
+        f"WHERE eag.employment_id IN ({placeholders}) AND eag.status='ACTIVE'",
+        tuple(employment_ids),
+    )
+    roles = sorted({row["role_key"] for row in grants})
+    permission_rows = (
+        fetch_all(
+            "SELECT DISTINCT rp.role_key, rp.permission_key FROM role_permissions rp "
+            "JOIN roles r ON r.role_key=rp.role_key AND r.is_active=1 "
+            f"WHERE rp.role_key IN ({','.join('?' for _ in roles)})",
+            tuple(roles),
+        )
+        if roles
+        else []
+    )
+    permissions_by_role: dict[str, set[str]] = {role: set() for role in roles}
+    for item in permission_rows:
+        permissions_by_role[item["role_key"]].add(item["permission_key"])
+    grants_with_permissions = [
+        {**dict(grant), "permissions": sorted(permissions_by_role[grant["role_key"]])}
+        for grant in grants
+    ]
+    return {
+        "id": int(user["id"]),
+        "user_id": int(user["id"]),
+        "person_id": person_id,
+        "display_name": user["display_name"],
+        "token_version": int(user["token_version"]),
+        "roles": roles,
+        "permissions": sorted({item["permission_key"] for item in permission_rows}),
+        "scopes": grants_with_permissions,
+        "authorization_sources": {
+            "legacy_roles": [],
+            "employment_positions": [],
+            "explicit_employee_grants": grants_with_permissions,
+            "volunteer_appointments": [],
+            "technical_assignments": [],
+            "legacy_direct_scopes": [],
+            "legacy_employee_scopes": [],
+            "volunteer_grants": [],
+        },
+        "subject_contexts": ["OPERATIONS_EMPLOYEE"],
+        "language_context": "OPERATIONS",
+        "employments": [dict(item) for item in employments],
+    }
 
 
 def seed_iam() -> None:
@@ -467,6 +582,12 @@ def authenticate(username: str, password: str) -> dict | None:
 
 
 def user_context(user_id: int) -> dict | None:
+    mobile_principal = current_mobile_iam_principal()
+    if mobile_principal and int(mobile_principal["user_id"]) == int(user_id):
+        # Deliberately return only the live IAM2 principal while handling a
+        # worker mobile request.  Browser/direct roles and legacy employment
+        # templates must never be added to a person-bound mobile session.
+        return mobile_principal
     user = fetch_one(
         "SELECT id, username, display_name, token_version, is_active FROM app_users WHERE id=?",
         (user_id,),
@@ -528,7 +649,8 @@ def user_context(user_id: int) -> dict | None:
         "JOIN members m ON m.id=va.member_id "
         "JOIN member_identities mi ON mi.member_id=va.member_id "
         "AND mi.person_id=va.person_id "
-        "WHERE apl.user_id=? AND m.status='ACTIVE' AND va.status='ACTIVE'",
+        "WHERE apl.user_id=? AND m.status='ACTIVE' AND va.status='ACTIVE' "
+        "AND va.volunteer_service_unit_id IS NULL",
         (user_id,),
     ) if identity_enabled else []
     volunteer_roles = [row["role_key"] for row in volunteer_grants]
@@ -673,6 +795,17 @@ def accessible_org_ids(user_id: int, permission: str | None = None) -> set[str] 
     ``require_permission`` automatically, so an explicit employee grant never
     turns into a role-union × scope-union authorization in normal requests.
     """
+    mobile_principal = current_mobile_iam_principal()
+    if mobile_principal and int(mobile_principal["user_id"]) == int(user_id):
+        permission = permission or current_request_permission()
+        if not permission or permission not in mobile_principal["permissions"]:
+            return set()
+        scope_rows = [
+            grant
+            for grant in mobile_principal["authorization_sources"]["explicit_employee_grants"]
+            if permission in grant["permissions"]
+        ]
+        return _expand_scope_rows(scope_rows)
     context = user_context(user_id)
     if not context:
         return set()

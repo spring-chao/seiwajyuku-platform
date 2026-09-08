@@ -11,8 +11,8 @@
 
   <view wx:if="{{!loading && identityState !== 'unknown'}}" class="section-card">
     <view class="section-title">我的入口</view>
-    <view wx:if="{{member}}" class="identity-card">
-      <view class="identity-name">{{member.name_masked}}</view>
+    <view wx:if="{{member || isEmployee}}" class="identity-card">
+      <view class="identity-name">{{member ? member.name_masked : (identities.operations.display_name || '工作人员')}}</view>
       <view wx:if="{{displayRole}}" class="identity-role">{{displayRole}}</view>
       <view class="identity-copy">{{displayScope || '暂未关联班级 · 暂未关联小组'}}</view>
       <view wx:if="{{canManageStudyMeeting}}" class="identity-copy">可从“志工服务”进入小组学习会登记。</view>
@@ -20,12 +20,14 @@
       <!-- Keep the old action contract for older test fixtures; the visible
            entry now lives in the volunteer-service card below. -->
       <button wx:if="{{canManageStudyMeeting}}" class="primary-button" bindtap="openStudyMeeting" hidden="{{true}}">小组学习会登记</button>
+      <view wx:if="{{isEmployee}}" class="identity-copy">工作人员移动运营能力会随账号启用、在职状态和后台组织授权实时变化。</view>
       <button class="plain-button" bindtap="unbind">解除本机绑定</button>
     </view>
     <view wx:else class="identity-card">
       <view class="identity-name">尚未绑定正式学员身份</view>
-      <view class="identity-copy">输入姓名和手机号即可绑定；如刚刚解除绑定，可重新确认学员身份。</view>
+      <view class="identity-copy">可绑定学员身份，或使用已有后台账号确认工作人员身份。</view>
       <button class="primary-button" bindtap="openBinding">{{bindingActionLabel}}</button>
+      <button class="plain-button" bindtap="openStaffBinding">工作人员身份确认</button>
     </view>
   </view>
 
@@ -35,13 +37,13 @@
     <button class="secondary-button" bindtap="openEnrollment">填写申请</button>
   </view>
 
-  <view wx:if="{{!loading && member}}" class="entry-grid">
-    <view class="entry-card" bindtap="openLearning">
+  <view wx:if="{{!loading && (member || isEmployee)}}" class="entry-grid">
+    <view wx:if="{{member}}" class="entry-card" bindtap="openLearning">
       <view class="entry-icon">学</view>
       <view class="entry-title">我的学习</view>
       <view class="entry-copy">最近学习、参加记录和学分</view>
     </view>
-    <view class="entry-card {{isVolunteer ? '' : 'entry-card-wide'}}" bindtap="openProfile">
+    <view wx:if="{{member}}" class="entry-card {{isVolunteer ? '' : 'entry-card-wide'}}" bindtap="openProfile">
       <view class="entry-icon">我</view>
       <view class="entry-title">我的成长</view>
       <view class="entry-copy">班级、小组和成长记录</view>
@@ -50,6 +52,11 @@
       <view class="entry-icon">志</view>
       <view class="entry-title">志工服务</view>
       <view class="entry-copy">查看我当前承担的服务</view>
+    </view>
+    <view wx:if="{{isEmployee}}" class="entry-card" bindtap="openOperations">
+      <view class="entry-icon">工</view>
+      <view class="entry-title">移动运营</view>
+      <view class="entry-copy">{{operationEntries.length ? '查看当前授权的运营工作台' : '当前暂无可用移动运营功能'}}</view>
     </view>
   </view>
 

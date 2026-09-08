@@ -16,6 +16,7 @@ from app.api.class_roster_org_import import router as class_roster_org_import_ro
 from app.api.followups import router as followups_router
 from app.api.iam import router as iam_router
 from app.api.identity_admin import router as identity_admin_router
+from app.api.volunteer_management import router as volunteer_management_router
 from app.api.staff_management import router as staff_management_router
 from app.api.integrations import router as integrations_router
 from app.api.legacy_operations import router as legacy_operations_router
@@ -39,7 +40,7 @@ from app.api.members import router as members_router
 from app.api.system import router as system_router
 from app.core.settings import get_settings
 from app.migrations import run_migrations
-from app.services.iam import clear_request_permission, seed_iam
+from app.services.iam import clear_mobile_iam_principal, clear_request_permission, seed_iam
 from app.core.study_photo_body_limit import StudyPhotoBodyLimit
 
 
@@ -149,10 +150,12 @@ async def iam_permission_context_guard(request: Request, call_next):
     # ContextVars are request-local, but clearing at both boundaries also
     # protects tests and any middleware task reuse from a stale permission.
     clear_request_permission()
+    clear_mobile_iam_principal()
     try:
         return await call_next(request)
     finally:
         clear_request_permission()
+        clear_mobile_iam_principal()
 
 
 @app.middleware("http")
@@ -202,6 +205,7 @@ app.include_router(auth_router)
 app.include_router(agent_router)
 app.include_router(iam_router)
 app.include_router(identity_admin_router)
+app.include_router(volunteer_management_router)
 app.include_router(staff_management_router)
 app.include_router(imports_router)
 app.include_router(class_roster_preflight_router)

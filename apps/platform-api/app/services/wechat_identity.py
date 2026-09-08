@@ -16,11 +16,13 @@ from typing import Any
 import httpx
 
 from app.core.privacy import normalize_phone, phone_hash
-from app.core.security import create_token, decode_token
+from app.core.security import create_token, decode_token, verify_password
 from app.core.settings import get_settings
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
+from app.services.iam import resolve_employee_mobile_principal
 from app.services.volunteer_positions import STUDY_MEETING_MANAGE
+from app.services.volunteer_positions import get_member_volunteer_services
 
 
 logger = logging.getLogger(__name__)
@@ -165,6 +167,57 @@ def _require_binding_enabled() -> None:
         raise WeChatIdentityError("微信学员身份功能尚未开启")
 
 
+def _require_staff_mobile_enabled() -> None:
+    _require_binding_enabled()
+    if not get_settings().wechat_staff_mobile_operations_enabled:
+        raise WeChatIdentityError("工作人员移动运营功能尚未开启")
+
+
+def _member_person_for_binding(connection, member_id: int) -> str:
+    """Return a formal natural-person identity for an active member binding."""
+
+    identity = execute(
+        connection,
+        "SELECT mi.person_id FROM member_identities mi "
+        "JOIN person_profiles p ON p.id=mi.person_id "
+        "WHERE mi.member_id=? AND p.status='ACTIVE' LIMIT 1",
+        (member_id,),
+    ).fetchone()
+    if identity:
+        return str(identity["person_id"])
+    member = execute(
+        connection,
+        "SELECT id, name, status FROM members WHERE id=?",
+        (member_id,),
+    ).fetchone()
+    if not member or member["status"] != "ACTIVE":
+        raise WeChatIdentityError("学员身份暂时不可用，请联系工作人员")
+    person_id = f"person-wechat-{secrets.token_hex(16)}"
+    now = _db_timestamp(connection)
+    execute(
+        connection,
+        "INSERT INTO person_profiles(id, display_name, status, created_at, updated_at) "
+        "VALUES (?, ?, 'ACTIVE', ?, ?)",
+        (person_id, member["name"], now, now),
+    )
+    execute(
+        connection,
+        "INSERT INTO member_identities(member_id, person_id, status, source_reference, created_at, updated_at) "
+        "VALUES (?, ?, 'ACTIVE', 'MINIPROGRAM_MEMBER_BINDING', ?, ?)",
+        (member_id, person_id, now, now),
+    )
+    write_audit(
+        connection,
+        actor_user_id=None,
+        action="identity.member_person.link",
+        resource_type="member_identity",
+        resource_id=str(member_id),
+        purpose="小程序学员自助身份绑定",
+        after={"member_id": member_id, "person_id": person_id},
+    )
+    return person_id
+
+
 def exchange_wechat_code(code: str) -> dict[str, str]:
     """Exchange a wx.login code without logging the code or returned openid."""
 
@@ -217,27 +270,146 @@ def exchange_wechat_code(code: str) -> dict[str, str]:
     }
 
 
+def _upsert_person_binding(
+    *,
+    appid: str,
+    openid: str,
+    member_id: int | None,
+    person_id: str,
+    verified_user_id: int | None,
+    binding_source: str,
+    action_prefix: str,
+    openid_conflict_message: str,
+    person_conflict_message: str,
+) -> tuple[int, int]:
+    """Create/rebind one person credential without exposing provider IDs."""
+
+    with transaction() as connection:
+        now = _db_timestamp(connection)
+        existing_openid = execute(
+            connection,
+            "SELECT id, member_id, person_id, verified_user_id, status, token_version "
+            "FROM wechat_member_bindings WHERE appid=? AND openid=? LIMIT 1",
+            (appid, openid),
+        ).fetchone()
+        existing_person = execute(
+            connection,
+            "SELECT id, openid FROM wechat_member_bindings "
+            "WHERE appid=? AND person_id=? AND status='VERIFIED' LIMIT 1",
+            (appid, person_id),
+        ).fetchone()
+        existing_member = (
+            execute(
+                connection,
+                "SELECT id, openid FROM wechat_member_bindings "
+                "WHERE appid=? AND member_id=? AND status='VERIFIED' LIMIT 1",
+                (appid, member_id),
+            ).fetchone()
+            if member_id is not None
+            else None
+        )
+        if existing_person and existing_person["openid"] != openid:
+            raise WeChatIdentityError(person_conflict_message)
+        if existing_member and existing_member["openid"] != openid:
+            raise WeChatIdentityError(WECHAT_BINDING_MEMBER_CONFLICT_MESSAGE)
+
+        binding_token_version = 1
+        action = action_prefix + ".verify"
+        before: dict[str, Any] | None = None
+        if existing_openid:
+            existing_status = str(existing_openid["status"] or "")
+            existing_person_id = existing_openid["person_id"]
+            existing_member_id = existing_openid["member_id"]
+            try:
+                previous_version = int(existing_openid["token_version"])
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise WeChatIdentityError("微信身份记录无效，请联系工作人员") from exc
+            if previous_version < 1 or existing_status not in {"VERIFIED", "REVOKED"}:
+                raise WeChatIdentityError("微信身份记录无效，请联系工作人员")
+            if existing_status == "VERIFIED" and (
+                (existing_person_id and existing_person_id != person_id)
+                or (existing_member_id and member_id and int(existing_member_id) != member_id)
+            ):
+                raise WeChatIdentityError(openid_conflict_message)
+            binding_token_version = previous_version + 1 if existing_status == "REVOKED" else previous_version
+            action = action_prefix + ".rebind" if existing_status == "REVOKED" else action
+            before = {
+                "member_id": existing_member_id,
+                "status": existing_status,
+                "token_version": previous_version,
+            }
+            # Preserve the established member-binding audit payload contract;
+            # person/account fields are meaningful for the new staff-confirmed
+            # binding flow and remain present there for audit traceability.
+            if action_prefix != "wechat.member_binding":
+                before["person_id"] = existing_person_id
+                before["verified_user_id"] = existing_openid["verified_user_id"]
+            binding_id = int(existing_openid["id"])
+            execute(
+                connection,
+                "UPDATE wechat_member_bindings SET member_id=?, person_id=?, verified_user_id=?, "
+                "status='VERIFIED', active_slot=1, binding_source=?, token_version=?, "
+                "verified_at=?, revoked_at=NULL, updated_at=? WHERE id=?",
+                (
+                    member_id, person_id, verified_user_id, binding_source,
+                    binding_token_version, now, now, binding_id,
+                ),
+            )
+        else:
+            cursor = execute(
+                connection,
+                "INSERT INTO wechat_member_bindings "
+                "(appid, openid, member_id, person_id, verified_user_id, status, binding_source, "
+                "verified_at, active_slot, token_version, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 'VERIFIED', ?, ?, 1, ?, ?, ?)",
+                (
+                    appid, openid, member_id, person_id, verified_user_id,
+                    binding_source, now, binding_token_version, now, now,
+                ),
+            )
+            binding_id = int(cursor.lastrowid)
+        write_audit(
+            connection,
+            actor_user_id=verified_user_id,
+            action=action,
+            resource_type="wechat_member_binding",
+            resource_id=str(binding_id),
+            before=before,
+            after={
+                "member_id": member_id,
+                "person_id": person_id,
+                "verified_user_id": verified_user_id,
+                "status": "VERIFIED",
+                "token_version": binding_token_version,
+            },
+        )
+    return binding_id, binding_token_version
+
+
+def _binding_token(binding_id: int, token_version: int) -> str:
+    return create_token(
+        binding_id,
+        token_version,
+        WECHAT_SESSION_TOKEN_TYPE,
+        timedelta(days=7),
+    )
+
+
 def verify_member_binding(*, code: str, name: str, phone: str) -> dict[str, Any]:
-    """Match one active member and create/update exactly one app binding."""
+    """Match one active member and bind its natural-person identity."""
 
     _require_binding_enabled()
     cleaned_name = (name or "").strip()
     if not cleaned_name or len(cleaned_name) > 120:
         raise WeChatIdentityError(WECHAT_BINDING_NO_MATCH_MESSAGE)
     try:
-        normalized_phone = normalize_phone(phone)
-        hashed_phone = phone_hash(normalized_phone)
+        hashed_phone = phone_hash(normalize_phone(phone))
     except ValueError as exc:
         raise WeChatIdentityError(WECHAT_BINDING_NO_MATCH_MESSAGE) from exc
-
     identity = exchange_wechat_code(code)
-    appid = identity.get("appid") or get_settings().wechat_miniprogram_app_id
-    openid = identity.get("openid")
+    appid, openid = identity.get("appid"), identity.get("openid")
     if not appid or not openid:
         raise WeChatProviderError("微信身份服务暂时不可用，请稍后重试")
-
-    # Deliberately fetch at most two rows so duplicate data is handled as an
-    # ambiguity without loading or returning an unbounded result set.
     matches = fetch_all(
         "SELECT id FROM members WHERE name=? AND phone_hash=? AND status='ACTIVE' LIMIT 2",
         (cleaned_name, hashed_phone),
@@ -247,112 +419,91 @@ def verify_member_binding(*, code: str, name: str, phone: str) -> dict[str, Any]
     if len(matches) > 1:
         raise WeChatIdentityError(WECHAT_BINDING_AMBIGUOUS_MESSAGE)
     member_id = int(matches[0]["id"])
-
-    # Keep the local provider stub's openid stable so dev/test exercises the
-    # same identity lifecycle as the real provider. Tests that need multiple
-    # simulated accounts must patch exchange_wechat_code explicitly.
-
-    member: dict[str, Any] | None = None
     with transaction() as connection:
-        now = _db_timestamp(connection)
-        existing_openid = execute(
-            connection,
-            "SELECT id, member_id, status, token_version FROM wechat_member_bindings "
-            "WHERE appid=? AND openid=? LIMIT 1",
-            (appid, openid),
-        ).fetchone()
-        existing_member = execute(
-            connection,
-            "SELECT id, member_id, openid, status FROM wechat_member_bindings "
-            "WHERE appid=? AND member_id=? AND status='VERIFIED' LIMIT 1",
-            (appid, member_id),
-        ).fetchone()
-
-        binding_token_version = 1
-        binding_action = "wechat.member_binding.verify"
-        binding_before: dict[str, Any] | None = None
-        if existing_openid:
-            existing_status = str(existing_openid["status"] or "")
-            existing_member_id = int(existing_openid["member_id"])
-            try:
-                existing_token_version = int(existing_openid["token_version"])
-            except (TypeError, ValueError, OverflowError) as exc:
-                raise WeChatIdentityError("微信身份记录无效，请联系工作人员") from exc
-            if existing_token_version < 1:
-                raise WeChatIdentityError("微信身份记录无效，请联系工作人员")
-            if existing_status == "VERIFIED" and existing_member_id != member_id:
-                raise WeChatIdentityError(WECHAT_BINDING_OPENID_CONFLICT_MESSAGE)
-            if existing_status not in {"VERIFIED", "REVOKED"}:
-                raise WeChatIdentityError("微信身份记录无效，请联系工作人员")
-            binding_token_version = (
-                existing_token_version + 1
-                if existing_status == "REVOKED"
-                else existing_token_version
-            )
-            binding_before = {
-                "member_id": existing_member_id,
-                "status": existing_status,
-                "token_version": existing_token_version,
-            }
-            if existing_status == "REVOKED":
-                binding_action = "wechat.member_binding.rebind"
-
-        if existing_member and existing_member["openid"] != openid:
-            # One effective binding per AppID/member. A revoked row is
-            # reactivated with the same openid; changing openid requires an
-            # explicit revoke/rebind operation instead of silently stealing a
-            # member's existing session.
-            raise WeChatIdentityError(WECHAT_BINDING_MEMBER_CONFLICT_MESSAGE)
-
-        if existing_openid:
-            binding_id = int(existing_openid["id"])
-            execute(
-                connection,
-                "UPDATE wechat_member_bindings SET member_id=?, status='VERIFIED', active_slot=1, "
-                "token_version=?, verified_at=?, revoked_at=NULL, updated_at=? WHERE id=?",
-                (member_id, binding_token_version, now, now, binding_id),
-            )
-        else:
-            cursor = execute(
-                connection,
-                "INSERT INTO wechat_member_bindings "
-                "(appid, openid, member_id, status, binding_source, verified_at, "
-                "active_slot, token_version, created_at, updated_at) VALUES (?, ?, ?, 'VERIFIED', "
-                "'MINIPROGRAM_SELF_SERVICE', ?, 1, ?, ?, ?)",
-                (appid, openid, member_id, now, binding_token_version, now, now),
-            )
-            binding_id = int(cursor.lastrowid)
-        write_audit(
-            connection,
-            actor_user_id=None,
-            action=binding_action,
-            resource_type="wechat_member_binding",
-            resource_id=str(binding_id),
-            before=binding_before,
-            after={
-                "member_id": member_id,
-                "status": "VERIFIED",
-                "token_version": binding_token_version,
-                "appid": appid,
-            },
-        )
+        person_id = _member_person_for_binding(connection, member_id)
         member = _member_payload(connection, member_id)
-        if not member:
-            raise WeChatIdentityError("学员身份暂时不可用，请联系工作人员")
-    token = create_token(
-        binding_id,
-        binding_token_version,
-        WECHAT_SESSION_TOKEN_TYPE,
-        timedelta(days=7),
+    if not member:
+        raise WeChatIdentityError("学员身份暂时不可用，请联系工作人员")
+    binding_id, token_version = _upsert_person_binding(
+        appid=str(appid),
+        openid=str(openid),
+        member_id=member_id,
+        person_id=person_id,
+        verified_user_id=None,
+        binding_source="MINIPROGRAM_SELF_SERVICE",
+        action_prefix="wechat.member_binding",
+        openid_conflict_message=WECHAT_BINDING_OPENID_CONFLICT_MESSAGE,
+        person_conflict_message=WECHAT_BINDING_MEMBER_CONFLICT_MESSAGE,
     )
     return {
-        "access_token": token,
+        "access_token": _binding_token(binding_id, token_version),
         "expires_in": 7 * 24 * 60 * 60,
         "member": member,
     }
 
 
-def resolve_member_session(token: str) -> dict[str, Any]:
+def verify_staff_binding(*, code: str, username: str, password: str) -> dict[str, Any]:
+    """Confirm an existing backend account for a non-member or staff person.
+
+    No backend JWT or password material enters the mini-program response; the
+    password is verified once and only a revocable person binding is created.
+    """
+
+    _require_staff_mobile_enabled()
+    cleaned_username = (username or "").strip()
+    if not cleaned_username or not password:
+        raise WeChatIdentityError("工作人员账号或密码错误")
+    user = fetch_one(
+        "SELECT u.id, u.password_hash, apl.person_id FROM app_users u "
+        "JOIN account_person_links apl ON apl.user_id=u.id "
+        "JOIN person_profiles p ON p.id=apl.person_id "
+        "WHERE u.username=? AND u.is_active=1 AND p.status='ACTIVE'",
+        (cleaned_username,),
+    )
+    if not user or not verify_password(password, user["password_hash"]):
+        raise WeChatIdentityError("工作人员账号或密码错误")
+    principal = resolve_employee_mobile_principal(
+        str(user["person_id"]), verified_user_id=int(user["id"])
+    )
+    if not principal:
+        raise WeChatIdentityError("该账号当前没有有效的工作人员身份")
+    identity = exchange_wechat_code(code)
+    appid, openid = identity.get("appid"), identity.get("openid")
+    if not appid or not openid:
+        raise WeChatProviderError("微信身份服务暂时不可用，请稍后重试")
+    member_id: int | None = None
+    with transaction() as connection:
+        linked = execute(
+            connection,
+            "SELECT m.id FROM member_identities mi JOIN members m ON m.id=mi.member_id "
+            "WHERE mi.person_id=? AND m.status='ACTIVE' LIMIT 1",
+            (user["person_id"],),
+        ).fetchone()
+        if linked:
+            member_id = int(linked["id"])
+    binding_id, token_version = _upsert_person_binding(
+        appid=str(appid),
+        openid=str(openid),
+        member_id=member_id,
+        person_id=str(user["person_id"]),
+        verified_user_id=int(user["id"]),
+        binding_source="MINIPROGRAM_EMPLOYEE_CONFIRMATION",
+        action_prefix="wechat.staff_binding",
+        openid_conflict_message="当前微信已绑定其他身份，请先解绑后再绑定",
+        person_conflict_message="该工作人员已有微信绑定，如需更换请先解绑",
+    )
+    session = resolve_wechat_session(_binding_token(binding_id, token_version))
+    return {
+        "access_token": _binding_token(binding_id, token_version),
+        "expires_in": 7 * 24 * 60 * 60,
+        "member": session.get("member"),
+        "identities": get_wechat_identity_context(session),
+    }
+
+
+def resolve_wechat_session(token: str) -> dict[str, Any]:
+    """Resolve a valid person-level WeChat credential without assuming member status."""
+
     _require_binding_enabled()
     try:
         payload = decode_token(token, WECHAT_SESSION_TOKEN_TYPE)
@@ -369,33 +520,91 @@ def resolve_member_session(token: str) -> dict[str, Any]:
         connection = connect()
         row = execute(
             connection,
-            "SELECT b.id AS binding_id, b.appid, b.member_id, b.token_version, "
-            "m.status AS member_status "
-            "FROM wechat_member_bindings b JOIN members m ON m.id=b.member_id "
-            "WHERE b.id=? AND b.status='VERIFIED' AND b.token_version=? "
-            "AND m.status='ACTIVE' LIMIT 1",
+            "SELECT b.id AS binding_id, b.appid, b.member_id, b.person_id, b.verified_user_id, "
+            "b.token_version, m.status AS member_status, mi.person_id AS member_person_id "
+            "FROM wechat_member_bindings b "
+            "LEFT JOIN members m ON m.id=b.member_id "
+            "LEFT JOIN member_identities mi ON mi.member_id=b.member_id "
+            "WHERE b.id=? AND b.status='VERIFIED' AND b.token_version=? LIMIT 1",
             (binding_id, token_version),
         ).fetchone()
         if not row:
             raise WeChatIdentityError("微信身份登录已失效，请重新绑定")
-        member = _member_payload(connection, int(row["member_id"]))
+        member = (
+            _member_payload(connection, int(row["member_id"]))
+            if row["member_id"] is not None and row["member_status"] == "ACTIVE"
+            else None
+        )
     finally:
         if connection is not None:
             connection.close()
-    if not member:
-        raise WeChatIdentityError("微信身份登录已失效，请重新绑定")
     return {
         "binding_id": int(row["binding_id"]),
         "appid": row["appid"],
-        "member_id": int(row["member_id"]),
+        "member_id": int(row["member_id"]) if row["member_id"] is not None else None,
+        "person_id": row["person_id"] or row["member_person_id"],
+        "verified_user_id": (
+            int(row["verified_user_id"])
+            if row["verified_user_id"] is not None
+            else None
+        ),
         "token_version": int(row["token_version"]),
         "member": member,
     }
 
 
+def resolve_member_session(token: str) -> dict[str, Any]:
+    """Resolve a member-only endpoint session from the generic credential."""
+
+    session = resolve_wechat_session(token)
+    if not session.get("member") or session.get("member_id") is None:
+        raise WeChatIdentityError("微信身份登录已失效，请重新绑定")
+    return session
+
+
+def get_wechat_identity_context(session: dict[str, Any]) -> dict[str, Any]:
+    """Return business-language identities; never expose person/account IDs."""
+
+    member = session.get("member")
+    volunteer = (
+        get_member_volunteer_services(int(session["member_id"]))
+        if member and session.get("member_id") is not None
+        else {"is_volunteer": False, "roles": []}
+    )
+    employee = resolve_employee_mobile_principal(
+        str(session.get("person_id") or ""),
+        verified_user_id=session.get("verified_user_id"),
+    )
+    kinds: list[str] = []
+    if member:
+        kinds.append("MEMBER")
+    if volunteer.get("is_volunteer"):
+        kinds.append("VOLUNTEER")
+    if employee:
+        kinds.append("OPERATIONS_EMPLOYEE")
+    return {
+        "identity_kinds": kinds,
+        "member": member,
+        "volunteer": {
+            "is_volunteer": bool(volunteer.get("is_volunteer")),
+            "roles": volunteer.get("roles", []),
+        },
+        "operations": {
+            "is_employee": bool(employee),
+            "display_name": employee.get("display_name") if employee else None,
+            "employment_units": [
+                item.get("institution_name")
+                for item in (employee or {}).get("employments", [])
+                if item.get("institution_name")
+            ],
+            "available_operation_count": len((employee or {}).get("permissions", [])),
+        },
+    }
+
+
 def revoke_member_binding(token: str) -> dict[str, Any]:
     _require_binding_enabled()
-    session = resolve_member_session(token)
+    session = resolve_wechat_session(token)
     with transaction() as connection:
         now = _db_timestamp(connection)
         previous_token_version = int(session["token_version"])
@@ -444,12 +653,13 @@ def get_member_role_scopes(member_id: int) -> list[dict[str, Any]]:
     scopes: list[dict[str, Any]] = []
     try:
         canonical = fetch_all(
-            "SELECT va.appointment_key, va.org_unit_id, va.scope_type, "
+            "SELECT va.appointment_key, COALESCE(vsu.service_target_org_unit_id, va.org_unit_id) AS org_unit_id, va.scope_type, "
             "c.position_name, c.scope_level, pc.capability_key "
             "FROM volunteer_appointments va "
             "JOIN members m ON m.id=va.member_id "
             "JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
             "JOIN volunteer_position_capabilities pc ON pc.position_key=c.position_key "
+            "LEFT JOIN volunteer_service_units vsu ON vsu.id=va.volunteer_service_unit_id "
             "WHERE va.member_id=? AND m.status='ACTIVE' "
             "AND c.is_active=1 AND pc.capability_key=? "
             "AND va.status='ACTIVE'",

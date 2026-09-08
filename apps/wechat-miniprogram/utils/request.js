@@ -3,8 +3,8 @@ const app = getApp();
 function request(path, options = {}) {
   const baseUrl = (app.globalData.apiBaseUrl || "").replace(/\/$/, "");
   const headers = { ...(options.header || {}) };
-  if (options.auth && app.globalData.memberSessionToken) {
-    headers.Authorization = `Bearer ${app.globalData.memberSessionToken}`;
+  if (options.auth && (app.globalData.personSessionToken || app.globalData.memberSessionToken)) {
+    headers.Authorization = `Bearer ${app.globalData.personSessionToken || app.globalData.memberSessionToken}`;
   }
   return new Promise((resolve, reject) => {
     wx.request({
@@ -33,7 +33,7 @@ function uploadPhoto(path, filePath) {
   const baseUrl = (app.globalData.apiBaseUrl || "").replace(/\/$/, "");
   return new Promise((resolve, reject) => wx.uploadFile({
     url: baseUrl + path, filePath, name: "photo", timeout: 30000,
-    header: { Authorization: "Bearer " + (app.globalData.memberSessionToken || "") },
+    header: { Authorization: "Bearer " + (app.globalData.personSessionToken || app.globalData.memberSessionToken || "") },
     success(response) {
       let data;
       try { data = JSON.parse(response.data); } catch (_) { data = {}; }

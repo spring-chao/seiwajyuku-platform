@@ -54,4 +54,9 @@ Page({
       this.setData({ loading: false });
     }
   }
+  ,
+
+  openStaffBind() {
+    wx.navigateTo({ url: "/pages/identity/staff-bind" });
+  }
 });

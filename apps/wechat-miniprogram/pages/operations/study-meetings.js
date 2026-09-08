@@ -1,0 +1,2 @@
+const { request } = require("../../utils/request");
+Page({ data:{loading:true,records:[],errorMessage:""},onShow(){this.load();},async load(){this.setData({loading:true,errorMessage:""});try{const response=await request("/api/v1/wechat/operations/study-meetings",{auth:true});this.setData({records:response.data||[]});}catch(error){this.setData({errorMessage:error.message||"学习会记录暂时无法加载"});}finally{this.setData({loading:false});}} });

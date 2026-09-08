@@ -14,6 +14,7 @@
       <input class="field-input" always-embed="true" placeholder-class="field-input-placeholder" placeholder-style="color:#b7aaaa;" type="number" maxlength="11" data-field="phone" bindinput="handleInput" placeholder="请输入登记手机号" style="color:#3d2a2a;caret-color:#741f2b;background-color:#ffffff;" />
     </view>
     <button class="primary-button" loading="{{loading}}" disabled="{{loading}}" bindtap="bindIdentity">微信登录并确认绑定</button>
+    <button class="plain-button" bindtap="openStaffBind">我是工作人员，使用后台账号确认</button>
   </view>
   <view class="privacy-copy">绑定成功后，微信身份只作为登录凭证；平台学习记录始终归属于正式学员 member_id。</view>
 </view>

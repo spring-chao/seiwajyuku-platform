@@ -10,7 +10,9 @@ function resolveVolunteerServices(data) {
     serviceAssignments: roles.map(item => ({
       key: `${item.position_key || item.position_name || "volunteer"}-${item.scope_org_unit_id || item.org_unit_id || "default"}`,
       positionName: item.position_name || "志工",
-      scopeName: item.scope_name || "服务范围暂未记录",
+      scopeName: item.service_unit_name
+        ? `${item.service_unit_name} · ${item.scope_name || "服务范围待确认"}`
+        : (item.scope_name || "服务范围暂未记录"),
       capabilities: item.capabilities || []
     }))
   };

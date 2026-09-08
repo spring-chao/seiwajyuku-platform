@@ -240,9 +240,7 @@ const classOrgs = computed(() => {
     .filter(
       item =>
         ["CLASS", "SPECIAL_COHORT"].includes(item.unit_type) &&
-        (item.parent_id === form.org_unit_id ||
-          (item.parent_id === "org-suzhou" &&
-            ["先锋班", "神仙班", "黄埔一班", "黄埔二班"].includes(item.name)))
+        item.parent_id === form.org_unit_id
     )
     .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 
@@ -979,13 +977,6 @@ async function submit() {
         ...(form.group_org_unit_id !== originalGroupOrgUnitId.value
           ? { group_org_unit_id: form.group_org_unit_id || null }
           : {}),
-        ...((form.current_volunteer_position_key || null) !==
-        originalCurrentVolunteerPositionKey.value
-          ? {
-              current_volunteer_position_key:
-                form.current_volunteer_position_key || null
-            }
-          : {})
       });
       ElMessage.success("学员档案已更新，变更已记录");
     } else {
@@ -2135,45 +2126,11 @@ onMounted(async () => {
             </el-select>
             <p class="form-hint">班级或小组不存在时，请先到“系统设置 → 班级与小组管理”新增，再返回选择。</p>
           </el-form-item>
-          <el-form-item label="当前志工岗位" class="current-volunteer-field">
-            <el-select
-              v-model="form.current_volunteer_position_key"
-              clearable
-              filterable
-              :disabled="
-                !editingMemberId ||
-                !canManage ||
-                form.status !== 'ACTIVE' ||
-                Boolean(form.current_volunteer_needs_manual_review)
-              "
-              placeholder="普通学长（暂无志工服务）"
-            >
-              <el-option label="普通学长（暂无志工服务）" :value="null" />
-              <el-option
-                v-for="position in currentVolunteerSelectOptions"
-                :key="position.position_key"
-                :label="position.position_name"
-                :value="position.position_key"
-              />
-            </el-select>
-            <p v-if="!editingMemberId" class="form-hint">
-              请先保存学员档案，再维护当前志工岗位。
-            </p>
-            <p v-else-if="form.status !== 'ACTIVE'" class="form-hint">
-              非在册学长保留历史志工记录，但当前不能获得志工权限；恢复在册后仅仍为服务中的岗位会重新生效。
-            </p>
-            <p v-if="selectedCurrentVolunteerPosition" class="form-hint current-volunteer-scope-hint">
-              服务范围：{{ currentVolunteerScopeName || "请先维护正式班级/小组/分中心" }}（自动匹配当前正式组织关系）
-            </p>
+          <el-form-item label="志工任职">
             <el-alert
-              v-if="form.current_volunteer_needs_manual_review"
-              class="form-alert"
-              :title="
-                form.current_volunteer_review_message ||
-                '当前存在多个有效志工岗位，请先人工确认主要岗位。'
-              "
-              type="warning"
+              type="info"
               :closable="false"
+              title="志工任职已改由“志工任职管理”统一维护：在册学长可有多个当前岗位，岗位能力由志工服务组织和服务对象决定。"
               show-icon
             />
             <p v-if="showLegacyVolunteerHint" class="form-hint volunteer-legacy-hint">

@@ -32,6 +32,9 @@ Page({
   data: {
     loading: true,
     member: null,
+    identityKinds: [],
+    isEmployee: false,
+    employeeName: "",
     joinDateLabel: "暂未记录",
     currentVolunteerServices: [],
     volunteerAppointments: [],
@@ -62,8 +65,15 @@ Page({
       const response = await request("/api/v1/wechat/me", { auth: true });
       if (!current()) return;
       const member = response.data && response.data.member;
+      const identities = response.data && response.data.identities;
       if (!member || !member.member_id) throw new Error("暂时无法确认学员身份，请重试。");
-      this.setData({ member, joinDateLabel: joinDateLabel(member.join_date || member.study_start_date) });
+      this.setData({
+        member,
+        identityKinds: (identities && identities.identity_kinds) || ["MEMBER"],
+        isEmployee: Boolean(identities && identities.operations && identities.operations.is_employee),
+        employeeName: (identities && identities.operations && identities.operations.display_name) || "",
+        joinDateLabel: joinDateLabel(member.join_date || member.study_start_date)
+      });
 
       const [servicesResult, historyResult] = await Promise.all([
         request("/api/v1/wechat/volunteer-services", { auth: true })

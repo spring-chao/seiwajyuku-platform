@@ -1,0 +1,9 @@
+<view class="page-shell">
+  <view class="hero-card"><view class="eyebrow">身份确认</view><view class="hero-title">确认工作人员身份</view><view class="hero-copy">使用已有后台账号完成一次确认。密码只用于本次校验，不会保存到小程序。</view></view>
+  <view class="section-card">
+    <view class="field-row"><view class="field-label">后台账号</view><input class="field-input" data-field="username" bindinput="handleInput" placeholder="请输入后台登录账号" /></view>
+    <view class="field-row"><view class="field-label">密码</view><input class="field-input" password data-field="password" bindinput="handleInput" placeholder="请输入密码" /></view>
+    <button class="primary-button" loading="{{loading}}" disabled="{{loading}}" bindtap="bindStaffIdentity">微信登录并确认</button>
+  </view>
+  <view class="privacy-copy">账号停用、离职或后台权限变更后，移动端对应能力会立即失效。</view>
+</view>

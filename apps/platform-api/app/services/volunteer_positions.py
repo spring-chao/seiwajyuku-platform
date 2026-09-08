@@ -48,66 +48,99 @@ POSITION_DEFAULTS: dict[str, dict[str, Any]] = {
     "volunteer_class_counselor": {
         "position_name": "班主任",
         "scope_level": "CLASS",
+        "system_type": "CLASS_TEAM",
+        "line_type": "GENERAL",
+        "is_selectable": True,
         "capabilities": [STUDY_MEETING_MANAGE],
         "sort_order": 10,
     },
     "volunteer_deputy_class_teacher": {
         "position_name": "副班主任",
         "scope_level": "CLASS",
+        "system_type": "CLASS_TEAM",
+        "line_type": "GENERAL",
+        "is_selectable": True,
         "capabilities": [STUDY_MEETING_MANAGE],
         "sort_order": 20,
     },
     "volunteer_class_monitor": {
         "position_name": "班长",
         "scope_level": "CLASS",
+        "system_type": "CLASS_TEAM",
+        "line_type": "GENERAL",
+        "is_selectable": True,
         "capabilities": [STUDY_MEETING_MANAGE],
         "sort_order": 30,
     },
     "volunteer_group_counselor": {
         "position_name": "辅导员",
         "scope_level": "GROUP",
+        "system_type": "CLASS_TEAM",
+        "line_type": "GENERAL",
+        "is_selectable": True,
         "capabilities": [STUDY_MEETING_MANAGE],
         "sort_order": 40,
     },
     "volunteer_group_leader": {
         "position_name": "组长",
         "scope_level": "GROUP",
+        "system_type": "CLASS_TEAM",
+        "line_type": "GENERAL",
+        "is_selectable": True,
         "capabilities": [STUDY_MEETING_MANAGE],
         "sort_order": 50,
     },
     "volunteer_director": {
         "position_name": "理事志工",
         "scope_level": "REGIONAL_CENTER",
+        "system_type": "GOVERNANCE",
+        "line_type": "GENERAL",
+        "is_selectable": False,
         "capabilities": [],
         "sort_order": 100,
     },
     "volunteer_regional_lead": {
         "position_name": "分中心负责人志工",
         "scope_level": "REGIONAL_CENTER",
+        "system_type": "GOVERNANCE",
+        "line_type": "GENERAL",
+        "is_selectable": False,
         "capabilities": [],
         "sort_order": 110,
     },
     "volunteer_regional_service": {
         "position_name": "分中心服务志工",
         "scope_level": "REGIONAL_CENTER",
+        "system_type": "CLASS_TEAM",
+        "line_type": "GENERAL",
+        "is_selectable": False,
         "capabilities": [],
         "sort_order": 120,
     },
     "volunteer_class_committee": {
         "position_name": "班委",
         "scope_level": "CLASS",
+        "system_type": "CLASS_TEAM",
+        "line_type": "GENERAL",
+        "is_selectable": False,
         "capabilities": [],
         "sort_order": 130,
     },
     "volunteer_group_committee": {
         "position_name": "组委",
         "scope_level": "GROUP",
+        "system_type": "CLASS_TEAM",
+        "line_type": "GENERAL",
+        "is_selectable": False,
         "capabilities": [],
         "sort_order": 140,
     },
     "volunteer_activity": {
         "position_name": "专项活动志工",
         "scope_level": "ANY",
+        "system_type": "ACTIVITY",
+        "line_type": "GENERAL",
+        "is_selectable": True,
         "capabilities": [],
         "sort_order": 200,
     },
@@ -269,6 +302,9 @@ def _row_to_position(row: dict[str, Any], capabilities: list[str]) -> dict[str, 
         "position_key": row["position_key"],
         "position_name": row["position_name"],
         "scope_level": row["scope_level"],
+        "system_type": row.get("system_type") or "CLASS_TEAM",
+        "line_type": row.get("line_type") or "GENERAL",
+        "is_selectable": bool(row.get("is_selectable", 1)),
         "is_active": bool(row.get("is_active", 1)),
         "sort_order": int(row.get("sort_order", 0)),
         "capabilities": capabilities,
@@ -284,6 +320,9 @@ def _fallback_position(position_key: str) -> dict[str, Any] | None:
         "position_key": position_key,
         "position_name": default["position_name"],
         "scope_level": default["scope_level"],
+        "system_type": default.get("system_type", "CLASS_TEAM"),
+        "line_type": default.get("line_type", "GENERAL"),
+        "is_selectable": bool(default.get("is_selectable", True)),
         "is_active": True,
         "sort_order": default["sort_order"],
         "capabilities": list(default["capabilities"]),
@@ -346,9 +385,20 @@ def _position_summary(
         "position_name": position_name,
         "scope_level": scope_level,
         "scope_type": row.get("scope_type"),
-        "scope_org_unit_id": row.get("org_unit_id"),
-        "org_unit_id": row.get("org_unit_id"),
+        "scope_org_unit_id": row.get("effective_service_target_org_unit_id")
+        or row.get("service_target_org_unit_id")
+        or row.get("org_unit_id"),
+        "org_unit_id": row.get("effective_service_target_org_unit_id")
+        or row.get("service_target_org_unit_id")
+        or row.get("org_unit_id"),
         "scope_name": row.get("scope_name"),
+        "volunteer_service_unit_id": row.get("volunteer_service_unit_id"),
+        "service_unit_name": row.get("service_unit_name"),
+        "service_system_type": row.get("service_system_type"),
+        "service_line_type": row.get("service_line_type"),
+        "service_target_org_unit_id": row.get("effective_service_target_org_unit_id")
+        or row.get("service_target_org_unit_id")
+        or row.get("org_unit_id"),
         "capabilities": capabilities,
         "capability_names": [CAPABILITY_NAMES.get(key, key) for key in capabilities],
         "source_reference": row.get("source_reference"),
@@ -371,14 +421,19 @@ def _effective_current_appointments(
             for row in execute(
                 connection,
                 "SELECT va.id, va.person_id, va.member_id, va.appointment_key, "
-                "va.org_unit_id, va.scope_type, va.starts_at, va.ends_at, va.status, "
+                "va.volunteer_service_unit_id, va.org_unit_id, va.scope_type, va.starts_at, va.ends_at, va.status, "
                 "va.source_reference, va.created_at, va.updated_at, "
-                "c.position_name, c.scope_level, o.name AS scope_name, "
+                "c.position_name, c.scope_level, vsu.name AS service_unit_name, "
+                "vsu.system_type AS service_system_type, vsu.line_type AS service_line_type, "
+                "vsu.service_target_org_unit_id, "
+                "COALESCE(vsu.service_target_org_unit_id, va.org_unit_id) AS effective_service_target_org_unit_id, "
+                "o.name AS scope_name, "
                 "o.unit_type AS scope_org_unit_type "
                 "FROM volunteer_appointments va "
                 "JOIN members m ON m.id=va.member_id "
                 "LEFT JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
-                "LEFT JOIN org_units o ON o.id=va.org_unit_id "
+                "LEFT JOIN volunteer_service_units vsu ON vsu.id=va.volunteer_service_unit_id "
+                "LEFT JOIN org_units o ON o.id=COALESCE(vsu.service_target_org_unit_id, va.org_unit_id) "
                 "WHERE va.member_id=? AND m.status='ACTIVE' AND va.status='ACTIVE' "
                 "ORDER BY va.created_at DESC, va.id DESC",
                 (member_id,),
@@ -388,7 +443,7 @@ def _effective_current_appointments(
         # The catalog was introduced after the appointment table. Keep the
         # current-service reader safe during a rolling schema deployment.
         message = str(exc).lower()
-        if "volunteer_position_catalog" not in message and "no such table" not in message and "doesn't exist" not in message:
+        if "volunteer_position_catalog" not in message and "volunteer_service_units" not in message and "no such table" not in message and "doesn't exist" not in message:
             raise
         rows = [
             dict(row)
@@ -429,8 +484,12 @@ def _manual_review_payload(
             "appointment_id": item["id"],
             "position_key": item["appointment_key"],
             "position_name": item["current_summary"]["position_name"],
-            "scope_org_unit_id": item.get("org_unit_id"),
+            "scope_org_unit_id": item.get("effective_service_target_org_unit_id")
+            or item.get("service_target_org_unit_id")
+            or item.get("org_unit_id"),
             "scope_name": item.get("scope_name"),
+            "volunteer_service_unit_id": item.get("volunteer_service_unit_id"),
+            "service_unit_name": item.get("service_unit_name"),
             "source_reference": item.get("source_reference"),
         }
         for item in appointments
@@ -478,7 +537,10 @@ def get_member_volunteer_services(member_id: int) -> dict[str, Any]:
         }
     with transaction() as connection:
         appointments = _effective_current_appointments(connection, member_id)
-    if len(appointments) > 1:
+    legacy_multiple = len(appointments) > 1 and all(
+        not item.get("volunteer_service_unit_id") for item in appointments
+    )
+    if legacy_multiple:
         review = _manual_review_payload(member_id, appointments)
         roles = [
             {
@@ -493,6 +555,11 @@ def get_member_volunteer_services(member_id: int) -> dict[str, Any]:
                     "scope_org_unit_id",
                     "org_unit_id",
                     "scope_name",
+                    "volunteer_service_unit_id",
+                    "service_unit_name",
+                    "service_system_type",
+                    "service_line_type",
+                    "service_target_org_unit_id",
                     "capabilities",
                     "capability_names",
                 }
@@ -519,6 +586,11 @@ def get_member_volunteer_services(member_id: int) -> dict[str, Any]:
                 "scope_org_unit_id",
                 "org_unit_id",
                 "scope_name",
+                "volunteer_service_unit_id",
+                "service_unit_name",
+                "service_system_type",
+                "service_line_type",
+                "service_target_org_unit_id",
                 "capabilities",
                 "capability_names",
             }
@@ -545,11 +617,13 @@ def get_member_volunteer_history(member_id: int) -> dict[str, Any]:
                 dict(row)
                 for row in execute(
                     connection,
-                    "SELECT va.appointment_key, c.position_name, o.name AS scope_name, "
+                    "SELECT va.appointment_key, c.position_name, vsu.name AS service_unit_name, "
+                    "o.name AS scope_name, "
                     "va.status, va.created_at, va.ends_at "
                     "FROM volunteer_appointments va "
                     "LEFT JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
-                    "LEFT JOIN org_units o ON o.id=va.org_unit_id "
+                    "LEFT JOIN volunteer_service_units vsu ON vsu.id=va.volunteer_service_unit_id "
+                    "LEFT JOIN org_units o ON o.id=COALESCE(vsu.service_target_org_unit_id, va.org_unit_id) "
                     "WHERE va.member_id=? ORDER BY va.created_at DESC, va.id DESC",
                     (member_id,),
                 ).fetchall()
@@ -558,6 +632,7 @@ def get_member_volunteer_history(member_id: int) -> dict[str, Any]:
             message = str(exc).lower()
             if (
                 "volunteer_position_catalog" not in message
+                and "volunteer_service_units" not in message
                 and "no such table" not in message
                 and "doesn't exist" not in message
             ):
@@ -584,6 +659,7 @@ def get_member_volunteer_history(member_id: int) -> dict[str, Any]:
                 or (fallback or {}).get("position_name")
                 or "志工",
                 "scope_name": row.get("scope_name") or "服务范围暂未记录",
+                "service_unit_name": row.get("service_unit_name"),
                 "status_name": VOLUNTEER_STATUS_NAMES.get(
                     str(row.get("status") or "").upper(), "状态待确认"
                 ),
@@ -598,10 +674,14 @@ def _catalog_rows(connection=None, *, active_only: bool = True) -> list[dict[str
     try:
         if connection is None:
             rows = fetch_all(
-                "SELECT position_key, position_name, scope_level, is_active, sort_order "
-                "FROM volunteer_position_catalog "
-                + ("WHERE is_active=1 " if active_only else "")
-                + "ORDER BY sort_order, position_name, position_key"
+                "SELECT c.position_key, c.position_name, c.scope_level, c.is_active, c.sort_order, "
+                "COALESCE(p.system_type, 'CLASS_TEAM') AS system_type, "
+                "COALESCE(p.line_type, 'GENERAL') AS line_type, "
+                "COALESCE(p.is_selectable, 1) AS is_selectable "
+                "FROM volunteer_position_catalog c "
+                "LEFT JOIN volunteer_position_profiles p ON p.position_key=c.position_key "
+                + ("WHERE c.is_active=1 " if active_only else "")
+                + "ORDER BY c.sort_order, c.position_name, c.position_key"
             )
             capabilities = fetch_all(
                 "SELECT position_key, capability_key FROM volunteer_position_capabilities"
@@ -611,10 +691,14 @@ def _catalog_rows(connection=None, *, active_only: bool = True) -> list[dict[str
                 dict(row)
                 for row in execute(
                     connection,
-                    "SELECT position_key, position_name, scope_level, is_active, sort_order "
-                    "FROM volunteer_position_catalog "
-                    + ("WHERE is_active=1 " if active_only else "")
-                    + "ORDER BY sort_order, position_name, position_key",
+                    "SELECT c.position_key, c.position_name, c.scope_level, c.is_active, c.sort_order, "
+                    "COALESCE(p.system_type, 'CLASS_TEAM') AS system_type, "
+                    "COALESCE(p.line_type, 'GENERAL') AS line_type, "
+                    "COALESCE(p.is_selectable, 1) AS is_selectable "
+                    "FROM volunteer_position_catalog c "
+                    "LEFT JOIN volunteer_position_profiles p ON p.position_key=c.position_key "
+                    + ("WHERE c.is_active=1 " if active_only else "")
+                    + "ORDER BY c.sort_order, c.position_name, c.position_key",
                 ).fetchall()
             ]
             capabilities = [
@@ -627,7 +711,12 @@ def _catalog_rows(connection=None, *, active_only: bool = True) -> list[dict[str
     except Exception as exc:
         # A pre-0039 read remains useful during a rolling deployment.  Do not
         # hide arbitrary database failures once the table is present.
-        if "no such table" not in str(exc).lower() and "doesn't exist" not in str(exc).lower():
+        message = str(exc).lower()
+        if (
+            "no such table" not in message
+            and "doesn't exist" not in message
+            and "volunteer_position_profiles" not in message
+        ):
             raise
         fallback_rows = []
         for key in POSITION_DEFAULTS:
@@ -647,6 +736,7 @@ def _catalog_rows(connection=None, *, active_only: bool = True) -> list[dict[str
             row
             for row in rows
             if row["position_key"] not in CURRENT_VOLUNTEER_HIDDEN_POSITION_KEYS
+            and bool(row.get("is_selectable", 1))
         ]
     return [_row_to_position(row, by_key.get(row["position_key"], [])) for row in rows]
 
@@ -697,15 +787,23 @@ def validate_position_target(
         raise ValueError("任职组织不存在或已停用")
     unit_type = str(unit["unit_type"] or "").upper()
     level = position["scope_level"]
-    if level in {"CLASS", "GROUP"}:
-        class_like = level == "CLASS" and unit_type in {"CLASS", "SPECIAL_COHORT"}
-        if not (class_like or unit_type == level):
-            label = "班级" if level == "CLASS" else "小组"
-            raise ValueError(f"{position['position_name']}只能服务{label}")
-        if normalized_scope != "UNIT":
-            raise ValueError(f"{position['position_name']}只能绑定一个{('班级' if level == 'CLASS' else '小组')}")
-    elif level == "REGIONAL_CENTER" and unit_type in {"CLASS", "GROUP"}:
-        raise ValueError("分中心岗位不能绑定班级或小组")
+    allowed_unit_types = {
+        "CLASS": {"CLASS", "SPECIAL_COHORT"},
+        "GROUP": {"GROUP"},
+        "REGIONAL_CENTER": {"REGIONAL_CENTER"},
+        "ROOT": {"ROOT"},
+    }
+    if level in allowed_unit_types and unit_type not in allowed_unit_types[level]:
+        label = {
+            "CLASS": "班级",
+            "GROUP": "小组",
+            "REGIONAL_CENTER": "分中心",
+            "ROOT": "塾级组织",
+        }[level]
+        raise ValueError(f"{position['position_name']}只能服务{label}")
+    if level in {"CLASS", "GROUP"} and normalized_scope != "UNIT":
+        label = "班级" if level == "CLASS" else "小组"
+        raise ValueError(f"{position['position_name']}只能绑定一个{label}")
     return {
         **position,
         "org_unit_id": org_unit_id,

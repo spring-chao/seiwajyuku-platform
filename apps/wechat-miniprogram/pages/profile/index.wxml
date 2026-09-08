@@ -18,6 +18,12 @@
 
   <block wx:if="{{!loading && member}}">
     <view class="section-card">
+      <view class="section-title">我的身份</view>
+      <view class="profile-row"><text class="profile-label">学长</text><text>在册学长身份</text></view>
+      <view wx:if="{{currentVolunteerServices.length}}" class="profile-row"><text class="profile-label">志工</text><text>当前承担 {{currentVolunteerServices.length}} 项志工服务</text></view>
+      <view wx:if="{{isEmployee}}" class="profile-row"><text class="profile-label">工作人员</text><text>{{employeeName || '工作人员移动运营身份'}}</text></view>
+    </view>
+    <view class="section-card">
       <view class="section-title">我的资料</view>
       <view class="profile-row"><text class="profile-label">姓名</text><text>{{member.name_masked}}</text></view>
       <view class="profile-row"><text class="profile-label">班级</text><text>{{member.class_name || '暂未记录'}}</text></view>

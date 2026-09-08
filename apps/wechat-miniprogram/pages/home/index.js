@@ -7,6 +7,9 @@ Page({
     loading: true,
     portal: null,
     member: null,
+    identities: null,
+    isEmployee: false,
+    operationEntries: [],
     identityState: "checking",
     canManageStudyMeeting: false,
     isVolunteer: false,
@@ -15,7 +18,7 @@ Page({
     displayRole: "",
     displayScope: "",
     errorMessage: "",
-    bindingActionLabel: "绑定我的学员身份"
+    bindingActionLabel: "绑定我的身份"
   },
 
   onShow() {
@@ -24,30 +27,32 @@ Page({
 
   async loadHome() {
     const version = this._homeLoadVersion = (this._homeLoadVersion || 0) + 1;
-    const token = app.globalData.memberSessionToken;
+    const token = app.globalData.personSessionToken || app.globalData.memberSessionToken;
     const current = () => this._homeLoadVersion === version;
     this.setData({ loading: true, errorMessage: "", canManageStudyMeeting: false });
     const next = {
-      portal: null, member: null, identityState: token ? "unknown" : "unbound",
+      portal: null, member: null, identities: null, isEmployee: false, operationEntries: [], identityState: token ? "unknown" : "unbound",
       canManageStudyMeeting: false, isVolunteer: false, volunteerRoles: [],
       serviceMessage: "", displayRole: "", displayScope: "",
-      bindingActionLabel: this.data.bindingActionLabel || "绑定我的学员身份"
+      bindingActionLabel: this.data.bindingActionLabel || "绑定我的身份"
     };
     if (token) {
       try {
         const me = await request("/api/v1/wechat/me", { auth: true });
         if (!current()) return;
         next.member = me.data && me.data.member;
-        if (!next.member || !next.member.member_id) throw new Error("暂时无法确认学员身份，请重试。");
+        next.identities = me.data && me.data.identities;
+        next.isEmployee = Boolean(next.identities && next.identities.operations && next.identities.operations.is_employee);
+        if (!next.member && !next.isEmployee) throw new Error("当前没有可用的学长或工作人员身份，请联系工作人员。");
         next.identityState = "bound";
-        // Identity is independent of an appointment: never show enrollment
-        // again just because context is unavailable or the appointment ended.
-        this.setData({ member: next.member, identityState: "bound", portal: null });
-        next.displayScope = `${(next.member && next.member.class_name) || "暂未关联班级"} · ${(next.member && next.member.study_group_name) || "暂未关联小组"}`;
+        this.setData({ member: next.member, identities: next.identities, identityState: "bound", portal: null });
+        next.displayScope = next.member
+          ? `${next.member.class_name || "暂未关联班级"} · ${next.member.study_group_name || "暂未关联小组"}`
+          : "工作人员移动运营身份已确认";
         // Volunteer identity is resolved independently from study-meeting
         // context. The backend returns capabilities; technical role keys never
         // reach the UI and study-meeting pages still enforce their own checks.
-        try {
+        if (next.member) try {
           const servicesResponse = await request("/api/v1/wechat/volunteer-services", { auth: true });
           const serviceState = resolveVolunteerServices(servicesResponse.data);
           next.volunteerRoles = serviceState.roles;
@@ -64,6 +69,21 @@ Page({
             next.member = null;
           } else if (error.statusCode !== 403 && error.statusCode !== 404) {
             next.errorMessage = "志工服务暂时无法加载，请重试。";
+          }
+        }
+        if (next.isEmployee) {
+          try {
+            const workbench = await request("/api/v1/wechat/operations/workbench", { auth: true });
+            next.operationEntries = (workbench.data && workbench.data.entries) || [];
+          } catch (error) {
+            if (error.statusCode === 401) {
+              app.clearPersonSession();
+              next.identityState = "unbound";
+              next.member = null;
+              next.isEmployee = false;
+            } else if (error.statusCode !== 403 && error.statusCode !== 404) {
+              next.errorMessage = "工作人员入口暂时无法加载，请重试。";
+            }
           }
         }
       } catch (error) {
@@ -107,6 +127,10 @@ Page({
     wx.navigateTo({ url: "/pages/identity/bind" });
   },
 
+  openStaffBinding() {
+    wx.navigateTo({ url: "/pages/identity/staff-bind" });
+  },
+
   openLearning() {
     if (this.data.identityState !== "bound") return;
     wx.navigateTo({ url: "/pages/learning/index" });
@@ -127,19 +151,24 @@ Page({
     wx.navigateTo({ url: "/pages/study-meeting/index" });
   },
 
+  openOperations() {
+    if (!this.data.isEmployee) return;
+    wx.navigateTo({ url: "/pages/operations/index" });
+  },
+
   unbind() {
     wx.showModal({
       title: "解除本机绑定？",
       content: "解除后下次登记需要重新输入姓名和手机号。",
       success: async result => {
-        if (!result.confirm || !app.globalData.memberSessionToken) return;
+        if (!result.confirm || !(app.globalData.personSessionToken || app.globalData.memberSessionToken)) return;
         try {
           await request("/api/v1/wechat/member-bindings/revoke", { method: "POST", auth: true });
           this._homeLoadVersion = (this._homeLoadVersion || 0) + 1;
-          app.clearMemberSession();
+          app.clearPersonSession();
           this.setData({ member: null, identityState: "unbound", canManageStudyMeeting: false,
             isVolunteer: false, volunteerRoles: [], displayRole: "", displayScope: "", serviceMessage: "",
-            bindingActionLabel: "重新绑定我的学员身份" });
+            bindingActionLabel: "重新绑定我的身份", isEmployee: false, operationEntries: [], identities: null });
           wx.showToast({ title: "已解除绑定", icon: "success" });
           await this.loadHome();
         } catch (error) {

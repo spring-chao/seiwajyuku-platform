@@ -3,6 +3,9 @@ const appConfig = require("./config");
 App({
   globalData: {
     ...appConfig,
+    // A WeChat session now represents a natural person. The older member key
+    // remains as a compatibility alias for already shipped member pages.
+    personSessionToken: "",
     memberSessionToken: "",
     studyMeetingDraft: null
   },
@@ -12,13 +15,17 @@ App({
     // credential cached locally; enrollment handoff tokens are navigation-only
     // and are never stored here.
     try {
-      this.globalData.memberSessionToken = wx.getStorageSync(appConfig.sessionStorageKey) || "";
+      const token = wx.getStorageSync(appConfig.sessionStorageKey) || "";
+      this.globalData.personSessionToken = token;
+      this.globalData.memberSessionToken = token;
     } catch (error) {
+      this.globalData.personSessionToken = "";
       this.globalData.memberSessionToken = "";
     }
   },
 
-  setMemberSession(token) {
+  setPersonSession(token) {
+    this.globalData.personSessionToken = token || "";
     this.globalData.memberSessionToken = token || "";
     try {
       if (token) wx.setStorageSync(appConfig.sessionStorageKey, token);
@@ -28,9 +35,17 @@ App({
     }
   },
 
-  clearMemberSession() {
-    this.setMemberSession("");
+  setMemberSession(token) {
+    this.setPersonSession(token);
+  },
+
+  clearPersonSession() {
+    this.setPersonSession("");
     this.globalData.studyMeetingDraft = null;
     this.globalData.studyMeetingResult = null;
+  },
+
+  clearMemberSession() {
+    this.clearPersonSession();
   }
 });

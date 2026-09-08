@@ -47,6 +47,9 @@ class Settings:
     # safety rejects it in every deployable environment.
     wechat_local_test_mode: bool = False
     wechat_member_binding_enabled: bool = False
+    # Staff mobile operations reuse a verified backend account plus live IAM2
+    # grants. Kept independently closed until bounded rollout approval.
+    wechat_staff_mobile_operations_enabled: bool = False
     study_meeting_submission_enabled: bool = False
     study_meeting_review_enabled: bool = False
     study_meeting_evidence_enabled: bool = False
@@ -97,6 +100,11 @@ class Settings:
             raise RuntimeError(f"未知 APP_ENV: {self.app_env}")
         if self.wechat_local_test_mode and self.app_env not in {"dev", "test"}:
             raise RuntimeError("WECHAT_LOCAL_TEST_MODE 仅允许 dev/test 环境")
+        if (
+            self.wechat_staff_mobile_operations_enabled
+            and not self.wechat_member_binding_enabled
+        ):
+            raise RuntimeError("工作人员移动运营需先启用微信身份绑定能力")
         if self.study_evidence_retention_hours < 1:
             raise RuntimeError("STUDY_EVIDENCE_RETENTION_HOURS 必须大于0")
         if self.study_evidence_cleanup_grace_seconds < 0:
@@ -202,6 +210,9 @@ def get_settings() -> Settings:
         agent_api_enabled=_bool("AGENT_API_ENABLED"),
         wechat_local_test_mode=_bool("WECHAT_LOCAL_TEST_MODE"),
         wechat_member_binding_enabled=_bool("WECHAT_MEMBER_BINDING_ENABLED"),
+        wechat_staff_mobile_operations_enabled=_bool(
+            "WECHAT_STAFF_MOBILE_OPERATIONS_ENABLED"
+        ),
         study_meeting_submission_enabled=_bool("STUDY_MEETING_SUBMISSION_ENABLED"),
         study_meeting_review_enabled=_bool("STUDY_MEETING_REVIEW_ENABLED"),
         study_meeting_evidence_enabled=_bool("STUDY_MEETING_EVIDENCE_ENABLED"),
