@@ -314,7 +314,9 @@ jobs:
             mysql -N -uroot -pci-root-password seiwajyuku_restore \
             -e "SELECT CONCAT((SELECT COUNT(*) FROM schema_migrations),':',(SELECT COUNT(*) FROM member_org_relations),':',(SELECT COUNT(*) FROM attendance_score_records),':',(SELECT COUNT(*) FROM operating_institutions));")"
           expected_migration_count="$(find migrations/mysql -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
-          test "$source_counts" = "${expected_migration_count}:4:3:4"
+          # The IAM2 volunteer fixtures add M003/M004's valid primary-region
+          # relations, so the staging backfill contains six legacy relations.
+          test "$source_counts" = "${expected_migration_count}:6:3:4"
           test "$restore_counts" = "$source_counts"
       - name: Verify MySQL rollback preserves legacy data
         run: |
@@ -352,7 +354,7 @@ jobs:
           test "$legacy_tables" = "6"
           test "$renewal_columns" = "0"
           test "$phone_index" = "0"
-          test "$legacy_counts" = "4:3"
+          test "$legacy_counts" = "6:3"
 
   build-provenance:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
