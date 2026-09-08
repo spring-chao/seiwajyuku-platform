@@ -99,8 +99,8 @@ class IAM2StaffManagementTests(unittest.TestCase):
             "login_account": account,
             "temporary_password": None,
             "is_active": True,
-            "phone": None,
-            "gender": "UNSPECIFIED",
+            "phone": f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}",
+            "gender": "FEMALE",
             "institution_id": "institution-suzhou-operations",
             "department_name": "运营支持",
             "supervisor_user_id": None,
@@ -126,6 +126,142 @@ class IAM2StaffManagementTests(unittest.TestCase):
         self.assertIsInstance(data["temporary_password"], str)
         self.assertGreaterEqual(len(data["temporary_password"]), 10)
         return int(data["id"]), str(data["temporary_password"]), payload
+
+    def test_simple_create_derives_iam2_grant_without_authorization_writing(self) -> None:
+        account = f"simple-staff-{uuid4().hex[:12]}"
+        phone = f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}"
+        response = self.client.post(
+            "/api/v1/staff-management/staff",
+            headers=self.admin_headers,
+            json={
+                "name": "一分钟新增专职人员",
+                "gender": "MALE",
+                "phone": phone,
+                "login_account": account,
+                "institution_id": "institution-suzhou-operations",
+                "position_keys": ["ops_center_learning"],
+                "responsibility_org_unit_id": self.center_a,
+                "responsibility_scope_type": "SUBTREE",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        user_id = int(response.json()["data"]["id"])
+        context = user_context(user_id)
+        self.assertIn("employee_learning_management", context["roles"])
+        self.assertNotIn("ops_center_learning", context["roles"])
+        self.assertEqual(
+            accessible_org_ids(user_id, "attendance:adjudicate"),
+            {self.center_a, self.class_a},
+        )
+        audit = fetch_one(
+            "SELECT purpose, after_json FROM audit_logs WHERE action='iam2.staff.create' "
+            "AND resource_id=(SELECT CAST(id AS TEXT) FROM operations_employments "
+            "WHERE person_id=(SELECT person_id FROM account_person_links WHERE user_id=?)) "
+            "ORDER BY id DESC LIMIT 1",
+            (user_id,),
+        )
+        self.assertEqual(audit["purpose"], "SYSTEM_AUTO:POSITION_SCOPE_MAPPING")
+        self.assertIn("employee_learning_management", audit["after_json"])
+
+        catalog = self.client.get(
+            "/api/v1/staff-management/catalog", headers=self.admin_headers
+        )
+        self.assertEqual(catalog.status_code, 200, catalog.text)
+        positions = {
+            item["position_key"]: item
+            for item in catalog.json()["data"]["positions"]
+        }
+        self.assertEqual(positions["ops_center_learning"]["mapping_status"], "AUTO")
+        self.assertEqual(
+            positions["operations_admin"]["mapping_status"],
+            "MAPPING_REVIEW_REQUIRED",
+        )
+
+        unmapped = self.client.post(
+            "/api/v1/staff-management/staff",
+            headers=self.admin_headers,
+            json={
+                "name": "待确认岗位人员",
+                "gender": "MALE",
+                "phone": f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}",
+                "login_account": f"mapping-review-{uuid4().hex[:12]}",
+                "institution_id": "institution-suzhou-operations",
+                "position_keys": ["operations_admin"],
+                "responsibility_org_unit_id": self.center_a,
+                "responsibility_scope_type": "SUBTREE",
+            },
+        )
+        self.assertEqual(unmapped.status_code, 400, unmapped.text)
+        self.assertIn("岗位权限映射待业务确认", unmapped.json()["detail"])
+
+    def test_staff_password_minimum_six_and_required_profile_fields(self) -> None:
+        base = {
+            "name": "密码门槛测试",
+            "gender": "FEMALE",
+            "phone": f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}",
+            "login_account": f"six-pass-{uuid4().hex[:12]}",
+            "institution_id": "institution-suzhou-operations",
+            "position_keys": ["ops_center_data"],
+            "responsibility_org_unit_id": self.center_a,
+            "responsibility_scope_type": "UNIT",
+        }
+        accepted = self.client.post(
+            "/api/v1/staff-management/staff",
+            headers=self.admin_headers,
+            json={**base, "temporary_password": "abc123"},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        rejected = self.client.post(
+            "/api/v1/staff-management/staff",
+            headers=self.admin_headers,
+            json={
+                **base,
+                "login_account": f"five-pass-{uuid4().hex[:12]}",
+                "phone": f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}",
+                "temporary_password": "abc12",
+            },
+        )
+        self.assertEqual(rejected.status_code, 422, rejected.text)
+        missing_phone = self.client.post(
+            "/api/v1/staff-management/staff",
+            headers=self.admin_headers,
+            json={key: value for key, value in base.items() if key != "phone"},
+        )
+        self.assertEqual(missing_phone.status_code, 422, missing_phone.text)
+        unspecified_gender = self.client.post(
+            "/api/v1/staff-management/staff",
+            headers=self.admin_headers,
+            json={
+                **base,
+                "login_account": f"gender-pass-{uuid4().hex[:12]}",
+                "phone": f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}",
+                "gender": "UNSPECIFIED",
+            },
+        )
+        self.assertEqual(unspecified_gender.status_code, 422, unspecified_gender.text)
+
+    def test_password_reset_accepts_six_without_business_reason(self) -> None:
+        user_id, _, _ = self._create_staff(
+            [
+                {
+                    "role_key": "employee_data_management",
+                    "org_unit_id": self.center_a,
+                    "scope_type": "UNIT",
+                }
+            ]
+        )
+        reset = self.client.post(
+            f"/api/v1/iam/users/{user_id}/password",
+            headers=self.admin_headers,
+            json={"password": "new123"},
+        )
+        self.assertEqual(reset.status_code, 200, reset.text)
+        too_short = self.client.post(
+            f"/api/v1/iam/users/{user_id}/password",
+            headers=self.admin_headers,
+            json={"password": "new12"},
+        )
+        self.assertEqual(too_short.status_code, 422, too_short.text)
 
     def test_explicit_grants_bind_permission_to_its_own_scope_and_subtree(self) -> None:
         started_on, ended_on = self._active_window()
@@ -238,7 +374,8 @@ class IAM2StaffManagementTests(unittest.TestCase):
         # Named login accounts remain readable for operations; only phone-like
         # identifiers are masked by the shared privacy helper.
         self.assertEqual(row["login_account"], create_payload["login_account"])
-        self.assertIsNone(row["phone_masked"])
+        self.assertRegex(row["phone_masked"], r"^\d{3}\*{4}\d{4}$")
+        self.assertNotEqual(row["phone_masked"], create_payload["phone"])
         self.assertNotIn("temporary_password", row)
         audit = fetch_one(
             "SELECT after_json FROM audit_logs WHERE action='iam2.staff.create' "

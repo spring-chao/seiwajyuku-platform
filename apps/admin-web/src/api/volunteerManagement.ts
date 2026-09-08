@@ -19,6 +19,10 @@ export type VolunteerServiceUnit = {
   sort_order: number;
 };
 
+export type VolunteerMemberEditorServiceUnit = VolunteerServiceUnit & {
+  positions: VolunteerPositionOption[];
+};
+
 export type VolunteerPositionOption = {
   position_key: string;
   position_name: string;
@@ -78,6 +82,12 @@ export const getVolunteerPositionOptions = (service_unit_id: string) =>
     { params: { service_unit_id } }
   );
 
+export const getVolunteerMemberEditorCatalog = () =>
+  http.request<{
+    success: boolean;
+    data: { service_units: VolunteerMemberEditorServiceUnit[] };
+  }>("get", `${base}/member-editor-catalog`);
+
 export const getVolunteerAppointments = (params?: Record<string, unknown>) =>
   http.request<{ success: boolean; data: VolunteerAppointment[] }>("get", `${base}/appointments`, { params });
 
@@ -85,12 +95,12 @@ export const createVolunteerAppointment = (data: {
   member_id: number;
   service_unit_id: string;
   position_key: string;
-  confirmation_note: string;
+  confirmation_note?: string;
 }) => http.request<{ success: boolean; data: { id: number; recommendations: VolunteerRecommendationRule[] } }>("post", `${base}/appointments`, { data });
 
 export const changeVolunteerAppointmentStatus = (
   id: number,
-  data: { status: "ACTIVE" | "SUSPENDED" | "ENDED" | "REVOKED"; reason: string }
+  data: { status: "ACTIVE" | "SUSPENDED" | "ENDED" | "REVOKED"; reason?: string }
 ) => http.request<{ success: boolean; data: { id: number; status: string } }>("post", `${base}/appointments/${id}/status`, { data });
 
 export const getVolunteerRecommendationRules = (params?: Record<string, unknown>) =>

@@ -11,15 +11,21 @@ from app.core.security import hash_password
 from app.db import execute, fetch_one, transaction
 from app.main import app
 from app.services.iam import user_context
-from app.services.members import create_member
+from app.services.members import create_member, update_member
 from app.services.volunteer_management import (
+    change_appointment_status,
     create_appointment,
     create_service_unit,
+    list_appointments,
+    member_editor_catalog,
     migration_preview,
 )
 from app.services.volunteer_positions import (
+    STUDY_MEETING_MANAGE,
     create_member_volunteer_appointment,
+    get_member_volunteer_history,
     get_member_volunteer_services,
+    read_member_current_volunteer_position,
 )
 
 
@@ -250,3 +256,199 @@ def test_volunteer2_multiple_current_posts_and_staff_mobile_iam2_boundary() -> N
     with transaction() as connection:
         execute(connection, "UPDATE members SET status='INACTIVE', updated_at=? WHERE id=?", (_now(), member_id))
     assert get_member_volunteer_services(member_id)["roles"] == []
+
+
+def test_member_editor_supports_three_independent_cross_org_posts() -> None:
+    """A learner's study class is only a default, never a service constraint."""
+
+    suffix = uuid4().hex[:10]
+    admin_id = _admin_id()
+    center_id = f"v2-multi-center-{suffix}"
+    study_class_id = f"v2-multi-study-class-{suffix}"
+    service_class_id = f"v2-multi-service-class-{suffix}"
+    service_group_id = f"v2-multi-service-group-{suffix}"
+    now = _now()
+    with transaction() as connection:
+        for org_id, code, name, unit_type, parent_id in (
+            (
+                center_id,
+                f"V2_MULTI_{suffix}_CENTER",
+                "昆山分中心验收样本",
+                "REGIONAL_CENTER",
+                "org-suzhou",
+            ),
+            (
+                study_class_id,
+                f"V2_MULTI_{suffix}_STUDY_CLASS",
+                "炎武二班验收样本",
+                "CLASS",
+                center_id,
+            ),
+            (
+                service_class_id,
+                f"V2_MULTI_{suffix}_SERVICE_CLASS",
+                "炎武一班验收样本",
+                "CLASS",
+                center_id,
+            ),
+            (
+                service_group_id,
+                f"V2_MULTI_{suffix}_SERVICE_GROUP",
+                "感恩组验收样本",
+                "GROUP",
+                service_class_id,
+            ),
+        ):
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                (org_id, code, name, unit_type, parent_id, now, now),
+            )
+
+    member_id = create_member(
+        admin_id,
+        member_code=f"V2-MULTI-MEMBER-{suffix}",
+        name="多岗位跨组织验收学长",
+        org_unit_id=center_id,
+        development_org_unit_id=None,
+        phone=None,
+        class_org_unit_id=study_class_id,
+    )
+    governance = create_service_unit(
+        admin_id,
+        unit_code=f"V2-MULTI-GOV-{suffix}",
+        name="昆山分中心发展建设委验收样本",
+        system_type="GOVERNANCE",
+        line_type="DEVELOPMENT",
+        parent_id=None,
+        home_shuku_org_unit_id="org-suzhou",
+        service_target_org_unit_id=center_id,
+    )
+    class_team = create_service_unit(
+        admin_id,
+        unit_code=f"V2-MULTI-CLASS-{suffix}",
+        name="炎武一班班组委验收样本",
+        system_type="CLASS_TEAM",
+        line_type="GENERAL",
+        parent_id=None,
+        home_shuku_org_unit_id="org-suzhou",
+        service_target_org_unit_id=service_class_id,
+    )
+    group_team = create_service_unit(
+        admin_id,
+        unit_code=f"V2-MULTI-GROUP-{suffix}",
+        name="炎武一班感恩组班组委验收样本",
+        system_type="CLASS_TEAM",
+        line_type="GENERAL",
+        parent_id=class_team["id"],
+        home_shuku_org_unit_id="org-suzhou",
+        service_target_org_unit_id=service_group_id,
+    )
+
+    created = [
+        create_appointment(
+            admin_id,
+            member_id=member_id,
+            service_unit_id=governance["id"],
+            position_key="volunteer_center_development_vice_chair",
+            confirmation_note="",
+        ),
+        create_appointment(
+            admin_id,
+            member_id=member_id,
+            service_unit_id=class_team["id"],
+            position_key="volunteer_class_counselor",
+            confirmation_note="",
+        ),
+        create_appointment(
+            admin_id,
+            member_id=member_id,
+            service_unit_id=group_team["id"],
+            position_key="volunteer_group_counselor",
+            confirmation_note="",
+        ),
+    ]
+
+    appointments = list_appointments(admin_id, member_id=member_id)
+    assert len(appointments) == 3
+    assert {item["status"] for item in appointments} == {"ACTIVE"}
+    assert {item["service_target_org_unit_id"] for item in appointments} == {
+        center_id,
+        service_class_id,
+        service_group_id,
+    }
+    services = get_member_volunteer_services(member_id)
+    assert services["needs_manual_review"] is False
+    assert len(services["roles"]) == 3
+    assert STUDY_MEETING_MANAGE in {
+        capability
+        for role in services["roles"]
+        for capability in role["capabilities"]
+    }
+    compatibility = read_member_current_volunteer_position(member_id)
+    assert compatibility["is_volunteer"] is True
+    assert compatibility["needs_manual_review"] is False
+    assert len(compatibility["active_appointments"]) == 3
+
+    catalog = member_editor_catalog(admin_id)["service_units"]
+    by_id = {item["id"]: item for item in catalog}
+    assert "volunteer_center_development_vice_chair" in {
+        item["position_key"] for item in by_id[governance["id"]]["positions"]
+    }
+    assert {item["position_key"] for item in by_id[group_team["id"]]["positions"]}.issuperset(
+        {"volunteer_group_counselor", "volunteer_group_leader"}
+    )
+    assert all(item["system_type"] != "ACTIVITY" for item in catalog)
+
+    update_member(
+        admin_id,
+        member_id,
+        {"class_org_unit_id": service_class_id},
+    )
+    after_study_move = list_appointments(admin_id, member_id=member_id)
+    assert len(after_study_move) == 3
+    assert {item["service_target_org_unit_id"] for item in after_study_move} == {
+        center_id,
+        service_class_id,
+        service_group_id,
+    }
+
+    class_appointment_id = created[1]["id"]
+    change_appointment_status(
+        admin_id, class_appointment_id, status="ENDED", reason=""
+    )
+    remaining = get_member_volunteer_services(member_id)
+    assert len(remaining["roles"]) == 2
+    assert "volunteer_class_counselor" not in {
+        item["position_key"] for item in remaining["roles"]
+    }
+    assert STUDY_MEETING_MANAGE in {
+        capability
+        for role in remaining["roles"]
+        for capability in role["capabilities"]
+    }
+    history = get_member_volunteer_history(member_id)["appointments"]
+    assert any(
+        item["position_name"] == "班主任" and item["status_name"] == "已结束"
+        for item in history
+    )
+
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE members SET status='INACTIVE', updated_at=? WHERE id=?",
+            (_now(), member_id),
+        )
+    assert get_member_volunteer_services(member_id)["roles"] == []
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE members SET status='ACTIVE', updated_at=? WHERE id=?",
+            (_now(), member_id),
+        )
+    restored = get_member_volunteer_services(member_id)
+    assert len(restored["roles"]) == 2
+    assert "volunteer_class_counselor" not in {
+        item["position_key"] for item in restored["roles"]
+    }

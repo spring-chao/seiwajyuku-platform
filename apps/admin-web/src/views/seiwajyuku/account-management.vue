@@ -109,8 +109,8 @@ async function createAccount() {
     ElMessage.error("请填写人员名称");
     return;
   }
-  if (createForm.password.length < 10) {
-    ElMessage.error("临时密码至少需要 10 位");
+  if (createForm.password.length < 6) {
+    ElMessage.error("临时密码至少需要 6 位");
     return;
   }
   try {
@@ -152,31 +152,18 @@ async function createAccount() {
 async function resetPassword(row: ManagedAccount) {
   try {
     const passwordResult = await ElMessageBox.prompt(
-      "新密码至少 10 位。提交后旧登录会话会立即失效，系统不会展示或保存明文密码。",
+      "新密码至少 6 位。提交后旧登录会话会立即失效，系统不会展示或保存明文密码。",
       `重置密码 · ${row.display_name}`,
       {
         inputType: "password",
-        inputPlaceholder: "请输入新密码（至少 10 位）",
-        inputValidator: value => value.length >= 10 || "密码至少需要 10 位",
-        confirmButtonText: "下一步",
+        inputPlaceholder: "请输入新密码（至少 6 位）",
+        inputValidator: value => value.length >= 6 || "密码至少需要 6 位",
+        confirmButtonText: "确认重置",
         cancelButtonText: "取消"
       }
     );
-    const reasonResult = await ElMessageBox.prompt(
-      "请记录本次重置的业务原因或批准依据。",
-      "填写重置依据",
-      {
-        inputPlaceholder: "至少 6 个字符",
-        inputValidator: value =>
-          value.trim().length >= 6 || "重置原因至少填写 6 个字符",
-        confirmButtonText: "确认重置",
-        cancelButtonText: "取消",
-        type: "warning"
-      }
-    );
     await resetManagedAccountPassword(row.id, {
-      password: passwordResult.value,
-      reason: reasonResult.value.trim()
+      password: passwordResult.value
     });
     ElMessage.success("密码已重置，该账号的旧登录会话已全部失效");
     await load();
@@ -324,7 +311,7 @@ onMounted(() => {
             show-password
             autocomplete="new-password"
             maxlength="256"
-            placeholder="至少 10 位"
+            placeholder="至少 6 位"
           >
             <template #append>
               <el-button

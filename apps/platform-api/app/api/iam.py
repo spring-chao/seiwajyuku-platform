@@ -39,7 +39,7 @@ class ScopePayload(BaseModel):
 class UserCreatePayload(BaseModel):
     username: str = Field(min_length=3, max_length=128)
     display_name: str = Field(min_length=1, max_length=255)
-    password: str = Field(min_length=10, max_length=256)
+    password: str = Field(min_length=6, max_length=256)
     # Identity-first accounts may intentionally start without a legacy role.
     # Their permissions come from a dated employment/appointment assignment.
     roles: list[str] = Field(default_factory=list)
@@ -49,8 +49,8 @@ class UserCreatePayload(BaseModel):
 
 
 class PasswordResetPayload(BaseModel):
-    password: str = Field(min_length=10, max_length=256)
-    reason: str = Field(min_length=6, max_length=1000)
+    password: str = Field(min_length=6, max_length=256)
+    reason: str = Field(default="系统自动记录：管理员重置密码", max_length=1000)
 
 
 class ClassCleanupPayload(BaseModel):

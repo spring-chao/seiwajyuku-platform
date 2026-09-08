@@ -31,10 +31,10 @@ class AuthorizationGrantPayload(BaseModel):
 class StaffCreatePayload(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     login_account: str = Field(min_length=3, max_length=128)
-    temporary_password: str | None = Field(default=None, min_length=10, max_length=256)
+    temporary_password: str | None = Field(default=None, min_length=6, max_length=256)
     is_active: bool = True
-    phone: str | None = Field(default=None, max_length=32)
-    gender: str | None = Field(default=None, max_length=16)
+    phone: str = Field(min_length=1, max_length=32)
+    gender: Literal["MALE", "FEMALE"]
     institution_id: str = Field(min_length=1, max_length=64)
     department_name: str | None = Field(default=None, max_length=255)
     supervisor_user_id: int | None = Field(default=None, gt=0)
@@ -44,8 +44,13 @@ class StaffCreatePayload(BaseModel):
     employment_status: Literal["ACTIVE", "LEAVE"] = "ACTIVE"
     started_on: str | None = None
     ended_on: str | None = None
-    grants: list[AuthorizationGrantPayload] = Field(min_length=1, max_length=64)
-    authorization_basis: str = Field(min_length=4, max_length=500)
+    # The ordinary business flow sends one responsibility. Roles and IAM2
+    # grants are derived server-side from the selected position(s).
+    responsibility_org_unit_id: str | None = Field(default=None, min_length=1, max_length=64)
+    responsibility_scope_type: Literal["UNIT", "SUBTREE"] | None = None
+    # Kept only for compatible expert clients and historical fixtures.
+    grants: list[AuthorizationGrantPayload] | None = Field(default=None, max_length=64)
+    authorization_basis: str = Field(default="", max_length=500)
     authorization_reason: str = Field(default="", max_length=1000)
 
 
@@ -56,7 +61,7 @@ class StaffUpdatePayload(BaseModel):
     # a masked identifier back as though it were the real account name.
     login_account: str | None = Field(default=None, min_length=3, max_length=128)
     is_active: bool
-    gender: str | None = Field(default=None, max_length=16)
+    gender: Literal["MALE", "FEMALE"]
     replace_phone: bool = False
     phone: str | None = Field(default=None, max_length=32)
     institution_id: str = Field(min_length=1, max_length=64)
@@ -66,8 +71,10 @@ class StaffUpdatePayload(BaseModel):
     employment_status: Literal["ACTIVE", "LEAVE"] | None = None
     started_on: str | None = None
     ended_on: str | None = None
-    grants: list[AuthorizationGrantPayload] = Field(default_factory=list, max_length=64)
-    authorization_basis: str = Field(min_length=4, max_length=500)
+    responsibility_org_unit_id: str | None = Field(default=None, min_length=1, max_length=64)
+    responsibility_scope_type: Literal["UNIT", "SUBTREE"] | None = None
+    grants: list[AuthorizationGrantPayload] | None = Field(default=None, max_length=64)
+    authorization_basis: str = Field(default="", max_length=500)
     authorization_reason: str = Field(default="", max_length=1000)
 
 
@@ -118,7 +125,12 @@ def staff_detail(user_id: int, actor: dict = Depends(require_permission("iam:man
 @router.post("/staff")
 def create(payload: StaffCreatePayload, actor: dict = Depends(require_permission("iam:manage"))) -> dict:
     values = payload.model_dump(exclude_unset=True)
-    values["grants"] = [item.model_dump(exclude_unset=True) for item in payload.grants]
+    if payload.grants is not None:
+        values["grants"] = [item.model_dump(exclude_unset=True) for item in payload.grants]
+    values.setdefault("temporary_password", None)
+    values.setdefault("department_name", None)
+    values.setdefault("supervisor_user_id", None)
+    values.setdefault("is_active", True)
     values.setdefault("employment_status", "ACTIVE")
     values.setdefault("started_on", None)
     values.setdefault("ended_on", None)
@@ -132,7 +144,8 @@ def change_preview(
     actor: dict = Depends(require_permission("iam:manage")),
 ) -> dict:
     values = payload.model_dump(exclude_unset=True)
-    values["grants"] = [item.model_dump(exclude_unset=True) for item in payload.grants]
+    if payload.grants is not None:
+        values["grants"] = [item.model_dump(exclude_unset=True) for item in payload.grants]
     return {
         "success": True,
         "data": _call(preview_staff_update, actor["id"], user_id, payload=values),
@@ -146,7 +159,8 @@ def update(
     actor: dict = Depends(require_permission("iam:manage")),
 ) -> dict:
     values = payload.model_dump(exclude_unset=True)
-    values["grants"] = [item.model_dump(exclude_unset=True) for item in payload.grants]
+    if payload.grants is not None:
+        values["grants"] = [item.model_dump(exclude_unset=True) for item in payload.grants]
     return {
         "success": True,
         "data": _call(update_staff, actor["id"], user_id, payload=values),

@@ -49,6 +49,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: node --test tests/study-meeting-error.test.mjs
+      - run: node --test tests/member-volunteer-display.test.mjs
+      - run: node --test tests/staff-management-simplified.test.mjs
       - run: pnpm build:staging
 
   wechat-miniprogram:

@@ -21,8 +21,24 @@ from app.services.iam import (
 from app.services.identity_admin import assert_identity_write_enabled
 
 
-VALID_GENDERS = {"MALE", "FEMALE", "UNSPECIFIED"}
+VALID_GENDERS = {"MALE", "FEMALE"}
 EMPLOYMENT_STATUSES = {"ACTIVE", "LEAVE"}
+PASSWORD_MIN_LENGTH = 6
+
+# Business positions remain distinct from IAM2 roles.  This is the reviewed
+# one-to-one mapping used by the ordinary staff workflow; the compatibility
+# position deliberately remains unmapped and therefore cannot silently gain a
+# guessed permission set.
+POSITION_ROLE_MAPPING = {
+    "ops_center_director": "employee_operations_lead",
+    "ops_center_operations": "employee_operations_management",
+    "ops_center_learning": "employee_learning_management",
+    "ops_center_development": "employee_development_management",
+    "ops_center_management": "employee_operations_management",
+    "ops_center_data": "employee_data_management",
+    "ops_center_finance": "employee_finance_management",
+    "ops_center_administration": "employee_administration_management",
+}
 
 
 def _read_gate() -> None:
@@ -202,19 +218,39 @@ def _normalize_grants(
     return normalized
 
 
-def _require_authorization_reason(
-    grants: list[dict[str, Any]],
-    authorization_basis: str,
-    authorization_reason: str,
-) -> tuple[str, str]:
-    basis = str(authorization_basis or "").strip()
-    reason = str(authorization_reason or "").strip()
-    if len(basis) < 4:
-        raise ValueError("请填写至少 4 个字符的授权依据")
-    risky = {level for grant in grants for level in _role_risk(grant["role_key"])}
-    if risky and len(reason) < 8:
-        raise ValueError("扩大敏感权限时必须填写至少 8 个字符的业务原因")
-    return basis, reason
+def _validate_password(password: str) -> str:
+    if len(password) < PASSWORD_MIN_LENGTH:
+        raise ValueError(f"密码至少需要 {PASSWORD_MIN_LENGTH} 位")
+    return password
+
+
+def _auto_grants(
+    connection: Any,
+    position_keys: list[str],
+    org_unit_id: str | None,
+    scope_type: str | None,
+) -> list[dict[str, Any]]:
+    organization_id = str(org_unit_id or "").strip()
+    normalized_scope_type = str(scope_type or "").strip().upper()
+    if not organization_id or normalized_scope_type not in {"UNIT", "SUBTREE"}:
+        raise ValueError("请选择负责范围")
+    _organization(connection, organization_id)
+    missing = [key for key in position_keys if key not in POSITION_ROLE_MAPPING]
+    if missing:
+        names = "、".join(POSITION_NAMES.get(key, key) for key in missing)
+        raise ValueError(f"岗位权限映射待业务确认：{names}")
+    return _normalize_grants(
+        connection,
+        [
+            {
+                "role_key": POSITION_ROLE_MAPPING[position_key],
+                "org_unit_id": organization_id,
+                "scope_type": normalized_scope_type,
+            }
+            for position_key in position_keys
+        ],
+        allow_empty=False,
+    )
 
 
 def _mask_grant(grant: dict[str, Any]) -> dict[str, Any]:
@@ -427,7 +463,13 @@ def staff_catalog(actor_user_id: int) -> dict[str, Any]:
             {"system_admin", "data_security_admin"}.intersection(actor.get("roles", []))
         ),
         "positions": [
-            {"position_key": key, "position_name": name}
+            {
+                "position_key": key,
+                "position_name": name,
+                "mapping_status": (
+                    "AUTO" if key in POSITION_ROLE_MAPPING else "MAPPING_REVIEW_REQUIRED"
+                ),
+            }
             for key, name in POSITION_NAMES.items()
         ],
         "roles": roles,
@@ -549,9 +591,11 @@ def create_staff(
     employment_status: str,
     started_on: str | None,
     ended_on: str | None,
-    grants: list[dict[str, Any]],
-    authorization_basis: str,
-    authorization_reason: str,
+    grants: list[dict[str, Any]] | None = None,
+    responsibility_org_unit_id: str | None = None,
+    responsibility_scope_type: str | None = None,
+    authorization_basis: str = "",
+    authorization_reason: str = "",
 ) -> dict[str, Any]:
     _write_gate()
     staff_name = str(name or "").strip()
@@ -561,8 +605,8 @@ def create_staff(
     if len(username) < 3:
         raise ValueError("登录账号至少填写 3 个字符")
     normalized_gender = _clean_text(gender)
-    if normalized_gender and normalized_gender not in VALID_GENDERS:
-        raise ValueError("性别取值无效")
+    if normalized_gender not in VALID_GENDERS:
+        raise ValueError("性别必须选择男或女")
     positions = _normalize_positions(position_keys)
     employment_start, employment_end = _validate_interval(
         started_on, ended_on, start_label="任职开始", end_label="任职结束"
@@ -573,30 +617,38 @@ def create_staff(
     if not password:
         generated_password = secrets.token_urlsafe(15)
         password = generated_password
+    _validate_password(password)
     password_hash = hash_password(password)
-    phone_fields = protected_phone(phone) if _clean_text(phone) else None
+    phone_value = _clean_text(phone)
+    if not phone_value:
+        raise ValueError("手机号不能为空")
+    phone_fields = protected_phone(phone_value)
     now = datetime.now(UTC).isoformat()
     source_reference = "IAM2_STAFF_MANAGEMENT"
 
     with transaction() as connection:
         if execute(connection, "SELECT id FROM app_users WHERE username=?", (username,)).fetchone():
-            raise ValueError("登录账号已存在")
+            raise ValueError("登录账号已经存在，请更换账号")
         _institution(connection, institution_id)
         supervisor_id = _supervisor(connection, supervisor_user_id)
-        normalized_grants = _normalize_grants(
-            connection,
-            grants,
-            allow_empty=False,
+        normalized_grants = (
+            _normalize_grants(connection, grants, allow_empty=False)
+            if grants is not None
+            else _auto_grants(
+                connection,
+                positions,
+                responsibility_org_unit_id,
+                responsibility_scope_type,
+            )
         )
-        basis, reason = _require_authorization_reason(
-            normalized_grants, authorization_basis, authorization_reason
-        )
+        basis = str(authorization_basis or "").strip() or "SYSTEM_AUTO:POSITION_SCOPE_MAPPING"
+        reason = str(authorization_reason or "").strip()
         if phone_fields and execute(
             connection,
             "SELECT person_id FROM employee_profile_details WHERE work_phone_hash=?",
             (phone_fields["phone_hash"],),
         ).fetchone():
-            raise ValueError("该工作手机号已关联其他专职人员")
+            raise ValueError("该手机号已绑定其他工作人员，请核对")
         cursor = execute(
             connection,
             "INSERT INTO app_users(username, display_name, password_hash, is_active, "
@@ -764,12 +816,25 @@ def _desired_snapshot(
         _grant_identity(grant): grant
         for grant in _grant_rows(int(current["_employment_id"]), current_only=True)
     }
-    normalized_grants = _normalize_grants(
-        connection,
-        payload.get("grants") or [],
-        allow_empty=True,
-        historical_grants=existing_grants,
-    )
+    if "grants" in payload and payload.get("grants") is not None:
+        normalized_grants = _normalize_grants(
+            connection,
+            payload.get("grants") or [],
+            allow_empty=True,
+            historical_grants=existing_grants,
+        )
+    elif (
+        "responsibility_org_unit_id" in payload
+        or "responsibility_scope_type" in payload
+    ):
+        normalized_grants = _auto_grants(
+            connection,
+            positions,
+            payload.get("responsibility_org_unit_id"),
+            payload.get("responsibility_scope_type"),
+        )
+    else:
+        normalized_grants = list(existing_grants.values())
     return (
         {
             "name": str(payload.get("name") or current["name"]).strip(),
@@ -901,22 +966,11 @@ def update_staff(
             raise ValueError("姓名不能为空")
         if len(desired["login_account_raw"]) < 3:
             raise ValueError("登录账号至少填写 3 个字符")
-        authorization_change_keys = {
-            _grant_identity(grant) for grant in preview["diff"]["added_grants"]
-        }
-        authorization_change_keys.update(
-            _grant_identity(change["after"])
-            for change in preview["diff"]["changed_grants"]
+        basis = (
+            str(payload.get("authorization_basis") or "").strip()
+            or "SYSTEM_AUTO:STAFF_BUSINESS_UPDATE"
         )
-        basis, reason = _require_authorization_reason(
-            [
-                grant
-                for grant in grants
-                if _grant_identity(grant) in authorization_change_keys
-            ],
-            payload.get("authorization_basis") or "",
-            payload.get("authorization_reason") or "",
-        )
+        reason = str(payload.get("authorization_reason") or "").strip()
         duplicate = execute(
             connection,
             "SELECT id FROM app_users WHERE username=? AND id<>?",
@@ -925,8 +979,8 @@ def update_staff(
         if duplicate:
             raise ValueError("登录账号已被使用")
         gender = _clean_text(payload.get("gender"))
-        if gender and gender not in VALID_GENDERS:
-            raise ValueError("性别取值无效")
+        if gender not in VALID_GENDERS:
+            raise ValueError("性别必须选择男或女")
         profile_exists = execute(
             connection,
             "SELECT 1 FROM employee_profile_details WHERE person_id=?",
@@ -941,25 +995,26 @@ def update_staff(
             )
         if payload.get("replace_phone"):
             phone_value = _clean_text(payload.get("phone"))
-            phone_fields = protected_phone(phone_value) if phone_value else None
-            if phone_fields:
-                duplicate_phone = execute(
-                    connection,
-                    "SELECT person_id FROM employee_profile_details "
-                    "WHERE work_phone_hash=? AND person_id<>?",
-                    (phone_fields["phone_hash"], current["_person_id"]),
-                ).fetchone()
-                if duplicate_phone:
-                    raise ValueError("该工作手机号已关联其他专职人员")
+            if not phone_value:
+                raise ValueError("手机号不能为空")
+            phone_fields = protected_phone(phone_value)
+            duplicate_phone = execute(
+                connection,
+                "SELECT person_id FROM employee_profile_details "
+                "WHERE work_phone_hash=? AND person_id<>?",
+                (phone_fields["phone_hash"], current["_person_id"]),
+            ).fetchone()
+            if duplicate_phone:
+                raise ValueError("该手机号已绑定其他工作人员，请核对")
             execute(
                 connection,
                 "UPDATE employee_profile_details SET work_phone_ciphertext=?, work_phone_hash=?, "
                 "work_phone_last4=?, work_phone_masked=?, gender=?, updated_at=? WHERE person_id=?",
                 (
-                    phone_fields["phone_ciphertext"] if phone_fields else None,
-                    phone_fields["phone_hash"] if phone_fields else None,
-                    phone_fields["phone_last4"] if phone_fields else None,
-                    phone_fields["phone_masked"] if phone_fields else None,
+                    phone_fields["phone_ciphertext"],
+                    phone_fields["phone_hash"],
+                    phone_fields["phone_last4"],
+                    phone_fields["phone_masked"],
                     gender,
                     now,
                     current["_person_id"],

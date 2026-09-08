@@ -29,12 +29,12 @@ class AppointmentPayload(BaseModel):
     member_id: int = Field(gt=0)
     service_unit_id: str = Field(min_length=1, max_length=64)
     position_key: str = Field(min_length=3, max_length=64)
-    confirmation_note: str = Field(min_length=8, max_length=1000)
+    confirmation_note: str = Field(default="学员管理页添加志工任职", max_length=1000)
 
 
 class AppointmentStatusPayload(BaseModel):
     status: Literal["ACTIVE", "SUSPENDED", "ENDED", "REVOKED"]
-    reason: str = Field(min_length=6, max_length=1000)
+    reason: str = Field(default="学员管理页确认结束志工任职", max_length=1000)
 
 
 class RecommendationRulePayload(BaseModel):
@@ -92,6 +92,13 @@ def get_position_options(
     user: dict = Depends(require_permission("members:detail_view")),
 ) -> dict:
     return {"success": True, "data": _call(service.list_position_options, user["id"], service_unit_id=service_unit_id)}
+
+
+@router.get("/member-editor-catalog")
+def get_member_editor_catalog(
+    user: dict = Depends(require_permission("members:detail_view")),
+) -> dict:
+    return {"success": True, "data": _call(service.member_editor_catalog, user["id"])}
 
 
 @router.get("/appointments")

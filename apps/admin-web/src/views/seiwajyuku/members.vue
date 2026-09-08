@@ -21,8 +21,6 @@ import {
   applyFullClassRosterRelations,
   getMemberChangeHistory,
   getMemberTimeline,
-  getMemberVolunteerAppointments,
-  getVolunteerPositionCatalog,
   applyLegacyVolunteerAdoption,
   previewLegacyVolunteerAdoption,
   submitMemberServiceSignalFeedback,
@@ -38,18 +36,18 @@ import {
   type MemberServiceSignal,
   type MemberServiceSignalFeedbackStatus,
   type MemberTimeline,
-  type MemberVolunteerAppointment,
-  type MemberVolunteerAppointments,
   type LegacyVolunteerAdoptionPreview,
-  type VolunteerPosition,
   type OrgUnit
 } from "@/api/seiwajyuku";
 import {
-  buildCurrentVolunteerPositionOptions,
-  shouldShowLegacyVolunteerHint,
-  volunteerAppointmentStatusLabel,
-  volunteerPositionLabel
-} from "@/utils/memberVolunteerDisplay";
+  changeVolunteerAppointmentStatus,
+  createVolunteerAppointment,
+  getVolunteerAppointments,
+  getVolunteerMemberEditorCatalog,
+  type VolunteerAppointment,
+  type VolunteerMemberEditorServiceUnit,
+  type VolunteerPositionOption
+} from "@/api/volunteerManagement";
 
 defineOptions({ name: "MemberManagement" });
 
@@ -70,13 +68,19 @@ const editClassOrgName = ref("");
 const editGroupOrgName = ref("");
 const originalClassOrgUnitId = ref("");
 const originalGroupOrgUnitId = ref("");
-const originalCurrentVolunteerPositionKey = ref<string | null>(null);
 const financialFieldsEditable = ref(false);
 const editingMemberId = ref<number>();
-const volunteerPositions = ref<VolunteerPosition[]>([]);
-const memberVolunteerAppointments = ref<MemberVolunteerAppointments>();
 const volunteerAppointmentsLoading = ref(false);
 const volunteerHistoryExpanded = ref<string[]>([]);
+const memberVolunteerV2Appointments = ref<VolunteerAppointment[]>([]);
+const volunteerEditorUnits = ref<VolunteerMemberEditorServiceUnit[]>([]);
+const volunteerEditorSaving = ref(false);
+const volunteerEditorForm = reactive({
+  volunteer_type: "CLASS_TEAM" as "CLASS_TEAM" | "LINE",
+  position_key: "",
+  class_org_unit_id: "",
+  service_unit_id: ""
+});
 const preflightVisible = ref(false);
 const preflightLoading = ref(false);
 const preflightFiles = ref<UploadUserFile[]>([]);
@@ -182,8 +186,75 @@ const canReadRenewals = computed(() =>
 const canViewHistory = computed(() =>
   useUserStoreHook().permissions.includes("members:detail_view")
 );
-const volunteerAppointmentCount = computed(
-  () => memberVolunteerAppointments.value?.appointments.length ?? 0
+const currentVolunteerV2Appointments = computed(() =>
+  memberVolunteerV2Appointments.value.filter(item => item.status === "ACTIVE")
+);
+const historicalVolunteerV2Appointments = computed(() =>
+  memberVolunteerV2Appointments.value.filter(item => item.status !== "ACTIVE")
+);
+const volunteerTypeUnits = computed(() =>
+  volunteerEditorUnits.value.filter(unit =>
+    volunteerEditorForm.volunteer_type === "CLASS_TEAM"
+      ? unit.system_type === "CLASS_TEAM"
+      : ["GOVERNANCE", "COMMITTEE_LINE"].includes(unit.system_type)
+  )
+);
+const volunteerEditorPositions = computed(() => {
+  const byKey = new Map<string, VolunteerPositionOption>();
+  volunteerTypeUnits.value.forEach(unit =>
+    unit.positions.forEach(position => byKey.set(position.position_key, position))
+  );
+  return [...byKey.values()].sort(
+    (left, right) => left.position_name.localeCompare(right.position_name, "zh-CN")
+  );
+});
+const selectedVolunteerEditorPosition = computed(() =>
+  volunteerEditorPositions.value.find(
+    item => item.position_key === volunteerEditorForm.position_key
+  )
+);
+const volunteerPositionGroups = computed(() => {
+  const labels: Record<string, string> = {
+    ROOT: "二级塾",
+    REGIONAL_CENTER: "分中心",
+    CLASS: "班级三大委",
+    GROUP: "班组委"
+  };
+  const groups = new Map<string, VolunteerPositionOption[]>();
+  volunteerEditorPositions.value.forEach(position => {
+    const label = labels[position.scope_level] || "其他岗位";
+    groups.set(label, [...(groups.get(label) || []), position]);
+  });
+  return [...groups.entries()].map(([label, options]) => ({ label, options }));
+});
+const selectedVolunteerScopeLevel = computed(
+  () => selectedVolunteerEditorPosition.value?.scope_level || ""
+);
+const volunteerServiceUnitOptions = computed(() => {
+  let units = volunteerTypeUnits.value.filter(unit =>
+    unit.positions.some(
+      position => position.position_key === volunteerEditorForm.position_key
+    )
+  );
+  if (selectedVolunteerScopeLevel.value === "GROUP") {
+    units = units.filter(unit => {
+      const target = orgs.value.find(
+        org => org.id === unit.service_target_org_unit_id
+      );
+      return target?.parent_id === volunteerEditorForm.class_org_unit_id;
+    });
+  }
+  return units.sort((left, right) =>
+    (left.service_target_name || left.name).localeCompare(
+      right.service_target_name || right.name,
+      "zh-CN"
+    )
+  );
+});
+const volunteerClassOptions = computed(() =>
+  orgs.value
+    .filter(org => ["CLASS", "SPECIAL_COHORT"].includes(org.unit_type))
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"))
 );
 const centerOrgs = computed(() =>
   orgs.value.filter(item => item.unit_type === "REGIONAL_CENTER")
@@ -378,54 +449,13 @@ const form = reactive({
   current_volunteer_needs_manual_review: false,
   current_volunteer_review_message: ""
 });
-const currentVolunteerSelectOptions = computed(() =>
-  buildCurrentVolunteerPositionOptions(
-    volunteerPositions.value,
-    form.current_volunteer_position_key,
-    form.current_volunteer_position_name,
-    form.current_volunteer_scope_level
-  )
-);
-const selectedCurrentVolunteerPosition = computed(() =>
-  currentVolunteerSelectOptions.value.find(
-    item => item.position_key === form.current_volunteer_position_key
-  )
-);
-const currentVolunteerPositionName = computed(
-  () =>
-    selectedCurrentVolunteerPosition.value?.position_name ||
-    (form.current_volunteer_position_key
-      ? form.current_volunteer_position_name
-      : "")
-);
-const currentVolunteerScopeName = computed(() => {
-  const level = selectedCurrentVolunteerPosition.value?.scope_level;
-  if (level === "GROUP") {
-    return (
-      orgs.value.find(item => item.id === form.group_org_unit_id)?.name ||
-      editGroupOrgName.value ||
-      form.current_volunteer_scope_name
-    );
-  }
-  if (level === "CLASS") {
-    return (
-      orgs.value.find(item => item.id === form.class_org_unit_id)?.name ||
-      editClassOrgName.value ||
-      form.current_volunteer_scope_name
-    );
-  }
-  if (level === "REGIONAL_CENTER" || level === "ANY") {
-    return (
-      orgs.value.find(item => item.id === form.org_unit_id)?.name ||
-      form.current_volunteer_scope_name
-    );
-  }
-  return "";
-});
 const showLegacyVolunteerHint = computed(() => {
-  return shouldShowLegacyVolunteerHint(
-    form.class_committee_name,
-    currentVolunteerPositionName.value
+  const historical = form.class_committee_name.trim();
+  return Boolean(
+    historical &&
+      !currentVolunteerV2Appointments.value.some(
+        appointment => appointment.position_name === historical
+      )
   );
 });
 const memberStatusLabel = (status: string) =>
@@ -475,7 +505,7 @@ async function load() {
 
 function openCreate() {
   editingMemberId.value = undefined;
-  memberVolunteerAppointments.value = undefined;
+  memberVolunteerV2Appointments.value = [];
   volunteerHistoryExpanded.value = [];
   editPhoneReady.value = true;
   financialFieldsEditable.value = useUserStoreHook().permissions.includes(
@@ -485,7 +515,6 @@ function openCreate() {
   editGroupOrgName.value = "";
   originalClassOrgUnitId.value = "";
   originalGroupOrgUnitId.value = "";
-  originalCurrentVolunteerPositionKey.value = null;
   Object.assign(form, {
     name: "",
     org_unit_id: selectedOrg.value,
@@ -530,12 +559,11 @@ function openCreate() {
 
 async function openEdit(row: any) {
   editingMemberId.value = row.id;
-  memberVolunteerAppointments.value = undefined;
+  memberVolunteerV2Appointments.value = [];
   volunteerHistoryExpanded.value = [];
   editPhoneReady.value = false;
   editClassOrgName.value = "";
   editGroupOrgName.value = "";
-  originalCurrentVolunteerPositionKey.value = null;
   Object.assign(form, {
     name: row.name,
     org_unit_id: row.org_unit_id,
@@ -580,7 +608,6 @@ async function openEdit(row: any) {
   dialogVisible.value = true;
   editProfileLoading.value = true;
   try {
-    const catalogLoading = loadVolunteerPositionCatalog();
     const profile = await getMemberEditProfile(row.id);
     const data = profile.data;
     financialFieldsEditable.value = data.financial_fields_editable;
@@ -634,13 +661,8 @@ async function openEdit(row: any) {
     editGroupOrgName.value = data.group_org_name || "";
     originalClassOrgUnitId.value = data.class_org_unit_id || "";
     originalGroupOrgUnitId.value = data.group_org_unit_id || "";
-    originalCurrentVolunteerPositionKey.value =
-      data.current_volunteer_needs_manual_review
-        ? null
-        : data.current_volunteer_position_key || null;
     editPhoneReady.value = true;
-    void loadMemberVolunteerAppointments(row.id);
-    await catalogLoading;
+    void loadMemberVolunteerWorkspace(row.id);
   } catch (error) {
     ElMessage.error(errorText(error));
   } finally {
@@ -1116,39 +1138,119 @@ async function runMemberRosterPreflight() {
   }
 }
 
-async function loadVolunteerPositionCatalog() {
-  if (volunteerPositions.value.length) return;
-  try {
-    volunteerPositions.value = (await getVolunteerPositionCatalog()).data;
-  } catch (error) {
-    // Keep the profile usable when the catalog is temporarily unavailable;
-    // currentVolunteerSelectOptions supplies a safe display-only fallback.
-    if (canManage.value) ElMessage.warning(errorText(error));
-  }
+function resetVolunteerEditorDefaults() {
+  Object.assign(volunteerEditorForm, {
+    volunteer_type: "CLASS_TEAM",
+    position_key: "",
+    class_org_unit_id: form.class_org_unit_id || "",
+    service_unit_id: ""
+  });
 }
 
-async function loadMemberVolunteerAppointments(memberId: number) {
+async function loadMemberVolunteerWorkspace(memberId: number) {
   volunteerAppointmentsLoading.value = true;
   try {
-    memberVolunteerAppointments.value = (
-      await getMemberVolunteerAppointments(memberId)
-    ).data;
+    const [catalogResponse, appointmentResponse] = await Promise.all([
+      getVolunteerMemberEditorCatalog(),
+      getVolunteerAppointments({ member_id: memberId })
+    ]);
+    volunteerEditorUnits.value = catalogResponse.data.service_units;
+    memberVolunteerV2Appointments.value = appointmentResponse.data;
+    resetVolunteerEditorDefaults();
   } catch (error) {
-    memberVolunteerAppointments.value = undefined;
+    volunteerEditorUnits.value = [];
+    memberVolunteerV2Appointments.value = [];
     if (canManage.value || canViewHistory.value) ElMessage.warning(errorText(error));
   } finally {
     volunteerAppointmentsLoading.value = false;
   }
 }
 
-function volunteerAppointmentPositionLabel(
-  appointment: MemberVolunteerAppointment
-) {
-  return volunteerPositionLabel(
-    appointment.appointment_key,
-    appointment.position_name,
-    volunteerPositions.value
-  );
+function chooseDefaultVolunteerServiceUnit() {
+  const scopeLevel = selectedVolunteerScopeLevel.value;
+  if (scopeLevel === "GROUP") {
+    volunteerEditorForm.class_org_unit_id = form.class_org_unit_id || "";
+  }
+  const preferredTarget =
+    scopeLevel === "GROUP"
+      ? form.group_org_unit_id
+      : scopeLevel === "CLASS"
+        ? form.class_org_unit_id
+        : scopeLevel === "REGIONAL_CENTER"
+          ? form.org_unit_id
+          : "";
+  volunteerEditorForm.service_unit_id =
+    volunteerServiceUnitOptions.value.find(
+      unit => unit.service_target_org_unit_id === preferredTarget
+    )?.id || "";
+}
+
+function onVolunteerTypeChange() {
+  volunteerEditorForm.position_key = "";
+  volunteerEditorForm.service_unit_id = "";
+  volunteerEditorForm.class_org_unit_id = form.class_org_unit_id || "";
+}
+
+function onVolunteerPositionChange() {
+  volunteerEditorForm.service_unit_id = "";
+  chooseDefaultVolunteerServiceUnit();
+}
+
+function onVolunteerServiceClassChange() {
+  volunteerEditorForm.service_unit_id = "";
+  chooseDefaultVolunteerServiceUnit();
+}
+
+async function addVolunteerAppointmentFromMember() {
+  if (!editingMemberId.value) return;
+  if (form.status !== "ACTIVE") {
+    ElMessage.warning("只能为在册学长添加当前志工任职");
+    return;
+  }
+  if (!volunteerEditorForm.position_key || !volunteerEditorForm.service_unit_id) {
+    ElMessage.warning("请选择志工类型、岗位和服务组织");
+    return;
+  }
+  volunteerEditorSaving.value = true;
+  try {
+    await createVolunteerAppointment({
+      member_id: editingMemberId.value,
+      service_unit_id: volunteerEditorForm.service_unit_id,
+      position_key: volunteerEditorForm.position_key
+    });
+    ElMessage.success("志工任职已添加，不会影响其他当前任职");
+    await loadMemberVolunteerWorkspace(editingMemberId.value);
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    volunteerEditorSaving.value = false;
+  }
+}
+
+async function endVolunteerAppointmentFromMember(appointment: VolunteerAppointment) {
+  if (!editingMemberId.value) return;
+  try {
+    await ElMessageBox.confirm(
+      "确认结束该志工任职吗？结束后仅保留历史，不自动恢复。",
+      "结束任职",
+      {
+        confirmButtonText: "确认结束",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+    await changeVolunteerAppointmentStatus(appointment.id, { status: "ENDED" });
+    ElMessage.success("志工任职已结束，历史记录已保留");
+    await loadMemberVolunteerWorkspace(editingMemberId.value);
+  } catch (error: any) {
+    if (error === "cancel" || error === "close") return;
+    ElMessage.error(errorText(error));
+  }
+}
+
+function volunteerAppointmentBusinessLabel(appointment: VolunteerAppointment) {
+  const target = appointment.service_target_name || "服务组织待核对";
+  return `${target} · ${appointment.position_name}`;
 }
 
 async function applyMemberRosterImport() {
@@ -2126,16 +2228,78 @@ onMounted(async () => {
             </el-select>
             <p class="form-hint">班级或小组不存在时，请先到“系统设置 → 班级与小组管理”新增，再返回选择。</p>
           </el-form-item>
-          <el-form-item label="志工任职">
-            <el-alert
-              type="info"
-              :closable="false"
-              title="志工任职已改由“志工任职管理”统一维护：在册学长可有多个当前岗位，岗位能力由志工服务组织和服务对象决定。"
-              show-icon
-            />
-            <p v-if="showLegacyVolunteerHint" class="form-hint volunteer-legacy-hint">
-              历史岗位参考（只读，不参与权限判断）：{{ form.class_committee_name }}
-            </p>
+          <el-form-item class="full" label="志工任职">
+            <div v-if="editingMemberId" v-loading="volunteerAppointmentsLoading" class="volunteer-editor">
+              <div class="volunteer-editor__section">
+                <span class="volunteer-editor__label">当前任职</span>
+                <div v-if="currentVolunteerV2Appointments.length" class="volunteer-editor__tags">
+                  <el-tag
+                    v-for="appointment in currentVolunteerV2Appointments"
+                    :key="appointment.id"
+                    :closable="canManage"
+                    size="large"
+                    effect="plain"
+                    :disable-transitions="true"
+                    @close="endVolunteerAppointmentFromMember(appointment)"
+                  >
+                    {{ volunteerAppointmentBusinessLabel(appointment) }}
+                  </el-tag>
+                </div>
+                <span v-else class="volunteer-editor__empty">暂无当前志工任职</span>
+              </div>
+
+              <div v-if="canManage" class="volunteer-editor__add">
+                <el-select v-model="volunteerEditorForm.volunteer_type" aria-label="志工类型" @change="onVolunteerTypeChange">
+                  <el-option label="班组委" value="CLASS_TEAM" />
+                  <el-option label="条线管理" value="LINE" />
+                </el-select>
+                <el-select v-model="volunteerEditorForm.position_key" filterable placeholder="选择岗位" aria-label="岗位" @change="onVolunteerPositionChange">
+                  <el-option-group v-for="group in volunteerPositionGroups" :key="group.label" :label="group.label">
+                    <el-option v-for="position in group.options" :key="position.position_key" :label="position.position_name" :value="position.position_key" />
+                  </el-option-group>
+                </el-select>
+                <el-select
+                  v-if="selectedVolunteerScopeLevel === 'GROUP'"
+                  v-model="volunteerEditorForm.class_org_unit_id"
+                  filterable
+                  placeholder="服务班级"
+                  aria-label="服务班级"
+                  @change="onVolunteerServiceClassChange"
+                >
+                  <el-option v-for="classOrg in volunteerClassOptions" :key="classOrg.id" :label="classOrg.name" :value="classOrg.id" />
+                </el-select>
+                <el-select
+                  v-if="volunteerEditorForm.position_key"
+                  v-model="volunteerEditorForm.service_unit_id"
+                  filterable
+                  :placeholder="selectedVolunteerScopeLevel === 'GROUP' ? '服务小组' : '服务组织'"
+                  :aria-label="selectedVolunteerScopeLevel === 'GROUP' ? '服务小组' : '服务组织'"
+                >
+                  <el-option
+                    v-for="unit in volunteerServiceUnitOptions"
+                    :key="unit.id"
+                    :label="unit.service_target_name || unit.name"
+                    :value="unit.id"
+                  />
+                </el-select>
+                <el-button type="primary" :loading="volunteerEditorSaving" @click="addVolunteerAppointmentFromMember">添加任职</el-button>
+              </div>
+
+              <el-collapse v-if="historicalVolunteerV2Appointments.length" v-model="volunteerHistoryExpanded" class="volunteer-editor__history">
+                <el-collapse-item name="volunteer-history">
+                  <template #title>历史任职（{{ historicalVolunteerV2Appointments.length }}）&nbsp; 查看 &gt;</template>
+                  <div v-for="appointment in historicalVolunteerV2Appointments" :key="appointment.id" class="volunteer-editor__history-row">
+                    <strong>{{ volunteerAppointmentBusinessLabel(appointment) }}</strong>
+                    <span>{{ appointment.status_name }}</span>
+                    <small>{{ appointment.created_at ? formatTimelineTime(appointment.created_at) : "待补充" }}<template v-if="appointment.ended_at"> — {{ formatTimelineTime(appointment.ended_at) }}</template></small>
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
+              <p v-if="showLegacyVolunteerHint" class="form-hint volunteer-legacy-hint">
+                历史岗位参考（只读）：{{ form.class_committee_name }}
+              </p>
+            </div>
+            <span v-else class="form-hint">请先保存学员资料，再添加志工任职。</span>
           </el-form-item>
           <el-form-item label="行业分类">
             <el-input v-model="form.industry_category" />
@@ -2277,49 +2441,6 @@ onMounted(async () => {
           </el-form-item>
         </div>
       </el-form>
-      <section v-if="editingMemberId" class="volunteer-history">
-        <el-collapse v-model="volunteerHistoryExpanded">
-          <el-collapse-item name="volunteer-history">
-            <template #title>
-              <span class="volunteer-history__title">
-                志工服务记录（{{ volunteerAppointmentCount }}）
-              </span>
-            </template>
-            <div
-              v-loading="volunteerAppointmentsLoading"
-              class="volunteer-history__content"
-            >
-              <el-empty
-                v-if="
-                  !volunteerAppointmentsLoading && volunteerAppointmentCount === 0
-                "
-                description="暂无志工服务记录"
-                :image-size="48"
-              />
-              <div
-                v-for="appointment in memberVolunteerAppointments?.appointments || []"
-                :key="appointment.id"
-                class="volunteer-history__record"
-              >
-                <strong>
-                  {{ volunteerAppointmentPositionLabel(appointment) }} ·
-                  {{ appointment.org_name || "服务范围待核对" }}
-                </strong>
-                <span>状态：{{ volunteerAppointmentStatusLabel(appointment.status) }}</span>
-                <small>
-                  系统确认：{{ appointment.created_at ? formatTimelineTime(appointment.created_at) : "待补充" }}
-                  <template v-if="appointment.ended_at">
-                    · 结束操作：{{ formatTimelineTime(appointment.ended_at) }}
-                  </template>
-                </small>
-              </div>
-            </div>
-          </el-collapse-item>
-        </el-collapse>
-        <p class="form-hint volunteer-history__hint">
-          当前岗位以“在册 + 服务中 + 服务范围有效”判断；这里仅查看系统保留的志工服务记录。
-        </p>
-      </section>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button
@@ -2575,39 +2696,55 @@ onMounted(async () => {
   width: 100%;
 }
 
-.current-volunteer-field :deep(.el-select) {
-  width: 100%;
-}
 .current-volunteer-scope-hint {
   margin-bottom: 8px;
 }
-.volunteer-history {
-  margin-top: 8px;
-  border-top: 1px solid var(--el-border-color-lighter);
+.volunteer-editor {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
 }
-.volunteer-history__title {
-  font-weight: 600;
-}
-.volunteer-history__content {
+.volunteer-editor__section {
   display: grid;
   gap: 8px;
-  min-height: 52px;
 }
-.volunteer-history__record {
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  background: var(--el-fill-color-lighter);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
+.volunteer-editor__label {
+  font-weight: 600;
 }
-.volunteer-history__record span,
-.volunteer-history__record small,
+.volunteer-editor__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.volunteer-editor__empty,
+.volunteer-editor__history-row span,
+.volunteer-editor__history-row small,
 .volunteer-legacy-hint {
   color: var(--el-text-color-secondary);
 }
-.volunteer-history__hint {
-  margin: 8px 0 0;
+.volunteer-editor__add {
+  display: grid;
+  grid-template-columns: 120px minmax(150px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.volunteer-editor__history {
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+.volunteer-editor__history-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 90px 220px;
+  gap: 10px;
+  padding: 8px 0;
+}
+@media (max-width: 1100px) {
+  .volunteer-editor__add,
+  .volunteer-editor__history-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .tenure-field {

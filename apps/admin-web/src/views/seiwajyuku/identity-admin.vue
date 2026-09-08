@@ -313,8 +313,8 @@ async function createAccount() {
     ElMessage.error("账号至少填写 3 个字符");
     return;
   }
-  if (!accountForm.display_name.trim() || accountForm.password.length < 10) {
-    ElMessage.error("请填写人员名称，并确保临时密码至少 10 个字符");
+  if (!accountForm.display_name.trim() || accountForm.password.length < 6) {
+    ElMessage.error("请填写人员名称，并确保临时密码至少 6 个字符");
     return;
   }
   try {
@@ -353,9 +353,9 @@ async function submitOnboarding() {
     onboardingMode.value === "new" &&
     (onboardingForm.username.trim().length < 3 ||
       !onboardingForm.display_name.trim() ||
-      onboardingForm.password.length < 10)
+      onboardingForm.password.length < 6)
   ) {
-    ElMessage.error("请完整填写新账号、人员名称和至少 10 位的临时密码");
+    ElMessage.error("请完整填写新账号、人员名称和至少 6 位的临时密码");
     return;
   }
   if (!onboardingForm.position_keys.length) {

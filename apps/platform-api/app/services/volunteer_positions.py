@@ -500,7 +500,12 @@ def _manual_review_payload(
 def read_member_current_volunteer_position(
     member_id: int, connection=None
 ) -> dict[str, Any]:
-    """Resolve the one current service position for member edit/profile views."""
+    """Return a compatibility summary for member edit/profile views.
+
+    Volunteer 2.0 appointments are intentionally multi-valued. The legacy
+    single-position fields stay empty when more than one current V2 post
+    exists, but that normal situation must not be reported as a conflict.
+    """
 
     if not get_settings().identity_authorization_enabled:
         return _empty_current_volunteer_position(member_id)
@@ -509,7 +514,33 @@ def read_member_current_volunteer_position(
         with context as current_connection:
             appointments = _effective_current_appointments(current_connection, member_id)
             if len(appointments) > 1:
-                return _manual_review_payload(member_id, appointments)
+                if all(
+                    not item.get("volunteer_service_unit_id")
+                    for item in appointments
+                ):
+                    return _manual_review_payload(member_id, appointments)
+                payload = _empty_current_volunteer_position(member_id)
+                payload["is_volunteer"] = True
+                payload["active_appointments"] = [
+                    {
+                        "appointment_id": item["id"],
+                        "position_key": item["appointment_key"],
+                        "position_name": item["current_summary"]["position_name"],
+                        "scope_org_unit_id": item.get(
+                            "effective_service_target_org_unit_id"
+                        )
+                        or item.get("service_target_org_unit_id")
+                        or item.get("org_unit_id"),
+                        "scope_name": item.get("scope_name"),
+                        "volunteer_service_unit_id": item.get(
+                            "volunteer_service_unit_id"
+                        ),
+                        "service_unit_name": item.get("service_unit_name"),
+                        "source_reference": item.get("source_reference"),
+                    }
+                    for item in appointments
+                ]
+                return payload
             if not appointments:
                 return _empty_current_volunteer_position(member_id)
             result = dict(appointments[0]["current_summary"])
@@ -1205,7 +1236,11 @@ def sync_member_current_volunteer_scope(
         or (settings.is_production and not settings.allow_production_mutations)
     ):
         return None
-    appointments = _effective_current_appointments(connection, member_id)
+    appointments = [
+        item
+        for item in _effective_current_appointments(connection, member_id)
+        if not item.get("volunteer_service_unit_id")
+    ]
     if len(appointments) != 1:
         if len(appointments) > 1:
             raise ValueError("当前存在多个有效志工岗位，请先人工确认主要岗位")

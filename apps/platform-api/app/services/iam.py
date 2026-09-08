@@ -54,6 +54,7 @@ PERMISSIONS = {
     "enrollment:enroll": ("将已完成申请正式入塾", "SENSITIVE"),
     "enrollment:manage_link": ("管理公开入塾申请二维码", "SENSITIVE"),
 }
+PASSWORD_MIN_LENGTH = 6
 ROLE_PERMISSIONS = {
     "system_admin": set(PERMISSIONS) - {"exports:sensitive"},
     "technical_admin": {
@@ -845,6 +846,8 @@ def create_user(
     scopes: list[dict],
     actor_roles: list[str] | None = None,
 ) -> int:
+    if len(password) < PASSWORD_MIN_LENGTH:
+        raise ValueError(f"密码至少需要 {PASSWORD_MIN_LENGTH} 位")
     requested_roles = set(roles)
     # ``None`` is retained for established trusted service callers. Every
     # HTTP call supplies actor roles and therefore receives the hard gate.
@@ -926,6 +929,8 @@ def reset_user_password(
     reason = reason.strip()
     if len(reason) < 6:
         raise ValueError("重置原因至少填写 6 个字符")
+    if len(password) < PASSWORD_MIN_LENGTH:
+        raise ValueError(f"密码至少需要 {PASSWORD_MIN_LENGTH} 位")
     # Hash before opening a transaction so no plaintext password is ever logged
     # or included in an audit payload.
     password_hash = hash_password(password)

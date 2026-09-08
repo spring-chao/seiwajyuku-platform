@@ -223,7 +223,7 @@ onMounted(async () => {
     <el-alert
       type="info"
       :closable="false"
-      title="志工资格以在册状态为前提；当前志工能力由“志工服务组织 + 岗位 + 服务对象”决定。结束或撤销任职仅保留历史，不会自动恢复。"
+      title="日常单个学长的志工任职，请在“学员管理 → 编辑学员”中维护；本页主要用于批量、服务组织和高级管理。"
       show-icon
     />
     <el-card class="filter-card" shadow="never">

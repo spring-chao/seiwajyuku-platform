@@ -150,7 +150,7 @@ export const getManagedAccounts = () =>
 
 export const resetManagedAccountPassword = (
   userId: number,
-  data: { password: string; reason: string }
+  data: { password: string; reason?: string }
 ) =>
   http.request<{
     success: boolean;

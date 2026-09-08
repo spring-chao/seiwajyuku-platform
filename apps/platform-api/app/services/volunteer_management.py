@@ -320,6 +320,27 @@ def list_position_options(actor_user_id: int, *, service_unit_id: str) -> dict[s
     return {"service_unit": _public_service_unit(service_unit), "positions": positions}
 
 
+def member_editor_catalog(actor_user_id: int) -> dict[str, Any]:
+    """Return one business-ready catalog for the learner edit page.
+
+    The response keeps Volunteer 2.0 service-unit identity for writes, while
+    allowing the UI to expose only business labels and target organizations.
+    Activity units are an advanced workflow and intentionally stay out of the
+    ordinary learner editor.
+    """
+
+    units: list[dict[str, Any]] = []
+    for service_unit in list_service_units(actor_user_id, active_only=True):
+        if service_unit["system_type"] == "ACTIVITY":
+            continue
+        options = list_position_options(
+            actor_user_id, service_unit_id=service_unit["id"]
+        )["positions"]
+        if options:
+            units.append({**service_unit, "positions": options})
+    return {"service_units": units}
+
+
 def _appointment_payload(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": int(row["id"]),
@@ -517,9 +538,7 @@ def create_appointment(
     confirmation_note: str,
 ) -> dict[str, Any]:
     _feature_gate(write=True)
-    note = confirmation_note.strip()
-    if len(note) < 8:
-        raise ValueError("业务确认说明至少填写 8 个字符")
+    note = confirmation_note.strip() or "学员管理页添加志工任职"
     with transaction() as connection:
         appointment_id, service_unit = _insert_v2_appointment(
             connection,
@@ -553,9 +572,7 @@ def change_appointment_status(
 ) -> dict[str, Any]:
     _feature_gate(write=True)
     desired = _normal_enum(status, APPOINTMENT_STATUSES, "志工任职状态")
-    note = reason.strip()
-    if len(note) < 6:
-        raise ValueError("状态调整说明至少填写 6 个字符")
+    note = reason.strip() or "学员管理页确认结束志工任职"
     with transaction() as connection:
         row = execute(
             connection,

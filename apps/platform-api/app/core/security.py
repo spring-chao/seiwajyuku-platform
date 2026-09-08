@@ -23,8 +23,8 @@ def _unb64(data: str) -> bytes:
 
 
 def hash_password(password: str) -> str:
-    if len(password) < 10:
-        raise ValueError("密码至少需要10位")
+    if len(password) < 6:
+        raise ValueError("密码至少需要 6 位")
     salt = os.urandom(16)
     iterations, lanes, memory_cost = 3, 4, 64 * 1024
     derived = Argon2id(

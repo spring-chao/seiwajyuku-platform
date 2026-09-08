@@ -305,8 +305,8 @@ def onboard_employee(
             raise ValueError("账号至少填写 3 个字符")
         if not account_values["display_name"]:
             raise ValueError("人员名称不能为空")
-        if len(account_password) < 10:
-            raise ValueError("临时密码至少 10 个字符")
+        if len(account_password) < 6:
+            raise ValueError("临时密码至少 6 个字符")
         password_hash = hash_password(account_password)
 
     now = datetime.now(UTC).isoformat()

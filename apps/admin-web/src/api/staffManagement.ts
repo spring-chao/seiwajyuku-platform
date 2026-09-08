@@ -65,7 +65,11 @@ export type StaffRole = {
 export type StaffCatalog = {
   writes_enabled: boolean;
   actor_is_highest_admin: boolean;
-  positions: Array<{ position_key: string; position_name: string }>;
+  positions: Array<{
+    position_key: string;
+    position_name: string;
+    mapping_status: "AUTO" | "MAPPING_REVIEW_REQUIRED";
+  }>;
   roles: StaffRole[];
   org_units: Array<{
     id: string;
@@ -99,9 +103,9 @@ export type StaffPayload = {
   name: string;
   login_account?: string | null;
   temporary_password?: string | null;
-  is_active: boolean;
+  is_active?: boolean;
   phone?: string | null;
-  gender?: string | null;
+  gender: "MALE" | "FEMALE";
   replace_phone?: boolean;
   institution_id: string;
   department_name?: string | null;
@@ -110,9 +114,11 @@ export type StaffPayload = {
   employment_status?: "ACTIVE" | "LEAVE";
   started_on?: string | null;
   ended_on?: string | null;
-  grants: StaffGrantInput[];
-  authorization_basis: string;
-  authorization_reason: string;
+  responsibility_org_unit_id?: string;
+  responsibility_scope_type?: StaffScopeType;
+  grants?: StaffGrantInput[];
+  authorization_basis?: string;
+  authorization_reason?: string;
 };
 
 export type StaffChangePreview = {
@@ -205,7 +211,7 @@ export const getAuthorizationMigrationPreview = () =>
 
 export const resetStaffPassword = (
   userId: number,
-  data: { password: string; reason: string }
+  data: { password: string; reason?: string }
 ) =>
   http.request<{ success: boolean; data: { id: number; sessions_revoked: boolean } }>(
     "post",

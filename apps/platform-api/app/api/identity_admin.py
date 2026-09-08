@@ -49,7 +49,7 @@ class EmploymentPayload(ConfirmationPayload):
 class NewIdentityAccountPayload(BaseModel):
     username: str = Field(min_length=3, max_length=128)
     display_name: str = Field(min_length=1, max_length=255)
-    password: str = Field(min_length=10, max_length=256)
+    password: str = Field(min_length=6, max_length=256)
 
 
 class EmployeeOnboardingPayload(ConfirmationPayload):
