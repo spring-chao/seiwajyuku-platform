@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
-from unittest.mock import patch
-
 import pytest
 
 from app.db import execute, fetch_all, fetch_one, transaction
@@ -18,16 +16,6 @@ from app.services.wechat_identity import get_member_role_scopes, role_for_target
 
 def _stamp(days: int = 0) -> str:
     return (datetime.now(UTC) + timedelta(days=days)).isoformat()
-
-
-def test_default_start_never_rounds_forward_in_mysql_datetime_zero():
-    from app.services.volunteer_positions import _parse_term
-    instant = datetime(2026, 8, 27, 12, 0, 0, 900000, tzinfo=UTC)
-    with patch("app.services.volunteer_positions.datetime", wraps=datetime) as clock:
-        clock.now.return_value = instant
-        start, end = _parse_term(None, None)
-    assert start == instant.replace(microsecond=0)
-    assert start <= instant and end is None
 
 
 def _admin_id() -> int:
@@ -75,10 +63,8 @@ def _payload(position_key: str, org_unit_id: str) -> dict[str, str]:
     return {
         "position_key": position_key,
         "org_unit_id": org_unit_id,
-        "starts_at": _stamp(-1),
-        "ends_at": _stamp(30),
         "source_reference": "M2业务确认表-001",
-        "confirmation_note": "业务负责人已确认本次志工任职范围",
+        "confirmation_note": "业务负责人已确认本次志工服务岗位范围",
     }
 
 
@@ -225,7 +211,7 @@ def test_group_position_is_limited_to_its_group_and_status_keeps_history() -> No
     )["count"] == 1
 
 
-def test_member_entry_defaults_to_machine_source_and_open_ended_term() -> None:
+def test_member_entry_records_system_time_without_a_business_term() -> None:
     data = _fixture()
     actor = _admin_id()
     appointment = create_member_volunteer_appointment(
@@ -236,21 +222,21 @@ def test_member_entry_defaults_to_machine_source_and_open_ended_term() -> None:
     )
 
     row = fetch_one(
-        "SELECT starts_at, ends_at, source_reference, status "
+        "SELECT starts_at, ends_at, created_at, source_reference, status "
         "FROM volunteer_appointments WHERE id=?",
         (appointment["id"],),
     )
     assert row["starts_at"]
     assert row["ends_at"] is None
+    assert row["created_at"]
     assert row["source_reference"] == "MEMBER_ADMIN_MANUAL"
     assert row["status"] == "ACTIVE"
-    assert appointment["ends_at"] is None
     assert role_for_target(
         int(data["member_id"]), str(data["class_id"]), str(data["group_id"])
     ) == "GROUP_LEADER"
 
     listed = list_member_volunteer_appointments(actor, int(data["member_id"]))
-    assert listed["appointments"][0]["ends_at"] is None
+    assert listed["appointments"][0]["ended_at"] is None
 
     change_member_volunteer_appointment_status(
         actor,
@@ -264,4 +250,4 @@ def test_member_entry_defaults_to_machine_source_and_open_ended_term() -> None:
         "AND resource_id=? ORDER BY id DESC LIMIT 1",
         (str(appointment["id"]),),
     )
-    assert audit["purpose"] == "运营人员在学员管理中确认结束该志工任职"
+    assert audit["purpose"] == "运营人员在学员管理中确认结束该志工服务岗位"

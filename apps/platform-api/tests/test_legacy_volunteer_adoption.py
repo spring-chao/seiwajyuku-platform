@@ -324,11 +324,12 @@ def test_multiple_active_positions_are_not_collapsed() -> None:
     with transaction() as connection:
         execute(
             connection,
-            "INSERT INTO volunteer_appointments(person_id, appointment_key, org_unit_id, scope_type, "
+            "INSERT INTO volunteer_appointments(person_id, member_id, appointment_key, org_unit_id, scope_type, "
             "starts_at, ends_at, status, source_reference, created_at, updated_at) "
-            "VALUES (?, 'volunteer_activity', ?, 'UNIT', ?, NULL, 'ACTIVE', 'LEGACY_IMPORT', ?, ?)",
+            "VALUES (?, ?, 'volunteer_activity', ?, 'UNIT', ?, NULL, 'ACTIVE', 'LEGACY_IMPORT', ?, ?)",
             (
                 person_id,
+                data["member_id"],
                 data["center_id"],
                 (now - timedelta(days=1)).isoformat(),
                 now.isoformat(),

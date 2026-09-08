@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.privacy import protected_phone
@@ -96,8 +96,6 @@ def main() -> int:
     other_group_id = f"v12-ux-group-other-{suffix}"
     other_class_id = f"v12-ux-class-other-{suffix}"
     now = _stamp()
-    starts_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-    ends_at = (datetime.now(UTC) + timedelta(days=30)).isoformat()
     leader_phone = "13800000001"
     counselor_phone = "13800000002"
 
@@ -141,10 +139,10 @@ def main() -> int:
         )
         execute(
             connection,
-            "INSERT INTO volunteer_appointments(person_id, appointment_key, org_unit_id, scope_type, "
+            "INSERT INTO volunteer_appointments(person_id, member_id, appointment_key, org_unit_id, scope_type, "
             "starts_at, ends_at, status, source_reference, created_at, updated_at) "
-            "VALUES (?, 'volunteer_group_leader', ?, 'UNIT', ?, ?, 'ACTIVE', 'v12-local-ux', ?, ?)",
-            (leader_person_id, group_id, starts_at, ends_at, now, now),
+            "VALUES (?, ?, 'volunteer_group_leader', ?, 'UNIT', ?, NULL, 'ACTIVE', 'v12-local-ux', ?, ?)",
+            (leader_person_id, leader_id, group_id, now, now, now),
         )
 
         home_ids = [leader_id]
@@ -198,10 +196,10 @@ def main() -> int:
         )
         execute(
             connection,
-            "INSERT INTO volunteer_appointments(person_id, appointment_key, org_unit_id, scope_type, "
+            "INSERT INTO volunteer_appointments(person_id, member_id, appointment_key, org_unit_id, scope_type, "
             "starts_at, ends_at, status, source_reference, created_at, updated_at) "
-            "VALUES (?, 'volunteer_group_counselor', ?, 'UNIT', ?, ?, 'ACTIVE', 'v12-local-ux', ?, ?)",
-            (counselor_person_id, group_id, starts_at, ends_at, now, now),
+            "VALUES (?, ?, 'volunteer_group_counselor', ?, 'UNIT', ?, NULL, 'ACTIVE', 'v12-local-ux', ?, ?)",
+            (counselor_person_id, counselor_id, group_id, now, now, now),
         )
 
         plan_cursor = execute(

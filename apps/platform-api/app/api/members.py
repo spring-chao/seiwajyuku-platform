@@ -142,11 +142,9 @@ class BirthdayGreetingDraftPayload(BaseModel):
 class MemberVolunteerAppointmentPayload(BaseModel):
     position_key: str = Field(min_length=3, max_length=64)
     org_unit_id: str = Field(min_length=1, max_length=64)
-    starts_at: str | None = None
-    ends_at: str | None = None
-    # The member-management entry point records a stable machine source and
-    # actor in the audit log. Operators may add a short optional note, but do
-    # not need to provide a technical evidence string.
+    # The current post is controlled by the member's roster status and the
+    # post state. The system records creation/end operations for history; it
+    # does not accept a business term or automatic expiry here.
     confirmation_note: str | None = Field(default=None, max_length=1000)
 
 

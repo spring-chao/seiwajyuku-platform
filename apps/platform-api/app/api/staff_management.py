@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_permission
@@ -37,7 +39,10 @@ class StaffCreatePayload(BaseModel):
     department_name: str | None = Field(default=None, max_length=255)
     supervisor_user_id: int | None = Field(default=None, gt=0)
     position_keys: list[str] = Field(min_length=1, max_length=16)
-    started_on: str
+    # Ordinary staff authority is state-based.  Date fields remain optional
+    # archive metadata for an API client that needs to preserve old records.
+    employment_status: Literal["ACTIVE", "LEAVE"] = "ACTIVE"
+    started_on: str | None = None
     ended_on: str | None = None
     grants: list[AuthorizationGrantPayload] = Field(min_length=1, max_length=64)
     authorization_basis: str = Field(min_length=4, max_length=500)
@@ -58,7 +63,8 @@ class StaffUpdatePayload(BaseModel):
     department_name: str | None = Field(default=None, max_length=255)
     supervisor_user_id: int | None = Field(default=None, gt=0)
     position_keys: list[str] = Field(min_length=1, max_length=16)
-    started_on: str
+    employment_status: Literal["ACTIVE", "LEAVE"] | None = None
+    started_on: str | None = None
     ended_on: str | None = None
     grants: list[AuthorizationGrantPayload] = Field(default_factory=list, max_length=64)
     authorization_basis: str = Field(min_length=4, max_length=500)
@@ -111,8 +117,11 @@ def staff_detail(user_id: int, actor: dict = Depends(require_permission("iam:man
 
 @router.post("/staff")
 def create(payload: StaffCreatePayload, actor: dict = Depends(require_permission("iam:manage"))) -> dict:
-    values = payload.model_dump()
-    values["grants"] = [item.model_dump() for item in payload.grants]
+    values = payload.model_dump(exclude_unset=True)
+    values["grants"] = [item.model_dump(exclude_unset=True) for item in payload.grants]
+    values.setdefault("employment_status", "ACTIVE")
+    values.setdefault("started_on", None)
+    values.setdefault("ended_on", None)
     return {"success": True, "data": _call(create_staff, actor["id"], **values)}
 
 
@@ -122,8 +131,8 @@ def change_preview(
     payload: StaffUpdatePayload,
     actor: dict = Depends(require_permission("iam:manage")),
 ) -> dict:
-    values = payload.model_dump()
-    values["grants"] = [item.model_dump() for item in payload.grants]
+    values = payload.model_dump(exclude_unset=True)
+    values["grants"] = [item.model_dump(exclude_unset=True) for item in payload.grants]
     return {
         "success": True,
         "data": _call(preview_staff_update, actor["id"], user_id, payload=values),
@@ -136,8 +145,8 @@ def update(
     payload: StaffUpdatePayload,
     actor: dict = Depends(require_permission("iam:manage")),
 ) -> dict:
-    values = payload.model_dump()
-    values["grants"] = [item.model_dump() for item in payload.grants]
+    values = payload.model_dump(exclude_unset=True)
+    values["grants"] = [item.model_dump(exclude_unset=True) for item in payload.grants]
     return {
         "success": True,
         "data": _call(update_staff, actor["id"], user_id, payload=values),

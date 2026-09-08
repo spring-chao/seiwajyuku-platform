@@ -1561,10 +1561,12 @@ def scan_class_learning_plan_health(
             dict(row)
             for row in execute(
                 connection,
-                "SELECT va.org_unit_id, va.scope_type, va.starts_at, va.ends_at "
+                "SELECT va.org_unit_id, va.scope_type "
                 "FROM volunteer_appointments va "
+                "JOIN members m ON m.id=va.member_id "
                 "JOIN volunteer_position_capabilities pc ON pc.position_key=va.appointment_key "
-                "WHERE va.status='ACTIVE' AND pc.capability_key='STUDY_MEETING_MANAGE'",
+                "WHERE m.status='ACTIVE' AND va.status='ACTIVE' "
+                "AND pc.capability_key='STUDY_MEETING_MANAGE'",
             ).fetchall()
         ]
         scan_at = _now()
@@ -1894,11 +1896,7 @@ def scan_class_learning_plan_health(
             volunteer_ok = True
             if plan_health_applicable:
                 volunteer_ok = any(
-                    str(appointment.get("starts_at") or "")
-                    and _timestamp_as_datetime(appointment.get("starts_at")) is not None
-                    and (_timestamp_as_datetime(appointment.get("starts_at")) <= now_dt)
-                    and (_timestamp_as_datetime(appointment.get("ends_at")) is None or _timestamp_as_datetime(appointment.get("ends_at")) >= now_dt)
-                    and _scope_covers_class(
+                    _scope_covers_class(
                         class_org_unit_id=class_row["id"],
                         appointment=appointment,
                         parent_by_id=parent_by_id,

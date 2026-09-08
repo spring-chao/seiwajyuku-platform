@@ -240,18 +240,32 @@ class IdentityAdminTests(unittest.TestCase):
             (person_id,),
         )
         self.assertIsNone(member_link)
+        with transaction() as connection:
+            cursor = execute(
+                connection,
+                "INSERT INTO members(member_code, name, org_unit_id, status, created_at, updated_at) "
+                "VALUES ('IDENTITY-ADMIN-VOLUNTEER', '任职管理测试学长', "
+                "'identity-admin-center', 'ACTIVE', ?, ?)",
+                (now.isoformat(), now.isoformat()),
+            )
+            member_id = int(cursor.lastrowid)
+            execute(
+                connection,
+                "INSERT INTO member_identities(member_id, person_id, status, source_reference, created_at, updated_at) "
+                "VALUES (?, ?, 'ACTIVE', 'approved-volunteer-member-link', ?, ?)",
+                (member_id, person_id, now.isoformat(), now.isoformat()),
+            )
 
         volunteer = self.client.post(
             f"/api/v1/identity-admin/accounts/{self.managed_user_id}/volunteer-appointments",
             headers=self.admin_headers,
             json={
+                "member_id": member_id,
                 "appointment_key": "volunteer_class_counselor",
                 "org_unit_id": "identity-admin-class",
                 "scope_type": "UNIT",
-                "starts_at": (now - timedelta(hours=1)).isoformat(),
-                "ends_at": (now + timedelta(days=30)).isoformat(),
                 "source_reference": "approved-volunteer-001",
-                "confirmation_note": "已确认班主任志工任职、班级范围和本次任期",
+                "confirmation_note": "已确认班主任志工服务岗位和班级服务范围",
             },
         )
         self.assertEqual(volunteer.status_code, 200, volunteer.text)

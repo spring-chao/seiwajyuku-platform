@@ -22,7 +22,6 @@ from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids
 from app.services.volunteer_positions import (
     CURRENT_VOLUNTEER_HIDDEN_POSITION_KEYS,
-    _db_timestamp,
     _catalog_rows,
     _ensure_member_scope,
     _insert_appointment,
@@ -111,20 +110,14 @@ def _relation_is_current(row: dict[str, Any], now: datetime) -> bool:
     )
 
 
-def _appointment_state(row: dict[str, Any], now: datetime) -> str:
-    """Return CURRENT, HISTORICAL, PENDING or INVALID for one appointment."""
+def _appointment_state(row: dict[str, Any]) -> str:
+    """Return the business state without treating audit timestamps as a term."""
 
     status = str(row.get("status") or "").upper()
     if status == "ACTIVE":
-        starts = _as_utc(row.get("starts_at"))
-        ends = _as_utc(row.get("ends_at")) if row.get("ends_at") is not None else None
-        if starts is None or (
-            row.get("ends_at") is not None and ends is None
-        ):
-            return "INVALID"
-        if starts <= now and (ends is None or ends >= now):
-            return "CURRENT"
-        return "HISTORICAL"
+        # Volunteer positions have no ordinary business term.  starts_at and
+        # ends_at are retained only as system-operation audit timestamps.
+        return "CURRENT"
     if status in {"PLANNED", "SUSPENDED"}:
         return "PENDING"
     return "HISTORICAL"
@@ -155,31 +148,24 @@ def _load_legacy_members(connection) -> list[dict[str, Any]]:
     ]
 
 
-def _load_identities(connection) -> dict[int, dict[str, Any]]:
+def _load_appointments(connection) -> dict[int, list[dict[str, Any]]]:
     rows = execute(
         connection,
-        "SELECT mi.member_id, mi.person_id, mi.status AS identity_status, "
-        "pp.status AS person_status "
-        "FROM member_identities mi LEFT JOIN person_profiles pp ON pp.id=mi.person_id",
-    ).fetchall()
-    return {int(row["member_id"]): dict(row) for row in rows}
-
-
-def _load_appointments(connection) -> dict[str, list[dict[str, Any]]]:
-    rows = execute(
-        connection,
-        "SELECT va.id, va.person_id, va.appointment_key, va.org_unit_id, "
+        "SELECT va.id, va.member_id, va.appointment_key, va.org_unit_id, "
         "va.scope_type, va.starts_at, va.ends_at, va.status, va.source_reference, "
         "c.position_name, c.scope_level, c.is_active AS position_is_active, "
         "o.name AS scope_name "
         "FROM volunteer_appointments va "
         "LEFT JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
         "LEFT JOIN org_units o ON o.id=va.org_unit_id "
-        "ORDER BY va.person_id, va.starts_at, va.id",
+        "ORDER BY va.member_id, va.created_at, va.id",
     ).fetchall()
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        grouped[str(row["person_id"])].append(dict(row))
+        # Pre-migration rows without a formal member link are historical only
+        # and must not grant or block the current-position decision.
+        if row["member_id"] is not None:
+            grouped[int(row["member_id"])].append(dict(row))
     return grouped
 
 
@@ -288,18 +274,15 @@ def _scope_target(
 
 
 def _current_appointment_data(
-    identity: dict[str, Any] | None,
-    appointments_by_person: dict[str, list[dict[str, Any]]],
-    now: datetime,
+    member_id: int,
+    appointments_by_member: dict[int, list[dict[str, Any]]],
 ) -> tuple[list[dict[str, Any]], bool, list[dict[str, Any]]]:
-    if not identity or not identity.get("person_id"):
-        return [], False, []
-    rows = appointments_by_person.get(str(identity["person_id"]), [])
+    rows = appointments_by_member.get(member_id, [])
     current: list[dict[str, Any]] = []
     invalid: list[dict[str, Any]] = []
     pending: list[dict[str, Any]] = []
     for row in rows:
-        state = _appointment_state(row, now)
+        state = _appointment_state(row)
         if state == "CURRENT":
             current.append(row)
         elif state == "INVALID":
@@ -325,8 +308,7 @@ def _build_item(
     member: dict[str, Any],
     *,
     catalog: list[dict[str, Any]],
-    identities: dict[int, dict[str, Any]],
-    appointments_by_person: dict[str, list[dict[str, Any]]],
+    appointments_by_member: dict[int, list[dict[str, Any]]],
     relations_by_member: dict[int, list[dict[str, Any]]],
     now: datetime,
 ) -> dict[str, Any]:
@@ -372,14 +354,8 @@ def _build_item(
         }
     )
 
-    identity = identities.get(member_id)
-    if identity:
-        if identity.get("identity_status") != "ACTIVE":
-            return stop("IDENTITY_NOT_ACTIVE")
-        if identity.get("person_status") != "ACTIVE":
-            return stop("PERSON_PROFILE_NOT_ACTIVE")
     current, invalid_active, pending = _current_appointment_data(
-        identity, appointments_by_person, now
+        member_id, appointments_by_member
     )
     if invalid_active:
         return stop("INVALID_ACTIVE_APPOINTMENT")
@@ -452,15 +428,13 @@ def _preview_in_connection(
         )
     ]
     catalog = _catalog_rows(connection, active_only=False)
-    identities = _load_identities(connection)
-    appointments_by_person = _load_appointments(connection)
+    appointments_by_member = _load_appointments(connection)
     items = [
         _build_item(
             connection,
             member,
             catalog=catalog,
-            identities=identities,
-            appointments_by_person=appointments_by_person,
+            appointments_by_member=appointments_by_member,
             relations_by_member=relations_by_member,
             now=now,
         )
@@ -639,7 +613,6 @@ def apply_legacy_volunteer_adoption(
                 source=LEGACY_POSITION_AUTO_ADOPT_SOURCE,
                 audit_purpose="历史岗位自动承接正式身份档案",
             )
-            starts_at = _db_timestamp(current_connection)
             appointment_id = _insert_appointment(
                 current_connection,
                 person_id=person_id,
@@ -648,8 +621,6 @@ def apply_legacy_volunteer_adoption(
                 position_key=str(item["position_key"]),
                 org_unit_id=str(target["scope_org_unit_id"]),
                 scope_type=str(target["scope_type"]),
-                starts_at=starts_at,
-                ends_at=None,
                 source_reference=LEGACY_POSITION_AUTO_ADOPT_SOURCE,
                 confirmation_note=LEGACY_POSITION_AUTO_ADOPT_PURPOSE,
             )
@@ -663,9 +634,7 @@ def apply_legacy_volunteer_adoption(
                 "scope_org_unit_id": target["scope_org_unit_id"],
                 "scope_name": target["scope_name"],
                 "source_reference": LEGACY_POSITION_AUTO_ADOPT_SOURCE,
-                "starts_at": starts_at,
-                "ends_at": None,
-                "starts_at_semantics": "SYSTEM_CONFIRMATION_TIME_ONLY",
+                "record_time_semantics": "SYSTEM_CONFIRMATION_TIME_ONLY",
             }
             write_audit(
                 current_connection,

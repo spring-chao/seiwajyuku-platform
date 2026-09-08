@@ -21,9 +21,8 @@ from app.services.iam import (
 from app.services.identity_admin import assert_identity_write_enabled
 
 
-ACTIVE_STATUSES = {"PLANNED", "ACTIVE"}
-TERMINAL_GRANT_STATUSES = {"SUSPENDED", "ENDED", "REVOKED"}
 VALID_GENDERS = {"MALE", "FEMALE", "UNSPECIFIED"}
+EMPLOYMENT_STATUSES = {"ACTIVE", "LEAVE"}
 
 
 def _read_gate() -> None:
@@ -50,13 +49,18 @@ def _normalize_date(value: str | None, label: str) -> str | None:
     return _as_utc(str(value).strip(), label).isoformat()
 
 
-def _record_status(valid_from: str | None, valid_until: str | None) -> str:
-    now = datetime.now(UTC)
-    if valid_until and _as_utc(valid_until, "结束时间") < now:
-        return "ENDED"
-    if valid_from and _as_utc(valid_from, "开始时间") > now:
-        return "PLANNED"
-    return "ACTIVE"
+def _normalize_employment_status(value: str | None) -> str:
+    """Return the only two ordinary staff lifecycle states.
+
+    Dates remain optional archive metadata, but are never used to turn a
+    staff identity or authorization on/off.  A person is authorized as staff
+    only while the employment itself is explicitly ACTIVE.
+    """
+
+    status = str(value or "ACTIVE").strip().upper()
+    if status not in EMPLOYMENT_STATUSES:
+        raise ValueError("专职在职状态只能是 ACTIVE（在职）或 LEAVE（离职）")
+    return status
 
 
 def _validate_interval(
@@ -150,13 +154,11 @@ def _normalize_grants(
     connection: Any,
     grants: list[dict[str, Any]],
     *,
-    default_valid_from: str | None,
-    employment_valid_until: str | None,
     allow_empty: bool,
+    historical_grants: dict[tuple[str, str, str], dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
-    employment_end = _normalize_date(employment_valid_until, "任职结束时间")
     for raw in grants:
         role_key = str(raw.get("role_key") or "").strip()
         org_unit_id = str(raw.get("org_unit_id") or "").strip()
@@ -166,17 +168,17 @@ def _normalize_grants(
         if not org_unit_id or scope_type not in {"UNIT", "SUBTREE"}:
             raise ValueError("每条角色授权都必须指定组织和 UNIT/SUBTREE 范围")
         _organization(connection, org_unit_id)
+        key = (role_key, org_unit_id, scope_type)
+        prior = (historical_grants or {}).get(key, {})
+        # These values are retained only when an older API client explicitly
+        # supplies them or when an existing archive record already has them.
+        # They are never authorization conditions.
         valid_from, valid_until = _validate_interval(
-            raw.get("valid_from") or default_valid_from,
-            raw.get("valid_until") or employment_end,
+            raw.get("valid_from") if "valid_from" in raw else prior.get("valid_from"),
+            raw.get("valid_until") if "valid_until" in raw else prior.get("valid_until"),
             start_label="授权开始时间",
             end_label="授权结束时间",
         )
-        if employment_end and valid_until and _as_utc(valid_until, "授权结束时间") > _as_utc(
-            employment_end, "任职结束时间"
-        ):
-            raise ValueError("授权结束时间不能晚于任职结束时间")
-        key = (role_key, org_unit_id, scope_type)
         if key in seen:
             # The simple drawer intentionally deduplicates repeated role-scope
             # selections instead of creating indistinguishable grants.
@@ -189,7 +191,10 @@ def _normalize_grants(
                 "scope_type": scope_type,
                 "valid_from": valid_from,
                 "valid_until": valid_until,
-                "status": _record_status(valid_from, valid_until),
+                # Normal staff management creates an active grant. Removing
+                # it writes REVOKED in update_staff; there is no date-driven
+                # planned or automatic-expiry state in this workflow.
+                "status": "ACTIVE",
             }
         )
     if not normalized and not allow_empty:
@@ -228,17 +233,12 @@ def _mask_grant(grant: dict[str, Any]) -> dict[str, Any]:
 
 
 def _employment_rows(*, user_id: int | None = None, current_only: bool = True) -> list[dict[str, Any]]:
-    now = datetime.now(UTC).isoformat()
-    conditions = ["oe.employment_status IN ('PLANNED','ACTIVE','LEAVE')"]
+    # Leave records remain visible as personnel history, but only ACTIVE is
+    # considered an effective employment by user_context().  The dates below
+    # are archive fields and must not hide or activate a staff record.
+    conditions = ["oe.employment_status IN ('ACTIVE','LEAVE')"]
     params: list[Any] = []
-    if current_only:
-        conditions.extend(
-            [
-                "(oe.started_on IS NULL OR oe.started_on<=?)",
-                "(oe.ended_on IS NULL OR oe.ended_on>=?)",
-            ]
-        )
-        params.extend([now, now])
+    del current_only
     if user_id is not None:
         conditions.append("u.id=?")
         params.append(user_id)
@@ -261,16 +261,10 @@ def _employment_rows(*, user_id: int | None = None, current_only: bool = True) -
 
 
 def _position_rows(employment_id: int, *, current_only: bool = True) -> list[dict[str, Any]]:
-    now = datetime.now(UTC).isoformat()
     condition = ""
     params: tuple[Any, ...] = (employment_id,)
     if current_only:
-        condition = (
-            " AND status IN ('PLANNED','ACTIVE') "
-            "AND (valid_from IS NULL OR valid_from<=?) "
-            "AND (valid_until IS NULL OR valid_until>=?)"
-        )
-        params = (employment_id, now, now)
+        condition = " AND status='ACTIVE'"
     rows = fetch_all(
         "SELECT id, position_key, valid_from, valid_until, status "
         "FROM operations_position_assignments WHERE employment_id=?" + condition + " ORDER BY id",
@@ -282,16 +276,10 @@ def _position_rows(employment_id: int, *, current_only: bool = True) -> list[dic
 
 
 def _grant_rows(employment_id: int, *, current_only: bool = True) -> list[dict[str, Any]]:
-    now = datetime.now(UTC).isoformat()
     condition = ""
     params: tuple[Any, ...] = (employment_id,)
     if current_only:
-        condition = (
-            " AND eag.status IN ('PLANNED','ACTIVE') "
-            "AND (eag.valid_from IS NULL OR eag.valid_from<=?) "
-            "AND (eag.valid_until IS NULL OR eag.valid_until>=?)"
-        )
-        params = (employment_id, now, now)
+        condition = " AND eag.status='ACTIVE'"
     return fetch_all(
         "SELECT eag.id, eag.role_key, eag.org_unit_id, o.name AS org_name, eag.scope_type, "
         "eag.valid_from, eag.valid_until, eag.status "
@@ -302,16 +290,10 @@ def _grant_rows(employment_id: int, *, current_only: bool = True) -> list[dict[s
 
 
 def _service_scope_rows(employment_id: int, *, current_only: bool = True) -> list[dict[str, Any]]:
-    now = datetime.now(UTC).isoformat()
     condition = ""
     params: tuple[Any, ...] = (employment_id,)
     if current_only:
-        condition = (
-            " AND esr.status IN ('PLANNED','ACTIVE') "
-            "AND (esr.valid_from IS NULL OR esr.valid_from<=?) "
-            "AND (esr.valid_until IS NULL OR esr.valid_until>=?)"
-        )
-        params = (employment_id, now, now)
+        condition = " AND esr.status='ACTIVE'"
     return fetch_all(
         "SELECT esr.id, esr.org_unit_id, o.name AS org_name, esr.scope_type, "
         "esr.valid_from, esr.valid_until, esr.status "
@@ -437,7 +419,7 @@ def staff_catalog(actor_user_id: int) -> dict[str, Any]:
             "institution_name": row["institution_name"],
         }
         for row in _employment_rows()
-        if row["is_active"]
+        if row["is_active"] and row["employment_status"] == "ACTIVE"
     ]
     return {
         "writes_enabled": get_settings().identity_admin_writes_enabled,
@@ -564,7 +546,8 @@ def create_staff(
     department_name: str | None,
     supervisor_user_id: int | None,
     position_keys: list[str],
-    started_on: str,
+    employment_status: str,
+    started_on: str | None,
     ended_on: str | None,
     grants: list[dict[str, Any]],
     authorization_basis: str,
@@ -584,8 +567,7 @@ def create_staff(
     employment_start, employment_end = _validate_interval(
         started_on, ended_on, start_label="任职开始", end_label="任职结束"
     )
-    if not employment_start:
-        raise ValueError("任职开始不能为空")
+    normalized_employment_status = _normalize_employment_status(employment_status)
     generated_password = None
     password = str(temporary_password or "")
     if not password:
@@ -604,8 +586,6 @@ def create_staff(
         normalized_grants = _normalize_grants(
             connection,
             grants,
-            default_valid_from=employment_start,
-            employment_valid_until=employment_end,
             allow_empty=False,
         )
         basis, reason = _require_authorization_reason(
@@ -654,7 +634,6 @@ def create_staff(
                 now,
             ),
         )
-        employment_status = _record_status(employment_start, employment_end)
         cursor = execute(
             connection,
             "INSERT INTO operations_employments"
@@ -666,7 +645,7 @@ def create_staff(
                 institution_id,
                 _clean_text(department_name),
                 supervisor_id,
-                employment_status,
+                normalized_employment_status,
                 employment_start,
                 employment_end,
                 source_reference,
@@ -684,9 +663,9 @@ def create_staff(
                 (
                     employment_id,
                     position_key,
-                    employment_start,
-                    employment_end,
-                    employment_status,
+                    None,
+                    None,
+                    "ACTIVE",
                     source_reference,
                     now,
                     now,
@@ -713,6 +692,9 @@ def create_staff(
                 "institution_id": institution_id,
                 "department_name": _clean_text(department_name),
                 "position_keys": positions,
+                "employment_status": normalized_employment_status,
+                "started_on": employment_start,
+                "ended_on": employment_end,
                 "authorization_grants": normalized_grants,
                 "authorization_basis": basis,
                 "grant_ids": grant_ids,
@@ -745,6 +727,7 @@ def _safe_change_snapshot(item: dict[str, Any]) -> dict[str, Any]:
         "institution_name": item["institution_name"],
         "department_name": item.get("department_name"),
         "supervisor_name": item.get("supervisor_name"),
+        "employment_status": item.get("employment_status"),
         "started_on": item.get("started_on"),
         "ended_on": item.get("ended_on"),
         "positions": [
@@ -765,13 +748,11 @@ def _desired_snapshot(
     institution_id = str(payload.get("institution_id") or current["institution_id"])
     institution = _institution(connection, institution_id)
     started_on, ended_on = _validate_interval(
-        payload.get("started_on") or current.get("started_on"),
-        payload.get("ended_on"),
+        payload.get("started_on") if "started_on" in payload else current.get("started_on"),
+        payload.get("ended_on") if "ended_on" in payload else current.get("ended_on"),
         start_label="任职开始",
         end_label="任职结束",
     )
-    if not started_on:
-        raise ValueError("任职开始不能为空")
     supervisor_id = _supervisor(
         connection,
         payload["supervisor_user_id"]
@@ -779,12 +760,15 @@ def _desired_snapshot(
         else current.get("supervisor_user_id"),
         current["_id"],
     )
+    existing_grants = {
+        _grant_identity(grant): grant
+        for grant in _grant_rows(int(current["_employment_id"]), current_only=True)
+    }
     normalized_grants = _normalize_grants(
         connection,
         payload.get("grants") or [],
-        default_valid_from=started_on,
-        employment_valid_until=ended_on,
         allow_empty=True,
+        historical_grants=existing_grants,
     )
     return (
         {
@@ -805,7 +789,11 @@ def _desired_snapshot(
             "supervisor_user_id": supervisor_id,
             "started_on": started_on,
             "ended_on": ended_on,
-            "employment_status": _record_status(started_on, ended_on),
+            "employment_status": _normalize_employment_status(
+                payload.get("employment_status")
+                if "employment_status" in payload
+                else current.get("employment_status")
+            ),
             "positions": positions,
         },
         normalized_grants,
@@ -846,8 +834,8 @@ def preview_staff_update(
         for grant in current_grants
         if _grant_identity(grant) not in desired_keys
     ]
-    # An extension of an active sensitive authorization can enlarge access
-    # just as much as a new role-scope pair, so it requires the same reason.
+    # A changed active sensitive authorization can enlarge access just as much
+    # as a new role-scope pair, so it requires the same reason.
     sensitive_expansion = any(
         _role_risk(grant["role_key"]) for grant in added
     ) or any(_role_risk(after["role_key"]) for _, after in changed)
@@ -858,6 +846,7 @@ def preview_staff_update(
         "institution_name": desired["institution_name"],
         "department_name": desired["department_name"],
         "supervisor_user_id": desired["supervisor_user_id"],
+        "employment_status": desired["employment_status"],
         "started_on": desired["started_on"],
         "ended_on": desired["ended_on"],
         "positions": [
@@ -1046,9 +1035,9 @@ def update_staff(
                 (
                     current["_employment_id"],
                     position_key,
-                    desired["started_on"],
-                    desired["ended_on"],
-                    desired["employment_status"],
+                    None,
+                    None,
+                    "ACTIVE",
                     source_reference,
                     now,
                     now,
@@ -1115,18 +1104,15 @@ def authorization_migration_preview(actor_user_id: int) -> list[dict[str, Any]]:
     """Produce a no-write, evidence-first legacy authorization conversion preview."""
     _read_gate()
     del actor_user_id
-    now = datetime.now(UTC).isoformat()
     rows = fetch_all(
         "SELECT oe.id AS employment_id, oe.person_id, u.id AS user_id, u.display_name "
         "FROM operations_employments oe "
         "LEFT JOIN account_person_links apl ON apl.person_id=oe.person_id "
         "LEFT JOIN app_users u ON u.id=apl.user_id "
-        "WHERE oe.employment_status IN ('PLANNED','ACTIVE') "
-        "AND (oe.started_on IS NULL OR oe.started_on<=?) "
-        "AND (oe.ended_on IS NULL OR oe.ended_on>=?) "
+        "WHERE oe.employment_status='ACTIVE' "
         "AND NOT EXISTS (SELECT 1 FROM employee_authorization_grants eag "
         "WHERE eag.employment_id=oe.id) ORDER BY u.display_name, oe.id",
-        (now, now),
+        (),
     )
     preview: list[dict[str, Any]] = []
     for row in rows:
@@ -1139,8 +1125,8 @@ def authorization_migration_preview(actor_user_id: int) -> list[dict[str, Any]]:
                 "org_unit_id": scope["org_unit_id"],
                 "org_name": scope["org_name"],
                 "scope_type": scope["scope_type"],
-                "valid_from": position.get("valid_from") or scope.get("valid_from"),
-                "valid_until": position.get("valid_until") or scope.get("valid_until"),
+                "valid_from": None,
+                "valid_until": None,
                 "status": "ACTIVE",
             }
             for position in positions

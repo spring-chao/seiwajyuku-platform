@@ -55,7 +55,7 @@ const appointmentLabels: Record<string, string> = {
 const statusLabels: Record<string, string> = {
   PLANNED: "待生效",
   ACTIVE: "有效",
-  LEAVE: "休假",
+  LEAVE: "离职",
   SUSPENDED: "已停用",
   ENDED: "已结束",
   REVOKED: "已撤销"
@@ -89,9 +89,9 @@ const form = reactive({
   source_reference: "",
   confirmation_note: "",
   position_keys: [] as string[],
-  started_on: "",
-  ended_on: "",
+  employment_status: "ACTIVE" as "ACTIVE" | "LEAVE",
   service_responsibilities: [] as ResponsibilityDraft[],
+  member_id: undefined as number | undefined,
   appointment_key: "",
   org_unit_id: "",
   scope_type: "UNIT" as "UNIT" | "SUBTREE",
@@ -106,8 +106,7 @@ const onboardingForm = reactive({
   display_name: "",
   password: "",
   position_keys: [] as string[],
-  started_on: "",
-  ended_on: "",
+  employment_status: "ACTIVE" as "ACTIVE" | "LEAVE",
   service_responsibilities: [] as ResponsibilityDraft[],
   source_reference: "",
   confirmation_note: ""
@@ -129,7 +128,7 @@ const onboardingAccounts = computed(() =>
       !isPlatformAdmin(row) &&
       !row.legacy_roles.length &&
       !row.employments.some(employment =>
-        ["PLANNED", "ACTIVE", "LEAVE"].includes(employment.status)
+        employment.status === "ACTIVE"
       )
   )
 );
@@ -140,7 +139,7 @@ function accountRoleLabels(row: any) {
   if (isPlatformAdmin(row)) return ["平台最高管理账号"];
   const labels = new Set<string>();
   for (const employment of row.employments || []) {
-    if (["ENDED", "REVOKED"].includes(employment.status)) continue;
+    if (employment.status !== "ACTIVE") continue;
     for (const position of employment.positions || []) {
       if (["ENDED", "REVOKED"].includes(position.status)) continue;
       labels.add(
@@ -149,7 +148,10 @@ function accountRoleLabels(row: any) {
     }
   }
   for (const appointment of row.volunteer_appointments || []) {
-    if (["ENDED", "REVOKED"].includes(appointment.status)) continue;
+    if (
+      appointment.member_status !== "ACTIVE" ||
+      appointment.status !== "ACTIVE"
+    ) continue;
     labels.add(
       appointmentLabels[appointment.appointment_key] ||
         appointment.appointment_key
@@ -184,7 +186,7 @@ const dialogTitle = computed(() => {
   return {
     initialize: `确认自然人关联 · ${name}`,
     employment: `建立运营中心雇佣 · ${name}`,
-    volunteer: `建立志工任职 · ${name}`,
+    volunteer: `建立志工服务岗位 · ${name}`,
     technical: `建立技术管理员任期 · ${name}`
   }[dialogMode.value];
 });
@@ -241,9 +243,9 @@ function resetForm() {
     source_reference: "",
     confirmation_note: "",
     position_keys: [],
-    started_on: dayjs().format("YYYY-MM-DDTHH:mm:ss"),
-    ended_on: "",
+    employment_status: "ACTIVE",
     service_responsibilities: [{ org_unit_id: "", scope_type: "SUBTREE" }],
+    member_id: undefined,
     appointment_key: "",
     org_unit_id: "",
     scope_type: "UNIT",
@@ -265,8 +267,7 @@ function resetOnboardingForm(account?: IdentityAccount) {
     display_name: "",
     password: generatedTemporaryPassword(),
     position_keys: [],
-    started_on: dayjs().format("YYYY-MM-DDTHH:mm:ss"),
-    ended_on: dayjs().add(1, "year").format("YYYY-MM-DDTHH:mm:ss"),
+    employment_status: "ACTIVE",
     service_responsibilities: [{ org_unit_id: "", scope_type: "SUBTREE" }],
     source_reference: "",
     confirmation_note: ""
@@ -361,16 +362,6 @@ async function submitOnboarding() {
     ElMessage.error("至少选择一个运营中心岗位");
     return;
   }
-  if (!onboardingForm.started_on || !onboardingForm.ended_on) {
-    ElMessage.error("一站式录入必须填写任职开始和结束时间");
-    return;
-  }
-  if (
-    !dayjs(onboardingForm.ended_on).isAfter(dayjs(onboardingForm.started_on))
-  ) {
-    ElMessage.error("任职结束时间必须晚于开始时间");
-    return;
-  }
   if (
     !onboardingForm.service_responsibilities.length ||
     onboardingForm.service_responsibilities.some(item => !item.org_unit_id)
@@ -410,11 +401,7 @@ async function submitOnboarding() {
     .join("、");
   try {
     await ElMessageBox.confirm(
-      `${accountName}\n岗位：${roleNames}\n范围：${scopeNames}\n有效期：${dayjs(
-        onboardingForm.started_on
-      ).format("YYYY-MM-DD")} 至 ${dayjs(onboardingForm.ended_on).format(
-        "YYYY-MM-DD"
-      )}\n\n提交后将原子化写入账号（如需）、自然人关联、雇佣、岗位、范围和审计。`,
+      `${accountName}\n在职状态：${onboardingForm.employment_status === "ACTIVE" ? "在职" : "离职"}\n岗位：${roleNames}\n范围：${scopeNames}\n\n提交后将原子化写入账号（如需）、自然人关联、雇佣、岗位、范围和审计。`,
       "确认人员任职录入",
       {
         confirmButtonText: "确认逐项写入",
@@ -432,10 +419,9 @@ async function submitOnboarding() {
               display_name: onboardingForm.display_name.trim(),
               password: onboardingForm.password
             }
-          }),
+      }),
       position_keys: onboardingForm.position_keys,
-      started_on: onboardingForm.started_on,
-      ended_on: onboardingForm.ended_on,
+      employment_status: onboardingForm.employment_status,
       service_responsibilities: onboardingForm.service_responsibilities.map(
         item => ({
           org_unit_id: item.org_unit_id,
@@ -515,8 +501,7 @@ async function submit() {
       await createAccountEmployment(account.id, {
         ...confirmation,
         position_keys: form.position_keys,
-        started_on: form.started_on,
-        ended_on: form.ended_on || undefined,
+        employment_status: form.employment_status,
         service_responsibilities: form.service_responsibilities
           .filter(item => item.org_unit_id)
           .map(item => ({
@@ -525,13 +510,15 @@ async function submit() {
           }))
       });
     } else if (dialogMode.value === "volunteer") {
+      if (!form.member_id || form.member_id <= 0) {
+        throw new Error("请填写已在册学长的正式编号");
+      }
       await createAccountVolunteerAppointment(account.id, {
         ...confirmation,
+        member_id: form.member_id,
         appointment_key: form.appointment_key,
         org_unit_id: form.org_unit_id,
-        scope_type: form.scope_type,
-        starts_at: form.starts_at,
-        ends_at: form.ends_at
+        scope_type: form.scope_type
       });
     } else {
       await createAccountTechnicalAssignment(account.id, {
@@ -624,7 +611,7 @@ onMounted(load);
         <p>最小权限与可审计授权</p>
         <h1>身份与任职管理</h1>
         <span
-          >自然人、专职雇佣、服务责任、志工任职和技术职责分别记录；admin
+          >自然人、专职雇佣、服务责任、志工服务岗位和技术职责分别记录；admin
           为平台最高管理账号。</span
         >
       </div>
@@ -691,7 +678,7 @@ onMounted(load);
           <div>
             <strong>权限矩阵（只读）</strong>
             <p>
-              展示角色模板的最小权限边界；实际授权仍受有效期、组织范围和服务端校验共同约束。
+              展示角色模板的最小权限边界；实际授权仍受账号、在职或在册状态、组织范围和服务端校验共同约束。
             </p>
           </div>
           <el-tag type="info" effect="plain">不改变现有授权</el-tag>
@@ -803,7 +790,7 @@ onMounted(load);
               </section>
 
               <section>
-                <h3>志工任职</h3>
+                <h3>志工服务岗位</h3>
                 <div v-if="!row.volunteer_appointments.length" class="empty">
                   暂无记录
                 </div>
@@ -819,8 +806,11 @@ onMounted(load);
                     · {{ appointment.org_name }}（{{ appointment.scope_type }}）
                   </p>
                   <p>
-                    {{ dayjs(appointment.starts_at).format("YYYY-MM-DD") }} 至
-                    {{ dayjs(appointment.ends_at).format("YYYY-MM-DD") }}
+                    学长：{{ appointment.member_name || "#" + appointment.member_id }}
+                    · 系统确认：{{ dayjs(appointment.created_at).format("YYYY-MM-DD") }}
+                    <template v-if="appointment.ended_at">
+                      · 结束操作：{{ dayjs(appointment.ended_at).format("YYYY-MM-DD") }}
+                    </template>
                     <el-tag size="small">{{
                       statusLabels[appointment.status] || appointment.status
                     }}</el-tag>
@@ -995,7 +985,7 @@ onMounted(load);
                 :disabled="!writesEnabled || !row.is_active"
                 @click="openDialog('volunteer', row)"
               >
-                建立志工任职
+                建立志工服务岗位
               </el-button>
               <el-button
                 link
@@ -1092,7 +1082,7 @@ onMounted(load);
           </el-form-item>
         </template>
 
-        <el-divider content-position="left">岗位与有效期</el-divider>
+        <el-divider content-position="left">在职状态与岗位</el-divider>
         <el-form-item label="运营中心岗位（可多选）">
           <el-select
             v-model="onboardingForm.position_keys"
@@ -1110,22 +1100,13 @@ onMounted(load);
             />
           </el-select>
         </el-form-item>
-        <div class="form-grid">
-          <el-form-item label="任职开始时间">
-            <el-date-picker
-              v-model="onboardingForm.started_on"
-              type="datetime"
-              value-format="YYYY-MM-DDTHH:mm:ss"
-            />
-          </el-form-item>
-          <el-form-item label="任职结束时间">
-            <el-date-picker
-              v-model="onboardingForm.ended_on"
-              type="datetime"
-              value-format="YYYY-MM-DDTHH:mm:ss"
-            />
-          </el-form-item>
-        </div>
+        <el-form-item label="专职状态">
+          <el-select v-model="onboardingForm.employment_status">
+            <el-option label="在职" value="ACTIVE" />
+            <el-option label="离职" value="LEAVE" />
+          </el-select>
+          <div class="field-help">专职权限以“在职”判断；账号启用、志工在册与岗位服务范围仍分别判断。</div>
+        </el-form-item>
 
         <el-divider content-position="left">服务责任范围</el-divider>
         <div
@@ -1185,7 +1166,7 @@ onMounted(load);
             type="textarea"
             :rows="3"
             maxlength="1000"
-            placeholder="说明已确认的人员身份、岗位、组织范围、任期和回滚责任"
+            placeholder="说明已确认的人员身份、岗位、组织范围和回滚责任"
           />
         </el-form-item>
       </el-form>
@@ -1265,7 +1246,7 @@ onMounted(load);
           “盛和塾”账号是否对应某位实际使用人尚未确认；在确认实际使用人前，系统不会自动绑定，也不会按账号名猜测。
         </li>
         <li>
-          隔离测试由平台使用合成账号完成。未来新增个人账号时，逐项填写人员身份、任职依据、组织范围、任期和回滚责任；新账号由页面生成独立临时密码，不使用多人共享的默认密码。
+          隔离测试由平台使用合成账号完成。未来新增个人账号时，逐项确认人员身份、在职状态、岗位、组织范围和回滚责任；新账号由页面生成独立临时密码，不使用多人共享的默认密码。
         </li>
       </ol>
       <template #footer>
@@ -1295,22 +1276,13 @@ onMounted(load);
               />
             </el-select>
           </el-form-item>
-          <div class="form-grid">
-            <el-form-item label="入职时间">
-              <el-date-picker
-                v-model="form.started_on"
-                type="datetime"
-                value-format="YYYY-MM-DDTHH:mm:ss"
-              />
-            </el-form-item>
-            <el-form-item label="计划离职时间（可选）">
-              <el-date-picker
-                v-model="form.ended_on"
-                type="datetime"
-                value-format="YYYY-MM-DDTHH:mm:ss"
-              />
-            </el-form-item>
-          </div>
+          <el-form-item label="专职状态">
+            <el-select v-model="form.employment_status">
+              <el-option label="在职" value="ACTIVE" />
+              <el-option label="离职" value="LEAVE" />
+            </el-select>
+            <div class="field-help">日期只保留历史档案；当前专职权限由账号启用、在职状态与角色范围授权共同决定。</div>
+          </el-form-item>
           <el-form-item label="服务责任范围（可多选，不是组织归属）">
             <div class="responsibility-list">
               <div
@@ -1355,8 +1327,23 @@ onMounted(load);
         </template>
 
         <template v-if="dialogMode === 'volunteer'">
+          <el-alert
+            title="志工资格以学长在册状态和当前服务岗位范围判断；系统不设置任期或自动到期。"
+            type="info"
+            :closable="false"
+            class="form-alert"
+          />
           <div class="form-grid">
-            <el-form-item label="志工任职">
+            <el-form-item label="在册学长编号" required>
+              <el-input-number
+                v-model="form.member_id"
+                :min="1"
+                :step="1"
+                controls-position="right"
+                class="full-width"
+              />
+            </el-form-item>
+            <el-form-item label="志工服务岗位">
               <el-select v-model="form.appointment_key">
                 <el-option
                   v-for="key in catalog?.appointment_keys || []"
@@ -1385,10 +1372,8 @@ onMounted(load);
           </div>
         </template>
 
-        <template
-          v-if="dialogMode === 'volunteer' || dialogMode === 'technical'"
-        >
-          <el-form-item v-if="dialogMode === 'technical'" label="技术管理用途">
+        <template v-if="dialogMode === 'technical'">
+          <el-form-item label="技术管理用途">
             <el-input v-model="form.assignment_purpose" maxlength="500" />
           </el-form-item>
           <div class="form-grid">
@@ -1564,8 +1549,13 @@ onMounted(load);
 
 .form-grid :deep(.el-select),
 .form-grid :deep(.el-date-editor),
+.form-grid :deep(.el-input-number),
 form :deep(.el-select) {
   width: 100%;
+}
+
+.form-alert {
+  margin-bottom: 16px;
 }
 
 .account-form {

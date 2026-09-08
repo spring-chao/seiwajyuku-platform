@@ -68,14 +68,17 @@ export type Employment = {
 
 export type VolunteerAppointment = {
   id: number;
+  member_id?: number | null;
+  member_name?: string | null;
+  member_status?: string | null;
   appointment_key: string;
   position_name?: string;
   scope_level?: string;
   org_unit_id: string;
   org_name: string;
   scope_type: string;
-  starts_at: string;
-  ends_at: string;
+  created_at: string;
+  ended_at?: string | null;
   status: string;
   source_reference: string;
 };
@@ -168,8 +171,9 @@ export const onboardIdentityEmployee = (data: {
     password: string;
   };
   position_keys: string[];
-  started_on: string;
-  ended_on: string;
+  employment_status?: "ACTIVE" | "LEAVE";
+  started_on?: string;
+  ended_on?: string;
   service_responsibilities: Array<{
     org_unit_id: string;
     scope_type: "UNIT" | "SUBTREE";
@@ -210,7 +214,8 @@ export const createAccountEmployment = (
   data: Confirmation & {
     position_key?: string;
     position_keys?: string[];
-    started_on: string;
+    employment_status?: "ACTIVE" | "LEAVE";
+    started_on?: string;
     ended_on?: string;
     service_responsibilities: Array<{
       org_unit_id: string;
@@ -227,11 +232,10 @@ export const createAccountEmployment = (
 export const createAccountVolunteerAppointment = (
   userId: number,
   data: Confirmation & {
+    member_id: number;
     appointment_key: string;
     org_unit_id: string;
     scope_type: "UNIT" | "SUBTREE";
-    starts_at: string;
-    ends_at: string;
   }
 ) =>
   http.request<{ success: boolean; data: { id: number } }>(

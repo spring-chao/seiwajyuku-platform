@@ -30,12 +30,6 @@ WECHAT_BINDING_NO_MATCH_MESSAGE = "姓名或手机号未匹配，请核对后重
 WECHAT_BINDING_AMBIGUOUS_MESSAGE = "姓名和手机号匹配到多名学员，请联系工作人员"
 WECHAT_BINDING_OPENID_CONFLICT_MESSAGE = "当前微信已绑定其他学员，请先解绑后再绑定"
 WECHAT_BINDING_MEMBER_CONFLICT_MESSAGE = "该学员已有微信绑定，如需更换请联系工作人员"
-WECHAT_BINDING_ROLES = {
-    "volunteer_group_leader": "GROUP_LEADER",
-    "volunteer_class_counselor": "CLASS_COUNSELOR",
-    "group_leader": "GROUP_LEADER",
-    "class_counselor": "CLASS_COUNSELOR",
-}
 
 
 class WeChatIdentityError(ValueError):
@@ -436,7 +430,7 @@ def revoke_member_binding(token: str) -> dict[str, Any]:
 
 
 def get_member_role_scopes(member_id: int) -> list[dict[str, Any]]:
-    """Resolve current capabilities from formal appointments and legacy roles.
+    """Resolve current capabilities from formal active-member appointments.
 
     The returned ``role_key`` values intentionally remain the internal
     GROUP_LEADER/CLASS_COUNSELOR values used by the V1.2 storage contract.
@@ -447,21 +441,19 @@ def get_member_role_scopes(member_id: int) -> list[dict[str, Any]]:
     settings = get_settings()
     if not settings.identity_authorization_enabled:
         return []
-    now = _now()
     scopes: list[dict[str, Any]] = []
     try:
         canonical = fetch_all(
             "SELECT va.appointment_key, va.org_unit_id, va.scope_type, "
             "c.position_name, c.scope_level, pc.capability_key "
-            "FROM member_identities mi JOIN person_profiles pp ON pp.id=mi.person_id "
-            "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
+            "FROM volunteer_appointments va "
+            "JOIN members m ON m.id=va.member_id "
             "JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
             "JOIN volunteer_position_capabilities pc ON pc.position_key=c.position_key "
-            "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
+            "WHERE va.member_id=? AND m.status='ACTIVE' "
             "AND c.is_active=1 AND pc.capability_key=? "
-            "AND va.status IN ('PLANNED','ACTIVE') AND va.starts_at<=? "
-            "AND (va.ends_at IS NULL OR va.ends_at>=?)",
-            (member_id, STUDY_MEETING_MANAGE, now, now),
+            "AND va.status='ACTIVE'",
+            (member_id, STUDY_MEETING_MANAGE),
         )
     except Exception as exc:
         # During a rolling migration, keep the old two-role resolver available
@@ -471,13 +463,12 @@ def get_member_role_scopes(member_id: int) -> list[dict[str, Any]]:
             raise
         canonical = fetch_all(
             "SELECT va.appointment_key, va.org_unit_id, va.scope_type "
-            "FROM member_identities mi JOIN person_profiles pp ON pp.id=mi.person_id "
-            "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
-            "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
+            "FROM volunteer_appointments va "
+            "JOIN members m ON m.id=va.member_id "
+            "WHERE va.member_id=? AND m.status='ACTIVE' "
             "AND va.appointment_key IN ('volunteer_group_leader','volunteer_class_counselor') "
-            "AND va.status IN ('PLANNED','ACTIVE') AND va.starts_at<=? "
-            "AND (va.ends_at IS NULL OR va.ends_at>=?)",
-            (member_id, now, now),
+            "AND va.status='ACTIVE'",
+            (member_id,),
         )
     for row in canonical:
         scope_level = row.get("scope_level")
@@ -508,31 +499,8 @@ def get_member_role_scopes(member_id: int) -> list[dict[str, Any]]:
                 }
             )
 
-    # Legacy account roles are accepted only when the account is explicitly
-    # linked to this member and has an explicit UNIT/SUBTREE data scope.
-    legacy = fetch_all(
-        "SELECT ur.role_key, ds.scope_type, ds.org_unit_id "
-        "FROM app_users au JOIN user_roles ur ON ur.user_id=au.id "
-        "JOIN data_scope_grants ds ON ds.user_id=au.id "
-        "WHERE au.member_id=? AND au.is_active=1 "
-        "AND ur.role_key IN ('group_leader','class_counselor') "
-        "AND (ur.valid_from IS NULL OR ur.valid_from<=?) "
-        "AND (ur.valid_until IS NULL OR ur.valid_until>=?) "
-        "AND ds.scope_type IN ('UNIT','SUBTREE') "
-        "AND (ds.valid_from IS NULL OR ds.valid_from<=?) "
-        "AND (ds.valid_until IS NULL OR ds.valid_until>=?)",
-        (member_id, now, now, now, now),
-    )
-    for row in legacy:
-        role_key = WECHAT_BINDING_ROLES.get(row["role_key"])
-        if role_key and row.get("org_unit_id"):
-            scopes.append(
-                {
-                    "role_key": role_key,
-                    "scope_type": row["scope_type"],
-                    "org_unit_id": row["org_unit_id"],
-                }
-            )
+    # Old account roles and time windows are intentionally not a fallback:
+    # only a current formal volunteer post can grant a volunteer capability.
     unique: dict[tuple[Any, ...], dict[str, Any]] = {}
     for item in scopes:
         unique[

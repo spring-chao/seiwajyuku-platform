@@ -2143,6 +2143,7 @@ onMounted(async () => {
               :disabled="
                 !editingMemberId ||
                 !canManage ||
+                form.status !== 'ACTIVE' ||
                 Boolean(form.current_volunteer_needs_manual_review)
               "
               placeholder="普通学长（暂无志工服务）"
@@ -2157,6 +2158,9 @@ onMounted(async () => {
             </el-select>
             <p v-if="!editingMemberId" class="form-hint">
               请先保存学员档案，再维护当前志工岗位。
+            </p>
+            <p v-else-if="form.status !== 'ACTIVE'" class="form-hint">
+              非在册学长保留历史志工记录，但当前不能获得志工权限；恢复在册后仅仍为服务中的岗位会重新生效。
             </p>
             <p v-if="selectedCurrentVolunteerPosition" class="form-hint current-volunteer-scope-hint">
               服务范围：{{ currentVolunteerScopeName || "请先维护正式班级/小组/分中心" }}（自动匹配当前正式组织关系）
@@ -2347,13 +2351,16 @@ onMounted(async () => {
                 <span>状态：{{ volunteerAppointmentStatusLabel(appointment.status) }}</span>
                 <small>
                   系统确认：{{ appointment.created_at ? formatTimelineTime(appointment.created_at) : "待补充" }}
+                  <template v-if="appointment.ended_at">
+                    · 结束操作：{{ formatTimelineTime(appointment.ended_at) }}
+                  </template>
                 </small>
               </div>
             </div>
           </el-collapse-item>
         </el-collapse>
         <p class="form-hint volunteer-history__hint">
-          当前岗位在上方维护；这里仅查看系统保留的志工服务记录。
+          当前岗位以“在册 + 服务中 + 服务范围有效”判断；这里仅查看系统保留的志工服务记录。
         </p>
       </section>
       <template #footer>

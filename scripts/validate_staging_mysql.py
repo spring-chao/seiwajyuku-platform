@@ -86,6 +86,17 @@ def _seed_fixture() -> None:
             "'Class A', 'Group A', ?, ?)",
             (now, now),
         )
+        for member_id, member_code, name in (
+            (3, "M003", "Staging Volunteer Member"),
+            (4, "M004", "Staging Companion Member"),
+        ):
+            execute(
+                connection,
+                "INSERT INTO members"
+                "(id, member_code, name, org_unit_id, status, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'r1', 'ACTIVE', ?, ?)",
+                (member_id, member_code, name, now, now),
+            )
         execute(
             connection,
             "INSERT INTO members"
@@ -314,9 +325,9 @@ def _run_identity_validation() -> dict:
             "'mysql-staging-validation', ?, ?)",
             (employment.lastrowid, active_from, now, now),
         )
-        for user_id, person_id, appointment_key in (
-            (2, "staging-volunteer-person", "volunteer_regional_service"),
-            (3, "staging-companion-person", "volunteer_class_committee"),
+        for user_id, member_id, person_id, appointment_key in (
+            (2, 3, "staging-volunteer-person", "volunteer_regional_service"),
+            (3, 4, "staging-companion-person", "volunteer_class_committee"),
         ):
             execute(
                 connection,
@@ -334,16 +345,23 @@ def _run_identity_validation() -> dict:
             )
             execute(
                 connection,
+                "INSERT INTO member_identities"
+                "(member_id, person_id, status, source_reference, created_at, updated_at) "
+                "VALUES (?, ?, 'ACTIVE', 'mysql-staging-validation', ?, ?)",
+                (member_id, person_id, now, now),
+            )
+            execute(
+                connection,
                 "INSERT INTO volunteer_appointments"
-                "(person_id, appointment_key, org_unit_id, scope_type, starts_at, "
+                "(person_id, member_id, appointment_key, org_unit_id, scope_type, starts_at, "
                 "ends_at, status, source_reference, created_at, updated_at) "
-                "VALUES (?, ?, 'r1', 'SUBTREE', ?, ?, 'ACTIVE', "
+                "VALUES (?, ?, ?, 'r1', 'SUBTREE', ?, NULL, 'ACTIVE', "
                 "'mysql-staging-validation', ?, ?)",
                 (
                     person_id,
+                    member_id,
                     appointment_key,
-                    active_from,
-                    now + timedelta(days=365),
+                    now,
                     now,
                     now,
                 ),

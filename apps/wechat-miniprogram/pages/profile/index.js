@@ -15,14 +15,16 @@ function monthLabel(value) {
 }
 
 function volunteerHistoryItem(item, index) {
-  const startsAt = monthLabel(item.starts_at);
-  const endsAt = item.ends_at ? monthLabel(item.ends_at) : "至今";
+  const createdAt = monthLabel(item.created_at);
+  const endedAt = item.ended_at
+    ? `；结束操作：${monthLabel(item.ended_at)}`
+    : "";
   return {
-    key: `${item.position_name || "志工"}-${item.scope_name || "服务范围"}-${item.starts_at || index}`,
+    key: `${item.position_name || "志工"}-${item.scope_name || "服务范围"}-${item.created_at || index}`,
     positionName: item.position_name || "志工",
     scopeName: item.scope_name || "服务范围暂未记录",
     statusName: item.status_name || "状态待确认",
-    rangeLabel: `${startsAt} ～ ${endsAt}`
+    rangeLabel: `系统确认：${createdAt}${endedAt}`
   };
 }
 

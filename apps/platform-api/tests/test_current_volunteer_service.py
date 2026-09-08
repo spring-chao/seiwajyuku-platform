@@ -359,9 +359,9 @@ def test_multiple_active_appointments_require_review_and_are_not_deleted() -> No
     with transaction() as connection:
         execute(
             connection,
-            "INSERT INTO volunteer_appointments(person_id, appointment_key, org_unit_id, scope_type, starts_at, ends_at, status, source_reference, created_at, updated_at) "
-            "VALUES (?, 'volunteer_activity', ?, 'UNIT', ?, NULL, 'ACTIVE', 'LEGACY_IMPORT', ?, ?)",
-            (identity["person_id"], data["other_group_id"], (datetime.now(UTC) - timedelta(days=1)).isoformat(), now, now),
+            "INSERT INTO volunteer_appointments(person_id, member_id, appointment_key, org_unit_id, scope_type, starts_at, ends_at, status, source_reference, created_at, updated_at) "
+            "VALUES (?, ?, 'volunteer_activity', ?, 'UNIT', ?, NULL, 'ACTIVE', 'LEGACY_IMPORT', ?, ?)",
+            (identity["person_id"], data["member_id"], data["other_group_id"], (datetime.now(UTC) - timedelta(days=1)).isoformat(), now, now),
         )
 
     services = get_member_volunteer_services(int(data["member_id"]))
@@ -389,10 +389,11 @@ def test_ordinary_profile_edit_does_not_touch_multiple_active_volunteer_appointm
     with transaction() as connection:
         execute(
             connection,
-            "INSERT INTO volunteer_appointments(person_id, appointment_key, org_unit_id, scope_type, starts_at, ends_at, status, source_reference, created_at, updated_at) "
-            "VALUES (?, 'volunteer_activity', ?, 'UNIT', ?, NULL, 'ACTIVE', 'LEGACY_IMPORT', ?, ?)",
+            "INSERT INTO volunteer_appointments(person_id, member_id, appointment_key, org_unit_id, scope_type, starts_at, ends_at, status, source_reference, created_at, updated_at) "
+            "VALUES (?, ?, 'volunteer_activity', ?, 'UNIT', ?, NULL, 'ACTIVE', 'LEGACY_IMPORT', ?, ?)",
             (
                 identity["person_id"],
+                data["member_id"],
                 data["other_group_id"],
                 (datetime.now(UTC) - timedelta(days=1)).isoformat(),
                 now,

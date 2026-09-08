@@ -196,7 +196,11 @@ def _ensure_person(actor_user_id: int, user_id: int) -> None:
     )
 
 
-def _ensure_assignments(actor_user_id: int, users: dict[str, int]) -> tuple[str, str]:
+def _ensure_assignments(
+    actor_user_id: int,
+    users: dict[str, int],
+    volunteer_member_ids: dict[str, int],
+) -> tuple[str, str]:
     now = datetime.now(UTC)
     starts_at = now.isoformat()
     ends_at = (now + timedelta(days=30)).isoformat()
@@ -210,8 +214,9 @@ def _ensure_assignments(actor_user_id: int, users: dict[str, int]) -> tuple[str,
             actor_user_id,
             users["ops"],
             position_key="ops_center_learning",
-            started_on=starts_at,
-            ended_on=ends_at,
+            employment_status="ACTIVE",
+            started_on=None,
+            ended_on=None,
             service_responsibilities=[
                 {"scope_type": "SUBTREE", "org_unit_id": "pilot-center"}
             ],
@@ -228,8 +233,9 @@ def _ensure_assignments(actor_user_id: int, users: dict[str, int]) -> tuple[str,
             actor_user_id,
             users["center_director"],
             position_key="ops_center_director",
-            started_on=starts_at,
-            ended_on=ends_at,
+            employment_status="ACTIVE",
+            started_on=None,
+            ended_on=None,
             service_responsibilities=[
                 {"scope_type": "SUBTREE", "org_unit_id": PILOT_CENTER_IDS["kunshan"]},
                 {"scope_type": "SUBTREE", "org_unit_id": PILOT_CENTER_IDS["wujiang"]},
@@ -253,13 +259,12 @@ def _ensure_assignments(actor_user_id: int, users: dict[str, int]) -> tuple[str,
         create_volunteer_appointment(
             actor_user_id,
             users[key],
+            member_id=volunteer_member_ids[key],
             appointment_key=appointment_key,
             org_unit_id=org_unit_id,
             scope_type=scope_type,
-            starts_at=starts_at,
-            ends_at=ends_at,
             source_reference="approved-local-pilot",
-            confirmation_note="隔离环境合成志工任职和组织范围验证",
+            confirmation_note="隔离环境合成志工服务岗位和组织范围验证",
         )
     if not fetch_one(
         "SELECT ta.id FROM technical_admin_assignments ta "
@@ -300,6 +305,60 @@ def _ensure_member(actor_user_id: int) -> int:
         group_org_unit_id="pilot-group",
         notes="纯合成数据，不对应真实个人或企业",
     )
+
+
+def _ensure_volunteer_member(
+    actor_user_id: int,
+    user_id: int,
+    *,
+    key: str,
+    org_unit_id: str,
+    class_org_unit_id: str | None = None,
+) -> int:
+    """Link each synthetic volunteer account to a formal active roster record."""
+
+    member_code = f"PILOT-VOLUNTEER-{key.upper()}"
+    existing = fetch_one("SELECT id FROM members WHERE member_code=?", (member_code,))
+    if existing:
+        member_id = int(existing["id"])
+    else:
+        member_id = create_member(
+            actor_user_id,
+            member_code=member_code,
+            name=f"{key}-synthetic-volunteer",
+            org_unit_id=org_unit_id,
+            development_org_unit_id=org_unit_id,
+            phone=None,
+            class_org_unit_id=class_org_unit_id,
+            notes="纯合成志工身份验证数据，不对应真实个人或企业",
+        )
+    account_link = fetch_one(
+        "SELECT person_id FROM account_person_links WHERE user_id=?", (user_id,)
+    )
+    if not account_link:
+        raise RuntimeError("试点志工账号缺少自然人关联")
+    person_id = str(account_link["person_id"])
+    identity = fetch_one(
+        "SELECT person_id FROM member_identities WHERE member_id=?", (member_id,)
+    )
+    if identity:
+        if identity["person_id"] != person_id:
+            raise RuntimeError("试点志工学长身份与账号自然人不一致")
+        return member_id
+    other_identity = fetch_one(
+        "SELECT member_id FROM member_identities WHERE person_id=?", (person_id,)
+    )
+    if other_identity:
+        raise RuntimeError("试点志工自然人已关联其他学长档案")
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO member_identities(member_id, person_id, status, source_reference, created_at, updated_at) "
+            "VALUES (?, ?, 'ACTIVE', 'approved-local-pilot', ?, ?)",
+            (member_id, person_id, now, now),
+        )
+    return member_id
 
 
 def _ensure_scope_members(actor_user_id: int) -> dict[str, int]:
@@ -429,9 +488,26 @@ def main() -> int:
     }
     for user_id in users.values():
         _ensure_person(admin_id, user_id)
-    pilot_starts_at, pilot_ends_at = _ensure_assignments(admin_id, users)
     member_id = _ensure_member(admin_id)
     scope_member_ids = _ensure_scope_members(admin_id)
+    volunteer_member_ids = {
+        "primary": _ensure_volunteer_member(
+            admin_id,
+            users["primary"],
+            key="primary",
+            org_unit_id="pilot-center",
+        ),
+        "companion": _ensure_volunteer_member(
+            admin_id,
+            users["companion"],
+            key="companion",
+            org_unit_id="pilot-center",
+            class_org_unit_id="pilot-class",
+        ),
+    }
+    pilot_starts_at, pilot_ends_at = _ensure_assignments(
+        admin_id, users, volunteer_member_ids
+    )
     task_id, invitation_id = _ensure_invitation(
         users["ops"], users["primary"], member_id
     )

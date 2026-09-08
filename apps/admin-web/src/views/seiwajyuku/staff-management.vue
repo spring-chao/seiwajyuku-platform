@@ -27,8 +27,6 @@ type GrantDraft = {
   role_key: string;
   org_unit_id: string;
   scope_type: StaffScopeType;
-  valid_from: string;
-  valid_until: string;
 };
 
 type StaffForm = {
@@ -44,8 +42,7 @@ type StaffForm = {
   department_name: string;
   supervisor_user_id: number | null;
   position_keys: string[];
-  started_on: string;
-  ended_on: string;
+  employment_status: "ACTIVE" | "LEAVE";
   grants: GrantDraft[];
   authorization_basis: string;
   authorization_reason: string;
@@ -76,18 +73,6 @@ const filters = reactive({
   query: ""
 });
 
-function initialDate() {
-  return dayjs().format("YYYY-MM-DDTHH:mm:ss");
-}
-
-function asInputDate(value?: string | null) {
-  return value ? dayjs(value).format("YYYY-MM-DDTHH:mm:ss") : "";
-}
-
-function cleanDate(value: string) {
-  return value.trim() || null;
-}
-
 function emptyForm(): StaffForm {
   return {
     id: null,
@@ -102,8 +87,7 @@ function emptyForm(): StaffForm {
     department_name: "",
     supervisor_user_id: null,
     position_keys: [],
-    started_on: initialDate(),
-    ended_on: "",
+    employment_status: "ACTIVE",
     grants: [],
     authorization_basis: "",
     authorization_reason: "",
@@ -162,17 +146,15 @@ function resetForm(record?: StaffRecord) {
     next.department_name = record.department_name || "";
     next.supervisor_user_id = record.supervisor_user_id || null;
     next.position_keys = record.positions.map(item => item.position_key);
-    next.started_on = asInputDate(record.started_on) || initialDate();
-    next.ended_on = asInputDate(record.ended_on);
+    next.employment_status =
+      record.employment_status === "LEAVE" ? "LEAVE" : "ACTIVE";
     next.authorization_mode = record.authorization_mode;
     next.grants =
       record.authorization_mode === "EXPLICIT"
         ? record.authorization_grants.map(grant => ({
             role_key: grant.role_key,
             org_unit_id: grant.org_unit_id,
-            scope_type: grant.scope_type,
-            valid_from: asInputDate(grant.valid_from),
-            valid_until: asInputDate(grant.valid_until)
+            scope_type: grant.scope_type
           }))
         : [];
   }
@@ -183,9 +165,7 @@ function addGrant() {
   form.grants.push({
     role_key: roleOptions.value[0]?.role_key || "",
     org_unit_id: "",
-    scope_type: "UNIT",
-    valid_from: "",
-    valid_until: ""
+    scope_type: "UNIT"
   });
 }
 
@@ -275,7 +255,6 @@ function validateForm() {
   }
   if (!form.institution_id) return "请选择所属机构";
   if (!form.position_keys.length) return "至少选择一个岗位";
-  if (!form.started_on) return "请填写任职开始时间";
   if (!isEditing.value && !form.grants.length) {
     return "新建专职人员至少配置一条角色与管辖范围授权";
   }
@@ -299,9 +278,7 @@ function payloadFromForm(): StaffPayload {
   const grants: StaffGrantInput[] = form.grants.map(grant => ({
     role_key: grant.role_key,
     org_unit_id: grant.org_unit_id,
-    scope_type: grant.scope_type,
-    valid_from: cleanDate(grant.valid_from),
-    valid_until: cleanDate(grant.valid_until)
+    scope_type: grant.scope_type
   }));
   return {
     name: form.name.trim(),
@@ -318,8 +295,7 @@ function payloadFromForm(): StaffPayload {
     department_name: form.department_name.trim() || null,
     supervisor_user_id: form.supervisor_user_id,
     position_keys: form.position_keys,
-    started_on: form.started_on,
-    ended_on: cleanDate(form.ended_on),
+    employment_status: form.employment_status,
     grants,
     authorization_basis: form.authorization_basis.trim(),
     authorization_reason: form.authorization_reason.trim()
@@ -341,9 +317,10 @@ function previewMessage(preview: Awaited<ReturnType<typeof previewStaffChange>>[
     .join("；") || "岗位不变";
   return [
     `状态：${preview.before.is_active ? "启用" : "停用"} → ${preview.after.is_active ? "启用" : "停用"}`,
+    `在职：${preview.before.employment_status === "ACTIVE" ? "在职" : "离职"} → ${preview.after.employment_status === "ACTIVE" ? "在职" : "离职"}`,
     `新增角色范围：${addedRoles}`,
     `移除角色范围：${removedRoles}`,
-    `调整角色范围有效期或状态：${preview.diff.changed_grants.length} 项`,
+    `调整角色范围记录：${preview.diff.changed_grants.length} 项`,
     positionDelta,
     preview.requires_business_reason
       ? "本次包含敏感权限扩大，已要求填写业务原因。"
@@ -505,7 +482,7 @@ onMounted(() => {
       show-icon
     />
     <el-alert
-      title="敏感权限扩大须填写授权依据和业务原因；停用账号会废止全部现有登录会话，不会删除任职和授权历史。"
+      title="账号是否启用、专职是否在职、角色范围是否有效分别判断；日期仅保留历史档案，不会自动授予或收回权限。"
       type="info"
       :closable="false"
       show-icon
@@ -604,6 +581,9 @@ onMounted(() => {
         <el-table-column label="账号状态" width="108">
           <template #default="{ row }"><el-tag :type="row.is_active ? 'success' : 'info'">{{ row.is_active ? "启用" : "停用" }}</el-tag></template>
         </el-table-column>
+        <el-table-column label="专职状态" width="108">
+          <template #default="{ row }"><el-tag :type="row.employment_status === 'ACTIVE' ? 'success' : 'info'">{{ row.employment_status === "ACTIVE" ? "在职" : "离职" }}</el-tag></template>
+        </el-table-column>
         <el-table-column label="最近登录" min-width="158">
           <template #default="{ row }">{{ row.last_login_at ? dayjs(row.last_login_at).format("YYYY-MM-DD HH:mm") : "尚未登录" }}</template>
         </el-table-column>
@@ -656,8 +636,7 @@ onMounted(() => {
           <el-form-item label="所属机构" required><el-select v-model="form.institution_id" filterable><el-option v-for="item in institutions" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item>
           <el-form-item label="部门"><el-input v-model="form.department_name" maxlength="255" placeholder="可选" /></el-form-item>
           <el-form-item label="岗位" required class="wide"><el-select v-model="form.position_keys" multiple filterable><el-option v-for="position in positions" :key="position.position_key" :label="position.position_name" :value="position.position_key" /></el-select><p class="form-hint">岗位用于任职与历史记录，不直接等同系统权限角色。</p></el-form-item>
-          <el-form-item label="任职开始" required><el-date-picker v-model="form.started_on" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" /></el-form-item>
-          <el-form-item label="任职结束（可选）"><el-date-picker v-model="form.ended_on" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" clearable /></el-form-item>
+          <el-form-item label="在职状态" required><el-select v-model="form.employment_status"><el-option label="在职" value="ACTIVE" /><el-option label="离职" value="LEAVE" /></el-select><p class="form-hint">离职会立即关闭专职权限，不影响账号本身或该自然人的学长、志工身份。</p></el-form-item>
           <el-form-item label="上级负责人（可选）" class="wide"><el-select v-model="form.supervisor_user_id" clearable filterable><el-option v-for="person in supervisors" :key="person.id" :label="`${person.name} · ${person.institution_name}`" :value="person.id" /></el-select></el-form-item>
         </div>
 
@@ -671,8 +650,6 @@ onMounted(() => {
           <el-select v-model="grant.scope_type"><el-option label="仅本级" value="UNIT" /><el-option label="本级及下级" value="SUBTREE" /></el-select>
           <el-button text type="primary" :disabled="!grant.role_key" @click="showPermission(grant.role_key)">权限预览</el-button>
           <el-button text type="danger" @click="removeGrant(index)">移除</el-button>
-          <el-date-picker v-model="grant.valid_from" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="授权开始（默认任职开始）" />
-          <el-date-picker v-model="grant.valid_until" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="授权结束（默认任职结束）" clearable />
         </div>
 
         <el-divider />
@@ -725,6 +702,5 @@ onMounted(() => {
 .section-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .empty-grants { padding: 16px; color: var(--el-text-color-secondary); background: var(--el-fill-color-lighter); border-radius: 8px; }
 .grant-row { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(150px, 1fr) 120px auto auto; gap: 10px; align-items: center; padding: 12px; margin-bottom: 10px; background: var(--el-fill-color-lighter); border-radius: 8px; }
-.grant-row :deep(.el-date-editor) { width: 100%; }
 @media (max-width: 840px) { .page-head { align-items: flex-start; flex-direction: column; } .form-grid, .grant-row { grid-template-columns: 1fr; } .form-grid .wide { grid-column: auto; } }
 </style>

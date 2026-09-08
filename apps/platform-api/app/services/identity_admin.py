@@ -45,6 +45,7 @@ APPOINTMENT_KEYS = {
     "volunteer_activity",
 }
 TERMINAL_STATUSES = {"SUSPENDED", "ENDED", "REVOKED"}
+EMPLOYMENT_STATUSES = {"ACTIVE", "LEAVE"}
 ASSIGNMENT_TABLES = {
     "employment": ("operations_employments", "employment_status", "operations_employment"),
     "position": ("operations_position_assignments", "status", "operations_position"),
@@ -88,6 +89,30 @@ def _validate_term(starts_at: str, ends_at: str, *, require_future_end: bool = T
         raise ValueError("结束时间必须晚于开始时间")
     if require_future_end and end <= datetime.now(UTC):
         raise ValueError("结束时间必须晚于当前时间")
+
+
+def _normalize_employment_status(value: str | None) -> str:
+    status = str(value or "ACTIVE").strip().upper()
+    if status not in EMPLOYMENT_STATUSES:
+        raise ValueError("专职在职状态只能是 ACTIVE（在职）或 LEAVE（离职）")
+    return status
+
+
+def _employment_archive_dates(
+    started_on: str | None, ended_on: str | None
+) -> tuple[str | None, str | None]:
+    """Validate optional archive dates without making them an access gate."""
+
+    start_text = str(started_on or "").strip()
+    end_text = str(ended_on or "").strip()
+    start = _as_datetime(start_text, "入职时间") if start_text else None
+    end = _as_datetime(end_text, "离职时间") if end_text else None
+    if start and end and end <= start:
+        raise ValueError("离职时间必须晚于入职时间")
+    return (
+        start.isoformat() if start else None,
+        end.isoformat() if end else None,
+    )
 
 
 def _validate_confirmation(source_reference: str, confirmation_note: str) -> tuple[str, str]:
@@ -201,13 +226,16 @@ def list_identity_accounts() -> list[dict[str, Any]]:
                 )
             item["employments"] = employments
             item["volunteer_appointments"] = fetch_all(
-                "SELECT va.id, va.appointment_key, c.position_name, c.scope_level, "
+                "SELECT va.id, va.member_id, m.name AS member_name, m.status AS member_status, "
+                "va.appointment_key, c.position_name, c.scope_level, "
                 "va.org_unit_id, o.name AS org_name, "
-                "va.scope_type, va.starts_at, va.ends_at, va.status, va.source_reference "
+                "va.scope_type, va.status, va.source_reference, va.created_at, "
+                "va.ends_at AS ended_at "
                 "FROM volunteer_appointments va "
+                "LEFT JOIN members m ON m.id=va.member_id "
                 "LEFT JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
                 "JOIN org_units o ON o.id=va.org_unit_id "
-                "WHERE va.person_id=? ORDER BY va.id DESC",
+                "WHERE va.person_id=? ORDER BY va.created_at DESC, va.id DESC",
                 (person_id,),
             )
             item["technical_assignments"] = fetch_all(
@@ -225,8 +253,9 @@ def onboard_employee(
     user_id: int | None,
     new_account: dict[str, str] | None,
     position_keys: list[str],
-    started_on: str,
-    ended_on: str,
+    employment_status: str,
+    started_on: str | None,
+    ended_on: str | None,
     service_responsibilities: list[dict[str, str]],
     source_reference: str,
     confirmation_note: str,
@@ -247,13 +276,8 @@ def onboard_employee(
     if any(key not in POSITION_KEYS for key in normalized_positions):
         raise ValueError("未知运营中心岗位")
 
-    start = _as_datetime(started_on, "入职时间")
-    end = _as_datetime(ended_on, "任职结束时间")
-    if end <= start:
-        raise ValueError("任职结束时间必须晚于入职时间")
-    if end <= datetime.now(UTC):
-        raise ValueError("任职结束时间必须晚于当前时间")
-    status = "PLANNED" if start > datetime.now(UTC) else "ACTIVE"
+    archive_started_on, archive_ended_on = _employment_archive_dates(started_on, ended_on)
+    status = _normalize_employment_status(employment_status)
 
     normalized_responsibilities: list[tuple[str, str]] = []
     seen_orgs: set[str] = set()
@@ -379,7 +403,7 @@ def onboard_employee(
         if execute(
             connection,
             "SELECT id FROM operations_employments WHERE person_id=? "
-            "AND employment_status IN ('PLANNED','ACTIVE','LEAVE') LIMIT 1",
+            "AND employment_status='ACTIVE' LIMIT 1",
             (person_id,),
         ).fetchone():
             raise ValueError("该自然人已有未结束的运营中心雇佣记录")
@@ -397,7 +421,7 @@ def onboard_employee(
             "(person_id, institution_id, employment_status, started_on, ended_on, "
             "source_reference, created_at, updated_at) "
             "VALUES (?, 'institution-suzhou-operations', ?, ?, ?, ?, ?, ?)",
-            (person_id, status, started_on, ended_on, source, now, now),
+            (person_id, status, archive_started_on, archive_ended_on, source, now, now),
         )
         employment_id = cursor.lastrowid
         for position_key in normalized_positions:
@@ -409,9 +433,9 @@ def onboard_employee(
                 (
                     employment_id,
                     position_key,
-                    started_on,
-                    ended_on,
-                    status,
+                    None,
+                    None,
+                    "ACTIVE",
                     source,
                     now,
                     now,
@@ -428,9 +452,9 @@ def onboard_employee(
                     employment_id,
                     org_unit_id,
                     scope_type,
-                    started_on,
-                    ended_on,
-                    status,
+                    None,
+                    None,
+                    "ACTIVE",
                     source,
                     now,
                     now,
@@ -446,8 +470,9 @@ def onboard_employee(
             after={
                 "user_id": user_id,
                 "position_keys": normalized_positions,
-                "started_on": started_on,
-                "ended_on": ended_on,
+                "employment_status": status,
+                "started_on": archive_started_on,
+                "ended_on": archive_ended_on,
                 "service_responsibilities": [
                     {"scope_type": scope, "org_unit_id": org}
                     for scope, org in normalized_responsibilities
@@ -572,7 +597,8 @@ def create_employment(
     *,
     position_keys: list[str] | None = None,
     position_key: str | None = None,
-    started_on: str,
+    employment_status: str,
+    started_on: str | None,
     ended_on: str | None,
     service_responsibilities: list[dict[str, str]],
     source_reference: str,
@@ -590,13 +616,8 @@ def create_employment(
     unknown_positions = [key for key in normalized_positions if key not in POSITION_KEYS]
     if unknown_positions:
         raise ValueError("未知运营中心岗位")
-    start = _as_datetime(started_on, "入职时间")
-    end = _as_datetime(ended_on, "离职时间") if ended_on else None
-    if end and end <= start:
-        raise ValueError("离职时间必须晚于入职时间")
-    if end and end <= datetime.now(UTC):
-        raise ValueError("不能创建已经结束的雇佣记录")
-    status = "PLANNED" if start > datetime.now(UTC) else "ACTIVE"
+    archive_started_on, archive_ended_on = _employment_archive_dates(started_on, ended_on)
+    status = _normalize_employment_status(employment_status)
     normalized_responsibilities: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for responsibility in service_responsibilities:
@@ -614,7 +635,7 @@ def create_employment(
         if execute(
             connection,
             "SELECT id FROM operations_employments WHERE person_id=? "
-            "AND employment_status IN ('PLANNED','ACTIVE','LEAVE') LIMIT 1",
+            "AND employment_status='ACTIVE' LIMIT 1",
             (person_id,),
         ).fetchone():
             raise ValueError("该自然人已有未结束的运营中心雇佣记录")
@@ -631,7 +652,7 @@ def create_employment(
             "(person_id, institution_id, employment_status, started_on, ended_on, "
             "source_reference, created_at, updated_at) "
             "VALUES (?, 'institution-suzhou-operations', ?, ?, ?, ?, ?, ?)",
-            (person_id, status, started_on, ended_on, source, now, now),
+            (person_id, status, archive_started_on, archive_ended_on, source, now, now),
         )
         employment_id = cursor.lastrowid
         for normalized_position in normalized_positions:
@@ -643,9 +664,9 @@ def create_employment(
                 (
                     employment_id,
                     normalized_position,
-                    started_on,
-                    ended_on,
-                    status,
+                    None,
+                    None,
+                    "ACTIVE",
                     source,
                     now,
                     now,
@@ -662,9 +683,9 @@ def create_employment(
                     employment_id,
                     org_unit_id,
                     scope_type,
-                    started_on,
-                    ended_on,
-                    status,
+                    None,
+                    None,
+                    "ACTIVE",
                     source,
                     now,
                     now,
@@ -680,8 +701,9 @@ def create_employment(
             after={
                 "user_id": user_id,
                 "position_keys": normalized_positions,
-                "started_on": started_on,
-                "ended_on": ended_on,
+                "employment_status": status,
+                "started_on": archive_started_on,
+                "ended_on": archive_ended_on,
                 "service_responsibilities": [
                     {"scope_type": scope, "org_unit_id": org}
                     for scope, org in normalized_responsibilities
@@ -696,11 +718,10 @@ def create_volunteer_appointment(
     actor_user_id: int,
     user_id: int,
     *,
+    member_id: int,
     appointment_key: str,
     org_unit_id: str,
     scope_type: str,
-    starts_at: str,
-    ends_at: str,
     source_reference: str,
     confirmation_note: str,
 ) -> int:
@@ -712,11 +733,19 @@ def create_volunteer_appointment(
     scope_type = scope_type.upper()
     if scope_type not in {"UNIT", "SUBTREE"}:
         raise ValueError("志工任职范围必须是 UNIT 或 SUBTREE")
-    _validate_term(starts_at, ends_at)
-    status = "PLANNED" if _as_datetime(starts_at, "开始时间") > datetime.now(UTC) else "ACTIVE"
     now = datetime.now(UTC).isoformat()
     with transaction() as connection:
         person_id = _person_for_user(connection, user_id)
+        member = execute(
+            connection,
+            "SELECT m.id, m.status, mi.person_id FROM members m "
+            "JOIN member_identities mi ON mi.member_id=m.id WHERE m.id=?",
+            (member_id,),
+        ).fetchone()
+        if not member or member["status"] != "ACTIVE":
+            raise ValueError("志工必须关联一名在册学长")
+        if member["person_id"] != person_id:
+            raise ValueError("账号必须先关联到指定在册学长的正式身份")
         target = validate_position_target(
             connection,
             position_key=appointment_key,
@@ -725,27 +754,25 @@ def create_volunteer_appointment(
         )
         if execute(
             connection,
-            "SELECT id FROM volunteer_appointments WHERE person_id=? "
+            "SELECT id FROM volunteer_appointments WHERE member_id=? "
             "AND appointment_key=? AND org_unit_id=? "
-            "AND status IN ('PLANNED','ACTIVE','SUSPENDED') "
-            "AND starts_at<? AND (ends_at IS NULL OR ends_at>?) LIMIT 1",
-            (person_id, appointment_key, org_unit_id, ends_at, starts_at),
+            "AND status IN ('ACTIVE','SUSPENDED') LIMIT 1",
+            (member_id, appointment_key, org_unit_id),
         ).fetchone():
-            raise ValueError("相同组织和任职存在重叠任期")
+            raise ValueError("相同组织和志工岗位已存在当前记录")
         cursor = execute(
             connection,
             "INSERT INTO volunteer_appointments"
-            "(person_id, appointment_key, org_unit_id, scope_type, starts_at, ends_at, "
+            "(person_id, member_id, appointment_key, org_unit_id, scope_type, starts_at, ends_at, "
             "status, source_reference, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, NULL, 'ACTIVE', ?, ?, ?)",
             (
                 person_id,
+                member_id,
                 appointment_key,
                 org_unit_id,
-                scope_type,
-                starts_at,
-                ends_at,
-                status,
+                target["scope_type"],
+                now,
                 source,
                 now,
                 now,
@@ -762,12 +789,13 @@ def create_volunteer_appointment(
             purpose=note,
             after={
                 "user_id": user_id,
+                "member_id": member_id,
                 "appointment_key": appointment_key,
                 "position_name": target["position_name"],
                 "scope_level": target["scope_level"],
-                "scope_type": scope_type,
-                "starts_at": starts_at,
-                "ends_at": ends_at,
+                "scope_type": target["scope_type"],
+                "created_at": now,
+                "ended_at": None,
                 "source_reference": source,
             },
         )
@@ -849,11 +877,18 @@ def change_assignment_status(
             raise ValueError("任职记录不存在")
         if row["status"] in {"ENDED", "REVOKED"}:
             raise ValueError("已结束或撤销的记录不能再次变更")
-        execute(
-            connection,
-            f"UPDATE {table} SET {status_column}=?, updated_at=? WHERE id=?",
-            (status, now, assignment_id),
-        )
+        if assignment_type == "volunteer" and status in {"ENDED", "REVOKED"}:
+            execute(
+                connection,
+                "UPDATE volunteer_appointments SET status=?, ends_at=?, updated_at=? WHERE id=?",
+                (status, now, now, assignment_id),
+            )
+        else:
+            execute(
+                connection,
+                f"UPDATE {table} SET {status_column}=?, updated_at=? WHERE id=?",
+                (status, now, assignment_id),
+            )
         write_audit(
             connection,
             actor_user_id=actor_user_id,
@@ -862,5 +897,12 @@ def change_assignment_status(
             resource_id=str(assignment_id),
             purpose=reason,
             before={"status": row["status"]},
-            after={"status": status},
+            after={
+                "status": status,
+                **(
+                    {"ended_at": now}
+                    if assignment_type == "volunteer" and status in {"ENDED", "REVOKED"}
+                    else {}
+                ),
+            },
         )

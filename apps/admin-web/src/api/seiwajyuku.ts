@@ -563,11 +563,10 @@ export type MemberVolunteerAppointment = {
   org_name: string;
   org_unit_type: string;
   scope_type: "UNIT" | "SUBTREE";
-  starts_at: string;
-  ends_at: string | null;
+  created_at: string;
+  ended_at: string | null;
   status: string;
   source_reference: string;
-  created_at?: string;
   updated_at?: string;
 };
 
@@ -1963,8 +1962,6 @@ export const createMemberVolunteerAppointment = (
   data: {
     position_key: string;
     org_unit_id: string;
-    starts_at?: string;
-    ends_at?: string;
     confirmation_note?: string;
   }
 ) =>
@@ -1976,8 +1973,6 @@ export const createMemberVolunteerAppointment = (
       person_id: string;
       position_key: string;
       org_unit_id: string;
-      starts_at: string;
-      ends_at: string | null;
       source_reference: string;
     };
   }>("post", `/api/v1/members/${memberId}/volunteer-appointments`, { data });

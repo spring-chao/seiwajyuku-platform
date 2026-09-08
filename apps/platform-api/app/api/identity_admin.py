@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_permission
@@ -36,7 +38,8 @@ class EmploymentPayload(ConfirmationPayload):
     # accounts can hold several position templates under one employment.
     position_key: str | None = Field(default=None, min_length=3, max_length=64)
     position_keys: list[str] = Field(default_factory=list, max_length=16)
-    started_on: str
+    employment_status: Literal["ACTIVE", "LEAVE"] = "ACTIVE"
+    started_on: str | None = None
     ended_on: str | None = None
     service_responsibilities: list[ServiceResponsibilityPayload] = Field(
         default_factory=list, max_length=32
@@ -53,19 +56,19 @@ class EmployeeOnboardingPayload(ConfirmationPayload):
     user_id: int | None = Field(default=None, gt=0)
     new_account: NewIdentityAccountPayload | None = None
     position_keys: list[str] = Field(min_length=1, max_length=16)
-    started_on: str
-    ended_on: str
+    employment_status: Literal["ACTIVE", "LEAVE"] = "ACTIVE"
+    started_on: str | None = None
+    ended_on: str | None = None
     service_responsibilities: list[ServiceResponsibilityPayload] = Field(
         min_length=1, max_length=32
     )
 
 
 class VolunteerAppointmentPayload(ConfirmationPayload):
+    member_id: int = Field(gt=0)
     appointment_key: str = Field(min_length=3, max_length=64)
     org_unit_id: str = Field(min_length=1, max_length=64)
     scope_type: str = Field(pattern="^(UNIT|SUBTREE)$")
-    starts_at: str
-    ends_at: str
 
 
 class TechnicalAssignmentPayload(ConfirmationPayload):
@@ -127,6 +130,7 @@ def onboard_operations_employee(
             payload.new_account.model_dump() if payload.new_account is not None else None
         ),
         position_keys=payload.position_keys,
+        employment_status=payload.employment_status,
         started_on=payload.started_on,
         ended_on=payload.ended_on,
         service_responsibilities=[

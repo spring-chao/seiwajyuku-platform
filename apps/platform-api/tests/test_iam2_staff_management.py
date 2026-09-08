@@ -105,6 +105,7 @@ class IAM2StaffManagementTests(unittest.TestCase):
             "department_name": "运营支持",
             "supervisor_user_id": None,
             "position_keys": ["ops_center_learning"],
+            "employment_status": "ACTIVE",
             "started_on": started_on,
             "ended_on": ended_on,
             "grants": grants,
@@ -195,7 +196,7 @@ class IAM2StaffManagementTests(unittest.TestCase):
         )
         self.assertEqual(allowed.status_code, 200, allowed.text)
 
-    def test_expired_explicit_grant_does_not_fall_back_to_position_template(self) -> None:
+    def test_staff_authorization_ignores_legacy_date_windows(self) -> None:
         now = datetime.now(UTC)
         user_id, _, _ = self._create_staff(
             [
@@ -209,9 +210,12 @@ class IAM2StaffManagementTests(unittest.TestCase):
             ]
         )
         context = user_context(user_id)
-        self.assertNotIn("employee_learning_management", context["roles"])
+        self.assertIn("employee_learning_management", context["roles"])
         self.assertNotIn("ops_center_learning", context["roles"])
-        self.assertEqual(accessible_org_ids(user_id, "attendance:adjudicate"), set())
+        self.assertEqual(
+            accessible_org_ids(user_id, "attendance:adjudicate"),
+            {self.center_a},
+        )
 
     def test_staff_create_preview_disable_and_audit_do_not_expose_password(self) -> None:
         started_on, ended_on = self._active_window()
@@ -293,7 +297,7 @@ class IAM2StaffManagementTests(unittest.TestCase):
             )
         )
 
-    def test_sensitive_grant_validity_extension_requires_business_reason(self) -> None:
+    def test_staff_leave_immediately_closes_employee_authorization(self) -> None:
         started_on, ended_on = self._active_window()
         user_id, _, payload = self._create_staff(
             [
@@ -306,19 +310,10 @@ class IAM2StaffManagementTests(unittest.TestCase):
                 }
             ]
         )
-        extended_until = (
-            datetime.fromisoformat(ended_on) + timedelta(days=14)
-        ).isoformat()
         update_payload = {
             **payload,
             "temporary_password": None,
-            "ended_on": extended_until,
-            "grants": [
-                {
-                    **payload["grants"][0],
-                    "valid_until": extended_until,
-                }
-            ],
+            "employment_status": "LEAVE",
             "authorization_reason": "",
         }
         preview = self.client.post(
@@ -327,15 +322,32 @@ class IAM2StaffManagementTests(unittest.TestCase):
             json=update_payload,
         )
         self.assertEqual(preview.status_code, 200, preview.text)
-        self.assertTrue(preview.json()["data"]["requires_business_reason"])
-        self.assertEqual(len(preview.json()["data"]["diff"]["changed_grants"]), 1)
-        rejected = self.client.put(
+        self.assertFalse(preview.json()["data"]["requires_business_reason"])
+        updated = self.client.put(
             f"/api/v1/staff-management/staff/{user_id}",
             headers=self.admin_headers,
             json=update_payload,
         )
-        self.assertEqual(rejected.status_code, 400, rejected.text)
-        self.assertIn("业务原因", rejected.text)
+        self.assertEqual(updated.status_code, 200, updated.text)
+        context = user_context(user_id)
+        self.assertNotIn("employee_member_management", context["roles"])
+        self.assertEqual(accessible_org_ids(user_id, "members:manage"), set())
+
+        revoked_payload = {
+            **update_payload,
+            "employment_status": "ACTIVE",
+            "grants": [],
+            "authorization_basis": "IAM2撤销授权依据",
+        }
+        revoked = self.client.put(
+            f"/api/v1/staff-management/staff/{user_id}",
+            headers=self.admin_headers,
+            json=revoked_payload,
+        )
+        self.assertEqual(revoked.status_code, 200, revoked.text)
+        context = user_context(user_id)
+        self.assertNotIn("employee_member_management", context["roles"])
+        self.assertNotIn("ops_center_learning", context["roles"])
 
     def test_only_system_admin_can_assign_system_or_restricted_roles(self) -> None:
         suffix = uuid4().hex[:12]

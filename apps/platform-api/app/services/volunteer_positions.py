@@ -25,7 +25,7 @@ from app.services.iam import accessible_org_ids
 STUDY_MEETING_MANAGE = "STUDY_MEETING_MANAGE"
 MEMBER_ADMIN_MANUAL_SOURCE = "MEMBER_ADMIN_MANUAL"
 MEMBER_ADMIN_CURRENT_SERVICE_SOURCE = "MEMBER_ADMIN_CURRENT_SERVICE"
-MEMBER_APPOINTMENT_DEFAULT_PURPOSE = "学员管理手工添加正式志工任职"
+MEMBER_APPOINTMENT_DEFAULT_PURPOSE = "学员管理手工添加正式志工服务岗位"
 _MEMBER_ADMIN_MANAGED_SOURCES = {
     MEMBER_ADMIN_MANUAL_SOURCE,
     MEMBER_ADMIN_CURRENT_SERVICE_SOURCE,
@@ -315,8 +315,8 @@ def _empty_current_volunteer_position(
         "capability_names": [],
         "source_reference": None,
         "appointment_id": None,
-        "starts_at": None,
-        "ends_at": None,
+        "created_at": None,
+        "ended_at": None,
         "needs_manual_review": needs_manual_review,
         "review_message": review_message,
     }
@@ -352,8 +352,10 @@ def _position_summary(
         "capabilities": capabilities,
         "capability_names": [CAPABILITY_NAMES.get(key, key) for key in capabilities],
         "source_reference": row.get("source_reference"),
-        "starts_at": row.get("starts_at"),
-        "ends_at": row.get("ends_at"),
+        # These are system record times only. They are deliberately not used
+        # to decide whether a volunteer is currently effective.
+        "created_at": row.get("created_at"),
+        "ended_at": row.get("ends_at"),
         "status": row.get("status"),
     }
 
@@ -361,27 +363,24 @@ def _position_summary(
 def _effective_current_appointments(
     connection, member_id: int
 ) -> list[dict[str, Any]]:
-    """Read ACTIVE, currently effective appointments without using old text fields."""
+    """Read current volunteer posts from roster status plus ACTIVE post state."""
 
-    now_value = datetime.now(UTC)
     try:
         rows = [
             dict(row)
             for row in execute(
                 connection,
-                "SELECT va.id, va.person_id, mi.member_id, va.appointment_key, "
+                "SELECT va.id, va.person_id, va.member_id, va.appointment_key, "
                 "va.org_unit_id, va.scope_type, va.starts_at, va.ends_at, va.status, "
                 "va.source_reference, va.created_at, va.updated_at, "
                 "c.position_name, c.scope_level, o.name AS scope_name, "
                 "o.unit_type AS scope_org_unit_type "
-                "FROM member_identities mi "
-                "JOIN person_profiles pp ON pp.id=mi.person_id "
-                "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
+                "FROM volunteer_appointments va "
+                "JOIN members m ON m.id=va.member_id "
                 "LEFT JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
                 "LEFT JOIN org_units o ON o.id=va.org_unit_id "
-                "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
-                "AND va.status='ACTIVE' "
-                "ORDER BY va.starts_at DESC, va.id DESC",
+                "WHERE va.member_id=? AND m.status='ACTIVE' AND va.status='ACTIVE' "
+                "ORDER BY va.created_at DESC, va.id DESC",
                 (member_id,),
             ).fetchall()
         ]
@@ -395,33 +394,18 @@ def _effective_current_appointments(
             dict(row)
             for row in execute(
                 connection,
-                "SELECT va.id, va.person_id, mi.member_id, va.appointment_key, "
+                "SELECT va.id, va.person_id, va.member_id, va.appointment_key, "
                 "va.org_unit_id, va.scope_type, va.starts_at, va.ends_at, va.status, "
                 "va.source_reference, va.created_at, va.updated_at, "
                 "o.name AS scope_name, o.unit_type AS scope_org_unit_type "
-                "FROM member_identities mi "
-                "JOIN person_profiles pp ON pp.id=mi.person_id "
-                "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
+                "FROM volunteer_appointments va "
+                "JOIN members m ON m.id=va.member_id "
                 "LEFT JOIN org_units o ON o.id=va.org_unit_id "
-                "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
-                "AND va.status='ACTIVE' "
-                "ORDER BY va.starts_at DESC, va.id DESC",
+                "WHERE va.member_id=? AND m.status='ACTIVE' AND va.status='ACTIVE' "
+                "ORDER BY va.created_at DESC, va.id DESC",
                 (member_id,),
             ).fetchall()
         ]
-    rows = [
-        row
-        for row in rows
-        if (start := _appointment_datetime(row.get("starts_at"))) is not None
-        and start <= now_value
-        and (
-            row.get("ends_at") is None
-            or (
-                (end := _appointment_datetime(row.get("ends_at"))) is not None
-                and end >= now_value
-            )
-        )
-    ]
     for row in rows:
         position = get_volunteer_position(row["appointment_key"], connection)
         if position:
@@ -551,7 +535,7 @@ def get_member_volunteer_services(member_id: int) -> dict[str, Any]:
 
 
 def get_member_volunteer_history(member_id: int) -> dict[str, Any]:
-    """Return only the current member's display-safe formal appointment history."""
+    """Return display-safe volunteer history, including records after exit."""
 
     if not get_settings().identity_authorization_enabled:
         return {"appointments": []}
@@ -562,14 +546,11 @@ def get_member_volunteer_history(member_id: int) -> dict[str, Any]:
                 for row in execute(
                     connection,
                     "SELECT va.appointment_key, c.position_name, o.name AS scope_name, "
-                    "va.status, va.starts_at, va.ends_at "
-                    "FROM member_identities mi "
-                    "JOIN person_profiles pp ON pp.id=mi.person_id "
-                    "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
+                    "va.status, va.created_at, va.ends_at "
+                    "FROM volunteer_appointments va "
                     "LEFT JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
                     "LEFT JOIN org_units o ON o.id=va.org_unit_id "
-                    "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
-                    "ORDER BY va.starts_at DESC, va.id DESC",
+                    "WHERE va.member_id=? ORDER BY va.created_at DESC, va.id DESC",
                     (member_id,),
                 ).fetchall()
             ]
@@ -586,13 +567,10 @@ def get_member_volunteer_history(member_id: int) -> dict[str, Any]:
                 for row in execute(
                     connection,
                     "SELECT va.appointment_key, o.name AS scope_name, va.status, "
-                    "va.starts_at, va.ends_at "
-                    "FROM member_identities mi "
-                    "JOIN person_profiles pp ON pp.id=mi.person_id "
-                    "JOIN volunteer_appointments va ON va.person_id=mi.person_id "
+                    "va.created_at, va.ends_at "
+                    "FROM volunteer_appointments va "
                     "LEFT JOIN org_units o ON o.id=va.org_unit_id "
-                    "WHERE mi.member_id=? AND mi.status='ACTIVE' AND pp.status='ACTIVE' "
-                    "ORDER BY va.starts_at DESC, va.id DESC",
+                    "WHERE va.member_id=? ORDER BY va.created_at DESC, va.id DESC",
                     (member_id,),
                 ).fetchall()
             ]
@@ -609,8 +587,8 @@ def get_member_volunteer_history(member_id: int) -> dict[str, Any]:
                 "status_name": VOLUNTEER_STATUS_NAMES.get(
                     str(row.get("status") or "").upper(), "状态待确认"
                 ),
-                "starts_at": _public_appointment_timestamp(row.get("starts_at")),
-                "ends_at": _public_appointment_timestamp(row.get("ends_at")),
+                "created_at": _public_appointment_timestamp(row.get("created_at")),
+                "ended_at": _public_appointment_timestamp(row.get("ends_at")),
             }
         )
     return {"appointments": appointments}
@@ -709,7 +687,7 @@ def validate_position_target(
         raise ValueError("未知或已停用的志工岗位")
     normalized_scope = scope_type.upper().strip()
     if normalized_scope not in {"UNIT", "SUBTREE"}:
-        raise ValueError("志工任职范围必须是 UNIT 或 SUBTREE")
+        raise ValueError("志工服务范围必须是 UNIT 或 SUBTREE")
     unit = execute(
         connection,
         "SELECT id, name, unit_type, is_active FROM org_units WHERE id=?",
@@ -749,7 +727,7 @@ def _member_person(
     *,
     actor_user_id: int,
     source: str,
-    audit_purpose: str = "学员管理中明确添加正式志工任职",
+    audit_purpose: str = "学员管理中明确添加正式志工服务岗位",
 ) -> str:
     identity = execute(
         connection,
@@ -757,8 +735,8 @@ def _member_person(
         (member_id,),
     ).fetchone()
     if identity:
-        if identity["status"] != "ACTIVE":
-            raise ValueError("学员身份档案不是有效状态")
+        # The roster is the volunteer-eligibility source. A historical identity
+        # record must not override an ACTIVE members.status by itself.
         return identity["person_id"]
     member = execute(
         connection,
@@ -766,7 +744,7 @@ def _member_person(
         (member_id,),
     ).fetchone()
     if not member or member["status"] != "ACTIVE":
-        raise ValueError("仅可为有效学员建立正式志工任职")
+        raise ValueError("仅可为在册学长建立正式志工服务岗位")
     now = _db_timestamp(connection)
     person_id = f"person-{uuid4()}"
     execute(
@@ -798,13 +776,11 @@ def _insert_appointment(
     connection,
     *,
     person_id: str,
-    member_id: int | None,
+    member_id: int,
     actor_user_id: int,
     position_key: str,
     org_unit_id: str,
     scope_type: str,
-    starts_at: str,
-    ends_at: str | None,
     source_reference: str,
     confirmation_note: str,
 ) -> int:
@@ -814,50 +790,43 @@ def _insert_appointment(
         org_unit_id=org_unit_id,
         scope_type=scope_type,
     )
-    if ends_at is None:
-        overlapping = execute(
-            connection,
-            "SELECT id FROM volunteer_appointments WHERE person_id=? "
-            "AND appointment_key=? AND org_unit_id=? "
-            "AND status IN ('PLANNED','ACTIVE','SUSPENDED') "
-            "AND (ends_at IS NULL OR ends_at>?) LIMIT 1",
-            (person_id, position_key, org_unit_id, starts_at),
-        ).fetchone()
-    else:
-        overlapping = execute(
-            connection,
-            "SELECT id FROM volunteer_appointments WHERE person_id=? "
-            "AND appointment_key=? AND org_unit_id=? "
-            "AND status IN ('PLANNED','ACTIVE','SUSPENDED') "
-            "AND starts_at<? AND (ends_at IS NULL OR ends_at>?) LIMIT 1",
-            (person_id, position_key, org_unit_id, ends_at, starts_at),
-        ).fetchone()
+    member = execute(
+        connection,
+        "SELECT id, status FROM members WHERE id=?",
+        (member_id,),
+    ).fetchone()
+    if not member or member["status"] != "ACTIVE":
+        raise ValueError("仅可为在册学长建立当前志工岗位")
+    identity = execute(
+        connection,
+        "SELECT person_id FROM member_identities WHERE member_id=?",
+        (member_id,),
+    ).fetchone()
+    if not identity or identity["person_id"] != person_id:
+        raise ValueError("志工岗位必须关联该在册学长的正式 member_id")
+    overlapping = execute(
+        connection,
+        "SELECT id FROM volunteer_appointments WHERE member_id=? "
+        "AND appointment_key=? AND org_unit_id=? "
+        "AND status IN ('ACTIVE','SUSPENDED') LIMIT 1",
+        (member_id, position_key, org_unit_id),
+    ).fetchone()
     if overlapping:
-        raise ValueError("相同组织和任职存在重叠任期")
+        raise ValueError("相同组织和志工岗位已存在当前记录")
     now = _db_timestamp(connection)
-    try:
-        start_value = datetime.fromisoformat(starts_at)
-        if start_value.tzinfo is None:
-            start_value = start_value.replace(tzinfo=UTC)
-        else:
-            start_value = start_value.astimezone(UTC)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("任职时间格式无效") from exc
-    status = "PLANNED" if start_value > datetime.now(UTC) else "ACTIVE"
     cursor = execute(
         connection,
         "INSERT INTO volunteer_appointments"
-        "(person_id, appointment_key, org_unit_id, scope_type, starts_at, ends_at, "
+        "(person_id, member_id, appointment_key, org_unit_id, scope_type, starts_at, ends_at, "
         "status, source_reference, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, NULL, 'ACTIVE', ?, ?, ?)",
         (
             person_id,
+            member_id,
             position_key,
             org_unit_id,
             target["scope_type"],
-            starts_at,
-            ends_at,
-            status,
+            now,
             source_reference,
             now,
             now,
@@ -879,45 +848,12 @@ def _insert_appointment(
             "position_name": target["position_name"],
             "scope_level": target["scope_level"],
             "scope_type": target["scope_type"],
-            "starts_at": starts_at,
-            "ends_at": ends_at,
+            "created_at": now,
+            "ended_at": None,
             "source_reference": source_reference,
         },
     )
     return appointment_id
-
-
-def _parse_term(
-    starts_at: str | None, ends_at: str | None
-) -> tuple[datetime, datetime | None]:
-    start_text = (starts_at or "").strip()
-    end_text = (ends_at or "").strip()
-    try:
-        # MySQL DATETIME(0) rounds fractional seconds on INSERT. A default
-        # "effective now" at .9s could otherwise be stored in the NEXT second,
-        # briefly denying the newly assigned volunteer's capability.
-        start = datetime.fromisoformat(start_text) if start_text else datetime.now(UTC).replace(microsecond=0)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("任职开始时间格式无效") from exc
-    if start.tzinfo is None:
-        start = start.replace(tzinfo=UTC)
-    else:
-        start = start.astimezone(UTC)
-    if not end_text:
-        return start, None
-    try:
-        end = datetime.fromisoformat(end_text)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("任职结束时间格式无效") from exc
-    if end.tzinfo is None:
-        end = end.replace(tzinfo=UTC)
-    else:
-        end = end.astimezone(UTC)
-    if end <= start:
-        raise ValueError("结束时间必须晚于开始时间")
-    if end <= datetime.now(UTC):
-        raise ValueError("结束时间必须晚于当前时间")
-    return start, end
 
 
 def _member_current_scope(
@@ -1001,11 +937,11 @@ def _end_current_appointment(
         purpose=reason,
         before={
             "status": appointment.get("status"),
-            "ends_at": appointment.get("ends_at"),
+            "ended_at": appointment.get("ends_at"),
         },
         after={
             "status": "ENDED",
-            "ends_at": now,
+            "ended_at": now,
             "member_id": member_id,
             "position_key": appointment.get("appointment_key"),
         },
@@ -1113,7 +1049,6 @@ def set_member_current_volunteer_position(
                 member_id=member_id,
                 reason="学员管理更新当前志工岗位",
             )
-        starts_at = _db_timestamp(current_connection)
         appointment_id = _insert_appointment(
             current_connection,
             person_id=person_id,
@@ -1122,8 +1057,6 @@ def set_member_current_volunteer_position(
             position_key=normalized_key,
             org_unit_id=target["org_unit_id"],
             scope_type=target["scope_type"],
-            starts_at=starts_at,
-            ends_at=None,
             source_reference=MEMBER_ADMIN_CURRENT_SERVICE_SOURCE,
             confirmation_note="学员管理维护当前志工岗位",
         )
@@ -1142,8 +1075,8 @@ def set_member_current_volunteer_position(
             "capability_names": list(position.get("capability_names", [])),
             "source_reference": MEMBER_ADMIN_CURRENT_SERVICE_SOURCE,
             "source": MEMBER_ADMIN_CURRENT_SERVICE_SOURCE,
-            "starts_at": starts_at,
-            "ends_at": None,
+            "created_at": _db_timestamp(current_connection),
+            "ended_at": None,
             "status": "ACTIVE",
             "needs_manual_review": False,
             "review_message": None,
@@ -1226,8 +1159,6 @@ def create_member_volunteer_appointment(
     *,
     position_key: str,
     org_unit_id: str,
-    starts_at: str | None = None,
-    ends_at: str | None = None,
     source_reference: str | None = None,
     confirmation_note: str | None = None,
 ) -> dict[str, Any]:
@@ -1241,9 +1172,6 @@ def create_member_volunteer_appointment(
     """
 
     _write_gate(write=True)
-    start_value, end_value = _parse_term(starts_at, ends_at)
-    normalized_starts_at = start_value.isoformat()
-    normalized_ends_at = end_value.isoformat() if end_value else None
     source = MEMBER_ADMIN_MANUAL_SOURCE
     note = (confirmation_note or "").strip() or MEMBER_APPOINTMENT_DEFAULT_PURPOSE
     if len(note) > 1000:
@@ -1267,8 +1195,6 @@ def create_member_volunteer_appointment(
             position_key=position_key.strip(),
             org_unit_id=org_unit_id.strip(),
             scope_type="UNIT",
-            starts_at=normalized_starts_at,
-            ends_at=normalized_ends_at,
             source_reference=source,
             confirmation_note=note,
         )
@@ -1278,8 +1204,6 @@ def create_member_volunteer_appointment(
         "person_id": person_id,
         "position_key": position_key.strip(),
         "org_unit_id": org_unit_id.strip(),
-        "starts_at": normalized_starts_at,
-        "ends_at": normalized_ends_at,
         "source_reference": source,
     }
 
@@ -1299,18 +1223,16 @@ def list_member_volunteer_appointments(
         "SELECT mi.person_id, mi.status FROM member_identities mi WHERE mi.member_id=?",
         (member_id,),
     )
-    if not identity:
-        return {"member_id": member_id, "person_id": None, "identity_status": None, "appointments": []}
     appointments = fetch_all(
         "SELECT va.id, va.appointment_key, c.position_name, c.scope_level, "
         "va.org_unit_id, o.name AS org_name, o.unit_type AS org_unit_type, "
-        "va.scope_type, va.starts_at, va.ends_at, va.status, va.source_reference, "
-        "va.created_at, va.updated_at "
+        "va.scope_type, va.status, va.source_reference, va.created_at, "
+        "va.ends_at AS ended_at, va.updated_at "
         "FROM volunteer_appointments va "
         "LEFT JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
         "JOIN org_units o ON o.id=va.org_unit_id "
-        "WHERE va.person_id=? ORDER BY va.starts_at DESC, va.id DESC",
-        (identity["person_id"],),
+        "WHERE va.member_id=? ORDER BY va.created_at DESC, va.id DESC",
+        (member_id,),
     )
     for item in appointments:
         fallback = _fallback_position(item["appointment_key"])
@@ -1320,8 +1242,8 @@ def list_member_volunteer_appointments(
             item["scope_level"] = fallback["scope_level"]
     return {
         "member_id": member_id,
-        "person_id": identity["person_id"],
-        "identity_status": identity["status"],
+        "person_id": identity["person_id"] if identity else None,
+        "identity_status": identity["status"] if identity else None,
         "appointments": appointments,
     }
 
@@ -1337,8 +1259,8 @@ def change_member_volunteer_appointment_status(
     _write_gate(write=True)
     normalized_status = status.upper().strip()
     if normalized_status not in {"SUSPENDED", "ENDED", "REVOKED"}:
-        raise ValueError("志工任职状态只能是 SUSPENDED、ENDED 或 REVOKED")
-    reason = (reason or "").strip() or "运营人员在学员管理中确认结束该志工任职"
+        raise ValueError("志工岗位状态只能是 SUSPENDED、ENDED 或 REVOKED")
+    reason = (reason or "").strip() or "运营人员在学员管理中确认结束该志工服务岗位"
     if len(reason) > 1000:
         raise ValueError("任职状态变更备注不能超过 1000 个字符")
     member = fetch_one(
@@ -1349,22 +1271,15 @@ def change_member_volunteer_appointment_status(
         raise ValueError("学员不存在")
     _ensure_member_scope(actor_user_id, member)
     with transaction() as connection:
-        identity = execute(
-            connection,
-            "SELECT person_id FROM member_identities WHERE member_id=?",
-            (member_id,),
-        ).fetchone()
-        if not identity:
-            raise ValueError("该学员尚未建立正式身份档案")
         appointment = execute(
             connection,
             "SELECT va.*, c.position_name FROM volunteer_appointments va "
             "LEFT JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
-            "WHERE va.id=? AND va.person_id=? LIMIT 1",
-            (appointment_id, identity["person_id"]),
+            "WHERE va.id=? AND va.member_id=? LIMIT 1",
+            (appointment_id, member_id),
         ).fetchone()
         if not appointment:
-            raise ValueError("志工任职记录不存在或不属于该学员")
+            raise ValueError("志工服务岗位记录不存在或不属于该学员")
         if appointment["status"] in {"ENDED", "REVOKED"}:
             raise ValueError("该任职已经结束，不能再次变更")
         now = _db_timestamp(connection)
@@ -1394,7 +1309,7 @@ def change_member_volunteer_appointment_status(
                 "member_id": member_id,
                 "position_key": appointment["appointment_key"],
                 "position_name": appointment["position_name"],
-                "ends_at": now if normalized_status in {"ENDED", "REVOKED"} else appointment.get("ends_at"),
+                "ended_at": now if normalized_status in {"ENDED", "REVOKED"} else appointment.get("ends_at"),
             },
         )
     return {"id": appointment_id, "member_id": member_id, "status": normalized_status}

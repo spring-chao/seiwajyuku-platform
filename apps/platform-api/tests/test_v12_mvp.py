@@ -108,8 +108,8 @@ def _seed_group_leader_fixture() -> dict:
         )
         execute(
             connection,
-            "INSERT INTO volunteer_appointments(person_id, appointment_key, org_unit_id, scope_type, starts_at, ends_at, status, source_reference, created_at, updated_at) VALUES (?, 'volunteer_group_leader', ?, 'UNIT', ?, ?, 'ACTIVE', 'v12-test', ?, ?)",
-            (person_id, group_id, (datetime.now(UTC) - timedelta(days=1)).isoformat(), (datetime.now(UTC) + timedelta(days=30)).isoformat(), now, now),
+            "INSERT INTO volunteer_appointments(person_id, member_id, appointment_key, org_unit_id, scope_type, starts_at, ends_at, status, source_reference, created_at, updated_at) VALUES (?, ?, 'volunteer_group_leader', ?, 'UNIT', ?, ?, 'ACTIVE', 'v12-test', ?, ?)",
+            (person_id, member_id, group_id, (datetime.now(UTC) - timedelta(days=1)).isoformat(), (datetime.now(UTC) + timedelta(days=30)).isoformat(), now, now),
         )
         plan_cursor = execute(
             connection,
@@ -377,12 +377,12 @@ def test_wechat_profile_returns_join_dates_and_safe_volunteer_history() -> None:
         execute(
             connection,
             "INSERT INTO volunteer_appointments"
-            "(person_id, appointment_key, org_unit_id, scope_type, starts_at, ends_at, "
+            "(person_id, member_id, appointment_key, org_unit_id, scope_type, starts_at, ends_at, "
             "status, source_reference, created_at, updated_at) "
-            "VALUES (?, 'volunteer_class_monitor', ?, 'UNIT', "
+            "VALUES (?, ?, 'volunteer_class_monitor', ?, 'UNIT', "
             "'2025-01-01T00:00:00+00:00', '2025-12-31T00:00:00+00:00', "
             "'ENDED', 'test-private-source', ?, ?)",
-            (person_id, fixture["class_id"], now, now),
+            (person_id, fixture["member_id"], fixture["class_id"], now, now),
         )
 
     with patch.dict(
@@ -436,15 +436,18 @@ def test_wechat_profile_returns_join_dates_and_safe_volunteer_history() -> None:
         history = client.get("/api/v1/wechat/volunteer-history", headers=headers)
         assert history.status_code == 200, history.text
         appointments = history.json()["data"]["appointments"]
-        assert appointments[0] == {
-            "position_name": "辅导员",
-            "scope_name": "卓越组",
-            "status_name": "服务中",
-            "starts_at": "2026-08-01T00:00:00+00:00",
-            "ends_at": None,
-        }
-        assert appointments[1]["position_name"] == "班长"
-        assert appointments[1]["status_name"] == "已结束"
+        current_history = next(
+            item for item in appointments if item["status_name"] == "服务中"
+        )
+        assert current_history["position_name"] == "辅导员"
+        assert current_history["scope_name"] == "卓越组"
+        assert current_history["created_at"]
+        assert current_history["ended_at"] is None
+        ended_history = next(
+            item for item in appointments if item["status_name"] == "已结束"
+        )
+        assert ended_history["position_name"] == "班长"
+        assert ended_history["ended_at"] == "2025-12-31T00:00:00+00:00"
         for item in appointments:
             assert not {
                 "position_key",

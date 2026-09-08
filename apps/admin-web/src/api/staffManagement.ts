@@ -90,6 +90,7 @@ export type StaffGrantInput = {
   role_key: string;
   org_unit_id: string;
   scope_type: StaffScopeType;
+  // Legacy archive fields only; normal management no longer sends terms.
   valid_from?: string | null;
   valid_until?: string | null;
 };
@@ -106,7 +107,8 @@ export type StaffPayload = {
   department_name?: string | null;
   supervisor_user_id?: number | null;
   position_keys: string[];
-  started_on: string;
+  employment_status?: "ACTIVE" | "LEAVE";
+  started_on?: string | null;
   ended_on?: string | null;
   grants: StaffGrantInput[];
   authorization_basis: string;

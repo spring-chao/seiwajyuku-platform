@@ -79,7 +79,7 @@ const events = computed(() => timeline.value?.events || []);
 const activeAppointments = computed(() =>
   (appointments.value?.appointments || []).filter(item => {
     const status = String(item.status || "").toUpperCase();
-    return status === "ACTIVE" || status === "CURRENT" || !item.ends_at;
+    return profile.value?.status === "ACTIVE" && status === "ACTIVE";
   })
 );
 const summaryCards = computed(() => [
@@ -105,7 +105,7 @@ const summaryCards = computed(() => [
   {
     label: "志工",
     value: activeAppointments.value.length,
-    note: "当前有效任职"
+    note: "在册且当前有效岗位"
   }
 ]);
 const recentEvents = computed(() => events.value.slice(0, 8));

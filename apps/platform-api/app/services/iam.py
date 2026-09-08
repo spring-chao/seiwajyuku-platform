@@ -257,6 +257,29 @@ EMPLOYEE_ASSIGNABLE_ROLE_KEYS = frozenset(
     }
 )
 
+# A named volunteer capability is never retained merely because an old account
+# role still exists. In the identity-authorized model it must come from a
+# current appointment that is directly linked to an in-roster member.
+# ``regional_manager`` / ``class_counselor`` / ``group_leader`` intentionally
+# remain legacy general-purpose role templates: older staff and scoped access
+# accounts use them, while every new volunteer source uses a ``volunteer_*``
+# key and the formal member-post path below.
+VOLUNTEER_ROLE_KEYS = frozenset(
+    {
+        "volunteer_director",
+        "volunteer_regional_lead",
+        "volunteer_regional_service",
+        "volunteer_class_counselor",
+        "volunteer_deputy_class_teacher",
+        "volunteer_class_monitor",
+        "volunteer_group_counselor",
+        "volunteer_class_committee",
+        "volunteer_group_leader",
+        "volunteer_group_committee",
+        "volunteer_activity",
+    }
+)
+
 POSITION_NAMES = {
     "operations_admin": "运营管理员（兼容岗位）",
     "ops_center_director": "运营中心负责人",
@@ -451,7 +474,8 @@ def user_context(user_id: int) -> dict | None:
     if not user or not user["is_active"]:
         return None
     now = datetime.now(UTC).isoformat()
-    direct_roles = [
+    identity_enabled = get_settings().identity_authorization_enabled
+    raw_direct_roles = [
         row["role_key"]
         for row in fetch_all(
             "SELECT ur.role_key FROM user_roles ur JOIN roles r ON r.role_key=ur.role_key "
@@ -461,7 +485,14 @@ def user_context(user_id: int) -> dict | None:
             (user_id, now, now),
         )
     ]
-    identity_enabled = get_settings().identity_authorization_enabled
+    # Legacy volunteer roles remain visible in the database for audit and
+    # migration preview, but cannot bypass the member-status + current-post
+    # rule once the identity model is enabled.
+    direct_roles = (
+        [role_key for role_key in raw_direct_roles if role_key not in VOLUNTEER_ROLE_KEYS]
+        if identity_enabled
+        else raw_direct_roles
+    )
     # An employment switches to explicit authorization as soon as it has any
     # grant record. The EXISTS check intentionally does not filter by dates or
     # status: an expired/revoked explicit grant must not silently fall back to
@@ -470,15 +501,11 @@ def user_context(user_id: int) -> dict | None:
         "SELECT DISTINCT oe.id AS employment_id, pa.position_key FROM account_person_links apl "
         "JOIN operations_employments oe ON oe.person_id=apl.person_id "
         "JOIN operations_position_assignments pa ON pa.employment_id=oe.id "
-        "WHERE apl.user_id=? AND oe.employment_status IN ('PLANNED','ACTIVE') "
-        "AND (oe.started_on IS NULL OR oe.started_on<=?) "
-        "AND (oe.ended_on IS NULL OR oe.ended_on>=?) "
-        "AND pa.status IN ('PLANNED','ACTIVE') "
-        "AND (pa.valid_from IS NULL OR pa.valid_from<=?) "
-        "AND (pa.valid_until IS NULL OR pa.valid_until>=?) "
+        "WHERE apl.user_id=? AND oe.employment_status='ACTIVE' "
+        "AND pa.status='ACTIVE' "
         "AND NOT EXISTS (SELECT 1 FROM employee_authorization_grants eag "
         "WHERE eag.employment_id=oe.id)",
-        (user_id, now, now, now, now),
+        (user_id,),
     ) if identity_enabled else []
     position_roles = [row["position_key"] for row in legacy_position_rows]
     explicit_employee_grants = fetch_all(
@@ -488,23 +515,21 @@ def user_context(user_id: int) -> dict | None:
         "JOIN operations_employments oe ON oe.person_id=apl.person_id "
         "JOIN employee_authorization_grants eag ON eag.employment_id=oe.id "
         "JOIN roles r ON r.role_key=eag.role_key AND r.is_active=1 "
-        "WHERE apl.user_id=? AND oe.employment_status IN ('PLANNED','ACTIVE') "
-        "AND (oe.started_on IS NULL OR oe.started_on<=?) "
-        "AND (oe.ended_on IS NULL OR oe.ended_on>=?) "
-        "AND eag.status IN ('PLANNED','ACTIVE') "
-        "AND (eag.valid_from IS NULL OR eag.valid_from<=?) "
-        "AND (eag.valid_until IS NULL OR eag.valid_until>=?)",
-        (user_id, now, now, now, now),
+        "WHERE apl.user_id=? AND oe.employment_status='ACTIVE' "
+        "AND eag.status='ACTIVE'",
+        (user_id,),
     ) if identity_enabled else []
     explicit_roles = [row["role_key"] for row in explicit_employee_grants]
     volunteer_grants = fetch_all(
         "SELECT DISTINCT va.id, va.appointment_key AS role_key, va.org_unit_id, "
-        "va.scope_type, va.starts_at AS valid_from, va.ends_at AS valid_until, va.status "
+        "va.scope_type, va.created_at AS valid_from, NULL AS valid_until, va.status "
         "FROM account_person_links apl "
         "JOIN volunteer_appointments va ON va.person_id=apl.person_id "
-        "WHERE apl.user_id=? AND va.status IN ('PLANNED','ACTIVE') "
-        "AND va.starts_at<=? AND (va.ends_at IS NULL OR va.ends_at>=?)",
-        (user_id, now, now),
+        "JOIN members m ON m.id=va.member_id "
+        "JOIN member_identities mi ON mi.member_id=va.member_id "
+        "AND mi.person_id=va.person_id "
+        "WHERE apl.user_id=? AND m.status='ACTIVE' AND va.status='ACTIVE'",
+        (user_id,),
     ) if identity_enabled else []
     volunteer_roles = [row["role_key"] for row in volunteer_grants]
     technical_roles = [
@@ -545,15 +570,11 @@ def user_context(user_id: int) -> dict | None:
         "FROM account_person_links apl "
         "JOIN operations_employments oe ON oe.person_id=apl.person_id "
         "JOIN employee_service_responsibilities esr ON esr.employment_id=oe.id "
-        "WHERE apl.user_id=? AND oe.employment_status IN ('PLANNED','ACTIVE') "
-        "AND (oe.started_on IS NULL OR oe.started_on<=?) "
-        "AND (oe.ended_on IS NULL OR oe.ended_on>=?) "
-        "AND esr.status IN ('PLANNED','ACTIVE') "
-        "AND (esr.valid_from IS NULL OR esr.valid_from<=?) "
-        "AND (esr.valid_until IS NULL OR esr.valid_until>=?) "
+        "WHERE apl.user_id=? AND oe.employment_status='ACTIVE' "
+        "AND esr.status='ACTIVE' "
         "AND NOT EXISTS (SELECT 1 FROM employee_authorization_grants eag "
         "WHERE eag.employment_id=oe.id)",
-        (user_id, now, now, now, now),
+        (user_id,),
     ) if identity_enabled else []
     unique_scopes: dict[tuple, dict] = {}
     for scope in (
@@ -576,9 +597,10 @@ def user_context(user_id: int) -> dict | None:
     if technical_roles:
         subjects.append("TECHNICAL_ADMIN")
     if identity_enabled and fetch_one(
-        "SELECT mi.member_id FROM account_person_links apl "
+        "SELECT m.id FROM account_person_links apl "
         "JOIN member_identities mi ON mi.person_id=apl.person_id "
-        "WHERE apl.user_id=? AND mi.status='ACTIVE' LIMIT 1",
+        "JOIN members m ON m.id=mi.member_id "
+        "WHERE apl.user_id=? AND m.status='ACTIVE' LIMIT 1",
         (user_id,),
     ):
         subjects.append("MEMBER")
@@ -591,6 +613,9 @@ def user_context(user_id: int) -> dict | None:
     )
     user["authorization_sources"] = {
         "legacy_roles": direct_roles,
+        "suppressed_legacy_volunteer_roles": sorted(
+            set(raw_direct_roles).intersection(VOLUNTEER_ROLE_KEYS)
+        ) if identity_enabled else [],
         "employment_positions": position_roles,
         "explicit_employee_grants": explicit_employee_grants,
         "volunteer_appointments": volunteer_roles,
