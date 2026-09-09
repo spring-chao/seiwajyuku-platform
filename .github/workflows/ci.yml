@@ -282,6 +282,10 @@ jobs:
       DEPLOYMENT_READ_ONLY: "false"
       ALLOW_PRODUCTION_MUTATIONS: "false"
       IDENTITY_AUTHORIZATION_ENABLED: "true"
+      # This job creates and cleans one isolated IAM2 staff fixture. It is
+      # deliberately scoped to the disposable staging database; production
+      # write gates remain unchanged.
+      IDENTITY_ADMIN_WRITES_ENABLED: "true"
       VOLUNTEER_SERVICE_INVITATIONS_ENABLED: "true"
       PYTHONPATH: apps/platform-api
     steps:
