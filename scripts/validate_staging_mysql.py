@@ -194,8 +194,8 @@ def _run_iam2_staff_validation() -> dict[str, object]:
         person_id = person["person_id"]
         execute(connection, "DELETE FROM operations_employments WHERE id=?", (employment_id,))
         execute(connection, "DELETE FROM employee_profile_details WHERE person_id=?", (person_id,))
-        execute(connection, "DELETE FROM person_profiles WHERE id=?", (person_id,))
         execute(connection, "DELETE FROM app_users WHERE id=?", (user_id,))
+        execute(connection, "DELETE FROM person_profiles WHERE id=?", (person_id,))
     return {
         "created_and_cleaned": True,
         "role_key": grant["role_key"],
