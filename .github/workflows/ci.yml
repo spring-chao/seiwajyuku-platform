@@ -278,7 +278,7 @@ jobs:
       APP_ENV: staging
       DATABASE_URL: mysql+pymysql://seiwajyuku:ci-staging-password@127.0.0.1:3306/seiwajyuku_staging?charset=utf8mb4
       JWT_SECRET: ci-staging-jwt-secret-000000000000
-      FIELD_ENCRYPTION_KEY: ci-staging-field-key
+      FIELD_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       DEPLOYMENT_READ_ONLY: "false"
       ALLOW_PRODUCTION_MUTATIONS: "false"
       IDENTITY_AUTHORIZATION_ENABLED: "true"
