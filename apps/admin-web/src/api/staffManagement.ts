@@ -68,6 +68,9 @@ export type StaffCatalog = {
   positions: Array<{
     position_key: string;
     position_name: string;
+    duty_description: string;
+    role_key?: string | null;
+    role_name?: string | null;
     mapping_status: "AUTO" | "MAPPING_REVIEW_REQUIRED";
   }>;
   roles: StaffRole[];
@@ -82,8 +85,18 @@ export type StaffCatalog = {
     id: string;
     institution_code: string;
     name: string;
+    source_name?: string;
+    business_code?: string;
     institution_type: string;
     parent_id?: string | null;
+    scope_root_org_unit_id?: string | null;
+    scope_root_name?: string | null;
+    scope_available?: boolean;
+  }>;
+  missing_institutions: Array<{
+    business_code: string;
+    name: string;
+    reason: string;
   }>;
   departments: string[];
   supervisors: Array<{ id: number; name: string; institution_name: string }>;

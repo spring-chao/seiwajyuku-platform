@@ -18,6 +18,7 @@ from app.migrations import MIGRATION_ROOT
 from app.services.iam import accessible_org_ids, create_user, user_context
 from app.services.members import create_member
 from app.services.staff_management import authorization_migration_preview
+from app.services.iam import ROLE_PERMISSIONS
 
 
 class IAM2StaffManagementTests(unittest.TestCase):
@@ -102,7 +103,7 @@ class IAM2StaffManagementTests(unittest.TestCase):
             "is_active": True,
             "phone": f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}",
             "gender": "FEMALE",
-            "institution_id": "institution-suzhou-operations",
+            "institution_id": "institution-suzhou",
             "department_name": "运营支持",
             "supervisor_user_id": None,
             "position_keys": ["ops_center_learning"],
@@ -139,7 +140,7 @@ class IAM2StaffManagementTests(unittest.TestCase):
                 "gender": "MALE",
                 "phone": phone,
                 "login_account": account,
-                "institution_id": "institution-suzhou-operations",
+                "institution_id": "institution-suzhou",
                 "position_keys": ["ops_center_learning"],
                 "responsibility_org_unit_id": self.center_a,
                 "responsibility_scope_type": "SUBTREE",
@@ -164,6 +165,85 @@ class IAM2StaffManagementTests(unittest.TestCase):
         self.assertEqual(audit["purpose"], "SYSTEM_AUTO:POSITION_SCOPE_MAPPING")
         self.assertIn("employee_learning_management", audit["after_json"])
 
+    def test_staff_catalog_uses_formal_institutions_scope_mapping_and_position_duties(self) -> None:
+        response = self.client.get(
+            "/api/v1/staff-management/catalog", headers=self.admin_headers
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        catalog = response.json()["data"]
+        institutions = {item["business_code"]: item for item in catalog["institutions"]}
+        self.assertEqual(set(institutions), {"JIANGNAN", "SUZHOU"})
+        self.assertNotIn("SEIWA_HQ", {item["institution_code"] for item in catalog["institutions"]})
+        self.assertNotIn(
+            "SUZHOU_OPERATIONS_CENTER",
+            {item["institution_code"] for item in catalog["institutions"]},
+        )
+        self.assertEqual(institutions["SUZHOU"]["name"], "苏州塾")
+        self.assertEqual(institutions["SUZHOU"]["scope_root_org_unit_id"], "org-suzhou")
+        self.assertFalse(institutions["JIANGNAN"]["scope_available"])
+        self.assertEqual(
+            {item["business_code"] for item in catalog["missing_institutions"]},
+            {"CHANGZHOU", "WUXI"},
+        )
+        positions = {item["position_key"]: item for item in catalog["positions"]}
+        self.assertEqual(positions["ops_center_director"]["role_key"], "employee_operations_lead")
+        self.assertIn("全部运营业务", positions["ops_center_director"]["duty_description"])
+        self.assertEqual(
+            ROLE_PERMISSIONS["employee_operations_lead"],
+            ROLE_PERMISSIONS["operations_admin"],
+        )
+
+    def test_business_staff_manager_sees_and_writes_only_its_scope(self) -> None:
+        account = f"scope-manager-{uuid4().hex[:12]}"
+        phone = f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}"
+        created = self.client.post(
+            "/api/v1/staff-management/staff",
+            headers=self.admin_headers,
+            json={
+                "name": "范围负责人",
+                "gender": "FEMALE",
+                "phone": phone,
+                "login_account": account,
+                "temporary_password": "scope123",
+                "institution_id": "institution-suzhou",
+                "position_keys": ["ops_center_director"],
+                "responsibility_org_unit_id": self.center_a,
+                "responsibility_scope_type": "SUBTREE",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        login = self.client.post(
+            "/api/v1/auth/login",
+            json={"username": account, "password": "scope123"},
+        )
+        self.assertEqual(login.status_code, 200, login.text)
+        manager_headers = {
+            "Authorization": f"Bearer {login.json()['data']['access_token']}"
+        }
+        catalog = self.client.get(
+            "/api/v1/staff-management/catalog", headers=manager_headers
+        )
+        self.assertEqual(catalog.status_code, 200, catalog.text)
+        self.assertEqual(
+            {row["id"] for row in catalog.json()["data"]["org_units"]},
+            {self.center_a, self.class_a},
+        )
+        rejected = self.client.post(
+            "/api/v1/staff-management/staff",
+            headers=manager_headers,
+            json={
+                "name": "越权范围测试",
+                "gender": "MALE",
+                "phone": f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}",
+                "login_account": f"out-of-scope-{uuid4().hex[:12]}",
+                "institution_id": "institution-suzhou",
+                "position_keys": ["ops_center_operations"],
+                "responsibility_org_unit_id": self.center_b,
+                "responsibility_scope_type": "UNIT",
+            },
+        )
+        self.assertEqual(rejected.status_code, 403, rejected.text)
+
         catalog = self.client.get(
             "/api/v1/staff-management/catalog", headers=self.admin_headers
         )
@@ -186,7 +266,7 @@ class IAM2StaffManagementTests(unittest.TestCase):
                 "gender": "MALE",
                 "phone": f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}",
                 "login_account": f"mapping-review-{uuid4().hex[:12]}",
-                "institution_id": "institution-suzhou-operations",
+                "institution_id": "institution-suzhou",
                 "position_keys": ["operations_admin"],
                 "responsibility_org_unit_id": self.center_a,
                 "responsibility_scope_type": "SUBTREE",
@@ -201,7 +281,7 @@ class IAM2StaffManagementTests(unittest.TestCase):
             "gender": "FEMALE",
             "phone": f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}",
             "login_account": f"six-pass-{uuid4().hex[:12]}",
-            "institution_id": "institution-suzhou-operations",
+            "institution_id": "institution-suzhou",
             "position_keys": ["ops_center_data"],
             "responsibility_org_unit_id": self.center_a,
             "responsibility_scope_type": "UNIT",
@@ -262,7 +342,7 @@ class IAM2StaffManagementTests(unittest.TestCase):
                     "gender": "MALE",
                     "phone": phone,
                     "login_account": account,
-                    "institution_id": "institution-suzhou-operations",
+                    "institution_id": "institution-suzhou",
                     "position_keys": ["ops_center_learning"],
                     "responsibility_org_unit_id": self.center_a,
                     "responsibility_scope_type": "UNIT",
@@ -305,7 +385,7 @@ class IAM2StaffManagementTests(unittest.TestCase):
                     "gender": "FEMALE",
                     "phone": phone,
                     "login_account": account,
-                    "institution_id": "institution-suzhou-operations",
+                    "institution_id": "institution-suzhou",
                     "position_keys": ["ops_center_learning"],
                     "responsibility_org_unit_id": self.center_a,
                     "responsibility_scope_type": "UNIT",

@@ -1053,10 +1053,8 @@ def _scope_condition(actor_user_id: int) -> tuple[str, tuple[Any, ...]]:
     allowed = accessible_org_ids(actor_user_id)
     if allowed is None:
         return "", ()
-    actor = user_context(actor_user_id) or {"roles": []}
-    can_review_unassigned = bool(
-        {"system_admin", "operations_admin"}.intersection(actor["roles"])
-    )
+    actor = user_context(actor_user_id) or {"permissions": []}
+    can_review_unassigned = "enrollment:unassigned_review" in actor.get("permissions", [])
     if not allowed:
         return (
             " AND a.org_unit_id IS NULL" if can_review_unassigned else " AND 1=0",
@@ -1147,10 +1145,10 @@ def _assert_application_scope(actor_user_id: int, row: dict[str, Any]) -> None:
     allowed = accessible_org_ids(actor_user_id)
     if allowed is None:
         return
-    actor = user_context(actor_user_id) or {"roles": []}
-    if not row.get("org_unit_id") and {
-        "system_admin", "operations_admin"
-    }.intersection(actor["roles"]):
+    actor = user_context(actor_user_id) or {"permissions": []}
+    if not row.get("org_unit_id") and "enrollment:unassigned_review" in actor.get(
+        "permissions", []
+    ):
         return
     if not row.get("org_unit_id") or row["org_unit_id"] not in allowed:
         raise PermissionError("入塾申请不在当前组织授权范围内")

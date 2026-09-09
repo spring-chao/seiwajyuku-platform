@@ -16,6 +16,8 @@ from app.services.iam import (
     POSITION_NAMES,
     ROLE_NAMES,
     ROLE_PERMISSIONS,
+    accessible_org_ids,
+    current_request_permission,
     user_context,
 )
 from app.services.identity_admin import assert_identity_write_enabled
@@ -38,6 +40,56 @@ POSITION_ROLE_MAPPING = {
     "ops_center_data": "employee_data_management",
     "ops_center_finance": "employee_finance_management",
     "ops_center_administration": "employee_administration_management",
+}
+
+# Stable institution keys are the business contract for the ordinary staff
+# drawer. Existing production rows use SUZHOU_CENTER and the historical
+# SUZHOU_OPERATIONS_CENTER names, so those are aliases of the formal SUZHOU
+# institution rather than new choices. Missing future institutions are
+# reported by the catalog until their source rows and org roots are landed.
+STAFF_INSTITUTION_CATALOG = {
+    "JIANGNAN": {
+        "name": "江南塾",
+        "source_codes": ("JIANGNAN",),
+    },
+    "SUZHOU": {
+        "name": "苏州塾",
+        "source_codes": ("SUZHOU", "SUZHOU_CENTER"),
+    },
+    "CHANGZHOU": {
+        "name": "常州塾",
+        "source_codes": ("CHANGZHOU", "CHANGZHOU_CENTER"),
+    },
+    "WUXI": {
+        "name": "无锡塾",
+        "source_codes": ("WUXI", "WUXI_CENTER"),
+    },
+}
+STAFF_INSTITUTION_CODE_ALIASES = {
+    source_code: business_code
+    for business_code, item in STAFF_INSTITUTION_CATALOG.items()
+    for source_code in item["source_codes"]
+}
+# Historical operating-center rows remain readable for existing records and
+# root inheritance, but are never returned or accepted as ordinary staff
+# choices.
+STAFF_INSTITUTION_CODE_ALIASES["SUZHOU_OPERATIONS_CENTER"] = "SUZHOU"
+STAFF_INSTITUTION_VISIBLE_SOURCE_CODES = frozenset(
+    source_code
+    for item in STAFF_INSTITUTION_CATALOG.values()
+    for source_code in item["source_codes"]
+)
+
+POSITION_DUTY_DESCRIPTIONS = {
+    "operations_admin": "兼容岗位，仅供历史记录和迁移预览",
+    "ops_center_director": "负责范围内全部运营业务管理",
+    "ops_center_operations": "学员、关爱、续费及日常运营",
+    "ops_center_learning": "学习计划、课程、学习会、出勤等",
+    "ops_center_development": "新学长、入塾审核、发展跟进",
+    "ops_center_management": "年度计划、规则、运营组织与相关统计",
+    "ops_center_data": "数据、导入导出、签到同步与数据维护",
+    "ops_center_finance": "续费、收款确认等财务业务",
+    "ops_center_administration": "基础资料、行政支持及相关关爱",
 }
 
 
@@ -126,15 +178,123 @@ def _organization(connection: Any, org_unit_id: str) -> dict[str, Any]:
     return dict(row)
 
 
-def _institution(connection: Any, institution_id: str) -> dict[str, Any]:
+def _institution_root(connection: Any, institution_id: str) -> dict[str, Any] | None:
+    """Resolve an institution's formal org root without name matching.
+
+    A legacy operating-center row may inherit the root mapping from its
+    mapped parent. This keeps historical API records readable while the
+    ordinary selector uses the formal institution row.
+    """
+
+    visited: set[str] = set()
+    current_id = institution_id
+    while current_id and current_id not in visited:
+        visited.add(current_id)
+        link = execute(
+            connection,
+            "SELECT l.org_unit_id, l.link_type, o.unit_code, o.name "
+            "FROM institution_org_links l "
+            "JOIN org_units o ON o.id=l.org_unit_id AND o.is_active=1 "
+            "WHERE l.institution_id=? "
+            "ORDER BY CASE WHEN l.link_type='SERVICE_BOUNDARY' THEN 0 ELSE 1 END, l.created_at, l.org_unit_id "
+            "LIMIT 1",
+            (current_id,),
+        ).fetchone()
+        if link:
+            result = dict(link)
+            result["source_institution_id"] = current_id
+            return result
+        parent = execute(
+            connection,
+            "SELECT parent_id FROM operating_institutions WHERE id=? AND is_active=1",
+            (current_id,),
+        ).fetchone()
+        current_id = str(parent["parent_id"] or "") if parent else ""
+    return None
+
+
+def _institution(
+    connection: Any,
+    institution_id: str,
+    *,
+    require_business_catalog: bool = False,
+) -> dict[str, Any]:
     row = execute(
         connection,
-        "SELECT id, name FROM operating_institutions WHERE id=? AND is_active=1",
+        "SELECT id, institution_code, name, institution_type, parent_id "
+        "FROM operating_institutions WHERE id=? AND is_active=1",
         (institution_id,),
     ).fetchone()
     if not row:
         raise ValueError("所属机构不存在或已停用")
-    return dict(row)
+    result = dict(row)
+    business_code = STAFF_INSTITUTION_CODE_ALIASES.get(result["institution_code"])
+    if require_business_catalog and result["institution_code"] not in STAFF_INSTITUTION_VISIBLE_SOURCE_CODES:
+        raise ValueError("普通专职人员只能选择四个正式塾机构")
+    if business_code:
+        result["business_code"] = business_code
+        result["business_name"] = STAFF_INSTITUTION_CATALOG[business_code]["name"]
+    root = _institution_root(connection, institution_id)
+    result["root_org_unit_id"] = root["org_unit_id"] if root else None
+    result["root_org_unit_code"] = root["unit_code"] if root else None
+    result["root_org_unit_name"] = root["name"] if root else None
+    return result
+
+
+def _organization_descendants(connection: Any, root_org_unit_id: str) -> set[str]:
+    rows = execute(
+        connection,
+        "WITH RECURSIVE descendants(id) AS ("
+        " SELECT id FROM org_units WHERE id=? AND is_active=1 "
+        " UNION ALL SELECT o.id FROM org_units o JOIN descendants d ON o.parent_id=d.id "
+        " WHERE o.is_active=1"
+        ") SELECT id FROM descendants",
+        (root_org_unit_id,),
+    ).fetchall()
+    return {row["id"] for row in rows}
+
+
+def _validate_institution_scope(
+    connection: Any,
+    institution: dict[str, Any],
+    org_unit_id: str,
+) -> None:
+    root_id = institution.get("root_org_unit_id")
+    if not root_id:
+        raise ValueError(
+            f"{institution.get('business_name') or institution.get('name')}尚未配置正式组织根节点，暂不能设置负责范围"
+        )
+    if org_unit_id not in _organization_descendants(connection, str(root_id)):
+        raise ValueError("负责范围必须属于所属机构对应的组织树")
+
+
+def _actor_scope_ids(actor_user_id: int) -> set[str] | None:
+    """Return the actor's staff-management boundary.
+
+    Technical/system IAM administrators retain their existing unrestricted
+    catalog access. Business staff managers are resolved through the exact
+    ``staff:manage`` grant and therefore cannot select or edit outside scope.
+    """
+
+    actor = user_context(actor_user_id) or {}
+    if {"system_admin", "technical_admin"}.intersection(actor.get("roles", [])):
+        return None
+    permission = current_request_permission() or "staff:manage"
+    return accessible_org_ids(actor_user_id, permission)
+
+
+def _validate_actor_grants(actor_user_id: int, grants: list[dict[str, Any]]) -> None:
+    allowed = _actor_scope_ids(actor_user_id)
+    if allowed is not None and any(grant["org_unit_id"] not in allowed for grant in grants):
+        raise PermissionError("授权范围超出当前账号可管理的组织范围")
+
+
+def _assert_staff_item_in_actor_scope(actor_user_id: int, item: dict[str, Any]) -> None:
+    allowed = _actor_scope_ids(actor_user_id)
+    if allowed is not None and not any(
+        scope["org_unit_id"] in allowed for scope in item.get("scopes", [])
+    ):
+        raise PermissionError("当前账号不能管理该人员的负责范围")
 
 
 def _supervisor(connection: Any, supervisor_user_id: int | None, user_id: int | None = None) -> int | None:
@@ -246,12 +406,21 @@ def _auto_grants(
     position_keys: list[str],
     org_unit_id: str | None,
     scope_type: str | None,
+    *,
+    institution: dict[str, Any] | None = None,
+    actor_user_id: int | None = None,
 ) -> list[dict[str, Any]]:
     organization_id = str(org_unit_id or "").strip()
     normalized_scope_type = str(scope_type or "").strip().upper()
     if not organization_id or normalized_scope_type not in {"UNIT", "SUBTREE"}:
         raise ValueError("请选择负责范围")
     _organization(connection, organization_id)
+    if institution is not None:
+        _validate_institution_scope(connection, institution, organization_id)
+    if actor_user_id is not None:
+        allowed = _actor_scope_ids(actor_user_id)
+        if allowed is not None and organization_id not in allowed:
+            raise PermissionError("负责范围超出当前账号可管理的组织范围")
     missing = [key for key in position_keys if key not in POSITION_ROLE_MAPPING]
     if missing:
         names = "、".join(POSITION_NAMES.get(key, key) for key in missing)
@@ -436,6 +605,7 @@ def _public_staff_item(item: dict[str, Any]) -> dict[str, Any]:
 def staff_catalog(actor_user_id: int) -> dict[str, Any]:
     _read_gate()
     actor = user_context(actor_user_id) or {"roles": []}
+    actor_allowed_org_ids = _actor_scope_ids(actor_user_id)
     roles = []
     for role_key in sorted(EMPLOYEE_ASSIGNABLE_ROLE_KEYS, key=lambda key: ROLE_NAMES[key]):
         permissions = _role_permissions(role_key)
@@ -454,10 +624,90 @@ def staff_catalog(actor_user_id: int) -> dict[str, Any]:
         "SELECT id, unit_code, name, unit_type, parent_id FROM org_units "
         "WHERE is_active=1 ORDER BY unit_type, name, id"
     )
-    institutions = fetch_all(
+    if actor_allowed_org_ids is not None:
+        org_units = [row for row in org_units if row["id"] in actor_allowed_org_ids]
+    raw_institutions = fetch_all(
         "SELECT id, institution_code, name, institution_type, parent_id "
         "FROM operating_institutions WHERE is_active=1 ORDER BY name, id"
     )
+    institutions: list[dict[str, Any]] = []
+    seen_business_codes: set[str] = set()
+    for raw in raw_institutions:
+        source_code = raw["institution_code"]
+        if source_code not in STAFF_INSTITUTION_VISIBLE_SOURCE_CODES:
+            continue
+        business_code = STAFF_INSTITUTION_CODE_ALIASES[source_code]
+        if business_code in seen_business_codes:
+            continue
+        item = dict(raw)
+        item["business_code"] = business_code
+        item["name"] = STAFF_INSTITUTION_CATALOG[business_code]["name"]
+        item["source_name"] = raw["name"]
+        item["scope_root_org_unit_id"] = None
+        item["scope_root_name"] = None
+        # Catalog reads use the same connection-independent mapping query as
+        # create/update. The service helper is intentionally name agnostic.
+        mapping = fetch_one(
+            "SELECT l.org_unit_id, o.name "
+            "FROM institution_org_links l "
+            "JOIN org_units o ON o.id=l.org_unit_id AND o.is_active=1 "
+            "WHERE l.institution_id=? "
+            "ORDER BY CASE WHEN l.link_type='SERVICE_BOUNDARY' THEN 0 ELSE 1 END, l.created_at, l.org_unit_id "
+            "LIMIT 1",
+            (raw["id"],),
+        )
+        if not mapping and raw.get("parent_id"):
+            mapping = fetch_one(
+                "SELECT l.org_unit_id, o.name "
+                "FROM institution_org_links l "
+                "JOIN org_units o ON o.id=l.org_unit_id AND o.is_active=1 "
+                "WHERE l.institution_id=? "
+                "ORDER BY CASE WHEN l.link_type='SERVICE_BOUNDARY' THEN 0 ELSE 1 END, l.created_at, l.org_unit_id "
+                "LIMIT 1",
+                (raw["parent_id"],),
+            )
+        if mapping:
+            item["scope_root_org_unit_id"] = mapping["org_unit_id"]
+            item["scope_root_name"] = mapping["name"]
+            if actor_allowed_org_ids is not None:
+                visible_scope_ids = {
+                    row["id"]
+                    for row in fetch_all(
+                        "WITH RECURSIVE descendants(id) AS ("
+                        " SELECT id FROM org_units WHERE id=? AND is_active=1 "
+                        " UNION ALL SELECT o.id FROM org_units o JOIN descendants d ON o.parent_id=d.id "
+                        " WHERE o.is_active=1"
+                        ") SELECT id FROM descendants",
+                        (mapping["org_unit_id"],),
+                    )
+                    if row["id"] in actor_allowed_org_ids
+                }
+                if mapping["org_unit_id"] not in actor_allowed_org_ids:
+                    visible_roots = [
+                        row
+                        for row in org_units
+                        if row["id"] in visible_scope_ids
+                        and row.get("parent_id") not in visible_scope_ids
+                    ]
+                    if visible_roots:
+                        visible_roots.sort(key=lambda row: (row["name"], row["id"]))
+                        item["scope_root_org_unit_id"] = visible_roots[0]["id"]
+                        item["scope_root_name"] = visible_roots[0]["name"]
+                    else:
+                        item["scope_root_org_unit_id"] = None
+                        item["scope_root_name"] = None
+        item["scope_available"] = bool(item["scope_root_org_unit_id"])
+        institutions.append(item)
+        seen_business_codes.add(business_code)
+    missing_institutions = [
+        {
+            "business_code": business_code,
+            "name": item["name"],
+            "reason": "机构或组织根节点尚未落地",
+        }
+        for business_code, item in STAFF_INSTITUTION_CATALOG.items()
+        if business_code not in seen_business_codes
+    ]
     departments = [
         row["department_name"]
         for row in fetch_all(
@@ -483,6 +733,13 @@ def staff_catalog(actor_user_id: int) -> dict[str, Any]:
             {
                 "position_key": key,
                 "position_name": name,
+                "duty_description": POSITION_DUTY_DESCRIPTIONS.get(key, ""),
+                "role_key": POSITION_ROLE_MAPPING.get(key),
+                "role_name": (
+                    ROLE_NAMES.get(POSITION_ROLE_MAPPING[key])
+                    if key in POSITION_ROLE_MAPPING
+                    else None
+                ),
                 "mapping_status": (
                     "AUTO" if key in POSITION_ROLE_MAPPING else "MAPPING_REVIEW_REQUIRED"
                 ),
@@ -492,6 +749,7 @@ def staff_catalog(actor_user_id: int) -> dict[str, Any]:
         "roles": roles,
         "org_units": org_units,
         "institutions": institutions,
+        "missing_institutions": missing_institutions,
         "departments": departments,
         "supervisors": supervisors,
         "scope_types": ["UNIT", "SUBTREE"],
@@ -509,9 +767,7 @@ def list_staff(
     query: str | None = None,
 ) -> list[dict[str, Any]]:
     _read_gate()
-    # The endpoint is IAM-admin-only. The actor argument is deliberately kept
-    # to make auditing and future data-scope delegation explicit.
-    del actor_user_id
+    actor_allowed_org_ids = _actor_scope_ids(actor_user_id)
     lowered_query = str(query or "").strip().lower()
     query_phone_hash: str | None = None
     if lowered_query:
@@ -522,6 +778,10 @@ def list_staff(
     rows: list[dict[str, Any]] = []
     for raw in _employment_rows():
         item = _staff_item(raw)
+        if actor_allowed_org_ids is not None and not any(
+            scope["org_unit_id"] in actor_allowed_org_ids for scope in item["scopes"]
+        ):
+            continue
         if org_unit_id and org_unit_id not in {
             scope["org_unit_id"] for scope in item["scopes"]
         }:
@@ -550,11 +810,16 @@ def list_staff(
 
 def get_staff(actor_user_id: int, user_id: int) -> dict[str, Any]:
     _read_gate()
-    del actor_user_id
+    actor_allowed_org_ids = _actor_scope_ids(actor_user_id)
     rows = _employment_rows(user_id=user_id)
     if not rows:
         raise ValueError("专职人员不存在或当前没有有效任职")
-    return _public_staff_item(_staff_item(rows[0]))
+    item = _staff_item(rows[0])
+    if actor_allowed_org_ids is not None and not any(
+        scope["org_unit_id"] in actor_allowed_org_ids for scope in item["scopes"]
+    ):
+        raise PermissionError("当前账号不能查看该人员的负责范围")
+    return _public_staff_item(item)
 
 
 def _insert_grants(
@@ -646,7 +911,9 @@ def create_staff(
     with transaction() as connection:
         if execute(connection, "SELECT id FROM app_users WHERE username=?", (username,)).fetchone():
             raise ValueError("登录账号已经存在，请更换账号")
-        _institution(connection, institution_id)
+        institution = _institution(
+            connection, institution_id, require_business_catalog=True
+        )
         supervisor_id = _supervisor(connection, supervisor_user_id)
         normalized_grants = (
             _normalize_grants(connection, grants, allow_empty=False)
@@ -656,8 +923,11 @@ def create_staff(
                 positions,
                 responsibility_org_unit_id,
                 responsibility_scope_type,
+                institution=institution,
+                actor_user_id=actor_user_id,
             )
         )
+        _validate_actor_grants(actor_user_id, normalized_grants)
         basis = str(authorization_basis or "").strip() or "SYSTEM_AUTO:POSITION_SCOPE_MAPPING"
         reason = str(authorization_reason or "").strip()
         if phone_fields and execute(
@@ -812,10 +1082,14 @@ def _desired_snapshot(
     connection: Any,
     current: dict[str, Any],
     payload: dict[str, Any],
+    *,
+    actor_user_id: int,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     positions = _normalize_positions(payload.get("position_keys") or [])
     institution_id = str(payload.get("institution_id") or current["institution_id"])
-    institution = _institution(connection, institution_id)
+    institution = _institution(
+        connection, institution_id, require_business_catalog=True
+    )
     started_on, ended_on = _validate_interval(
         payload.get("started_on") if "started_on" in payload else current.get("started_on"),
         payload.get("ended_on") if "ended_on" in payload else current.get("ended_on"),
@@ -849,9 +1123,12 @@ def _desired_snapshot(
             positions,
             payload.get("responsibility_org_unit_id"),
             payload.get("responsibility_scope_type"),
+            institution=institution,
+            actor_user_id=actor_user_id,
         )
     else:
         normalized_grants = list(existing_grants.values())
+    _validate_actor_grants(actor_user_id, normalized_grants)
     return (
         {
             "name": str(payload.get("name") or current["name"]).strip(),
@@ -889,15 +1166,17 @@ def preview_staff_update(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     _read_gate()
-    del actor_user_id
     rows = _employment_rows(user_id=user_id)
     if not rows:
         raise ValueError("专职人员不存在或当前没有有效任职")
     raw = rows[0]
     current = _staff_item(raw)
     current["_id"] = user_id
+    _assert_staff_item_in_actor_scope(actor_user_id, current)
     with transaction() as connection:
-        desired, normalized_grants = _desired_snapshot(connection, current, payload)
+        desired, normalized_grants = _desired_snapshot(
+            connection, current, payload, actor_user_id=actor_user_id
+        )
     current_grants = _grant_rows(int(current["_employment_id"]), current_only=True)
     current_grants_by_key = {
         _grant_identity(grant): grant for grant in current_grants
@@ -975,10 +1254,13 @@ def update_staff(
         raise ValueError("专职人员不存在或当前没有有效任职")
     current = _staff_item(rows[0])
     current["_id"] = user_id
+    _assert_staff_item_in_actor_scope(actor_user_id, current)
     now = datetime.now(UTC).isoformat()
     source_reference = "IAM2_STAFF_MANAGEMENT"
     with transaction() as connection:
-        desired, grants = _desired_snapshot(connection, current, payload)
+        desired, grants = _desired_snapshot(
+            connection, current, payload, actor_user_id=actor_user_id
+        )
         if not desired["name"]:
             raise ValueError("姓名不能为空")
         if len(desired["login_account_raw"]) < 3:

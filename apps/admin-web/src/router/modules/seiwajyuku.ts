@@ -28,25 +28,7 @@ export default [
         meta: {
           title: "关怀跟进",
           icon: "ep/phone",
-          roles: [
-            "system_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_operations",
-            "ops_center_learning",
-            "ops_center_development",
-            "ops_center_administration",
-            "regional_manager",
-            "class_counselor",
-            "group_leader",
-            "volunteer_director",
-            "volunteer_regional_lead",
-            "volunteer_regional_service",
-            "volunteer_class_counselor",
-            "volunteer_class_committee",
-            "volunteer_group_leader",
-            "volunteer_group_committee"
-          ]
+          auths: ["followups:manage"]
         }
       },
       {
@@ -56,25 +38,7 @@ export default [
         meta: {
           title: "续费运营",
           icon: "ep/refresh-right",
-          roles: [
-            "system_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_operations",
-            "ops_center_development",
-            "ops_center_data",
-            "ops_center_finance",
-            "regional_manager",
-            "class_counselor",
-            "group_leader",
-            "volunteer_director",
-            "volunteer_regional_lead",
-            "volunteer_regional_service",
-            "volunteer_class_counselor",
-            "volunteer_class_committee",
-            "volunteer_group_leader",
-            "read_only"
-          ]
+          auths: ["renewals:read"]
         }
       }
     ]
@@ -97,29 +61,7 @@ export default [
         meta: {
           title: "学员管理",
           icon: "ep/user",
-          roles: [
-            "system_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_operations",
-            "ops_center_learning",
-            "ops_center_development",
-            "ops_center_management",
-            "ops_center_data",
-            "ops_center_administration",
-            "regional_manager",
-            "class_counselor",
-            "group_leader",
-            "volunteer_director",
-            "volunteer_regional_lead",
-            "volunteer_regional_service",
-            "volunteer_class_counselor",
-            "volunteer_class_committee",
-            "volunteer_group_leader",
-            "volunteer_group_committee",
-            "volunteer_activity",
-            "read_only"
-          ]
+          auths: ["members:read"]
         }
       },
       {
@@ -130,15 +72,7 @@ export default [
         meta: {
           title: "待入塾申请",
           icon: "ep/document-checked",
-          roles: [
-            "system_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_operations",
-            "ops_center_development",
-            "ops_center_finance",
-            "regional_manager"
-          ]
+          auths: ["enrollment:read"]
         }
       }
     ]
@@ -162,25 +96,7 @@ export default [
           title: "活动与签到",
           icon: "ep/calendar",
           showParent: true,
-          roles: [
-            "system_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_learning",
-            "ops_center_data",
-            "regional_manager",
-            "class_counselor",
-            "group_leader",
-            "volunteer_director",
-            "volunteer_regional_lead",
-            "volunteer_regional_service",
-            "volunteer_class_counselor",
-            "volunteer_class_committee",
-            "volunteer_group_leader",
-            "volunteer_group_committee",
-            "volunteer_activity",
-            "read_only"
-          ]
+          auths: ["members:read"]
         }
       },
       {
@@ -190,24 +106,7 @@ export default [
         meta: {
           title: "小组学习会",
           icon: "ep/notebook",
-          roles: [
-            "system_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_operations",
-            "ops_center_learning",
-            "ops_center_management",
-            "ops_center_data",
-            "regional_manager",
-            "class_counselor",
-            "group_leader",
-            "volunteer_director",
-            "volunteer_regional_lead",
-            "volunteer_regional_service",
-            "volunteer_class_counselor",
-            "volunteer_group_leader",
-            "read_only"
-          ]
+          auths: ["plans:read"]
         }
       },
       {
@@ -218,15 +117,7 @@ export default [
         meta: {
           title: "班级学习计划",
           icon: "ep/setting",
-          roles: [
-            "system_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_operations",
-            "ops_center_management",
-            "regional_manager",
-            "volunteer_regional_lead"
-          ]
+          auths: ["plans:period_write"]
         }
       },
       {
@@ -236,17 +127,7 @@ export default [
         meta: {
           title: "学习计划审核",
           icon: "ep/list-check",
-          roles: [
-            "system_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_operations",
-            "ops_center_learning",
-            "ops_center_management",
-            "ops_center_data",
-            "regional_manager",
-            "read_only"
-          ]
+          auths: ["plans:read"]
         }
       },
       {
@@ -257,15 +138,7 @@ export default [
         meta: {
           title: "学习计划配置",
           icon: "ep/reading",
-          roles: [
-            "system_admin",
-            "technical_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_learning",
-            "ops_center_management",
-            "ops_center_data"
-          ]
+          auths: ["plans:credit_rules_manage"]
         }
       }
     ]
@@ -289,14 +162,7 @@ export default [
           title: "经营数据",
           icon: "ep/edit-pen",
           showParent: true,
-          roles: [
-            "system_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_operations",
-            "ops_center_management",
-            "volunteer_regional_lead"
-          ]
+          auths: ["plans:read"]
         }
       }
     ]
@@ -320,7 +186,7 @@ export default [
           title: "专职人员管理",
           icon: "ep/user-filled",
           showParent: true,
-          roles: ["system_admin", "technical_admin"]
+          auths: ["staff:manage", "iam:manage"]
         }
       },
       {
@@ -331,7 +197,7 @@ export default [
           title: "账号管理",
           icon: "ep/user-filled",
           showLink: false,
-          roles: ["system_admin", "technical_admin"]
+          auths: ["iam:manage"]
         }
       },
       {
@@ -343,7 +209,7 @@ export default [
           icon: "ep/key",
           showParent: true,
           showLink: false,
-          roles: ["system_admin", "technical_admin"]
+          auths: ["iam:manage"]
         }
       },
       {
@@ -354,20 +220,7 @@ export default [
           title: "志工任职管理",
           icon: "ep/connection",
           showParent: true,
-          roles: [
-            "system_admin",
-            "technical_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_operations",
-            "ops_center_learning",
-            "ops_center_development",
-            "employee_operations_lead",
-            "employee_operations_management",
-            "employee_member_management",
-            "employee_learning_management",
-            "employee_development_management"
-          ]
+          auths: ["members:detail_view"]
         }
       },
       {
@@ -378,13 +231,7 @@ export default [
         meta: {
           title: "班级与小组管理",
           icon: "ep/office-building",
-          roles: [
-            "system_admin",
-            "technical_admin",
-            "operations_admin",
-            "ops_center_director",
-            "ops_center_data"
-          ]
+          auths: ["org:manage"]
         }
       }
     ]

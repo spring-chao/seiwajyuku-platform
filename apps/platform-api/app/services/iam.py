@@ -20,6 +20,7 @@ from app.services.audit import write_audit
 
 PERMISSIONS = {
     "iam:manage": ("账户、角色与范围管理", "SENSITIVE"),
+    "staff:manage": ("管理普通专职人员", "SENSITIVE"),
     "org:read": ("查看组织", "INTERNAL"),
     "org:manage": ("维护组织", "SENSITIVE"),
     "plans:read": ("查看年度MP", "INTERNAL"),
@@ -49,6 +50,7 @@ PERMISSIONS = {
     "attendance:sync": ("同步签到出勤数据", "SENSITIVE"),
     "attendance:adjudicate": ("出勤裁定", "SENSITIVE"),
     "enrollment:read": ("查看新学长入塾申请", "INTERNAL"),
+    "enrollment:unassigned_review": ("查看未分配组织的入塾申请", "SENSITIVE"),
     "enrollment:review": ("审核新学长入塾申请", "SENSITIVE"),
     "enrollment:payment_confirm": ("确认入塾申请收款", "SENSITIVE"),
     "enrollment:enroll": ("将已完成申请正式入塾", "SENSITIVE"),
@@ -62,6 +64,7 @@ ROLE_PERMISSIONS = {
     },
     "data_security_admin": {"org:read", "members:read", "exports:sensitive", "audit:read"},
     "operations_admin": {
+        "staff:manage",
         "study_meetings:courses_edit",
         "study_meetings:attendees_edit",
         "org:read", "org:manage", "plans:read", "plans:credit_rules_manage", "plans:credit_settlement_preview", "plans:credit_settlement_manage", "plans:business_calendar_manage", "plans:credit_activity_fact_manage", "plans:hq_reading_import_manage", "plans:period_write", "plans:import_global", "plans:publish",
@@ -70,7 +73,7 @@ ROLE_PERMISSIONS = {
         "integrations:manage", "renewals:read", "renewals:manage",
         "attendance:sync", "attendance:adjudicate",
         "enrollment:read", "enrollment:review", "enrollment:payment_confirm",
-        "enrollment:enroll", "enrollment:manage_link",
+        "enrollment:enroll", "enrollment:manage_link", "enrollment:unassigned_review",
     },
     "regional_manager": {
         "org:read", "plans:read", "plans:period_write", "members:read",
@@ -205,6 +208,12 @@ ROLE_PERMISSIONS = {
         "org:read", "members:read", "members:detail_view",
     },
 }
+# The lead position is a business administrator, not a technical or security
+# administrator. Keep its role key independent for audit and scope assignment,
+# while giving it the same business capability template as operations_admin.
+ROLE_PERMISSIONS["employee_operations_lead"] = set(
+    ROLE_PERMISSIONS["operations_admin"]
+)
 ROLE_NAMES = {
     "system_admin": "系统管理员",
     "technical_admin": "系统技术管理员",
@@ -506,6 +515,21 @@ def seed_iam() -> None:
                 "VALUES ('org-suzhou', 'SZ_ROOT', '苏州塾', 'ROOT', NULL, 1, ?, ?)",
                 (now, now),
             )
+        # 0011 may have run before the baseline root was imported. Reassert
+        # the formal stable-code mapping at bootstrap without matching names.
+        execute(
+            connection,
+            "INSERT OR IGNORE INTO institution_org_links(institution_id, org_unit_id, link_type, created_at) "
+            "SELECT oi.id, ou.id, 'LEGACY_REPRESENTATION', ? "
+            "FROM operating_institutions oi JOIN org_units ou ON ou.unit_code='SZ_ROOT' "
+            "WHERE oi.institution_code='SUZHOU_CENTER' AND oi.is_active=1 AND ou.is_active=1"
+            if sqlite else
+            "INSERT IGNORE INTO institution_org_links(institution_id, org_unit_id, link_type, created_at) "
+            "SELECT oi.id, ou.id, 'LEGACY_REPRESENTATION', ? "
+            "FROM operating_institutions oi JOIN org_units ou ON ou.unit_code='SZ_ROOT' "
+            "WHERE oi.institution_code='SUZHOU_CENTER' AND oi.is_active=1 AND ou.is_active=1",
+            (now,),
+        )
         settings = get_settings()
         existing = execute(
             connection, "SELECT id FROM app_users WHERE username=?", (settings.bootstrap_admin_username,)

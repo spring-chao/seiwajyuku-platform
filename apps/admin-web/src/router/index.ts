@@ -153,7 +153,11 @@ router.beforeEach((to: ToRouteType, _from, next) => {
   }
   if (Cookies.get(multipleTabsKey) && userInfo) {
     // 无权限跳转403页面
-    if (to.meta?.roles && !isOneOfArray(to.meta?.roles, userInfo?.roles)) {
+    const routeAuths = to.meta?.auths as string[] | undefined;
+    const hasRoutePermission = Array.isArray(routeAuths) && routeAuths.length
+      ? routeAuths.some(permission => userInfo?.permissions?.includes(permission))
+      : !to.meta?.roles || isOneOfArray(to.meta?.roles, userInfo?.roles);
+    if (!hasRoutePermission) {
       return next({ path: "/access-denied" });
     }
     // 开启隐藏首页后在浏览器地址栏手动输入首页welcome路由则跳转到404页面

@@ -53,6 +53,28 @@ def require_permission(permission: str):
     return dependency
 
 
+def require_any_permission(*permissions: str):
+    """Authorize a route with one of several equivalent capabilities.
+
+    This is used for compatibility boundaries such as ordinary staff
+    management: business operators use ``staff:manage`` while the existing
+    technical IAM administrators may still enter through ``iam:manage``.
+    The selected permission is stored for scope resolution so downstream
+    services do not union unrelated role scopes.
+    """
+
+    accepted = tuple(dict.fromkeys(str(item).strip() for item in permissions if str(item).strip()))
+
+    async def dependency(user: dict = Depends(current_user)) -> dict:
+        granted = next((permission for permission in accepted if permission in user["permissions"]), None)
+        if not granted:
+            raise HTTPException(403, "无此操作权限")
+        set_request_permission(granted)
+        return user
+
+    return dependency
+
+
 @router.post("/auth/login")
 def login(payload: LoginPayload) -> dict:
     tokens = authenticate(payload.username, payload.password)

@@ -7,7 +7,7 @@ from typing import Literal
 from pymysql.err import IntegrityError as MySQLIntegrityError
 from pydantic import BaseModel, Field
 
-from app.api.auth import require_permission
+from app.api.auth import require_any_permission, require_permission
 from app.services.staff_management import (
     authorization_migration_preview,
     create_staff,
@@ -98,8 +98,11 @@ def _call(function, *args, **kwargs):
         raise HTTPException(400, detail) from exc
 
 
+STAFF_MANAGEMENT_PERMISSION = require_any_permission("staff:manage", "iam:manage")
+
+
 @router.get("/catalog")
-def catalog(actor: dict = Depends(require_permission("iam:manage"))) -> dict:
+def catalog(actor: dict = Depends(STAFF_MANAGEMENT_PERMISSION)) -> dict:
     return {"success": True, "data": _call(staff_catalog, actor["id"])}
 
 
@@ -111,7 +114,7 @@ def staff_list(
     role_key: str | None = Query(default=None),
     is_active: bool | None = Query(default=None),
     query: str | None = Query(default=None, max_length=128),
-    actor: dict = Depends(require_permission("iam:manage")),
+    actor: dict = Depends(STAFF_MANAGEMENT_PERMISSION),
 ) -> dict:
     return {
         "success": True,
@@ -129,12 +132,12 @@ def staff_list(
 
 
 @router.get("/staff/{user_id}")
-def staff_detail(user_id: int, actor: dict = Depends(require_permission("iam:manage"))) -> dict:
+def staff_detail(user_id: int, actor: dict = Depends(STAFF_MANAGEMENT_PERMISSION)) -> dict:
     return {"success": True, "data": _call(get_staff, actor["id"], user_id)}
 
 
 @router.post("/staff")
-def create(payload: StaffCreatePayload, actor: dict = Depends(require_permission("iam:manage"))) -> dict:
+def create(payload: StaffCreatePayload, actor: dict = Depends(STAFF_MANAGEMENT_PERMISSION)) -> dict:
     values = payload.model_dump(exclude_unset=True)
     if payload.grants is not None:
         values["grants"] = [item.model_dump(exclude_unset=True) for item in payload.grants]
@@ -152,7 +155,7 @@ def create(payload: StaffCreatePayload, actor: dict = Depends(require_permission
 def change_preview(
     user_id: int,
     payload: StaffUpdatePayload,
-    actor: dict = Depends(require_permission("iam:manage")),
+    actor: dict = Depends(STAFF_MANAGEMENT_PERMISSION),
 ) -> dict:
     values = payload.model_dump(exclude_unset=True)
     if payload.grants is not None:
@@ -167,7 +170,7 @@ def change_preview(
 def update(
     user_id: int,
     payload: StaffUpdatePayload,
-    actor: dict = Depends(require_permission("iam:manage")),
+    actor: dict = Depends(STAFF_MANAGEMENT_PERMISSION),
 ) -> dict:
     values = payload.model_dump(exclude_unset=True)
     if payload.grants is not None:

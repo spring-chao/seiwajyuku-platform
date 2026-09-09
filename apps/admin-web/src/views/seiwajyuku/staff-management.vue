@@ -92,15 +92,15 @@ const institutions = computed(() => catalog.value?.institutions || []);
 const departments = computed(() => catalog.value?.departments || []);
 const supervisors = computed(() => catalog.value?.supervisors || []);
 
-const orgTree = computed(() => {
+function buildOrgTree(units: StaffCatalog["org_units"]) {
   const byId = new Map(
-    (catalog.value?.org_units || []).map(unit => [
+    units.map(unit => [
       unit.id,
       { id: unit.id, label: unit.name, children: [] as any[] }
     ])
   );
   const roots: Array<{ id: string; label: string; children: any[] }> = [];
-  for (const unit of catalog.value?.org_units || []) {
+  for (const unit of units) {
     const node = byId.get(unit.id);
     if (!node) continue;
     const parent = unit.parent_id ? byId.get(unit.parent_id) : undefined;
@@ -108,7 +108,36 @@ const orgTree = computed(() => {
     else roots.push(node);
   }
   return roots;
+}
+
+const orgTree = computed(() => buildOrgTree(catalog.value?.org_units || []));
+const selectedInstitution = computed(() =>
+  institutions.value.find(item => item.id === form.institution_id)
+);
+const scopedOrgUnits = computed(() => {
+  const rootId = selectedInstitution.value?.scope_root_org_unit_id;
+  if (!rootId) return [];
+  const units = catalog.value?.org_units || [];
+  const included = new Set<string>([rootId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const unit of units) {
+      if (unit.parent_id && included.has(unit.parent_id) && !included.has(unit.id)) {
+        included.add(unit.id);
+        changed = true;
+      }
+    }
+  }
+  return units.filter(unit => included.has(unit.id));
 });
+const scopeOrgTree = computed(() => buildOrgTree(scopedOrgUnits.value));
+
+function handleInstitutionChange() {
+  const institution = selectedInstitution.value;
+  form.responsibility_org_unit_id = institution?.scope_root_org_unit_id || "";
+  form.responsibility_scope_type = "SUBTREE";
+}
 
 function errorText(error: any, fallback = "操作失败，请稍后重试") {
   const status = error?.response?.status;
@@ -237,8 +266,13 @@ function validateForm() {
     return "登录账号至少填写 3 个字符";
   }
   if (!form.institution_id) return "请选择所属机构";
+  if (selectedInstitution.value && !selectedInstitution.value.scope_available) {
+    return "该机构尚未配置正式组织树，暂不能新增专职人员";
+  }
   if (!form.position_keys.length) return "请选择岗位";
-  if (!form.responsibility_org_unit_id) return "请选择负责范围";
+  if (!form.responsibility_org_unit_id || !scopedOrgUnits.value.some(unit => unit.id === form.responsibility_org_unit_id)) {
+    return "请选择所属机构对应的负责范围";
+  }
   if (
     !isEditing.value &&
     form.custom_password &&
@@ -442,9 +476,9 @@ onMounted(() => {
           <el-form-item label="性别" required><el-select v-model="form.gender" placeholder="请选择"><el-option label="男" value="MALE" /><el-option label="女" value="FEMALE" /></el-select></el-form-item>
           <el-form-item label="手机号" required><el-input v-model="form.phone" maxlength="32" :placeholder="isEditing && form.phone_hint ? `当前 ${form.phone_hint}；填写新号码即可修改` : '请输入手机号'" /></el-form-item>
           <el-form-item label="登录账号" required><el-input v-model="form.login_account" maxlength="128" :placeholder="isEditing ? `留空保持 ${form.account_hint}` : '独立账号，不必等于手机号'" /></el-form-item>
-          <el-form-item label="所属机构" required><el-select v-model="form.institution_id" filterable placeholder="请选择"><el-option v-for="item in institutions" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item>
-          <el-form-item label="岗位" required><el-select v-model="form.position_keys" multiple collapse-tags filterable placeholder="请选择岗位"><el-option v-for="position in positions" :key="position.position_key" :label="position.position_name" :value="position.position_key" /></el-select></el-form-item>
-          <el-form-item label="负责范围" required class="wide"><div class="scope-fields"><el-tree-select v-model="form.responsibility_org_unit_id" :data="orgTree" :props="{ label: 'label', children: 'children' }" node-key="id" check-strictly filterable placeholder="选择负责组织" /><el-select v-model="form.responsibility_scope_type"><el-option label="含下级" value="SUBTREE" /><el-option label="仅本级" value="UNIT" /></el-select></div></el-form-item>
+          <el-form-item label="所属机构" required><el-select v-model="form.institution_id" filterable placeholder="请选择" @change="handleInstitutionChange"><el-option v-for="item in institutions" :key="item.id" :label="item.name" :value="item.id"><span>{{ item.name }}</span><small v-if="!item.scope_available" class="option-note">组织树待配置</small></el-option></el-select></el-form-item>
+          <el-form-item label="岗位" required><el-select v-model="form.position_keys" multiple collapse-tags filterable placeholder="请选择岗位"><el-option v-for="position in positions" :key="position.position_key" :label="position.position_name" :value="position.position_key"><div class="position-option"><span>{{ position.position_name }}</span><small>{{ position.duty_description }}</small></div></el-option></el-select></el-form-item>
+          <el-form-item label="负责范围" required class="wide"><el-alert v-if="form.institution_id && selectedInstitution && !selectedInstitution.scope_available" title="该机构的组织根节点尚未配置，暂不能建立负责范围。请先补齐组织主数据。" type="warning" :closable="false" show-icon /><div v-else class="scope-fields"><el-tree-select v-model="form.responsibility_org_unit_id" :data="scopeOrgTree" :props="{ label: 'label', children: 'children' }" node-key="id" check-strictly filterable placeholder="选择负责组织" /><el-select v-model="form.responsibility_scope_type"><el-option label="含下级" value="SUBTREE" /><el-option label="仅本级" value="UNIT" /></el-select></div></el-form-item>
         </div>
 
         <el-collapse v-model="moreSections">
@@ -479,6 +513,9 @@ onMounted(() => {
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
 .form-grid .wide { grid-column: 1 / -1; }
 .scope-fields { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 10px; width: 100%; }
+.position-option { display: flex; flex-direction: column; gap: 2px; line-height: 1.25; }
+.position-option small, .option-note { color: #86909c; font-size: 12px; }
+.option-note { float: right; margin-left: 12px; }
 .more-grid { padding-top: 18px; }
 @media (max-width: 720px) { .page-head { align-items: flex-start; flex-direction: column; } .form-grid, .scope-fields { grid-template-columns: 1fr; } .form-grid .wide { grid-column: auto; } }
 </style>
