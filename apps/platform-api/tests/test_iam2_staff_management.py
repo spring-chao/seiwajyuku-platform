@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -239,6 +240,89 @@ class IAM2StaffManagementTests(unittest.TestCase):
             },
         )
         self.assertEqual(unspecified_gender.status_code, 422, unspecified_gender.text)
+
+    def test_staff_create_rejects_missing_role_catalog_before_any_write(self) -> None:
+        role_key = "employee_learning_management"
+        prior = fetch_one("SELECT is_active FROM roles WHERE role_key=?", (role_key,))
+        self.assertIsNotNone(prior)
+        account = f"missing-role-{uuid4().hex[:12]}"
+        phone = f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}"
+        try:
+            with transaction() as connection:
+                execute(
+                    connection,
+                    "UPDATE roles SET is_active=0 WHERE role_key=?",
+                    (role_key,),
+                )
+            response = self.client.post(
+                "/api/v1/staff-management/staff",
+                headers=self.admin_headers,
+                json={
+                    "name": "角色目录缺失测试",
+                    "gender": "MALE",
+                    "phone": phone,
+                    "login_account": account,
+                    "institution_id": "institution-suzhou-operations",
+                    "position_keys": ["ops_center_learning"],
+                    "responsibility_org_unit_id": self.center_a,
+                    "responsibility_scope_type": "UNIT",
+                },
+            )
+            self.assertEqual(response.status_code, 400, response.text)
+            self.assertIn("岗位权限尚未配置", response.json()["detail"])
+            self.assertIsNone(
+                fetch_one("SELECT id FROM app_users WHERE username=?", (account,))
+            )
+            self.assertEqual(
+                fetch_one(
+                    "SELECT COUNT(*) AS n FROM operations_employments "
+                    "WHERE person_id IN (SELECT person_id FROM account_person_links "
+                    "WHERE user_id IN (SELECT id FROM app_users WHERE username=?))",
+                    (account,),
+                )["n"],
+                0,
+            )
+        finally:
+            with transaction() as connection:
+                execute(
+                    connection,
+                    "UPDATE roles SET is_active=? WHERE role_key=?",
+                    (prior["is_active"], role_key),
+                )
+
+    def test_staff_create_integrity_failure_returns_400_and_rolls_back(self) -> None:
+        account = f"integrity-rollback-{uuid4().hex[:12]}"
+        phone = f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}"
+        with patch(
+            "app.services.staff_management._insert_grants",
+            side_effect=sqlite3.IntegrityError("FOREIGN KEY constraint failed"),
+        ):
+            response = self.client.post(
+                "/api/v1/staff-management/staff",
+                headers=self.admin_headers,
+                json={
+                    "name": "完整性回滚测试",
+                    "gender": "FEMALE",
+                    "phone": phone,
+                    "login_account": account,
+                    "institution_id": "institution-suzhou-operations",
+                    "position_keys": ["ops_center_learning"],
+                    "responsibility_org_unit_id": self.center_a,
+                    "responsibility_scope_type": "UNIT",
+                },
+            )
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("岗位、机构或人员关联数据无效", response.json()["detail"])
+        self.assertIsNone(
+            fetch_one("SELECT id FROM app_users WHERE username=?", (account,))
+        )
+        self.assertEqual(
+            fetch_one(
+                "SELECT COUNT(*) AS n FROM person_profiles "
+                "WHERE display_name='完整性回滚测试'"
+            )["n"],
+            0,
+        )
 
     def test_password_reset_accepts_six_without_business_reason(self) -> None:
         user_id, _, _ = self._create_staff(
@@ -698,6 +782,38 @@ class IAM2MigrationParityTests(unittest.TestCase):
                 self.assertNotIn(";", comment)
         self.assertIn("employee_authorization_grants", mysql_rollback)
         self.assertIn("operations_employments", mysql_rollback)
+
+    def test_0054_seeds_assignable_employee_roles_and_permissions(self) -> None:
+        expected_roles = {
+            "employee_operations_lead",
+            "employee_operations_management",
+            "employee_member_management",
+            "employee_learning_management",
+            "employee_development_management",
+            "employee_renewal_management",
+            "employee_finance_management",
+            "employee_data_management",
+            "employee_administration_management",
+            "read_only",
+        }
+        temporary, connection = self._fresh_connection()
+        try:
+            role_rows = connection.execute(
+                "SELECT role_key, is_active FROM roles WHERE role_key IN (%s)"
+                % ",".join("?" for _ in expected_roles),
+                tuple(sorted(expected_roles)),
+            ).fetchall()
+            self.assertEqual({row[0] for row in role_rows}, expected_roles)
+            self.assertTrue(all(row[1] == 1 for row in role_rows))
+            permission_count = connection.execute(
+                "SELECT COUNT(*) FROM role_permissions WHERE role_key IN (%s)"
+                % ",".join("?" for _ in expected_roles),
+                tuple(sorted(expected_roles)),
+            ).fetchone()[0]
+            self.assertGreaterEqual(permission_count, 60)
+        finally:
+            connection.close()
+            temporary.cleanup()
 
 
 if __name__ == "__main__":

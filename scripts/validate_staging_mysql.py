@@ -5,9 +5,10 @@ import os
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from app.core.settings import get_settings
-from app.db import execute, fetch_all, transaction
+from app.db import execute, fetch_all, fetch_one, transaction
 from app.migrations import run_migrations
 from app.services.attendance_scoring import recalculate_event_group
 from app.services.attendance_sync import sync_from_signin
@@ -22,6 +23,7 @@ from app.services.renewals import (
     list_assignees as list_renewal_assignees,
     update_cycle,
 )
+from app.services.staff_management import create_staff
 
 from backfill_member_org_relations import apply_candidates, build_candidates
 
@@ -49,6 +51,8 @@ def _seed_fixture() -> None:
             "VALUES (1, 'staging-operator', 'Staging Operator', 'not-used', ?, ?)",
             (now, now),
         )
+
+
         execute(
             connection,
             "INSERT INTO app_users"
@@ -106,6 +110,97 @@ def _seed_fixture() -> None:
             "'Unknown Class', 'Unknown Group', ?, ?)",
             (now, now),
         )
+
+
+IAM2_EMPLOYEE_ROLE_KEYS = {
+    "employee_operations_lead",
+    "employee_operations_management",
+    "employee_member_management",
+    "employee_learning_management",
+    "employee_development_management",
+    "employee_renewal_management",
+    "employee_finance_management",
+    "employee_data_management",
+    "employee_administration_management",
+    "read_only",
+}
+
+
+def _assert_iam2_role_catalog() -> None:
+    rows = fetch_all(
+        "SELECT role_key, is_active FROM roles WHERE role_key IN ("
+        + ",".join("?" for _ in IAM2_EMPLOYEE_ROLE_KEYS)
+        + ")",
+        tuple(sorted(IAM2_EMPLOYEE_ROLE_KEYS)),
+    )
+    found = {row["role_key"] for row in rows if int(row["is_active"]) == 1}
+    if found != IAM2_EMPLOYEE_ROLE_KEYS:
+        raise AssertionError(
+            {"missing_or_inactive_iam2_roles": sorted(IAM2_EMPLOYEE_ROLE_KEYS - found)}
+        )
+    permission_count = fetch_one(
+        "SELECT COUNT(*) AS total FROM role_permissions WHERE role_key IN ("
+        + ",".join("?" for _ in IAM2_EMPLOYEE_ROLE_KEYS)
+        + ")",
+        tuple(sorted(IAM2_EMPLOYEE_ROLE_KEYS)),
+    )["total"]
+    if int(permission_count) < 60:
+        raise AssertionError({"iam2_role_permission_count": permission_count})
+
+
+def _run_iam2_staff_validation() -> dict[str, object]:
+    suffix = uuid4().hex[:12]
+    account = f"mysql-iam2-{suffix}"
+    phone = f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}"
+    created = create_staff(
+        actor_user_id=1,
+        name="MySQL IAM2 专职验证",
+        login_account=account,
+        temporary_password="abc123",
+        is_active=True,
+        phone=phone,
+        gender="MALE",
+        institution_id="institution-suzhou-operations",
+        department_name="MySQL staging",
+        supervisor_user_id=None,
+        position_keys=["ops_center_learning"],
+        employment_status="ACTIVE",
+        started_on=None,
+        ended_on=None,
+        grants=None,
+        responsibility_org_unit_id="r1",
+        responsibility_scope_type="SUBTREE",
+    )
+    user_id = int(created["id"])
+    employment_id = int(created["employment_id"])
+    grant = fetch_one(
+        "SELECT role_key, org_unit_id, scope_type FROM employee_authorization_grants "
+        "WHERE employment_id=?",
+        (employment_id,),
+    )
+    if grant != {
+        "role_key": "employee_learning_management",
+        "org_unit_id": "r1",
+        "scope_type": "SUBTREE",
+    }:
+        raise AssertionError({"iam2_staff_grant": grant})
+
+    with transaction() as connection:
+        person = execute(
+            connection,
+            "SELECT person_id FROM operations_employments WHERE id=?",
+            (employment_id,),
+        ).fetchone()
+        person_id = person["person_id"]
+        execute(connection, "DELETE FROM operations_employments WHERE id=?", (employment_id,))
+        execute(connection, "DELETE FROM employee_profile_details WHERE person_id=?", (person_id,))
+        execute(connection, "DELETE FROM person_profiles WHERE id=?", (person_id,))
+        execute(connection, "DELETE FROM app_users WHERE id=?", (user_id,))
+    return {
+        "created_and_cleaned": True,
+        "role_key": grant["role_key"],
+        "scope_type": grant["scope_type"],
+    }
 
 
 class _Response:
@@ -520,6 +615,7 @@ def _run_followup_invitation_validation() -> dict:
 def main() -> int:
     _assert_safe_target()
     applied_migrations = run_migrations()
+    _assert_iam2_role_catalog()
     _seed_fixture()
     seed_iam()
 
@@ -546,6 +642,7 @@ def main() -> int:
             "inserted": inserted,
             "repeated_inserted": repeated,
         },
+        "iam2_staff_management": _run_iam2_staff_validation(),
         "attendance": _run_attendance_validation(),
         "identity_authorization": _run_identity_validation(),
         "renewals": _run_renewal_validation(),

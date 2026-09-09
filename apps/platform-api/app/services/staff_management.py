@@ -215,6 +215,23 @@ def _normalize_grants(
         )
     if not normalized and not allow_empty:
         raise ValueError("至少配置一条角色与管辖范围授权")
+    role_keys = sorted({grant["role_key"] for grant in normalized})
+    placeholders = ", ".join("?" for _ in role_keys)
+    available_rows = execute(
+        connection,
+        f"SELECT role_key FROM roles WHERE role_key IN ({placeholders}) AND is_active=1",
+        tuple(role_keys),
+    ).fetchall()
+    available = {
+        row["role_key"] if isinstance(row, dict) else row["role_key"]
+        for row in available_rows
+    }
+    missing = [role_key for role_key in role_keys if role_key not in available]
+    if missing:
+        names = "、".join(ROLE_NAMES.get(role_key, role_key) for role_key in missing)
+        raise ValueError(
+            f"岗位权限尚未配置：{names}，请联系管理员完成 IAM2 角色初始化"
+        )
     return normalized
 
 

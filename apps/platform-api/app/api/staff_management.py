@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Literal
 
+from pymysql.err import IntegrityError as MySQLIntegrityError
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_permission
@@ -85,6 +87,15 @@ def _call(function, *args, **kwargs):
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    except (sqlite3.IntegrityError, MySQLIntegrityError) as exc:
+        message = str(exc).lower()
+        if "duplicate" in message or "unique" in message:
+            detail = "账号或手机号已存在，请核对后重试"
+        elif "foreign key" in message:
+            detail = "岗位、机构或人员关联数据无效，请重新选择"
+        else:
+            detail = "专职人员数据保存失败，请联系管理员"
+        raise HTTPException(400, detail) from exc
 
 
 @router.get("/catalog")
