@@ -45,7 +45,6 @@ import {
   getVolunteerAppointments,
   getVolunteerMemberEditorCatalog,
   type VolunteerAppointment,
-  type VolunteerMemberEditorServiceUnit,
   type VolunteerPositionOption
 } from "@/api/volunteerManagement";
 
@@ -73,13 +72,13 @@ const editingMemberId = ref<number>();
 const volunteerAppointmentsLoading = ref(false);
 const volunteerHistoryExpanded = ref<string[]>([]);
 const memberVolunteerV2Appointments = ref<VolunteerAppointment[]>([]);
-const volunteerEditorUnits = ref<VolunteerMemberEditorServiceUnit[]>([]);
+const volunteerEditorCatalogPositions = ref<VolunteerPositionOption[]>([]);
 const volunteerEditorSaving = ref(false);
 const volunteerEditorForm = reactive({
   volunteer_type: "CLASS_TEAM" as "CLASS_TEAM" | "LINE",
   position_key: "",
   class_org_unit_id: "",
-  service_unit_id: ""
+  service_target_org_unit_id: ""
 });
 const preflightVisible = ref(false);
 const preflightLoading = ref(false);
@@ -124,9 +123,10 @@ const canApplyMemberRosterImport = computed(() => {
   const result = memberRosterImportResult.value;
   return Boolean(
     result &&
-      result.matching.existing_member_count + result.matching.new_member_count > 0 &&
-      (!result.sensitive.requires_enterprise_permission ||
-        result.sensitive.enterprise_financial_write_allowed)
+    result.matching.existing_member_count + result.matching.new_member_count >
+      0 &&
+    (!result.sensitive.requires_enterprise_permission ||
+      result.sensitive.enterprise_financial_write_allowed)
   );
 });
 const canApplyFullOrgImport = computed(() => {
@@ -170,10 +170,28 @@ const canApplyFullOrgImport = computed(() => {
 const canApplyFullRelations = computed(() => {
   const result = fullPreflightResult.value;
   if (!result) return false;
-  const classes = Object.fromEntries(result.organization.class_action_summary.map(item => [item.action, item.count]));
-  const groups = Object.fromEntries(result.organization.group_action_summary.map(item => [item.action, item.count]));
-  const matching = Object.fromEntries(result.matching.summary.map(item => [item.status, item.count]));
-  return classes.REUSE === 24 && groups.REUSE === 123 && matching.UNIQUE_ACTIVE_MATCH === 722 && matching.NO_PRODUCTION_MATCH === 84 && matching.MANUAL_REVIEW === 28;
+  const classes = Object.fromEntries(
+    result.organization.class_action_summary.map(item => [
+      item.action,
+      item.count
+    ])
+  );
+  const groups = Object.fromEntries(
+    result.organization.group_action_summary.map(item => [
+      item.action,
+      item.count
+    ])
+  );
+  const matching = Object.fromEntries(
+    result.matching.summary.map(item => [item.status, item.count])
+  );
+  return (
+    classes.REUSE === 24 &&
+    groups.REUSE === 123 &&
+    matching.UNIQUE_ACTIVE_MATCH === 722 &&
+    matching.NO_PRODUCTION_MATCH === 84 &&
+    matching.MANUAL_REVIEW === 28
+  );
 });
 const orgs = ref<OrgUnit[]>([]);
 const formRef = ref<FormInstance>();
@@ -192,22 +210,19 @@ const currentVolunteerV2Appointments = computed(() =>
 const historicalVolunteerV2Appointments = computed(() =>
   memberVolunteerV2Appointments.value.filter(item => item.status !== "ACTIVE")
 );
-const volunteerTypeUnits = computed(() =>
-  volunteerEditorUnits.value.filter(unit =>
-    volunteerEditorForm.volunteer_type === "CLASS_TEAM"
-      ? unit.system_type === "CLASS_TEAM"
-      : ["GOVERNANCE", "COMMITTEE_LINE"].includes(unit.system_type)
-  )
+const volunteerEditorPositions = computed(() =>
+  volunteerEditorCatalogPositions.value
+    .filter(position =>
+      volunteerEditorForm.volunteer_type === "CLASS_TEAM"
+        ? position.system_type === "CLASS_TEAM"
+        : ["GOVERNANCE", "COMMITTEE_LINE"].includes(position.system_type)
+    )
+    .sort((left, right) =>
+      left.sort_order !== right.sort_order
+        ? left.sort_order - right.sort_order
+        : left.position_name.localeCompare(right.position_name, "zh-CN")
+    )
 );
-const volunteerEditorPositions = computed(() => {
-  const byKey = new Map<string, VolunteerPositionOption>();
-  volunteerTypeUnits.value.forEach(unit =>
-    unit.positions.forEach(position => byKey.set(position.position_key, position))
-  );
-  return [...byKey.values()].sort(
-    (left, right) => left.position_name.localeCompare(right.position_name, "zh-CN")
-  );
-});
 const selectedVolunteerEditorPosition = computed(() =>
   volunteerEditorPositions.value.find(
     item => item.position_key === volunteerEditorForm.position_key
@@ -230,27 +245,33 @@ const volunteerPositionGroups = computed(() => {
 const selectedVolunteerScopeLevel = computed(
   () => selectedVolunteerEditorPosition.value?.scope_level || ""
 );
-const volunteerServiceUnitOptions = computed(() => {
-  let units = volunteerTypeUnits.value.filter(unit =>
-    unit.positions.some(
-      position => position.position_key === volunteerEditorForm.position_key
-    )
-  );
-  if (selectedVolunteerScopeLevel.value === "GROUP") {
-    units = units.filter(unit => {
-      const target = orgs.value.find(
-        org => org.id === unit.service_target_org_unit_id
+const volunteerServiceTargetOptions = computed(() => {
+  const allowedTypes: Record<string, string[]> = {
+    ROOT: ["ROOT"],
+    REGIONAL_CENTER: ["REGIONAL_CENTER"],
+    CLASS: ["CLASS", "SPECIAL_COHORT"],
+    GROUP: ["GROUP"]
+  };
+  const allowed = allowedTypes[selectedVolunteerScopeLevel.value] || [];
+  return orgs.value
+    .filter(org => {
+      if (!allowed.includes(org.unit_type)) return false;
+      return (
+        selectedVolunteerScopeLevel.value !== "GROUP" ||
+        org.parent_id === volunteerEditorForm.class_org_unit_id
       );
-      return target?.parent_id === volunteerEditorForm.class_org_unit_id;
-    });
-  }
-  return units.sort((left, right) =>
-    (left.service_target_name || left.name).localeCompare(
-      right.service_target_name || right.name,
-      "zh-CN"
-    )
-  );
+    })
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 });
+const volunteerServiceTargetPlaceholder = computed(
+  () =>
+    ({
+      ROOT: "服务塾",
+      REGIONAL_CENTER: "服务分中心",
+      CLASS: "服务班级",
+      GROUP: "服务小组"
+    })[selectedVolunteerScopeLevel.value] || "服务组织"
+);
 const volunteerClassOptions = computed(() =>
   orgs.value
     .filter(org => ["CLASS", "SPECIAL_COHORT"].includes(org.unit_type))
@@ -330,7 +351,9 @@ const classOrgs = computed(() => {
   return [...byName.values()]
     .map(values => {
       const current = values.find(item => item.id === selectedId);
-      return current || values.find(item => item.is_name_canonical) || values[0];
+      return (
+        current || values.find(item => item.is_name_canonical) || values[0]
+      );
     })
     .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 });
@@ -344,9 +367,7 @@ const classOptions = computed(() => {
     form.class_org_unit_id &&
     !options.some(item => item.id === form.class_org_unit_id)
   ) {
-    const current = orgs.value.find(
-      item => item.id === form.class_org_unit_id
-    );
+    const current = orgs.value.find(item => item.id === form.class_org_unit_id);
     const name = current?.name || editClassOrgName.value || "原班级名称缺失";
     options.push({
       id: form.class_org_unit_id,
@@ -363,7 +384,8 @@ const classOptions = computed(() => {
 });
 const groupOrgs = computed(() =>
   orgs.value.filter(
-    item => item.unit_type === "GROUP" && item.parent_id === form.class_org_unit_id
+    item =>
+      item.unit_type === "GROUP" && item.parent_id === form.class_org_unit_id
   )
 );
 const groupOptions = computed(() => {
@@ -453,9 +475,9 @@ const showLegacyVolunteerHint = computed(() => {
   const historical = form.class_committee_name.trim();
   return Boolean(
     historical &&
-      !currentVolunteerV2Appointments.value.some(
-        appointment => appointment.position_name === historical
-      )
+    !currentVolunteerV2Appointments.value.some(
+      appointment => appointment.position_name === historical
+    )
   );
 });
 const memberStatusLabel = (status: string) =>
@@ -625,7 +647,8 @@ async function openEdit(row: any) {
       current_volunteer_position_key: data.current_volunteer_needs_manual_review
         ? null
         : data.current_volunteer_position_key || null,
-      current_volunteer_position_name: data.current_volunteer_position_name || "",
+      current_volunteer_position_name:
+        data.current_volunteer_position_name || "",
       current_volunteer_scope_level: data.current_volunteer_scope_level || "",
       current_volunteer_scope_org_unit_id:
         data.current_volunteer_scope_org_unit_id || "",
@@ -633,7 +656,8 @@ async function openEdit(row: any) {
       current_volunteer_needs_manual_review: Boolean(
         data.current_volunteer_needs_manual_review
       ),
-      current_volunteer_review_message: data.current_volunteer_review_message || "",
+      current_volunteer_review_message:
+        data.current_volunteer_review_message || "",
       birthday: data.birthday || "",
       join_date: data.join_date || "",
       study_start_date: data.study_start_date || "",
@@ -745,24 +769,30 @@ function parseHistoryValue(value: string) {
 }
 
 function historyLabel(key: string) {
-  return ({
-    name: "姓名",
-    org_unit_id: "所属分中心",
-    development_org_unit_id: "发展归属",
-    status: "状态",
-    phone_masked: "手机号（脱敏）",
-    company_name: "公司名称",
-    class_committee_name: "志工岗位",
-    notes: "备注",
-    class_name: "班级",
-    group_name: "小组"
-  } as Record<string, string>)[key] ?? key;
+  return (
+    (
+      {
+        name: "姓名",
+        org_unit_id: "所属分中心",
+        development_org_unit_id: "发展归属",
+        status: "状态",
+        phone_masked: "手机号（脱敏）",
+        company_name: "公司名称",
+        class_committee_name: "志工岗位",
+        notes: "备注",
+        class_name: "班级",
+        group_name: "小组"
+      } as Record<string, string>
+    )[key] ?? key
+  );
 }
 
 function historyValue(key: string, value: unknown) {
   if (value === null || value === undefined || value === "") return "无";
   if (key.endsWith("org_unit_id")) {
-    return orgs.value.find(item => item.id === String(value))?.name ?? String(value);
+    return (
+      orgs.value.find(item => item.id === String(value))?.name ?? String(value)
+    );
   }
   if (key === "status") return memberStatusLabel(String(value));
   return String(value);
@@ -784,73 +814,103 @@ function historySummary(item: any) {
     "group_name"
   ];
   const changes = keys
-    .filter(key => JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null))
-    .map(key => `${historyLabel(key)}：${historyValue(key, before[key])} → ${historyValue(key, after[key])}`);
+    .filter(
+      key =>
+        JSON.stringify(before[key] ?? null) !==
+        JSON.stringify(after[key] ?? null)
+    )
+    .map(
+      key =>
+        `${historyLabel(key)}：${historyValue(key, before[key])} → ${historyValue(key, after[key])}`
+    );
   return changes.length ? changes.join("；") : "已记录变更（字段无差异）";
 }
 
 function historyTypeLabel(type: string) {
-  return ({ PROFILE_UPDATE: "档案更新", MERGE: "档案合并" } as Record<string, string>)[type] ?? type;
+  return (
+    (
+      { PROFILE_UPDATE: "档案更新", MERGE: "档案合并" } as Record<
+        string,
+        string
+      >
+    )[type] ?? type
+  );
 }
 
 function timelineTypeLabel(type: string) {
-  return ({
-    PROFILE_CHANGE: "档案变更",
-    ATTENDANCE: "签到记录",
-    LEARNING_ACTIVITY: "学习活动",
-    FOLLOWUP_TASK: "关怀事项",
-    FOLLOWUP_RECORD: "关怀记录",
-    ENTERPRISE_VISIT: "企业走访",
-    RENEWAL_CYCLE: "续费周期",
-    RENEWAL_FOLLOWUP: "续费跟进"
-  } as Record<string, string>)[type] ?? type;
+  return (
+    (
+      {
+        PROFILE_CHANGE: "档案变更",
+        ATTENDANCE: "签到记录",
+        LEARNING_ACTIVITY: "学习活动",
+        FOLLOWUP_TASK: "关怀事项",
+        FOLLOWUP_RECORD: "关怀记录",
+        ENTERPRISE_VISIT: "企业走访",
+        RENEWAL_CYCLE: "续费周期",
+        RENEWAL_FOLLOWUP: "续费跟进"
+      } as Record<string, string>
+    )[type] ?? type
+  );
 }
 
 function timelineStatusLabel(status?: string) {
   if (!status) return "—";
-  return ({
-    PRESENT: "已签到",
-    MANUAL_PRESENT: "人工确认签到",
-    ABSENT: "未签到",
-    COMPLETED: "已完成",
-    RECORDED: "已记录",
-    LEAVE: "请假",
-    OPEN: "开放",
-    IN_PROGRESS: "进行中",
-    CLOSED: "已关闭",
-    PENDING_FIRST_CONTACT: "待首次联系",
-    RENEWED: "已续费",
-    NOT_RENEWING: "不续费",
-    EXITED: "已退出",
-    PROFILE_UPDATE: "档案更新",
-    已记录: "已记录"
-  } as Record<string, string>)[status] ?? status;
+  return (
+    (
+      {
+        PRESENT: "已签到",
+        MANUAL_PRESENT: "人工确认签到",
+        ABSENT: "未签到",
+        COMPLETED: "已完成",
+        RECORDED: "已记录",
+        LEAVE: "请假",
+        OPEN: "开放",
+        IN_PROGRESS: "进行中",
+        CLOSED: "已关闭",
+        PENDING_FIRST_CONTACT: "待首次联系",
+        RENEWED: "已续费",
+        NOT_RENEWING: "不续费",
+        EXITED: "已退出",
+        PROFILE_UPDATE: "档案更新",
+        已记录: "已记录"
+      } as Record<string, string>
+    )[status] ?? status
+  );
 }
 
 function timelineSummaryLabel(type: string) {
-  return ({
-    PROFILE_CHANGE: "档案变更",
-    ATTENDANCE: "签到记录",
-    LEARNING_ACTIVITY: "学习活动",
-    FOLLOWUP_TASK: "关怀事项",
-    FOLLOWUP_RECORD: "关怀记录",
-    ENTERPRISE_VISIT: "企业走访",
-    RENEWAL_CYCLE: "续费周期",
-    RENEWAL_FOLLOWUP: "续费跟进"
-  } as Record<string, string>)[type] ?? type;
+  return (
+    (
+      {
+        PROFILE_CHANGE: "档案变更",
+        ATTENDANCE: "签到记录",
+        LEARNING_ACTIVITY: "学习活动",
+        FOLLOWUP_TASK: "关怀事项",
+        FOLLOWUP_RECORD: "关怀记录",
+        ENTERPRISE_VISIT: "企业走访",
+        RENEWAL_CYCLE: "续费周期",
+        RENEWAL_FOLLOWUP: "续费跟进"
+      } as Record<string, string>
+    )[type] ?? type
+  );
 }
 
 function timelineChannelLabel(channel?: string) {
   if (!channel) return "—";
-  return ({
-    GROUP_SESSION: "小组学习会",
-    CLASS_SESSION: "班级学习会",
-    COURSE: "课程",
-    REPORT_MEETING: "报告会",
-    STUDY_TOUR: "游学",
-    READING_CHECKIN: "读书打卡",
-    READING_SHARE: "读书分享"
-  } as Record<string, string>)[channel] ?? channel;
+  return (
+    (
+      {
+        GROUP_SESSION: "小组学习会",
+        CLASS_SESSION: "班级学习会",
+        COURSE: "课程",
+        REPORT_MEETING: "报告会",
+        STUDY_TOUR: "游学",
+        READING_CHECKIN: "读书打卡",
+        READING_SHARE: "读书分享"
+      } as Record<string, string>
+    )[channel] ?? channel
+  );
 }
 
 function formatTimelineTime(value?: string) {
@@ -858,13 +918,17 @@ function formatTimelineTime(value?: string) {
   return value.replace("T", " ").replace("+00:00", "");
 }
 
-function serviceSignalFeedbackLabel(status?: MemberServiceSignalFeedbackStatus) {
+function serviceSignalFeedbackLabel(
+  status?: MemberServiceSignalFeedbackStatus
+) {
   if (!status) return "";
-  return ({
-    CONFIRMED_VALID: "已确认有效",
-    NOT_APPLICABLE: "已标记暂不适用",
-    DATA_CORRECTED: "已反馈数据修正"
-  } as Record<MemberServiceSignalFeedbackStatus, string>)[status];
+  return (
+    {
+      CONFIRMED_VALID: "已确认有效",
+      NOT_APPLICABLE: "已标记暂不适用",
+      DATA_CORRECTED: "已反馈数据修正"
+    } as Record<MemberServiceSignalFeedbackStatus, string>
+  )[status];
 }
 
 async function submitServiceSignalFeedback(
@@ -877,7 +941,11 @@ async function submitServiceSignalFeedback(
     await ElMessageBox.confirm(
       `确认将“${signal.title}”反馈为“${label}”？系统会保存当前规则版本和脱敏证据快照。`,
       "提交服务提示反馈",
-      { type: "warning", confirmButtonText: "确认提交", cancelButtonText: "取消" }
+      {
+        type: "warning",
+        confirmButtonText: "确认提交",
+        cancelButtonText: "取消"
+      }
     );
   } catch {
     return;
@@ -885,10 +953,14 @@ async function submitServiceSignalFeedback(
   const loadingKey = `${signal.code}:${status}`;
   serviceSignalFeedbackLoading.value = loadingKey;
   try {
-    await submitMemberServiceSignalFeedback(timeline.value.member.id, signal.code, {
-      rule_version: signal.rule_version,
-      status
-    });
+    await submitMemberServiceSignalFeedback(
+      timeline.value.member.id,
+      signal.code,
+      {
+        rule_version: signal.rule_version,
+        status
+      }
+    );
     timeline.value = (await getMemberTimeline(timeline.value.member.id)).data;
     ElMessage.success("服务提示反馈已保存并记录审计");
   } catch (error) {
@@ -913,7 +985,10 @@ async function openTimeline(row: any) {
 }
 
 function serviceSignalActionLabel(code: string) {
-  if (code === "CONTACT_INFO_REVIEW" || code === "STUDY_CLASS_RELATION_REVIEW") {
+  if (
+    code === "CONTACT_INFO_REVIEW" ||
+    code === "STUDY_CLASS_RELATION_REVIEW"
+  ) {
     return canManage.value ? "进入学员编辑" : "请联系学员维护人员";
   }
   if (code === "RENEWAL_DUE") {
@@ -924,7 +999,10 @@ function serviceSignalActionLabel(code: string) {
 
 async function openServiceSignalAction(signal: MemberServiceSignal) {
   if (!timeline.value) return;
-  if (signal.code === "CONTACT_INFO_REVIEW" || signal.code === "STUDY_CLASS_RELATION_REVIEW") {
+  if (
+    signal.code === "CONTACT_INFO_REVIEW" ||
+    signal.code === "STUDY_CLASS_RELATION_REVIEW"
+  ) {
     if (!canManage.value) return;
     const member = timeline.value.member;
     timelineVisible.value = false;
@@ -955,7 +1033,7 @@ async function openHistory(row: any) {
 
 async function submit() {
   if (editingMemberId.value && !editPhoneReady.value) {
-    ElMessage.error("手机号尚未读取完成，请稍后重试")
+    ElMessage.error("手机号尚未读取完成，请稍后重试");
     return;
   }
   if (!(await formRef.value?.validate())) return;
@@ -998,7 +1076,7 @@ async function submit() {
           : {}),
         ...(form.group_org_unit_id !== originalGroupOrgUnitId.value
           ? { group_org_unit_id: form.group_org_unit_id || null }
-          : {}),
+          : {})
       });
       ElMessage.success("学员档案已更新，变更已记录");
     } else {
@@ -1084,7 +1162,15 @@ function downloadMemberRosterManualReview() {
     return;
   }
   const lines = [
-    ["源表行号", "姓名", "手机号（脱敏）", "分中心", "班级", "小组", "复核原因"],
+    [
+      "源表行号",
+      "姓名",
+      "手机号（脱敏）",
+      "分中心",
+      "班级",
+      "小组",
+      "复核原因"
+    ],
     ...items.map(item => [
       item.source_row,
       item.name,
@@ -1143,7 +1229,7 @@ function resetVolunteerEditorDefaults() {
     volunteer_type: "CLASS_TEAM",
     position_key: "",
     class_org_unit_id: form.class_org_unit_id || "",
-    service_unit_id: ""
+    service_target_org_unit_id: ""
   });
 }
 
@@ -1154,21 +1240,36 @@ async function loadMemberVolunteerWorkspace(memberId: number) {
       getVolunteerMemberEditorCatalog(),
       getVolunteerAppointments({ member_id: memberId })
     ]);
-    volunteerEditorUnits.value = catalogResponse.data.service_units;
+    volunteerEditorCatalogPositions.value =
+      catalogResponse.data.positions || [];
     memberVolunteerV2Appointments.value = appointmentResponse.data;
     resetVolunteerEditorDefaults();
   } catch (error) {
-    volunteerEditorUnits.value = [];
+    volunteerEditorCatalogPositions.value = [];
     memberVolunteerV2Appointments.value = [];
-    if (canManage.value || canViewHistory.value) ElMessage.warning(errorText(error));
+    if (canManage.value || canViewHistory.value)
+      ElMessage.warning(errorText(error));
   } finally {
     volunteerAppointmentsLoading.value = false;
   }
 }
 
-function chooseDefaultVolunteerServiceUnit() {
+function rootOrgUnitId(startId: string) {
+  let currentId = startId;
+  const seen = new Set<string>();
+  while (currentId && !seen.has(currentId)) {
+    seen.add(currentId);
+    const current = orgs.value.find(org => org.id === currentId);
+    if (!current) return "";
+    if (current.unit_type === "ROOT") return current.id;
+    currentId = current.parent_id || "";
+  }
+  return "";
+}
+
+function chooseDefaultVolunteerServiceTarget() {
   const scopeLevel = selectedVolunteerScopeLevel.value;
-  if (scopeLevel === "GROUP") {
+  if (scopeLevel === "GROUP" && !volunteerEditorForm.class_org_unit_id) {
     volunteerEditorForm.class_org_unit_id = form.class_org_unit_id || "";
   }
   const preferredTarget =
@@ -1178,27 +1279,35 @@ function chooseDefaultVolunteerServiceUnit() {
         ? form.class_org_unit_id
         : scopeLevel === "REGIONAL_CENTER"
           ? form.org_unit_id
-          : "";
-  volunteerEditorForm.service_unit_id =
-    volunteerServiceUnitOptions.value.find(
-      unit => unit.service_target_org_unit_id === preferredTarget
-    )?.id || "";
+          : scopeLevel === "ROOT"
+            ? rootOrgUnitId(form.org_unit_id || form.class_org_unit_id || "")
+            : "";
+  volunteerEditorForm.service_target_org_unit_id =
+    volunteerServiceTargetOptions.value.some(org => org.id === preferredTarget)
+      ? preferredTarget
+      : "";
 }
 
 function onVolunteerTypeChange() {
   volunteerEditorForm.position_key = "";
-  volunteerEditorForm.service_unit_id = "";
+  volunteerEditorForm.service_target_org_unit_id = "";
   volunteerEditorForm.class_org_unit_id = form.class_org_unit_id || "";
 }
 
 function onVolunteerPositionChange() {
-  volunteerEditorForm.service_unit_id = "";
-  chooseDefaultVolunteerServiceUnit();
+  volunteerEditorForm.service_target_org_unit_id = "";
+  chooseDefaultVolunteerServiceTarget();
 }
 
 function onVolunteerServiceClassChange() {
-  volunteerEditorForm.service_unit_id = "";
-  chooseDefaultVolunteerServiceUnit();
+  volunteerEditorForm.service_target_org_unit_id = "";
+  const learnerGroup = form.group_org_unit_id;
+  if (
+    learnerGroup &&
+    volunteerServiceTargetOptions.value.some(org => org.id === learnerGroup)
+  ) {
+    volunteerEditorForm.service_target_org_unit_id = learnerGroup;
+  }
 }
 
 async function addVolunteerAppointmentFromMember() {
@@ -1207,7 +1316,10 @@ async function addVolunteerAppointmentFromMember() {
     ElMessage.warning("只能为在册学长添加当前志工任职");
     return;
   }
-  if (!volunteerEditorForm.position_key || !volunteerEditorForm.service_unit_id) {
+  if (
+    !volunteerEditorForm.position_key ||
+    !volunteerEditorForm.service_target_org_unit_id
+  ) {
     ElMessage.warning("请选择志工类型、岗位和服务组织");
     return;
   }
@@ -1215,7 +1327,8 @@ async function addVolunteerAppointmentFromMember() {
   try {
     await createVolunteerAppointment({
       member_id: editingMemberId.value,
-      service_unit_id: volunteerEditorForm.service_unit_id,
+      service_target_org_unit_id:
+        volunteerEditorForm.service_target_org_unit_id,
       position_key: volunteerEditorForm.position_key
     });
     ElMessage.success("志工任职已添加，不会影响其他当前任职");
@@ -1227,11 +1340,14 @@ async function addVolunteerAppointmentFromMember() {
   }
 }
 
-async function endVolunteerAppointmentFromMember(appointment: VolunteerAppointment) {
+async function endVolunteerAppointmentFromMember(
+  appointment: VolunteerAppointment
+) {
   if (!editingMemberId.value) return;
   try {
+    const appointmentLabel = volunteerAppointmentBusinessLabel(appointment);
     await ElMessageBox.confirm(
-      "确认结束该志工任职吗？结束后仅保留历史，不自动恢复。",
+      `确认结束“${appointmentLabel}”任职吗？结束后仅保留历史，不自动恢复。`,
       "结束任职",
       {
         confirmButtonText: "确认结束",
@@ -1426,8 +1542,12 @@ async function applyFullRelationImport() {
   fullRelationImportLoading.value = true;
   try {
     const result = await applyFullClassRosterRelations(workbook);
-    ElMessage.success(`第二阶段完成：唯一匹配学员 ${result.data.matched_members ?? 722} 人，新增组织关系 ${result.data.relations_added ?? 0} 条`);
-    fullPreflightResult.value = (await previewFullClassRosterWorkbook(workbook)).data;
+    ElMessage.success(
+      `第二阶段完成：唯一匹配学员 ${result.data.matched_members ?? 722} 人，新增组织关系 ${result.data.relations_added ?? 0} 条`
+    );
+    fullPreflightResult.value = (
+      await previewFullClassRosterWorkbook(workbook)
+    ).data;
   } catch (error) {
     ElMessage.error(errorText(error));
   } finally {
@@ -1438,11 +1558,31 @@ async function applyFullRelationImport() {
 async function applyDirectClassImport() {
   const workbook = preflightFiles.value[0]?.raw;
   if (!workbook || !preflightResult.value) return;
-  try { await ElMessageBox.confirm("将按已确认工作簿写入直属四班：8 名新建、115 名更新、430 条组织关系和 4 条备注。指纹或实时预检不符将自动停止并回滚。", "执行直属四班生产导入", { confirmButtonText: "确认执行", cancelButtonText: "取消", type: "warning" }); } catch { return; }
+  try {
+    await ElMessageBox.confirm(
+      "将按已确认工作簿写入直属四班：8 名新建、115 名更新、430 条组织关系和 4 条备注。指纹或实时预检不符将自动停止并回滚。",
+      "执行直属四班生产导入",
+      {
+        confirmButtonText: "确认执行",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+  } catch {
+    return;
+  }
   preflightLoading.value = true;
-  try { const result = await applyDirectClassWorkbook(workbook); ElMessage.success(`导入完成：新建 ${result.data.created}，更新 ${result.data.updated}，关系 ${result.data.relations}`); await load(); }
-  catch (error) { ElMessage.error(errorText(error)); }
-  finally { preflightLoading.value = false; }
+  try {
+    const result = await applyDirectClassWorkbook(workbook);
+    ElMessage.success(
+      `导入完成：新建 ${result.data.created}，更新 ${result.data.updated}，关系 ${result.data.relations}`
+    );
+    await load();
+  } catch (error) {
+    ElMessage.error(errorText(error));
+  } finally {
+    preflightLoading.value = false;
+  }
 }
 
 async function runDirectClassPreflight() {
@@ -1455,7 +1595,11 @@ async function runDirectClassPreflight() {
     await ElMessageBox.confirm(
       "文件只在服务器内存中用于受保护匹配，结果只返回汇总数量；不会创建、修改或停用任何学员、组织或关系。",
       "确认进行直属四班只读预检",
-      { confirmButtonText: "开始只读预检", cancelButtonText: "取消", type: "warning" }
+      {
+        confirmButtonText: "开始只读预检",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
     );
   } catch {
     return;
@@ -1505,7 +1649,9 @@ onMounted(async () => {
       <div>
         <p>关怀试点 · 主数据</p>
         <h1>学员管理</h1>
-        <span>手机号加密保存；列表、普通查询和后续任务默认只显示脱敏号码。</span>
+        <span
+          >手机号加密保存；列表、普通查询和后续任务默认只显示脱敏号码。</span
+        >
       </div>
       <div class="head-actions" v-if="canManage">
         <el-button size="large" @click="fullPreflightVisible = true">
@@ -1585,7 +1731,10 @@ onMounted(async () => {
           placeholder="默认在册；搜索可查姓名、编号、手机后四位及历史状态"
         />
         <span class="result-count">
-          {{ keyword.trim() ? "已包含流失、暂停等历史状态" : "默认仅显示在册" }} · 共 {{ filteredRows.length }} 人
+          {{
+            keyword.trim() ? "已包含流失、暂停等历史状态" : "默认仅显示在册"
+          }}
+          · 共 {{ filteredRows.length }} 人
         </span>
       </div>
 
@@ -1598,7 +1747,11 @@ onMounted(async () => {
         <el-table-column prop="group_name" label="组名" min-width="110">
           <template #default="{ row }">{{ row.group_name || "—" }}</template>
         </el-table-column>
-        <el-table-column prop="phone_masked" label="手机号（脱敏）" min-width="150" />
+        <el-table-column
+          prop="phone_masked"
+          label="手机号（脱敏）"
+          min-width="150"
+        />
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'">
@@ -1606,15 +1759,35 @@ onMounted(async () => {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="canManage || canViewHistory" label="操作" width="270" fixed="right">
+        <el-table-column
+          v-if="canManage || canViewHistory"
+          label="操作"
+          width="270"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button v-if="canManage" link type="primary" @click="openEdit(row)">
+            <el-button
+              v-if="canManage"
+              link
+              type="primary"
+              @click="openEdit(row)"
+            >
               编辑
             </el-button>
-            <el-button v-if="canViewHistory" link type="primary" @click="openTimeline(row)">
+            <el-button
+              v-if="canViewHistory"
+              link
+              type="primary"
+              @click="openTimeline(row)"
+            >
               档案时间线
             </el-button>
-            <el-button v-if="canViewHistory" link type="primary" @click="openHistory(row)">
+            <el-button
+              v-if="canViewHistory"
+              link
+              type="primary"
+              @click="openHistory(row)"
+            >
               变更历史
             </el-button>
           </template>
@@ -1647,13 +1820,21 @@ onMounted(async () => {
           </el-descriptions-item>
           <el-descriptions-item label="需人工复核">
             <el-tag
-              :type="legacyVolunteerPreviewResult.manual_review_count ? 'warning' : 'success'"
+              :type="
+                legacyVolunteerPreviewResult.manual_review_count
+                  ? 'warning'
+                  : 'success'
+              "
             >
               {{ legacyVolunteerPreviewResult.manual_review_count }} 人
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="环境">
-            {{ volunteerPreviewEnvironmentLabel(legacyVolunteerPreviewResult.environment) }}
+            {{
+              volunteerPreviewEnvironmentLabel(
+                legacyVolunteerPreviewResult.environment
+              )
+            }}
           </el-descriptions-item>
         </el-descriptions>
 
@@ -1663,17 +1844,34 @@ onMounted(async () => {
           size="small"
           max-height="240"
         >
-          <el-table-column prop="historical_position_name" label="历史岗位" min-width="150" />
+          <el-table-column
+            prop="historical_position_name"
+            label="历史岗位"
+            min-width="150"
+          />
           <el-table-column label="目标岗位" min-width="150">
-            <template #default="{ row }">{{ row.position_name || "需人工复核" }}</template>
+            <template #default="{ row }">{{
+              row.position_name || "需人工复核"
+            }}</template>
           </el-table-column>
           <el-table-column prop="total_count" label="合计" width="90" />
-          <el-table-column prop="auto_adoptable_count" label="可承接" width="90" />
-          <el-table-column prop="manual_review_count" label="需复核" width="90" />
+          <el-table-column
+            prop="auto_adoptable_count"
+            label="可承接"
+            width="90"
+          />
+          <el-table-column
+            prop="manual_review_count"
+            label="需复核"
+            width="90"
+          />
         </el-table>
 
         <h3 class="preview-section-title">
-          可自动承接清单（{{ legacyVolunteerPreviewResult.auto_adoptable_count }} 人）
+          可自动承接清单（{{
+            legacyVolunteerPreviewResult.auto_adoptable_count
+          }}
+          人）
         </h3>
         <el-table
           :data="legacyVolunteerPreviewResult.auto_adoptable_items"
@@ -1682,13 +1880,28 @@ onMounted(async () => {
           empty-text="暂无可自动承接记录"
         >
           <el-table-column prop="name" label="姓名" min-width="100" />
-          <el-table-column prop="historical_position_name" label="历史岗位" min-width="120" />
-          <el-table-column prop="position_name" label="当前岗位" min-width="120" />
-          <el-table-column prop="scope.scope_name" label="自动服务范围" min-width="150" />
+          <el-table-column
+            prop="historical_position_name"
+            label="历史岗位"
+            min-width="120"
+          />
+          <el-table-column
+            prop="position_name"
+            label="当前岗位"
+            min-width="120"
+          />
+          <el-table-column
+            prop="scope.scope_name"
+            label="自动服务范围"
+            min-width="150"
+          />
         </el-table>
 
         <h3 class="preview-section-title">
-          人工复核清单（{{ legacyVolunteerPreviewResult.manual_review_count }} 人）
+          人工复核清单（{{
+            legacyVolunteerPreviewResult.manual_review_count
+          }}
+          人）
         </h3>
         <el-table
           :data="legacyVolunteerPreviewResult.manual_review_items"
@@ -1697,7 +1910,11 @@ onMounted(async () => {
           empty-text="暂无人工复核记录"
         >
           <el-table-column prop="name" label="姓名" min-width="100" />
-          <el-table-column prop="historical_position_name" label="历史岗位" min-width="140" />
+          <el-table-column
+            prop="historical_position_name"
+            label="历史岗位"
+            min-width="140"
+          />
           <el-table-column prop="reason" label="复核原因" min-width="300" />
         </el-table>
         <p class="form-hint">
@@ -1705,7 +1922,9 @@ onMounted(async () => {
         </p>
       </template>
       <template #footer>
-        <el-button @click="legacyVolunteerPreviewVisible = false">关闭</el-button>
+        <el-button @click="legacyVolunteerPreviewVisible = false"
+          >关闭</el-button
+        >
         <el-button
           type="danger"
           :disabled="!legacyVolunteerPreviewResult?.auto_adoptable_count"
@@ -1762,27 +1981,64 @@ onMounted(async () => {
             {{ memberRosterImportResult.matching.new_member_count }} 人
           </el-descriptions-item>
           <el-descriptions-item label="需人工复核" :span="2">
-            <el-tag :type="memberRosterImportResult.matching.manual_review_count ? 'danger' : 'success'">
+            <el-tag
+              :type="
+                memberRosterImportResult.matching.manual_review_count
+                  ? 'danger'
+                  : 'success'
+              "
+            >
               {{ memberRosterImportResult.matching.manual_review_count }} 人
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="可补班级关系">
-            {{ memberRosterImportResult.organization.class_relation_ready_count }} 条
+            {{
+              memberRosterImportResult.organization.class_relation_ready_count
+            }}
+            条
           </el-descriptions-item>
           <el-descriptions-item label="可补小组关系">
-            {{ memberRosterImportResult.organization.group_relation_ready_count }} 条
+            {{
+              memberRosterImportResult.organization.group_relation_ready_count
+            }}
+            条
           </el-descriptions-item>
           <el-descriptions-item label="销售收入源数据" :span="2">
-            {{ memberRosterImportResult.sensitive.annual_sales_source_count }} 条
-            <span v-if="memberRosterImportResult.sensitive.enterprise_financial_write_allowed" class="muted-inline">
-              （本账号可写入；待补充 {{ memberRosterImportResult.sensitive.annual_sales_ready_count ?? 0 }} 条）
+            {{
+              memberRosterImportResult.sensitive.annual_sales_source_count
+            }}
+            条
+            <span
+              v-if="
+                memberRosterImportResult.sensitive
+                  .enterprise_financial_write_allowed
+              "
+              class="muted-inline"
+            >
+              （本账号可写入；待补充
+              {{
+                memberRosterImportResult.sensitive.annual_sales_ready_count ?? 0
+              }}
+              条）
             </span>
-            <span v-else-if="memberRosterImportResult.sensitive.requires_enterprise_permission" class="muted-inline">
+            <span
+              v-else-if="
+                memberRosterImportResult.sensitive
+                  .requires_enterprise_permission
+              "
+              class="muted-inline"
+            >
               （当前账号缺少企业敏感资料权限，暂不允许正式导入）
             </span>
           </el-descriptions-item>
           <el-descriptions-item label="补充字段" :span="2">
-            <el-tag v-for="item in memberRosterImportResult.matching.field_fill_counts" :key="item.field" class="result-tag" type="info">
+            <el-tag
+              v-for="item in memberRosterImportResult.matching
+                .field_fill_counts"
+              :key="item.field"
+              class="result-tag"
+              type="info"
+            >
               {{ item.field }}：{{ item.count }}
             </el-tag>
           </el-descriptions-item>
@@ -1800,7 +2056,12 @@ onMounted(async () => {
           class="member-roster-review-list"
         >
           <div class="member-roster-review-list__head">
-            <strong>人工复核清单（{{ memberRosterImportResult.manual_review_items.length }} 人）</strong>
+            <strong
+              >人工复核清单（{{
+                memberRosterImportResult.manual_review_items.length
+              }}
+              人）</strong
+            >
             <el-button size="small" @click="downloadMemberRosterManualReview">
               导出脱敏复核清单
             </el-button>
@@ -1813,20 +2074,30 @@ onMounted(async () => {
             <el-table-column prop="source_row" label="源表行" width="82" />
             <el-table-column prop="name" label="姓名" min-width="100" />
             <el-table-column prop="phone_masked" label="手机号" min-width="120">
-              <template #default="scope">{{ scope.row.phone_masked || "—" }}</template>
+              <template #default="scope">{{
+                scope.row.phone_masked || "—"
+              }}</template>
             </el-table-column>
-            <el-table-column prop="center_name" label="分中心" min-width="130" />
+            <el-table-column
+              prop="center_name"
+              label="分中心"
+              min-width="130"
+            />
             <el-table-column prop="class_name" label="班级" min-width="130" />
             <el-table-column prop="group_name" label="小组" min-width="120" />
             <el-table-column label="复核原因" min-width="260">
               <template #default="scope">
-                {{ scope.row.reasons.map(memberRosterReviewReasonText).join("；") }}
+                {{
+                  scope.row.reasons.map(memberRosterReviewReasonText).join("；")
+                }}
               </template>
             </el-table-column>
           </el-table>
         </section>
         <p class="form-hint">
-          文件指纹：{{ memberRosterImportResult.source_sha256 }}。正式导入必须再次确认同一文件。
+          文件指纹：{{
+            memberRosterImportResult.source_sha256
+          }}。正式导入必须再次确认同一文件。
         </p>
         <el-button
           v-if="canApplyMemberRosterImport"
@@ -1838,7 +2109,13 @@ onMounted(async () => {
         </el-button>
         <el-alert
           v-else
-          :title="memberRosterImportResult.sensitive.requires_enterprise_permission && !memberRosterImportResult.sensitive.enterprise_financial_write_allowed ? '当前账号缺少企业敏感资料权限。请使用已授权账号导入，确保销售收入加密写入。' : '当前预检没有可安全导入的记录。'"
+          :title="
+            memberRosterImportResult.sensitive.requires_enterprise_permission &&
+            !memberRosterImportResult.sensitive
+              .enterprise_financial_write_allowed
+              ? '当前账号缺少企业敏感资料权限。请使用已授权账号导入，确保销售收入加密写入。'
+              : '当前预检没有可安全导入的记录。'
+          "
           type="info"
           :closable="false"
           show-icon
@@ -1886,9 +2163,7 @@ onMounted(async () => {
           <el-descriptions-item label="在册直属学员">
             {{ preflightResult.source.active_direct_member_count }} 人
           </el-descriptions-item>
-          <el-descriptions-item label="生产写入">
-            已禁止
-          </el-descriptions-item>
+          <el-descriptions-item label="生产写入"> 已禁止 </el-descriptions-item>
           <el-descriptions-item label="工作簿班级分布" :span="2">
             <el-tag
               v-for="item in preflightResult.source.by_class"
@@ -1919,12 +2194,17 @@ onMounted(async () => {
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="未匹配生产主档" :span="2">
-            <span v-if="!preflightResult.matching.no_production_match_by_class.length">
+            <span
+              v-if="
+                !preflightResult.matching.no_production_match_by_class.length
+              "
+            >
               无
             </span>
             <template v-else>
               <el-tag
-                v-for="item in preflightResult.matching.no_production_match_by_class"
+                v-for="item in preflightResult.matching
+                  .no_production_match_by_class"
                 :key="item.class_name"
                 class="result-tag"
                 type="warning"
@@ -1934,12 +2214,18 @@ onMounted(async () => {
             </template>
           </el-descriptions-item>
           <el-descriptions-item label="已匹配但待校正字段" :span="2">
-            <span v-if="!preflightResult.matching.matched_profile_fields_needing_reconciliation.length">
+            <span
+              v-if="
+                !preflightResult.matching
+                  .matched_profile_fields_needing_reconciliation.length
+              "
+            >
               无
             </span>
             <template v-else>
               <el-tag
-                v-for="item in preflightResult.matching.matched_profile_fields_needing_reconciliation"
+                v-for="item in preflightResult.matching
+                  .matched_profile_fields_needing_reconciliation"
                 :key="item.field"
                 class="result-tag"
                 type="info"
@@ -1978,7 +2264,13 @@ onMounted(async () => {
         <p class="form-hint">{{ preflightResult.write_gates[0] }}</p>
       </div>
       <template #footer>
-        <el-button v-if="preflightResult && !preflightResult.issues.length" type="danger" :loading="preflightLoading" @click="applyDirectClassImport">执行确认导入</el-button>
+        <el-button
+          v-if="preflightResult && !preflightResult.issues.length"
+          type="danger"
+          :loading="preflightLoading"
+          @click="applyDirectClassImport"
+          >执行确认导入</el-button
+        >
         <el-button @click="preflightVisible = false">关闭</el-button>
       </template>
     </el-dialog>
@@ -2025,9 +2317,7 @@ onMounted(async () => {
           <el-descriptions-item label="未分班">
             {{ fullPreflightResult.source.missing_class_count }} 人
           </el-descriptions-item>
-          <el-descriptions-item label="生产写入">
-            已禁止
-          </el-descriptions-item>
+          <el-descriptions-item label="生产写入"> 已禁止 </el-descriptions-item>
           <el-descriptions-item label="普通班">
             {{ fullPreflightResult.source.ordinary_class_count }} 个／
             {{ fullPreflightResult.source.ordinary_class_member_count }} 人
@@ -2057,14 +2347,23 @@ onMounted(async () => {
               v-for="item in fullPreflightResult.organization.class_status"
               :key="item.class_name"
               class="result-tag"
-              :type="item.action === 'REUSE' ? 'success' : item.action === 'REVIEW' ? 'danger' : 'warning'"
+              :type="
+                item.action === 'REUSE'
+                  ? 'success'
+                  : item.action === 'REVIEW'
+                    ? 'danger'
+                    : 'warning'
+              "
             >
-              {{ item.class_name }}（{{ item.expected_parent }}）：{{ item.action }}
+              {{ item.class_name }}（{{ item.expected_parent }}）：{{
+                item.action
+              }}
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="小组组织处理" :span="4">
             <el-tag
-              v-for="item in fullPreflightResult.organization.group_action_summary"
+              v-for="item in fullPreflightResult.organization
+                .group_action_summary"
               :key="item.action"
               class="result-tag"
               :type="item.action === 'REUSE' ? 'success' : 'warning'"
@@ -2074,13 +2373,17 @@ onMounted(async () => {
           </el-descriptions-item>
           <el-descriptions-item label="待校正字段或关系" :span="4">
             <span
-              v-if="!fullPreflightResult.matching.fields_or_relations_needing_reconciliation.length"
+              v-if="
+                !fullPreflightResult.matching
+                  .fields_or_relations_needing_reconciliation.length
+              "
             >
               无
             </span>
             <template v-else>
               <el-tag
-                v-for="item in fullPreflightResult.matching.fields_or_relations_needing_reconciliation"
+                v-for="item in fullPreflightResult.matching
+                  .fields_or_relations_needing_reconciliation"
                 :key="item.field"
                 class="result-tag"
                 type="warning"
@@ -2147,15 +2450,14 @@ onMounted(async () => {
       class="member-dialog"
     >
       <p class="form-hint">
-        {{ editingMemberId ? "编辑时可核对或更换手机号；历史缺失号码可先保存其他资料。" : "姓名、分中心和手机号为必填项。" }}
+        {{
+          editingMemberId
+            ? "编辑时可核对或更换手机号；历史缺失号码可先保存其他资料。"
+            : "姓名、分中心和手机号为必填项。"
+        }}
         年销售额与利润率按敏感信息加密保存。
       </p>
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-position="top"
-      >
+      <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
         <div class="form-grid">
           <el-form-item label="姓名" prop="name">
             <el-input v-model="form.name" />
@@ -2179,7 +2481,11 @@ onMounted(async () => {
               maxlength="11"
               :loading="editProfileLoading"
               :disabled="editProfileLoading"
-              :placeholder="editingMemberId ? '可留空；填写时须为 11 位手机号' : '请输入 11 位手机号'"
+              :placeholder="
+                editingMemberId
+                  ? '可留空；填写时须为 11 位手机号'
+                  : '请输入 11 位手机号'
+              "
             />
           </el-form-item>
           <el-form-item label="隶属区">
@@ -2203,12 +2509,12 @@ onMounted(async () => {
               placeholder="请选择正式班级"
               @change="onClassOrgChange"
             >
-            <el-option
-              v-for="org in classOptions"
-              :key="org.id"
-              :label="org.option_label"
-              :value="org.id"
-            />
+              <el-option
+                v-for="org in classOptions"
+                :key="org.id"
+                :label="org.option_label"
+                :value="org.id"
+              />
             </el-select>
           </el-form-item>
           <el-form-item label="小组组织">
@@ -2226,36 +2532,73 @@ onMounted(async () => {
                 :value="org.id"
               />
             </el-select>
-            <p class="form-hint">班级或小组不存在时，请先到“系统设置 → 班级与小组管理”新增，再返回选择。</p>
+            <p class="form-hint">
+              班级或小组不存在时，请先到“系统设置 →
+              班级与小组管理”新增，再返回选择。
+            </p>
           </el-form-item>
           <el-form-item class="full" label="志工任职">
-            <div v-if="editingMemberId" v-loading="volunteerAppointmentsLoading" class="volunteer-editor">
+            <div
+              v-if="editingMemberId"
+              v-loading="volunteerAppointmentsLoading"
+              class="volunteer-editor"
+            >
               <div class="volunteer-editor__section">
                 <span class="volunteer-editor__label">当前任职</span>
-                <div v-if="currentVolunteerV2Appointments.length" class="volunteer-editor__tags">
-                  <el-tag
+                <div
+                  v-if="currentVolunteerV2Appointments.length"
+                  class="volunteer-editor__tags"
+                >
+                  <el-tooltip
                     v-for="appointment in currentVolunteerV2Appointments"
                     :key="appointment.id"
-                    :closable="canManage"
-                    size="large"
-                    effect="plain"
-                    :disable-transitions="true"
-                    @close="endVolunteerAppointmentFromMember(appointment)"
+                    :disabled="!canManage"
+                    content="结束任职"
+                    placement="top"
                   >
-                    {{ volunteerAppointmentBusinessLabel(appointment) }}
-                  </el-tag>
+                    <el-tag
+                      :closable="canManage"
+                      size="large"
+                      effect="plain"
+                      :disable-transitions="true"
+                      @close="endVolunteerAppointmentFromMember(appointment)"
+                    >
+                      {{ volunteerAppointmentBusinessLabel(appointment) }}
+                    </el-tag>
+                  </el-tooltip>
                 </div>
-                <span v-else class="volunteer-editor__empty">暂无当前志工任职</span>
+                <span v-else class="volunteer-editor__empty"
+                  >暂无当前志工任职</span
+                >
               </div>
 
               <div v-if="canManage" class="volunteer-editor__add">
-                <el-select v-model="volunteerEditorForm.volunteer_type" aria-label="志工类型" @change="onVolunteerTypeChange">
+                <el-select
+                  v-model="volunteerEditorForm.volunteer_type"
+                  aria-label="志工类型"
+                  @change="onVolunteerTypeChange"
+                >
                   <el-option label="班组委" value="CLASS_TEAM" />
                   <el-option label="条线管理" value="LINE" />
                 </el-select>
-                <el-select v-model="volunteerEditorForm.position_key" filterable placeholder="选择岗位" aria-label="岗位" @change="onVolunteerPositionChange">
-                  <el-option-group v-for="group in volunteerPositionGroups" :key="group.label" :label="group.label">
-                    <el-option v-for="position in group.options" :key="position.position_key" :label="position.position_name" :value="position.position_key" />
+                <el-select
+                  v-model="volunteerEditorForm.position_key"
+                  filterable
+                  placeholder="选择岗位"
+                  aria-label="岗位"
+                  @change="onVolunteerPositionChange"
+                >
+                  <el-option-group
+                    v-for="group in volunteerPositionGroups"
+                    :key="group.label"
+                    :label="group.label"
+                  >
+                    <el-option
+                      v-for="position in group.options"
+                      :key="position.position_key"
+                      :label="position.position_name"
+                      :value="position.position_key"
+                    />
                   </el-option-group>
                 </el-select>
                 <el-select
@@ -2266,40 +2609,78 @@ onMounted(async () => {
                   aria-label="服务班级"
                   @change="onVolunteerServiceClassChange"
                 >
-                  <el-option v-for="classOrg in volunteerClassOptions" :key="classOrg.id" :label="classOrg.name" :value="classOrg.id" />
+                  <el-option
+                    v-for="classOrg in volunteerClassOptions"
+                    :key="classOrg.id"
+                    :label="classOrg.name"
+                    :value="classOrg.id"
+                  />
                 </el-select>
                 <el-select
                   v-if="volunteerEditorForm.position_key"
-                  v-model="volunteerEditorForm.service_unit_id"
+                  v-model="volunteerEditorForm.service_target_org_unit_id"
                   filterable
-                  :placeholder="selectedVolunteerScopeLevel === 'GROUP' ? '服务小组' : '服务组织'"
-                  :aria-label="selectedVolunteerScopeLevel === 'GROUP' ? '服务小组' : '服务组织'"
+                  :placeholder="volunteerServiceTargetPlaceholder"
+                  :aria-label="volunteerServiceTargetPlaceholder"
                 >
                   <el-option
-                    v-for="unit in volunteerServiceUnitOptions"
-                    :key="unit.id"
-                    :label="unit.service_target_name || unit.name"
-                    :value="unit.id"
+                    v-for="org in volunteerServiceTargetOptions"
+                    :key="org.id"
+                    :label="org.name"
+                    :value="org.id"
                   />
                 </el-select>
-                <el-button type="primary" :loading="volunteerEditorSaving" @click="addVolunteerAppointmentFromMember">添加任职</el-button>
+                <el-button
+                  type="primary"
+                  :loading="volunteerEditorSaving"
+                  @click="addVolunteerAppointmentFromMember"
+                  >添加任职</el-button
+                >
               </div>
 
-              <el-collapse v-if="historicalVolunteerV2Appointments.length" v-model="volunteerHistoryExpanded" class="volunteer-editor__history">
+              <el-collapse
+                v-if="historicalVolunteerV2Appointments.length"
+                v-model="volunteerHistoryExpanded"
+                class="volunteer-editor__history"
+              >
                 <el-collapse-item name="volunteer-history">
-                  <template #title>历史任职（{{ historicalVolunteerV2Appointments.length }}）&nbsp; 查看 &gt;</template>
-                  <div v-for="appointment in historicalVolunteerV2Appointments" :key="appointment.id" class="volunteer-editor__history-row">
-                    <strong>{{ volunteerAppointmentBusinessLabel(appointment) }}</strong>
+                  <template #title
+                    >历史任职（{{
+                      historicalVolunteerV2Appointments.length
+                    }}）&nbsp; 查看 &gt;</template
+                  >
+                  <div
+                    v-for="appointment in historicalVolunteerV2Appointments"
+                    :key="appointment.id"
+                    class="volunteer-editor__history-row"
+                  >
+                    <strong>{{
+                      volunteerAppointmentBusinessLabel(appointment)
+                    }}</strong>
                     <span>{{ appointment.status_name }}</span>
-                    <small>{{ appointment.created_at ? formatTimelineTime(appointment.created_at) : "待补充" }}<template v-if="appointment.ended_at"> — {{ formatTimelineTime(appointment.ended_at) }}</template></small>
+                    <small
+                      >{{
+                        appointment.created_at
+                          ? formatTimelineTime(appointment.created_at)
+                          : "待补充"
+                      }}<template v-if="appointment.ended_at">
+                        —
+                        {{ formatTimelineTime(appointment.ended_at) }}</template
+                      ></small
+                    >
                   </div>
                 </el-collapse-item>
               </el-collapse>
-              <p v-if="showLegacyVolunteerHint" class="form-hint volunteer-legacy-hint">
+              <p
+                v-if="showLegacyVolunteerHint"
+                class="form-hint volunteer-legacy-hint"
+              >
                 历史岗位参考（只读）：{{ form.class_committee_name }}
               </p>
             </div>
-            <span v-else class="form-hint">请先保存学员资料，再添加志工任职。</span>
+            <span v-else class="form-hint"
+              >请先保存学员资料，再添加志工任职。</span
+            >
           </el-form-item>
           <el-form-item label="行业分类">
             <el-input v-model="form.industry_category" />
@@ -2362,14 +2743,20 @@ onMounted(async () => {
               >
                 恢复按入塾日期
               </el-button>
-              <span>{{ form.renewal_month_overridden ? "当前为手动维护" : "按入塾日期自动更新" }}</span>
+              <span>{{
+                form.renewal_month_overridden
+                  ? "当前为手动维护"
+                  : "按入塾日期自动更新"
+              }}</span>
             </div>
           </el-form-item>
           <el-form-item label="公司销售额（万元）">
             <el-input
               v-model="form.annual_sales"
               :disabled="!financialFieldsEditable"
-              :placeholder="financialFieldsEditable ? '例如 10000' : '需企业敏感资料权限'"
+              :placeholder="
+                financialFieldsEditable ? '例如 10000' : '需企业敏感资料权限'
+              "
             >
               <template #append>万元</template>
             </el-input>
@@ -2422,7 +2809,11 @@ onMounted(async () => {
                 恢复自动计算
               </el-button>
               <span class="tenure-hint">
-                {{ form.membership_years_inferred ? "根据入塾日期自动计算" : "当前为人工覆盖值" }}
+                {{
+                  form.membership_years_inferred
+                    ? "根据入塾日期自动计算"
+                    : "当前为人工覆盖值"
+                }}
               </span>
             </div>
           </el-form-item>
@@ -2433,7 +2824,9 @@ onMounted(async () => {
             <el-input
               v-model="form.profit_margin"
               :disabled="!financialFieldsEditable"
-              :placeholder="financialFieldsEditable ? '例如 12%' : '需企业敏感资料权限'"
+              :placeholder="
+                financialFieldsEditable ? '例如 12%' : '需企业敏感资料权限'
+              "
             />
           </el-form-item>
           <el-form-item class="full" label="备注">
@@ -2501,38 +2894,69 @@ onMounted(async () => {
       <div v-loading="timelineLoading">
         <template v-if="timeline">
           <el-descriptions :column="4" border class="timeline-profile">
-            <el-descriptions-item label="姓名">{{ timeline.member.name }}</el-descriptions-item>
-            <el-descriptions-item label="分中心">{{ timeline.member.org_name }}</el-descriptions-item>
-            <el-descriptions-item label="班级">{{ timeline.member.class_name || "—" }}</el-descriptions-item>
-            <el-descriptions-item label="小组">{{ timeline.member.group_name || "—" }}</el-descriptions-item>
-            <el-descriptions-item label="手机号（脱敏）">{{ timeline.member.phone_masked || "—" }}</el-descriptions-item>
-            <el-descriptions-item label="状态">{{ memberStatusLabel(timeline.member.status) }}</el-descriptions-item>
+            <el-descriptions-item label="姓名">{{
+              timeline.member.name
+            }}</el-descriptions-item>
+            <el-descriptions-item label="分中心">{{
+              timeline.member.org_name
+            }}</el-descriptions-item>
+            <el-descriptions-item label="班级">{{
+              timeline.member.class_name || "—"
+            }}</el-descriptions-item>
+            <el-descriptions-item label="小组">{{
+              timeline.member.group_name || "—"
+            }}</el-descriptions-item>
+            <el-descriptions-item label="手机号（脱敏）">{{
+              timeline.member.phone_masked || "—"
+            }}</el-descriptions-item>
+            <el-descriptions-item label="状态">{{
+              memberStatusLabel(timeline.member.status)
+            }}</el-descriptions-item>
           </el-descriptions>
 
           <section class="service-signals">
             <div class="service-signals__head">
               <div>
                 <h3>服务提示</h3>
-                <p>只依据明确数据规则提示待核对事项，不评价学长，也不用于排名；人工反馈不会自动创建任务。</p>
+                <p>
+                  只依据明确数据规则提示待核对事项，不评价学长，也不用于排名；人工反馈不会自动创建任务。
+                </p>
               </div>
               <el-tag
-                :type="timeline.service_signal_feedback_enabled ? 'success' : 'info'"
+                :type="
+                  timeline.service_signal_feedback_enabled ? 'success' : 'info'
+                "
                 effect="plain"
               >
-                {{ timeline.service_signal_feedback_enabled ? "反馈试点已开启" : "规则只读" }}
+                {{
+                  timeline.service_signal_feedback_enabled
+                    ? "反馈试点已开启"
+                    : "规则只读"
+                }}
               </el-tag>
             </div>
-            <div v-if="timeline.service_signals.length" class="service-signals__grid">
+            <div
+              v-if="timeline.service_signals.length"
+              class="service-signals__grid"
+            >
               <article
                 v-for="signal in timeline.service_signals"
                 :key="signal.code"
                 class="service-signal"
               >
                 <el-tag
-                  :type="signal.attention_level === 'ACTION_REQUIRED' ? 'warning' : 'info'"
+                  :type="
+                    signal.attention_level === 'ACTION_REQUIRED'
+                      ? 'warning'
+                      : 'info'
+                  "
                   effect="light"
                 >
-                  {{ signal.attention_level === "ACTION_REQUIRED" ? "待处理" : "待核对" }}
+                  {{
+                    signal.attention_level === "ACTION_REQUIRED"
+                      ? "待处理"
+                      : "待核对"
+                  }}
                 </el-tag>
                 <div>
                   <strong>{{ signal.title }}</strong>
@@ -2540,12 +2964,22 @@ onMounted(async () => {
                   <small>{{ signal.action_hint }}</small>
                   <div class="service-signal__entry">
                     <el-button
-                      v-if="['CONTACT_INFO_REVIEW', 'STUDY_CLASS_RELATION_REVIEW', 'RENEWAL_DUE'].includes(signal.code)"
+                      v-if="
+                        [
+                          'CONTACT_INFO_REVIEW',
+                          'STUDY_CLASS_RELATION_REVIEW',
+                          'RENEWAL_DUE'
+                        ].includes(signal.code)
+                      "
                       link
                       type="primary"
                       size="small"
                       :disabled="
-                        (['CONTACT_INFO_REVIEW', 'STUDY_CLASS_RELATION_REVIEW'].includes(signal.code) && !canManage) ||
+                        ([
+                          'CONTACT_INFO_REVIEW',
+                          'STUDY_CLASS_RELATION_REVIEW'
+                        ].includes(signal.code) &&
+                          !canManage) ||
                         (signal.code === 'RENEWAL_DUE' && !canReadRenewals)
                       "
                       @click="openServiceSignalAction(signal)"
@@ -2553,11 +2987,20 @@ onMounted(async () => {
                       {{ serviceSignalActionLabel(signal.code) }}
                     </el-button>
                   </div>
-                  <div v-if="signal.latest_feedback" class="service-signal__feedback">
+                  <div
+                    v-if="signal.latest_feedback"
+                    class="service-signal__feedback"
+                  >
                     <el-tag size="small" type="success" effect="plain">
-                      {{ serviceSignalFeedbackLabel(signal.latest_feedback.status) }}
+                      {{
+                        serviceSignalFeedbackLabel(
+                          signal.latest_feedback.status
+                        )
+                      }}
                     </el-tag>
-                    <small>{{ formatTimelineTime(signal.latest_feedback.created_at) }}</small>
+                    <small>{{
+                      formatTimelineTime(signal.latest_feedback.created_at)
+                    }}</small>
                   </div>
                   <div
                     v-if="timeline.service_signal_feedback_enabled && canManage"
@@ -2566,24 +3009,39 @@ onMounted(async () => {
                     <el-button
                       size="small"
                       plain
-                      :loading="serviceSignalFeedbackLoading === `${signal.code}:CONFIRMED_VALID`"
-                      @click="submitServiceSignalFeedback(signal, 'CONFIRMED_VALID')"
+                      :loading="
+                        serviceSignalFeedbackLoading ===
+                        `${signal.code}:CONFIRMED_VALID`
+                      "
+                      @click="
+                        submitServiceSignalFeedback(signal, 'CONFIRMED_VALID')
+                      "
                     >
                       确认有效
                     </el-button>
                     <el-button
                       size="small"
                       plain
-                      :loading="serviceSignalFeedbackLoading === `${signal.code}:NOT_APPLICABLE`"
-                      @click="submitServiceSignalFeedback(signal, 'NOT_APPLICABLE')"
+                      :loading="
+                        serviceSignalFeedbackLoading ===
+                        `${signal.code}:NOT_APPLICABLE`
+                      "
+                      @click="
+                        submitServiceSignalFeedback(signal, 'NOT_APPLICABLE')
+                      "
                     >
                       暂不适用
                     </el-button>
                     <el-button
                       size="small"
                       plain
-                      :loading="serviceSignalFeedbackLoading === `${signal.code}:DATA_CORRECTED`"
-                      @click="submitServiceSignalFeedback(signal, 'DATA_CORRECTED')"
+                      :loading="
+                        serviceSignalFeedbackLoading ===
+                        `${signal.code}:DATA_CORRECTED`
+                      "
+                      @click="
+                        submitServiceSignalFeedback(signal, 'DATA_CORRECTED')
+                      "
                     >
                       数据已修正
                     </el-button>
@@ -2591,7 +3049,11 @@ onMounted(async () => {
                 </div>
               </article>
             </div>
-            <el-empty v-else description="当前没有需要提示的事项" :image-size="52" />
+            <el-empty
+              v-else
+              description="当前没有需要提示的事项"
+              :image-size="52"
+            />
           </section>
 
           <div class="timeline-summary">
@@ -2612,19 +3074,27 @@ onMounted(async () => {
             max-height="480"
           >
             <el-table-column label="时间" width="190">
-              <template #default="{ row }">{{ formatTimelineTime(row.occurred_at) }}</template>
+              <template #default="{ row }">{{
+                formatTimelineTime(row.occurred_at)
+              }}</template>
             </el-table-column>
             <el-table-column label="记录类型" width="130">
               <template #default="{ row }">
-                <el-tag type="info">{{ timelineTypeLabel(row.event_type) }}</el-tag>
+                <el-tag type="info">{{
+                  timelineTypeLabel(row.event_type)
+                }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="title" label="事项" min-width="220" />
             <el-table-column label="状态" width="150">
-              <template #default="{ row }">{{ timelineStatusLabel(row.status) }}</template>
+              <template #default="{ row }">{{
+                timelineStatusLabel(row.status)
+              }}</template>
             </el-table-column>
             <el-table-column label="场次/渠道" width="150">
-              <template #default="{ row }">{{ timelineChannelLabel(row.channel) }}</template>
+              <template #default="{ row }">{{
+                timelineChannelLabel(row.channel)
+              }}</template>
             </el-table-column>
           </el-table>
           <p class="form-hint timeline-hint">
@@ -2727,7 +3197,10 @@ onMounted(async () => {
 }
 .volunteer-editor__add {
   display: grid;
-  grid-template-columns: 120px minmax(150px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr) auto;
+  grid-template-columns: 120px minmax(150px, 1fr) minmax(150px, 1fr) minmax(
+      150px,
+      1fr
+    ) auto;
   gap: 8px;
   align-items: center;
 }

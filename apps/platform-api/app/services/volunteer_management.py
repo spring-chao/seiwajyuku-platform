@@ -9,6 +9,7 @@ module never derives either relationship from an organization name.
 from __future__ import annotations
 
 import sqlite3
+from hashlib import sha256
 from collections import Counter
 from contextlib import nullcontext
 from typing import Any
@@ -329,6 +330,12 @@ def member_editor_catalog(actor_user_id: int) -> dict[str, Any]:
     ordinary learner editor.
     """
 
+    positions = [
+        position
+        for position in list_volunteer_positions(active_only=True)
+        if position.get("is_selectable")
+        and position.get("system_type") != "ACTIVITY"
+    ]
     units: list[dict[str, Any]] = []
     for service_unit in list_service_units(actor_user_id, active_only=True):
         if service_unit["system_type"] == "ACTIVITY":
@@ -338,7 +345,177 @@ def member_editor_catalog(actor_user_id: int) -> dict[str, Any]:
         )["positions"]
         if options:
             units.append({**service_unit, "positions": options})
-    return {"service_units": units}
+    return {"positions": positions, "service_units": units}
+
+
+def _formal_org_row(connection, org_unit_id: str) -> dict[str, Any]:
+    row = execute(
+        connection,
+        "SELECT id, name, unit_type, parent_id, is_active FROM org_units WHERE id=?",
+        (org_unit_id,),
+    ).fetchone()
+    if not row or not row["is_active"]:
+        raise ValueError("服务对象正式组织不存在或已停用")
+    return dict(row)
+
+
+def _formal_org_ancestors(connection, org_unit_id: str) -> list[dict[str, Any]]:
+    ancestors: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    current = _formal_org_row(connection, org_unit_id)
+    while current and current["id"] not in seen:
+        seen.add(current["id"])
+        ancestors.append(current)
+        parent_id = current.get("parent_id")
+        if not parent_id:
+            break
+        current = _formal_org_row(connection, str(parent_id))
+    return ancestors
+
+
+def _auto_service_unit_name(
+    target: dict[str, Any], *, system_type: str, line_type: str
+) -> str:
+    if system_type == "COMMITTEE_LINE":
+        suffix = {
+            "LEARNING": "学习践行委",
+            "OPERATIONS": "运营管理委",
+            "DEVELOPMENT": "发展建设委",
+        }.get(line_type, "志工委员会")
+    elif system_type == "GOVERNANCE":
+        suffix = "志工治理组织"
+    else:
+        suffix = "班组委"
+    return f"{target['name']} · {suffix}"[:255]
+
+
+def _ensure_business_service_unit(
+    connection,
+    *,
+    actor_user_id: int,
+    service_target_org_unit_id: str,
+    position: dict[str, Any],
+    validate_target: bool = True,
+    check_scope: bool = True,
+) -> dict[str, Any]:
+    """Resolve or create the technical service unit behind the simple member UI.
+
+    The target is always a formal organization selected by the operator.  The
+    position profile decides system/line and the formal parent path decides a
+    class-team or committee parent; no organization name is interpreted.
+    """
+
+    target = _formal_org_row(connection, service_target_org_unit_id)
+    if check_scope:
+        _require_service_scope(actor_user_id, service_target_org_unit_id)
+    if validate_target:
+        validate_position_target(
+            connection,
+            position_key=position["position_key"],
+            org_unit_id=service_target_org_unit_id,
+            scope_type="UNIT",
+        )
+    system_type = position["system_type"]
+    line_type = position["line_type"]
+    existing = execute(
+        connection,
+        "SELECT id FROM volunteer_service_units "
+        "WHERE service_target_org_unit_id=? AND system_type=? AND line_type=? AND is_active=1 "
+        "ORDER BY sort_order, created_at, id LIMIT 1",
+        (service_target_org_unit_id, system_type, line_type),
+    ).fetchone()
+    if existing:
+        return _service_unit_row(connection, existing["id"], active_only=True)
+
+    ancestors = _formal_org_ancestors(connection, service_target_org_unit_id)
+    home = next(
+        (item for item in ancestors if str(item["unit_type"]).upper() == "ROOT"),
+        None,
+    )
+    parent_service_unit_id: str | None = None
+    target_type = str(target["unit_type"] or "").upper()
+    parent_target: dict[str, Any] | None = None
+    if system_type == "CLASS_TEAM" and target_type == "GROUP":
+        parent_target = next(
+            (
+                item
+                for item in ancestors[1:]
+                if str(item["unit_type"]).upper() in {"CLASS", "SPECIAL_COHORT"}
+            ),
+            None,
+        )
+    elif system_type == "COMMITTEE_LINE" and target_type in {
+        "CLASS",
+        "SPECIAL_COHORT",
+    }:
+        parent_target = next(
+            (
+                item
+                for item in ancestors[1:]
+                if str(item["unit_type"]).upper() == "REGIONAL_CENTER"
+            ),
+            None,
+        )
+    if parent_target:
+        parent_service_unit = _ensure_business_service_unit(
+            connection,
+            actor_user_id=actor_user_id,
+            service_target_org_unit_id=parent_target["id"],
+            position=position,
+            validate_target=False,
+            check_scope=False,
+        )
+        parent_service_unit_id = parent_service_unit["id"]
+
+    fingerprint = sha256(
+        f"{system_type}:{line_type}:{service_target_org_unit_id}".encode("utf-8")
+    ).hexdigest()[:24]
+    unit_code = f"AUTO_{system_type}_{line_type}_{fingerprint}"
+    duplicate_code = execute(
+        connection,
+        "SELECT id, is_active FROM volunteer_service_units WHERE unit_code=?",
+        (unit_code,),
+    ).fetchone()
+    if duplicate_code and duplicate_code["is_active"]:
+        return _service_unit_row(connection, duplicate_code["id"], active_only=True)
+    if duplicate_code:
+        unit_code = f"{unit_code}_{uuid4().hex[:8]}"
+
+    now = _db_timestamp(connection)
+    service_unit_id = f"vsu-{uuid4()}"
+    execute(
+        connection,
+        "INSERT INTO volunteer_service_units "
+        "(id, unit_code, name, system_type, line_type, parent_id, home_shuku_org_unit_id, "
+        "service_target_org_unit_id, is_active, sort_order, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)",
+        (
+            service_unit_id,
+            unit_code,
+            _auto_service_unit_name(
+                target, system_type=system_type, line_type=line_type
+            ),
+            system_type,
+            line_type,
+            parent_service_unit_id,
+            home["id"] if home else None,
+            service_target_org_unit_id,
+            now,
+            now,
+        ),
+    )
+    created = _service_unit_row(connection, service_unit_id)
+    write_audit(
+        connection,
+        actor_user_id=actor_user_id,
+        action="volunteer.service_unit.auto_create",
+        resource_type="volunteer_service_unit",
+        resource_id=service_unit_id,
+        org_unit_id=service_target_org_unit_id,
+        purpose="学员管理页按正式服务对象建立志工服务组织",
+        after=_public_service_unit(created),
+    )
+    return created
 
 
 def _appointment_payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -473,11 +650,10 @@ def _insert_v2_appointment(
         raise ValueError("仅可为在册学长建立当前志工岗位")
     _ensure_member_scope(actor_user_id, dict(member))
     service_unit = _service_unit_row(connection, service_unit_id, active_only=True)
-    _require_service_scope(
-        actor_user_id,
-        service_unit["home_shuku_org_unit_id"],
-        service_unit["service_target_org_unit_id"],
-    )
+    # Appointment authority follows the actual service target.  The home shuku
+    # is governance metadata and must not block a center-scoped operator whose
+    # target class/group is already inside their IAM2 scope.
+    _require_service_scope(actor_user_id, service_unit["service_target_org_unit_id"])
     position = _position_for_service_unit(connection, service_unit, position_key)
     existing = execute(
         connection,
@@ -533,25 +709,53 @@ def create_appointment(
     actor_user_id: int,
     *,
     member_id: int,
-    service_unit_id: str,
+    service_unit_id: str | None = None,
+    service_target_org_unit_id: str | None = None,
     position_key: str,
     confirmation_note: str,
 ) -> dict[str, Any]:
     _feature_gate(write=True)
     note = confirmation_note.strip() or "学员管理页添加志工任职"
     with transaction() as connection:
+        resolved_service_unit_id = service_unit_id
+        if service_unit_id:
+            explicit_unit = _service_unit_row(
+                connection, service_unit_id, active_only=True
+            )
+            if (
+                service_target_org_unit_id
+                and explicit_unit["service_target_org_unit_id"]
+                != service_target_org_unit_id
+            ):
+                raise ValueError("服务组织与服务对象不一致")
+        else:
+            if not service_target_org_unit_id:
+                raise ValueError("请选择服务组织")
+            position = get_volunteer_position(position_key.strip(), connection)
+            if not position or not position.get("is_active") or not position.get(
+                "is_selectable"
+            ):
+                raise ValueError("未知、已停用或不可新增的志工岗位")
+            generated_unit = _ensure_business_service_unit(
+                connection,
+                actor_user_id=actor_user_id,
+                service_target_org_unit_id=service_target_org_unit_id,
+                position=position,
+            )
+            resolved_service_unit_id = generated_unit["id"]
+        assert resolved_service_unit_id
         appointment_id, service_unit = _insert_v2_appointment(
             connection,
             actor_user_id=actor_user_id,
             member_id=member_id,
-            service_unit_id=service_unit_id,
+            service_unit_id=resolved_service_unit_id,
             position_key=position_key.strip(),
             source_reference=VOLUNTEER2_MANUAL_SOURCE,
             confirmation_note=note,
         )
         rules = _recommendation_rows(
             connection,
-            source_service_unit_id=service_unit_id,
+            source_service_unit_id=resolved_service_unit_id,
             source_position_key=position_key.strip(),
             active_only=True,
         )

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.api.auth import require_permission
 from app.services import volunteer_management as service
@@ -27,9 +27,18 @@ class ServiceUnitPayload(BaseModel):
 
 class AppointmentPayload(BaseModel):
     member_id: int = Field(gt=0)
-    service_unit_id: str = Field(min_length=1, max_length=64)
+    service_unit_id: str | None = Field(default=None, min_length=1, max_length=64)
+    service_target_org_unit_id: str | None = Field(
+        default=None, min_length=1, max_length=64
+    )
     position_key: str = Field(min_length=3, max_length=64)
     confirmation_note: str = Field(default="学员管理页添加志工任职", max_length=1000)
+
+    @model_validator(mode="after")
+    def require_service_choice(self):
+        if not self.service_unit_id and not self.service_target_org_unit_id:
+            raise ValueError("请选择服务组织")
+        return self
 
 
 class AppointmentStatusPayload(BaseModel):

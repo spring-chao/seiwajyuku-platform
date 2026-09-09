@@ -143,16 +143,28 @@ def test_volunteer2_multiple_current_posts_and_staff_mobile_iam2_boundary() -> N
         home_shuku_org_unit_id="org-suzhou",
         service_target_org_unit_id=class_id,
     )
+    center_learning_committee = create_service_unit(
+        admin_id,
+        unit_code=f"V2-CENTER-LEARNING-COMMITTEE-{suffix}",
+        name="V2分中心学习践行委",
+        system_type="COMMITTEE_LINE",
+        line_type="LEARNING",
+        parent_id=None,
+        home_shuku_org_unit_id="org-suzhou",
+        service_target_org_unit_id=center_id,
+    )
     learning_committee = create_service_unit(
         admin_id,
         unit_code=f"V2-LEARNING-COMMITTEE-{suffix}",
         name="V2学习践行委",
         system_type="COMMITTEE_LINE",
         line_type="LEARNING",
-        parent_id=None,
+        parent_id=center_learning_committee["id"],
         home_shuku_org_unit_id="org-suzhou",
         service_target_org_unit_id=class_id,
     )
+    assert learning_committee["parent_id"] == center_learning_committee["id"]
+    assert learning_committee["service_target_org_unit_id"] == class_id
     legacy_appointment = create_member_volunteer_appointment(
         admin_id,
         legacy_member_id,
@@ -259,13 +271,14 @@ def test_volunteer2_multiple_current_posts_and_staff_mobile_iam2_boundary() -> N
 
 
 def test_member_editor_supports_three_independent_cross_org_posts() -> None:
-    """A learner's study class is only a default, never a service constraint."""
+    """封名晏测试 fixture: study affiliation never limits three service posts."""
 
     suffix = uuid4().hex[:10]
     admin_id = _admin_id()
     center_id = f"v2-multi-center-{suffix}"
     study_class_id = f"v2-multi-study-class-{suffix}"
-    service_class_id = f"v2-multi-service-class-{suffix}"
+    teacher_class_id = f"v2-multi-teacher-class-{suffix}"
+    group_class_id = f"v2-multi-group-class-{suffix}"
     service_group_id = f"v2-multi-service-group-{suffix}"
     now = _now()
     with transaction() as connection:
@@ -285,8 +298,15 @@ def test_member_editor_supports_three_independent_cross_org_posts() -> None:
                 center_id,
             ),
             (
-                service_class_id,
-                f"V2_MULTI_{suffix}_SERVICE_CLASS",
+                teacher_class_id,
+                f"V2_MULTI_{suffix}_TEACHER_CLASS",
+                "炎武三班验收样本",
+                "CLASS",
+                center_id,
+            ),
+            (
+                group_class_id,
+                f"V2_MULTI_{suffix}_GROUP_CLASS",
                 "炎武一班验收样本",
                 "CLASS",
                 center_id,
@@ -296,7 +316,7 @@ def test_member_editor_supports_three_independent_cross_org_posts() -> None:
                 f"V2_MULTI_{suffix}_SERVICE_GROUP",
                 "感恩组验收样本",
                 "GROUP",
-                service_class_id,
+                group_class_id,
             ),
         ):
             execute(
@@ -309,7 +329,7 @@ def test_member_editor_supports_three_independent_cross_org_posts() -> None:
     member_id = create_member(
         admin_id,
         member_code=f"V2-MULTI-MEMBER-{suffix}",
-        name="多岗位跨组织验收学长",
+        name="封名晏（自动化测试）",
         org_unit_id=center_id,
         development_org_unit_id=None,
         phone=None,
@@ -328,12 +348,12 @@ def test_member_editor_supports_three_independent_cross_org_posts() -> None:
     class_team = create_service_unit(
         admin_id,
         unit_code=f"V2-MULTI-CLASS-{suffix}",
-        name="炎武一班班组委验收样本",
+        name="炎武三班班组委验收样本",
         system_type="CLASS_TEAM",
         line_type="GENERAL",
         parent_id=None,
         home_shuku_org_unit_id="org-suzhou",
-        service_target_org_unit_id=service_class_id,
+        service_target_org_unit_id=teacher_class_id,
     )
     group_team = create_service_unit(
         admin_id,
@@ -375,7 +395,7 @@ def test_member_editor_supports_three_independent_cross_org_posts() -> None:
     assert {item["status"] for item in appointments} == {"ACTIVE"}
     assert {item["service_target_org_unit_id"] for item in appointments} == {
         center_id,
-        service_class_id,
+        teacher_class_id,
         service_group_id,
     }
     services = get_member_volunteer_services(member_id)
@@ -404,13 +424,13 @@ def test_member_editor_supports_three_independent_cross_org_posts() -> None:
     update_member(
         admin_id,
         member_id,
-        {"class_org_unit_id": service_class_id},
+        {"class_org_unit_id": group_class_id},
     )
     after_study_move = list_appointments(admin_id, member_id=member_id)
     assert len(after_study_move) == 3
     assert {item["service_target_org_unit_id"] for item in after_study_move} == {
         center_id,
-        service_class_id,
+        teacher_class_id,
         service_group_id,
     }
 
@@ -451,4 +471,175 @@ def test_member_editor_supports_three_independent_cross_org_posts() -> None:
     assert len(restored["roles"]) == 2
     assert "volunteer_class_counselor" not in {
         item["position_key"] for item in restored["roles"]
+    }
+
+
+def test_same_member_can_serve_as_class_teacher_in_two_classes_and_end_one_only() -> None:
+    """The same position in two formal classes is two independent appointments."""
+
+    suffix = uuid4().hex[:10]
+    admin_id = _admin_id()
+    center_id = f"v2-two-class-center-{suffix}"
+    class_a_id = f"v2-two-class-a-{suffix}"
+    class_b_id = f"v2-two-class-b-{suffix}"
+    now = _now()
+    with transaction() as connection:
+        for org_id, code, name, unit_type, parent_id in (
+            (center_id, f"V2_TWO_{suffix}_CENTER", "双班任职分中心", "REGIONAL_CENTER", "org-suzhou"),
+            (class_a_id, f"V2_TWO_{suffix}_A", "跨班验收甲班", "CLASS", center_id),
+            (class_b_id, f"V2_TWO_{suffix}_B", "跨班验收乙班", "CLASS", center_id),
+        ):
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                (org_id, code, name, unit_type, parent_id, now, now),
+            )
+
+    member_id = create_member(
+        admin_id,
+        member_code=f"V2-TWO-CLASS-MEMBER-{suffix}",
+        name="跨班双班主任验收学长",
+        org_unit_id=center_id,
+        development_org_unit_id=None,
+        phone=None,
+        class_org_unit_id=class_a_id,
+    )
+    service_units = []
+    for marker, class_id, class_name in (
+        ("A", class_a_id, "跨班验收甲班"),
+        ("B", class_b_id, "跨班验收乙班"),
+    ):
+        service_units.append(
+            create_service_unit(
+                admin_id,
+                unit_code=f"V2-TWO-CLASS-{marker}-{suffix}",
+                name=f"{class_name}班组委",
+                system_type="CLASS_TEAM",
+                line_type="GENERAL",
+                parent_id=None,
+                home_shuku_org_unit_id="org-suzhou",
+                service_target_org_unit_id=class_id,
+            )
+        )
+
+    appointments = [
+        create_appointment(
+            admin_id,
+            member_id=member_id,
+            service_unit_id=unit["id"],
+            position_key="volunteer_class_counselor",
+            confirmation_note="",
+        )
+        for unit in service_units
+    ]
+    current = list_appointments(admin_id, member_id=member_id, status="ACTIVE")
+    assert len(current) == 2
+    assert {item["service_target_org_unit_id"] for item in current} == {
+        class_a_id,
+        class_b_id,
+    }
+
+    change_appointment_status(
+        admin_id, appointments[0]["id"], status="ENDED", reason=""
+    )
+    remaining = list_appointments(admin_id, member_id=member_id, status="ACTIVE")
+    assert len(remaining) == 1
+    assert remaining[0]["service_target_org_unit_id"] == class_b_id
+    history = list_appointments(admin_id, member_id=member_id)
+    assert {item["status"] for item in history} == {"ACTIVE", "ENDED"}
+
+
+def test_member_editor_catalog_does_not_depend_on_precreated_service_units() -> None:
+    """Formal positions and targets remain usable before advanced setup exists."""
+
+    suffix = uuid4().hex[:10]
+    admin_id = _admin_id()
+    center_id = f"v2-auto-center-{suffix}"
+    class_id = f"v2-auto-class-{suffix}"
+    group_id = f"v2-auto-group-{suffix}"
+    now = _now()
+    with transaction() as connection:
+        for org_id, code, name, unit_type, parent_id in (
+            (center_id, f"V2_AUTO_{suffix}_CENTER", "自动服务组织分中心", "REGIONAL_CENTER", "org-suzhou"),
+            (class_id, f"V2_AUTO_{suffix}_CLASS", "自动服务组织班级", "CLASS", center_id),
+            (group_id, f"V2_AUTO_{suffix}_GROUP", "自动服务组织小组", "GROUP", class_id),
+        ):
+            execute(
+                connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                (org_id, code, name, unit_type, parent_id, now, now),
+            )
+
+    member_id = create_member(
+        admin_id,
+        member_code=f"V2-AUTO-MEMBER-{suffix}",
+        name="岗位下拉无预配置验收学长",
+        org_unit_id=center_id,
+        development_org_unit_id=None,
+        phone=None,
+        class_org_unit_id=class_id,
+        group_org_unit_id=group_id,
+    )
+    catalog = member_editor_catalog(admin_id)
+    assert {
+        "volunteer_class_counselor",
+        "volunteer_group_counselor",
+        "volunteer_committee_operations",
+        "volunteer_center_development_vice_chair",
+    }.issubset({item["position_key"] for item in catalog["positions"]})
+    assert not any(
+        item["service_target_org_unit_id"] in {center_id, class_id, group_id}
+        for item in catalog["service_units"]
+    )
+
+    scoped_org_ids = {center_id, class_id, group_id}
+    with patch(
+        "app.services.volunteer_management.accessible_org_ids",
+        return_value=scoped_org_ids,
+    ), patch(
+        "app.services.volunteer_positions.accessible_org_ids",
+        return_value=scoped_org_ids,
+    ):
+        group_appointment = create_appointment(
+            admin_id,
+            member_id=member_id,
+            service_target_org_unit_id=group_id,
+            position_key="volunteer_group_counselor",
+            confirmation_note="",
+        )
+        committee_appointment = create_appointment(
+            admin_id,
+            member_id=member_id,
+            service_target_org_unit_id=class_id,
+            position_key="volunteer_committee_operations",
+            confirmation_note="",
+        )
+    assert group_appointment["service_unit"]["service_target_org_unit_id"] == group_id
+    assert committee_appointment["service_unit"]["service_target_org_unit_id"] == class_id
+
+    group_unit = fetch_one(
+        "SELECT parent_id FROM volunteer_service_units WHERE id=?",
+        (group_appointment["service_unit"]["id"],),
+    )
+    group_parent = fetch_one(
+        "SELECT service_target_org_unit_id FROM volunteer_service_units WHERE id=?",
+        (group_unit["parent_id"],),
+    )
+    assert group_parent["service_target_org_unit_id"] == class_id
+
+    committee_unit = fetch_one(
+        "SELECT parent_id FROM volunteer_service_units WHERE id=?",
+        (committee_appointment["service_unit"]["id"],),
+    )
+    committee_parent = fetch_one(
+        "SELECT service_target_org_unit_id, system_type, line_type "
+        "FROM volunteer_service_units WHERE id=?",
+        (committee_unit["parent_id"],),
+    )
+    assert committee_parent == {
+        "service_target_org_unit_id": center_id,
+        "system_type": "COMMITTEE_LINE",
+        "line_type": "OPERATIONS",
     }

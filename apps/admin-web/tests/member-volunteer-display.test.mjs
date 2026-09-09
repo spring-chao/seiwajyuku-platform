@@ -86,11 +86,43 @@ test("member edit page supports compact multi-post volunteer maintenance", () =>
   assert.match(memberPage, /服务班级/);
   assert.match(memberPage, /服务小组/);
   assert.match(memberPage, /添加任职/);
-  assert.match(memberPage, /结束后仅保留历史，不自动恢复/);
+  assert.match(memberPage, /确认结束“\$\{appointmentLabel\}”任职吗/);
+  assert.match(memberPage, /content="结束任职"/);
   assert.match(memberPage, /:closable="canManage"/);
   assert.match(memberPage, /createVolunteerAppointment/);
+  assert.match(memberPage, /catalogResponse\.data\.positions \|\| \[\]/);
+  assert.match(
+    memberPage,
+    /service_target_org_unit_id:\s*volunteerEditorForm\.service_target_org_unit_id/
+  );
+  assert.doesNotMatch(memberPage, /volunteerTypeUnits/);
   assert.match(memberPage, /changeVolunteerAppointmentStatus/);
-  assert.match(memberPage, /const volunteerHistoryExpanded = ref<string\[\]>\(\[\]\)/);
+  assert.match(
+    memberPage,
+    /const volunteerHistoryExpanded = ref<string\[\]>\(\[\]\)/
+  );
   assert.doesNotMatch(memberPage, /志工任职已改由“志工任职管理”统一维护/);
   assert.doesNotMatch(memberPage, /主要岗位/);
+});
+
+test("member edit page defaults to the learner class and group but keeps both editable", () => {
+  const memberPage = readFileSync(
+    new URL("../src/views/seiwajyuku/members.vue", import.meta.url),
+    "utf8"
+  );
+  assert.match(
+    memberPage,
+    /class_org_unit_id: form\.class_org_unit_id \|\| ""/
+  );
+  assert.match(
+    memberPage,
+    /scopeLevel === "GROUP"[\s\S]*form\.group_org_unit_id/
+  );
+  assert.match(
+    memberPage,
+    /org\.parent_id === volunteerEditorForm\.class_org_unit_id/
+  );
+  assert.match(memberPage, /@change="onVolunteerServiceClassChange"/);
+  assert.doesNotMatch(memberPage, /必须与本人班级一致/);
+  assert.doesNotMatch(memberPage, /必须与本人小组一致/);
 });
