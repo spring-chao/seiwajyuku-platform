@@ -516,17 +516,23 @@ def seed_iam() -> None:
                 (now, now),
             )
         # A fresh test/bootstrap database can create the stable Suzhou root
-        # after migration 0056 has run.  When the Jiangnan root is already
+        # after migration 0056 has run. When the Jiangnan root is already
         # present, restore the canonical parentage by stable ID; never infer
         # this relationship from a display name or replace the existing row.
-        execute(
+        jiangnan_root = execute(
             connection,
-            "UPDATE org_units SET parent_id='org-jiangnan', updated_at=? "
-            "WHERE id='org-suzhou' AND unit_code='SZ_ROOT' AND is_active=1 "
-            "AND parent_id IS NULL AND EXISTS "
-            "(SELECT 1 FROM org_units WHERE id='org-jiangnan' AND is_active=1)",
-            (now,),
-        )
+            "SELECT id FROM org_units WHERE id='org-jiangnan' AND is_active=1",
+        ).fetchone()
+        if jiangnan_root:
+            # Keep the existence check in Python so this UPDATE remains valid
+            # on MySQL, which rejects updating a table read through a subquery.
+            execute(
+                connection,
+                "UPDATE org_units SET parent_id='org-jiangnan', updated_at=? "
+                "WHERE id='org-suzhou' AND unit_code='SZ_ROOT' AND is_active=1 "
+                "AND parent_id IS NULL",
+                (now,),
+            )
         # 0011 may have run before the baseline root was imported. Reassert
         # the formal stable-code mapping at bootstrap without matching names.
         execute(
