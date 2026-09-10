@@ -1,6 +1,6 @@
 -- 0055: separate ordinary staff management from technical IAM and align the
 -- operations-center lead with the business-admin capability template.
--- Institution/org mappings remain data-owned in institution_org_links; this
+-- Institution/org mappings remain data-owned in institution_org_links, and this
 -- migration intentionally does not invent Changzhou/Wuxi organization data.
 
 INSERT IGNORE INTO permissions
