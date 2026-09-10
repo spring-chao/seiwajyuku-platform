@@ -2,7 +2,7 @@
 
 日期：2026-09-10
 范围：IAM2 专职人员管理、机构/组织范围联动、管理端菜单权限判断
-边界：未修改 Volunteer 2.0 授权模型，未写入真实志工数据。
+边界：未修改 Volunteer 2.0 授权模型，未写入真实志工数据；本轮只补齐已确认的专职 IAM 权限与组织主数据。
 
 ## 1. 生产只读核查
 
@@ -105,8 +105,16 @@
 - 管理端静态权限检查：4 passed；确认业务菜单不再使用 `meta.roles`。
 - 迁移前向/回滚契约：既有迁移测试通过；新增 0055 仅增加权限与稳定映射补偿，不创建常州/无锡虚假数据。
 
-## 6. 当前未完成与发布边界
+## 6. 生产发布与主数据核验
 
-- 业务确认已经完成；当前待执行的是 `0056` 生产主数据迁移和对应版本发布。
-- 本轮尚未执行生产部署、生产数据库迁移或生产权限写入；生产快照仍是第 1 节所列的补齐前状态。
-- 发布后应重新核验四个正式塾的目录、江南/常州/苏州范围联动，以及无锡只有塾级根节点的预期，再进行真实工作人员验收。
+- API 版本 `seiwajyuku-platform-api-239` 已完成灰度并承载 100% 流量；旧版本 `238` 保留为 0% 回滚版本，两个版本状态均为 `normal`。
+- 管理端静态资源已上传 66/66；`/ops-platform/build-info.json` 回读提交 `2abbe2a5df5aa11d89560ac3a8b4ffd9e7b954d3`，环境为 `production`。
+- 生产 API `/__tcb_probe__`、`/health/live`、`/health`、`/api/v1/health`、`/api/v1/system/environment`、`/api/v1/system/build-info` 均 HTTP 200；运行环境回读为 production。`build-info` 仍返回 `unknown` provenance 字段，属于后续构建注入优化，不影响本次发布。
+- 生产 `0055_staff_scope_and_business_admin.sql` 已登记并核验；`employee_operations_lead` 与 `operations_admin` 各有 33 条权限关系，新增 `staff:manage` 与 `enrollment:unassigned_review` 已生效。
+- 生产 `0056_jiangnan_org_master_data.sql` 已登记并核验：四个正式塾机构均启用；`JN_ROOT/SZ_ROOT/CZ_ROOT/WX_ROOT` 四个根节点存在；常州七个分中心均挂在 `CZ_ROOT` 下；无锡没有创建未确认的下级；既有 `org-suzhou` ID 保留并挂到 `org-jiangnan` 下；四条 `SERVICE_BOUNDARY` 机构—组织根映射存在。
+- 两次生产迁移均通过 CloudBase `RunSql` 独立执行并在 `schema_migrations` 留痕；未触碰 Volunteer 2.0 表或真实志工数据。
+
+## 7. 当前未完成与发布边界
+
+- 业务代码、API、后台静态资源和主数据迁移已发布；下一步是业务人员在页面上验收四个正式机构下拉、所属机构—负责范围联动，以及运营中心负责人业务菜单。
+- 真实工作人员新增、跨塾范围越权、后台与小程序复用 IAM2 的人工验收仍应单独完成；本报告不把数据库主数据核验替代为业务验收。
