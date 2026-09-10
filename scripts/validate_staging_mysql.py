@@ -622,9 +622,12 @@ def _run_followup_invitation_validation() -> dict:
 def main() -> int:
     _assert_safe_target()
     applied_migrations = run_migrations()
+    # Bootstrap the formal IAM catalog and the stable Suzhou root before the
+    # disposable fixture creates its responsibility subtree.  Production
+    # master data is never touched by this CI-only validation database.
+    seed_iam()
     _assert_iam2_role_catalog()
     _seed_fixture()
-    seed_iam()
 
     candidates, issues = build_candidates()
     # M003/M004 are real roster members used by the IAM2 volunteer fixtures.
