@@ -1,5 +1,5 @@
 -- 0058: land the confirmed Wuxi organization tree.
--- Jingjin is a SPECIAL_COHORT directly under Wuxi; it must not be placed
+-- Jingjin is a SPECIAL_COHORT directly under Wuxi, and it must not be placed
 -- under either guidance operating unit.
 
 INSERT IGNORE INTO org_units
