@@ -246,6 +246,8 @@ def test_member_care_actions_merge_sources_and_sort_urgency() -> None:
         "birthday_people_count": 2,
         "followup_people_count": 2,
         "enterprise_visit_people_count": 1,
+        "completed_people_count": 0,
+        "completed_action_count": 0,
     }
     assert people[0]["member_name"] == "逾期跟进学长"
     assert people[1]["member_name"] == "三类关爱学长"
@@ -520,3 +522,94 @@ def test_optional_renewal_support_failure_keeps_base_actions(
     )
     assert result["items"]
     assert all(item["support_status"] == "UNAVAILABLE" for item in result["items"])
+
+
+def test_member_care_actions_include_completed_today_from_existing_sources() -> None:
+    fixture = _care_fixture()
+    as_of = date(2099, 8, 20)
+    now = "2099-08-20T09:30:00+00:00"
+    all_member_id = int(fixture["all_member_id"])
+    birthday_member_id = int(fixture["birthday_member_id"])
+    cycle_id = int(fixture["cycle_id"])
+    followup_task = fetch_one(
+        "SELECT id FROM followup_tasks WHERE member_id=? AND task_type='PHONE' "
+        "ORDER BY id LIMIT 1",
+        (int(fixture["overdue_member_id"]),),
+    )
+    visit_task = fetch_one(
+        "SELECT id FROM followup_tasks WHERE member_id=? AND task_type='VISIT' "
+        "ORDER BY id LIMIT 1",
+        (all_member_id,),
+    )
+    assert followup_task and visit_task
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT INTO renewal_followups(renewal_cycle_id, followed_at, followed_by, "
+            "channel, summary, next_action, created_at) VALUES (?, ?, ?, 'WECHAT', ?, ?, ?)",
+            (cycle_id, now, int(fixture["user_id"]), "今天已完成续费沟通", "继续保持联系", now),
+        )
+        execute(
+            connection,
+            "INSERT INTO followup_records(task_id, member_id, channel, contacted_at, "
+            "outcome_code, objective_facts, created_by, created_at) "
+            "VALUES (?, ?, 'PHONE', ?, 'CONNECTED', ?, ?, ?)",
+            (
+                int(followup_task["id"]),
+                int(fixture["overdue_member_id"]),
+                now,
+                "今天已完成电话联系",
+                int(fixture["user_id"]),
+                now,
+            ),
+        )
+        execute(
+            connection,
+            "INSERT INTO enterprise_visit_records(task_id, member_id, visited_at, purpose, "
+            "participants_json, location_type, objective_facts, created_by, created_at) "
+            "VALUES (?, ?, ?, ?, '[]', 'ENTERPRISE', ?, ?, ?)",
+            (
+                int(visit_task["id"]),
+                all_member_id,
+                now,
+                "今天企业走访",
+                "今天已完成走访",
+                int(fixture["user_id"]),
+                now,
+            ),
+        )
+        execute(
+            connection,
+            "INSERT INTO birthday_care_completions(member_id, birthday_year, due_date, "
+            "channel, completed_at, completed_by, created_at, updated_at) "
+            "VALUES (?, 2099, '2099-08-20', 'WECHAT', ?, ?, ?, ?)",
+            (birthday_member_id, now, int(fixture["user_id"]), now, now),
+        )
+
+    result = build_member_care_actions(int(fixture["user_id"]), as_of=as_of)
+    completed = result["completed_today"]
+    assert result["summary"]["completed_action_count"] == 4
+    assert result["summary"]["completed_people_count"] == 3
+    assert {item["source"] for item in completed} == {
+        "RENEWAL",
+        "FOLLOWUP",
+        "BIRTHDAY",
+    }
+    assert any(
+        item["action_type"] == "ENTERPRISE_VISIT"
+        and item["navigation_type"] == "ENTERPRISE_VISIT"
+        for item in completed
+    )
+    assert not any(
+        person["member_id"] == all_member_id
+        and any(action["source"] == "FOLLOWUP" for action in person["actions"])
+        for person in result["people"]
+    )
+    assert any(
+        item["member_id"] == birthday_member_id
+        and item["channel"] == "WECHAT"
+        for item in completed
+    )
+    assert all("objective_facts" not in item for item in completed)
+    assert all("summary" not in item for item in completed)
+    assert all(item["member_name"] != "其他分中心学长" for item in completed)

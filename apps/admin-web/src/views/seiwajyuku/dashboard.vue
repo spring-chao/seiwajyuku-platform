@@ -25,6 +25,7 @@ import {
   type DashboardItem,
   type MemberCareAction,
   type MemberCareActions,
+  type MemberCareCompletedItem,
   type MemberCareManagementException,
   type MemberCareManagementExceptionType,
   type MemberCareManagementOverview,
@@ -63,6 +64,7 @@ const memberCare = ref<MemberCareActions>();
 const memberCareError = ref(false);
 const memberDetailVisible = ref(false);
 const careAllDialogVisible = ref(false);
+const careView = ref<"pending" | "completed">("pending");
 const careFilter = ref<CareListFilter>("all");
 const selectedMemberId = ref<number>();
 const selectedCarePerson = ref<MemberCarePerson>();
@@ -464,6 +466,21 @@ const careActionTypeLabel = (action: MemberCareAction) =>
     COURSE: "学习关怀",
     OTHER: "日常关怀"
   })[action.action_type] ?? action.action_type;
+const completedSourceLabel = (source: MemberCareCompletedItem["source"]) =>
+  ({ RENEWAL: "续费", FOLLOWUP: "关爱", BIRTHDAY: "生日" })[source];
+const completedChannelLabel = (channel?: string | null) =>
+  ({
+    WECHAT: "微信",
+    PHONE: "电话",
+    MEETING: "面谈",
+    VISIT: "走访",
+    COURSE: "课程",
+    ENTERPRISE: "企业走访"
+  })[String(channel || "").toUpperCase()] || "已记录";
+const completedNavigationLabel = (item: unknown) => {
+  const completed = item as Partial<MemberCareCompletedItem>;
+  return `${completedSourceLabel(completed.source || "FOLLOWUP")} · ${completedChannelLabel(completed.channel)}`;
+};
 const careNavigationLabel = (
   navigationType: MemberCareAction["navigation_type"]
 ) =>
@@ -564,6 +581,17 @@ const filteredCarePeople = computed(() => {
     }
     return actions.some(action => action.source === careFilter.value);
   });
+});
+const completedCareItems = computed<MemberCareCompletedItem[]>(() =>
+  [...(memberCare.value?.completed_today || [])].sort((left, right) => {
+    const leftTime = dayjs(left.completed_at).valueOf();
+    const rightTime = dayjs(right.completed_at).valueOf();
+    if (leftTime !== rightTime) return rightTime - leftTime;
+    return left.member_name.localeCompare(right.member_name, "zh-CN");
+  })
+);
+const completedCarePeople = computed(() => {
+  return new Set(completedCareItems.value.map(item => item.member_id)).size;
 });
 
 const managementExceptionPriority: Record<
@@ -1263,19 +1291,20 @@ function changePlan() {
       <div class="section-title care-center-heading">
         <div>
           <p class="eyebrow dark">MEMBER CARE CENTER</p>
-          <h2>今日关爱</h2>
+          <h2>今日行动</h2>
           <p>以学长为中心合并续费、日常关怀/走访和生日行动。</p>
         </div>
         <div class="care-center-heading-actions">
           <strong v-if="memberCare" class="care-center-count">
-            今天有 {{ memberCare.summary.people_total }} 位学长值得关注
+            待处理 {{ memberCare.summary.people_total }} 位 · 今日已完成
+            {{ completedCareItems.length }} 个动作
           </strong>
           <el-button link type="primary" @click="load"> 刷新 </el-button>
         </div>
       </div>
       <el-alert
         v-if="memberCareError"
-        title="今日关爱暂时不可用"
+        title="今日行动暂时不可用"
         description="当前账号没有可见的关爱来源，或聚合接口暂时不可用；不会根据不完整数据臆造行动。"
         type="info"
         :closable="false"
@@ -1291,147 +1320,228 @@ function changePlan() {
           show-icon
           class="care-center-alert"
         />
-        <div class="care-center-summary">
+        <div class="care-center-view-switch" aria-label="今日行动状态">
           <button
             type="button"
-            class="care-center-summary-button all"
-            :class="{ active: careFilter === 'all' }"
-            :aria-pressed="careFilter === 'all'"
-            @click="careFilter = 'all'"
+            class="care-center-view-button"
+            :class="{ active: careView === 'pending' }"
+            :aria-pressed="careView === 'pending'"
+            @click="careView = 'pending'"
           >
-            全部 <b>{{ memberCare.summary.people_total }}</b>
+            待处理 <b>{{ memberCare.summary.people_total }}</b>
           </button>
           <button
             type="button"
-            class="care-center-summary-button overdue"
-            :class="{ active: careFilter === 'OVERDUE' }"
-            :aria-pressed="careFilter === 'OVERDUE'"
-            @click="careFilter = 'OVERDUE'"
+            class="care-center-view-button completed"
+            :class="{ active: careView === 'completed' }"
+            :aria-pressed="careView === 'completed'"
+            @click="careView = 'completed'"
           >
-            🔴 逾期 <b>{{ memberCare.summary.overdue_people_count }}</b>
-          </button>
-          <button
-            type="button"
-            class="care-center-summary-button today"
-            :class="{ active: careFilter === 'TODAY' }"
-            :aria-pressed="careFilter === 'TODAY'"
-            @click="careFilter = 'TODAY'"
-          >
-            🔵 今天 <b>{{ memberCare.summary.today_people_count }}</b>
-          </button>
-          <button
-            type="button"
-            class="care-center-summary-button attention"
-            :class="{ active: careFilter === 'ATTENTION' }"
-            :aria-pressed="careFilter === 'ATTENTION'"
-            @click="careFilter = 'ATTENTION'"
-          >
-            🟠 需要协助
-            <b>{{ memberCare.summary.attention_people_count }}</b>
-          </button>
-          <button
-            type="button"
-            class="care-center-summary-button birthday"
-            :class="{ active: careFilter === 'BIRTHDAY' }"
-            :aria-pressed="careFilter === 'BIRTHDAY'"
-            @click="careFilter = 'BIRTHDAY'"
-          >
-            🎂 生日关怀
-            <b>{{ memberCare.summary.birthday_people_count }}</b>
-          </button>
-          <button
-            type="button"
-            class="care-center-summary-button renewal"
-            :class="{ active: careFilter === 'RENEWAL' }"
-            :aria-pressed="careFilter === 'RENEWAL'"
-            @click="careFilter = 'RENEWAL'"
-          >
-            ♻️ 续费关爱
-            <b>{{ memberCare.summary.renewal_people_count }}</b>
-          </button>
-          <button
-            type="button"
-            class="care-center-summary-button followup"
-            :class="{ active: careFilter === 'FOLLOWUP' }"
-            :aria-pressed="careFilter === 'FOLLOWUP'"
-            @click="careFilter = 'FOLLOWUP'"
-          >
-            🤝 日常关怀/走访
-            <b>{{ memberCare.summary.followup_people_count }}</b>
+            今日已完成 <b>{{ completedCareItems.length }}</b>
           </button>
         </div>
-        <el-table
-          :data="filteredCarePeople"
-          max-height="420"
-          stripe
-          :empty-text="
-            careFilter === 'all'
-              ? '今天暂无确定性学长关爱行动'
-              : `当前筛选「${careFilterLabel(careFilter)}」暂无学长`
-          "
-          class="care-center-table"
-        >
-          <el-table-column label="学长" min-width="130">
-            <template #default="{ row }">
-              <el-button link type="primary" @click="openCarePerson(row)">
-                {{ row.member_name }}
-              </el-button>
-            </template>
-          </el-table-column>
-          <el-table-column label="归属" min-width="190">
-            <template #default="{ row }">
-              {{ row.org_name }}
-              <span v-if="row.class_name" class="muted-inline">
-                · {{ row.class_name }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column label="今天为什么出现" min-width="330">
-            <template #default="{ row }">
-              <div class="care-action-tags">
-                <el-tag
-                  v-for="action in row.actions"
-                  :key="`${action.source}-${action.source_id}`"
-                  :type="careUrgencyType(action.urgency)"
-                  effect="light"
-                >
-                  {{ action.label }}
+        <template v-if="careView === 'pending'">
+          <div class="care-center-summary">
+            <button
+              type="button"
+              class="care-center-summary-button all"
+              :class="{ active: careFilter === 'all' }"
+              :aria-pressed="careFilter === 'all'"
+              @click="careFilter = 'all'"
+            >
+              全部 <b>{{ memberCare.summary.people_total }}</b>
+            </button>
+            <button
+              type="button"
+              class="care-center-summary-button overdue"
+              :class="{ active: careFilter === 'OVERDUE' }"
+              :aria-pressed="careFilter === 'OVERDUE'"
+              @click="careFilter = 'OVERDUE'"
+            >
+              🔴 逾期 <b>{{ memberCare.summary.overdue_people_count }}</b>
+            </button>
+            <button
+              type="button"
+              class="care-center-summary-button today"
+              :class="{ active: careFilter === 'TODAY' }"
+              :aria-pressed="careFilter === 'TODAY'"
+              @click="careFilter = 'TODAY'"
+            >
+              🔵 今天 <b>{{ memberCare.summary.today_people_count }}</b>
+            </button>
+            <button
+              type="button"
+              class="care-center-summary-button attention"
+              :class="{ active: careFilter === 'ATTENTION' }"
+              :aria-pressed="careFilter === 'ATTENTION'"
+              @click="careFilter = 'ATTENTION'"
+            >
+              🟠 需要协助
+              <b>{{ memberCare.summary.attention_people_count }}</b>
+            </button>
+            <button
+              type="button"
+              class="care-center-summary-button birthday"
+              :class="{ active: careFilter === 'BIRTHDAY' }"
+              :aria-pressed="careFilter === 'BIRTHDAY'"
+              @click="careFilter = 'BIRTHDAY'"
+            >
+              🎂 生日关怀
+              <b>{{ memberCare.summary.birthday_people_count }}</b>
+            </button>
+            <button
+              type="button"
+              class="care-center-summary-button renewal"
+              :class="{ active: careFilter === 'RENEWAL' }"
+              :aria-pressed="careFilter === 'RENEWAL'"
+              @click="careFilter = 'RENEWAL'"
+            >
+              ♻️ 续费关爱
+              <b>{{ memberCare.summary.renewal_people_count }}</b>
+            </button>
+            <button
+              type="button"
+              class="care-center-summary-button followup"
+              :class="{ active: careFilter === 'FOLLOWUP' }"
+              :aria-pressed="careFilter === 'FOLLOWUP'"
+              @click="careFilter = 'FOLLOWUP'"
+            >
+              🤝 日常关怀/走访
+              <b>{{ memberCare.summary.followup_people_count }}</b>
+            </button>
+          </div>
+          <el-table
+            :data="filteredCarePeople"
+            max-height="420"
+            stripe
+            :empty-text="
+              careFilter === 'all'
+                ? '今天暂无确定性学长关爱行动'
+                : `当前筛选「${careFilterLabel(careFilter)}」暂无学长`
+            "
+            class="care-center-table"
+          >
+            <el-table-column label="学长" min-width="130">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openCarePerson(row)">
+                  {{ row.member_name }}
+                </el-button>
+              </template>
+            </el-table-column>
+            <el-table-column label="归属" min-width="190">
+              <template #default="{ row }">
+                {{ row.org_name }}
+                <span v-if="row.class_name" class="muted-inline">
+                  · {{ row.class_name }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="今天为什么出现" min-width="330">
+              <template #default="{ row }">
+                <div class="care-action-tags">
+                  <el-tag
+                    v-for="action in row.actions"
+                    :key="`${action.source}-${action.source_id}`"
+                    :type="careUrgencyType(action.urgency)"
+                    effect="light"
+                  >
+                    {{ action.label }}
+                  </el-tag>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="先处理" min-width="150">
+              <template #default="{ row }">
+                <el-tag :type="careUrgencyType(row.primary_action.urgency)">
+                  {{ careUrgencyLabel(row.primary_action.urgency) }}
                 </el-tag>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="先处理" min-width="150">
-            <template #default="{ row }">
-              <el-tag :type="careUrgencyType(row.primary_action.urgency)">
-                {{ careUrgencyLabel(row.primary_action.urgency) }}
-              </el-tag>
-              <span class="muted-inline">
-                · {{ careActionTypeLabel(row.primary_action) }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column label="责任人" min-width="120">
-            <template #default="{ row }">
-              {{ row.primary_action.assigned_user_name || "按现有流程" }}
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="120" fixed="right">
-            <template #default="{ row }">
-              <el-button link type="primary" @click="openCarePerson(row)">
-                查看关爱
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        <div class="dashboard-table-footer">
-          <span>
-            当前显示 {{ filteredCarePeople.length }} /
-            {{ memberCare.summary.people_total }} 位，已按优先级排序
-          </span>
-          <el-button link type="primary" @click="careAllDialogVisible = true">
-            查看全部 {{ memberCare.summary.people_total }} 位 →
-          </el-button>
-        </div>
+                <span class="muted-inline">
+                  · {{ careActionTypeLabel(row.primary_action) }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="责任人" min-width="120">
+              <template #default="{ row }">
+                {{ row.primary_action.assigned_user_name || "按现有流程" }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openCarePerson(row)">
+                  查看关爱
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div class="dashboard-table-footer">
+            <span>
+              当前显示 {{ filteredCarePeople.length }} /
+              {{ memberCare.summary.people_total }} 位，已按优先级排序
+            </span>
+            <el-button link type="primary" @click="careAllDialogVisible = true">
+              查看全部 {{ memberCare.summary.people_total }} 位 →
+            </el-button>
+          </div>
+        </template>
+        <template v-else>
+          <div class="completed-care-note">
+            <span
+              >今天已记录 {{ completedCareItems.length }} 个服务动作，涉及
+              {{ completedCarePeople }} 位学长。</span
+            >
+            <span>完成记录来自续费、关爱和生日原有业务事实。</span>
+          </div>
+          <el-table
+            :data="completedCareItems"
+            max-height="420"
+            stripe
+            empty-text="今天还没有完成记录"
+            class="care-center-table completed-care-table"
+          >
+            <el-table-column label="学长" min-width="130">
+              <template #default="{ row }">
+                <el-button
+                  link
+                  type="primary"
+                  @click="openMemberProfile(row.member_id)"
+                >
+                  {{ row.member_name }}
+                </el-button>
+              </template>
+            </el-table-column>
+            <el-table-column label="归属" min-width="190">
+              <template #default="{ row }">
+                {{ row.org_name }}
+                <span v-if="row.class_name" class="muted-inline">
+                  · {{ row.class_name }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="已完成动作" min-width="240">
+              <template #default="{ row }">
+                <el-tag type="success" effect="light">
+                  {{ completedNavigationLabel(row) }}
+                </el-tag>
+                <span class="muted-inline"> · {{ row.label }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="完成时间" width="180">
+              <template #default="{ row }">
+                {{ dayjs(row.completed_at).format("HH:mm") }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button
+                  link
+                  type="primary"
+                  @click="openMemberProfile(row.member_id)"
+                  >查看学员</el-button
+                >
+              </template>
+            </el-table-column>
+          </el-table>
+        </template>
       </template>
     </section>
 
@@ -3341,6 +3451,35 @@ h1 {
 .care-center-alert {
   margin-top: 12px;
 }
+.care-center-view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+.care-center-view-button {
+  padding: 9px 14px;
+  border: 1px solid #dcebe3;
+  color: #4f7063;
+  font: inherit;
+  font-size: 13px;
+  background: #f7fbf8;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.care-center-view-button:hover,
+.care-center-view-button.active {
+  border-color: #72b393;
+  color: #17624b;
+  background: #eaf8ef;
+  box-shadow: 0 3px 10px rgb(31 78 61 / 8%);
+}
+.care-center-view-button.completed {
+  color: #52755f;
+}
+.care-center-view-button b {
+  margin-left: 4px;
+}
 .care-center-summary {
   display: flex;
   flex-wrap: wrap;
@@ -3407,6 +3546,15 @@ h1 {
   gap: 12px;
   margin-top: 10px;
   color: #82958d;
+  font-size: 12px;
+}
+.completed-care-note {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 2px 0 12px;
+  color: #72877e;
   font-size: 12px;
 }
 .dashboard-dialog-note {

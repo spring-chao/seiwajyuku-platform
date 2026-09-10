@@ -39,6 +39,7 @@ FOLLOWUP_TYPE_LABELS = {
 
 LOGGER = logging.getLogger(__name__)
 SOURCE_KEYS = ("renewal", "followup", "birthday")
+COMPLETED_SOURCE_RANK = {"RENEWAL": 0, "FOLLOWUP": 1, "BIRTHDAY": 2}
 
 
 def _source_error_code(error: BaseException) -> str:
@@ -538,6 +539,32 @@ def complete_birthday_care(
 
 def _followup_actions(user_id: int, today: date) -> list[dict[str, Any]]:
     rows = list_tasks(user_id)
+    candidate_rows = [
+        row
+        for row in rows
+        if str(row.get("status") or "").upper() in OPEN_STATES
+        and _calendar_date(row.get("next_followup_at") or row.get("due_at"))
+        and (_calendar_date(row.get("next_followup_at") or row.get("due_at")) <= today)
+    ]
+    completed_today_task_ids: set[int] = set()
+    if candidate_rows:
+        task_ids = sorted({int(row["id"]) for row in candidate_rows})
+        placeholders = ",".join("?" for _ in task_ids)
+        recorded_rows = fetch_all(
+            "SELECT task_id, contacted_at FROM followup_records "
+            f"WHERE task_id IN ({placeholders}) AND DATE(contacted_at)=?",
+            (*task_ids, today.isoformat()),
+        )
+        visited_rows = fetch_all(
+            "SELECT task_id, visited_at FROM enterprise_visit_records "
+            f"WHERE task_id IN ({placeholders}) AND DATE(visited_at)=?",
+            (*task_ids, today.isoformat()),
+        )
+        completed_today_task_ids = {
+            int(row["task_id"])
+            for row in [*recorded_rows, *visited_rows]
+            if row.get("task_id") is not None
+        }
     result = []
     for row in rows:
         if str(row.get("status") or "").upper() not in OPEN_STATES:
@@ -545,6 +572,14 @@ def _followup_actions(user_id: int, today: date) -> list[dict[str, Any]]:
         raw_due = row.get("next_followup_at") or row.get("due_at")
         due_date = _calendar_date(raw_due)
         if not due_date or due_date > today:
+            continue
+        # Recording today's service closes today's action when no new
+        # follow-up time was explicitly scheduled.  The task itself remains
+        # open for the canonical follow-up workflow and health view.
+        if (
+            int(row["id"]) in completed_today_task_ids
+            and not str(row.get("next_followup_at") or "").strip()
+        ):
             continue
         task_type = str(row.get("task_type") or "OTHER").upper()
         action_type, type_label = FOLLOWUP_TYPE_LABELS.get(
@@ -611,6 +646,310 @@ def _renewal_actions(user_id: int, year: int, today: date) -> list[dict[str, Any
     return result
 
 
+def _completed_birthday_actions(user_id: int, today: date) -> list[dict[str, Any]]:
+    """Read birthday completions recorded today from the existing sources.
+
+    Birthday care can be completed against either an operation-rhythm item or
+    the member-level completion table.  Both are existing facts; this read
+    model only presents them together and never creates a second completion
+    record.
+    """
+    completion_rows: list[dict[str, Any]] = []
+    try:
+        completion_rows = fetch_all(
+            "SELECT id, member_id, birthday_year, due_date, channel, completed_at "
+            "FROM birthday_care_completions WHERE DATE(completed_at)=?",
+            (today.isoformat(),),
+        )
+    except Exception as error:
+        if _source_error_code(error) != "SCHEMA_UNAVAILABLE":
+            raise
+        LOGGER.warning("birthday completion table unavailable; skipping completion history")
+
+    operation_rows = fetch_all(
+        "SELECT id, business_id, due_date, actual_at, completion_note "
+        "FROM operation_items WHERE business_type='BIRTHDAY_CARE' "
+        "AND status='COMPLETED' AND actual_at IS NOT NULL "
+        "AND DATE(actual_at)=?",
+        (today.isoformat(),),
+    )
+    # The operation-item completion path is the authoritative row when the
+    # item exists.  A member-level completion is preferred when both are
+    # present, which prevents one real action from appearing twice.
+    candidates: dict[tuple[int, int], dict[str, Any]] = {}
+    for row in operation_rows:
+        try:
+            member_id = int(row.get("business_id"))
+        except (TypeError, ValueError):
+            continue
+        due_date = _calendar_date(row.get("due_date"))
+        completed_at = row.get("actual_at")
+        year = due_date.year if due_date else today.year
+        candidates[(member_id, year)] = {
+            "member_id": member_id,
+            "source_id": int(row["id"]),
+            "action_type": "BIRTHDAY",
+            "label": "生日关怀｜已完成",
+            "reason": "已完成生日关怀",
+            "completed_at": completed_at,
+            "channel": None,
+            "due_date": due_date.isoformat() if due_date else None,
+            "navigation_type": "BIRTHDAY",
+            "navigation_id": member_id,
+            "operation_item_id": int(row["id"]),
+            "source": "BIRTHDAY",
+        }
+    for row in completion_rows:
+        try:
+            member_id = int(row["member_id"])
+            year = int(row["birthday_year"])
+        except (TypeError, ValueError):
+            continue
+        candidates[(member_id, year)] = {
+            "member_id": member_id,
+            "source_id": int(row["id"]),
+            "action_type": "BIRTHDAY",
+            "label": "生日关怀｜已完成",
+            "reason": "已完成生日关怀",
+            "completed_at": row.get("completed_at"),
+            "channel": row.get("channel"),
+            "due_date": _date_text(row.get("due_date")),
+            "navigation_type": "BIRTHDAY",
+            "navigation_id": member_id,
+            "operation_item_id": None,
+            "source": "BIRTHDAY",
+        }
+    contexts = _member_contexts(
+        {int(item["member_id"]) for item in candidates.values()},
+        accessible_org_ids(user_id),
+    )
+    return [
+        {**contexts[int(item["member_id"])], **item}
+        for item in candidates.values()
+        if int(item["member_id"]) in contexts
+    ]
+
+
+def _completed_followup_actions(user_id: int, today: date) -> list[dict[str, Any]]:
+    """Read today's follow-up/visit records through the existing visibility rules."""
+    tasks = list_tasks(user_id)
+    task_by_id = {int(task["id"]): task for task in tasks}
+    if not task_by_id:
+        return []
+    task_ids = sorted(task_by_id)
+    placeholders = ",".join("?" for _ in task_ids)
+    records = fetch_all(
+        "SELECT id, task_id, member_id, channel, contacted_at, outcome_code "
+        f"FROM followup_records WHERE task_id IN ({placeholders}) "
+        "AND DATE(contacted_at)=? "
+        "ORDER BY contacted_at DESC, id DESC",
+        (*task_ids, today.isoformat()),
+    )
+    visits = fetch_all(
+        "SELECT id, task_id, member_id, visited_at, location_type "
+        f"FROM enterprise_visit_records WHERE task_id IN ({placeholders}) "
+        "AND DATE(visited_at)=? "
+        "ORDER BY visited_at DESC, id DESC",
+        (*task_ids, today.isoformat()),
+    )
+    member_ids = {
+        int(row["member_id"])
+        for row in [*records, *visits]
+        if row.get("member_id") is not None
+    }
+    member_ids.update(
+        int(task["member_id"])
+        for task in task_by_id.values()
+        if str(task.get("status") or "").upper() == "CLOSED"
+        and _calendar_date(task.get("updated_at")) == today
+    )
+    contexts = _member_contexts(member_ids, accessible_org_ids(user_id))
+    result: list[dict[str, Any]] = []
+    seen_task_today: set[int] = set()
+
+    def append_item(
+        row: dict[str, Any], *, visited: bool = False
+    ) -> None:
+        occurred_at = row.get("visited_at") if visited else row.get("contacted_at")
+        if _calendar_date(occurred_at) != today:
+            return
+        task_id = int(row["task_id"])
+        task = task_by_id.get(task_id)
+        if not task:
+            return
+        member_id = int(row["member_id"])
+        if member_id not in contexts:
+            return
+        seen_task_today.add(task_id)
+        if visited:
+            action_type = "ENTERPRISE_VISIT"
+            type_label = "企业走访"
+            navigation_type = "ENTERPRISE_VISIT"
+            channel = row.get("location_type")
+        else:
+            task_type = str(task.get("task_type") or "OTHER").upper()
+            action_type, type_label = FOLLOWUP_TYPE_LABELS.get(
+                task_type, ("OTHER", "日常关怀")
+            )
+            navigation_type = "FOLLOWUP"
+            channel = row.get("channel")
+        result.append(
+            {
+                **contexts[member_id],
+                "source": "FOLLOWUP",
+                "source_id": int(row["id"]),
+                "action_type": action_type,
+                "label": f"{type_label}｜已完成",
+                "reason": "已记录今天的服务动作",
+                "completed_at": occurred_at,
+                "channel": channel,
+                "due_date": _date_text(occurred_at),
+                "navigation_type": navigation_type,
+                "navigation_id": task_id,
+                "task_id": task_id,
+            }
+        )
+
+    for row in records:
+        append_item(row)
+    for row in visits:
+        append_item(row, visited=True)
+
+    # A task may be closed after a previous day's record.  There is no
+    # dedicated closed_at column, so the existing updated_at is the safe audit
+    # timestamp for the explicit close operation.  Do not add a second row when
+    # today's record already explains the completion.
+    for task_id, task in task_by_id.items():
+        if task_id in seen_task_today:
+            continue
+        if str(task.get("status") or "").upper() != "CLOSED":
+            continue
+        if _calendar_date(task.get("updated_at")) != today:
+            continue
+        member_id = int(task["member_id"])
+        if member_id not in contexts:
+            continue
+        task_type = str(task.get("task_type") or "OTHER").upper()
+        action_type, type_label = FOLLOWUP_TYPE_LABELS.get(
+            task_type, ("OTHER", "日常关怀")
+        )
+        navigation_type = (
+            "ENTERPRISE_VISIT" if action_type == "ENTERPRISE_VISIT" else "FOLLOWUP"
+        )
+        result.append(
+            {
+                **contexts[member_id],
+                "source": "FOLLOWUP",
+                "source_id": task_id,
+                "action_type": action_type,
+                "label": f"{type_label}｜已完成",
+                "reason": "服务事项已关闭",
+                "completed_at": task.get("updated_at"),
+                "channel": None,
+                "due_date": _date_text(task.get("updated_at")),
+                "navigation_type": navigation_type,
+                "navigation_id": task_id,
+                "task_id": task_id,
+            }
+        )
+    return result
+
+
+def _completed_renewal_actions(user_id: int, today: date) -> list[dict[str, Any]]:
+    """Read today's renewal follow-ups and terminal status changes."""
+    rows = fetch_all(
+        "SELECT f.id, f.renewal_cycle_id, f.followed_at, f.channel, "
+        "c.member_id, c.renewal_year, c.due_month, c.status, c.completed_at "
+        "FROM renewal_followups f JOIN renewal_cycles c "
+        "ON c.id=f.renewal_cycle_id WHERE DATE(f.followed_at)=? "
+        "ORDER BY f.followed_at DESC, f.id DESC",
+        (today.isoformat(),),
+    )
+    cycle_rows = fetch_all(
+        "SELECT id, member_id, renewal_year, due_month, status, completed_at "
+        "FROM renewal_cycles WHERE completed_at IS NOT NULL AND DATE(completed_at)=?",
+        (today.isoformat(),),
+    )
+    member_ids = {
+        int(row["member_id"])
+        for row in [*rows, *cycle_rows]
+        if row.get("member_id") is not None
+    }
+    contexts = _member_contexts(member_ids, accessible_org_ids(user_id))
+    result: list[dict[str, Any]] = []
+    followed_cycle_ids: set[int] = set()
+    for row in rows:
+        if _calendar_date(row.get("followed_at")) != today:
+            continue
+        member_id = int(row["member_id"])
+        if member_id not in contexts:
+            continue
+        cycle_id = int(row["renewal_cycle_id"])
+        followed_cycle_ids.add(cycle_id)
+        result.append(
+            {
+                **contexts[member_id],
+                "source": "RENEWAL",
+                "source_id": int(row["id"]),
+                "action_type": "RENEWAL",
+                "label": "续费关爱｜已完成跟进",
+                "reason": "已记录今天的续费关爱",
+                "completed_at": row.get("followed_at"),
+                "channel": row.get("channel"),
+                "due_date": _date_text(row.get("followed_at")),
+                "navigation_type": "RENEWAL",
+                "navigation_id": cycle_id,
+                "renewal_cycle_id": cycle_id,
+            }
+        )
+    for row in cycle_rows:
+        if _calendar_date(row.get("completed_at")) != today:
+            continue
+        cycle_id = int(row["id"])
+        if cycle_id in followed_cycle_ids:
+            continue
+        member_id = int(row["member_id"])
+        if member_id not in contexts:
+            continue
+        result.append(
+            {
+                **contexts[member_id],
+                "source": "RENEWAL",
+                "source_id": cycle_id,
+                "action_type": "RENEWAL",
+                "label": "续费关爱｜已完成续费",
+                "reason": "续费周期已完成",
+                "completed_at": row.get("completed_at"),
+                "channel": None,
+                "due_date": _date_text(row.get("completed_at")),
+                "navigation_type": "RENEWAL",
+                "navigation_id": cycle_id,
+                "renewal_cycle_id": cycle_id,
+            }
+        )
+    return result
+
+
+def _completed_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
+    completed_at = item.get("completed_at")
+    if isinstance(completed_at, datetime):
+        completed_timestamp = completed_at.replace(
+            tzinfo=completed_at.tzinfo or UTC
+        ).timestamp()
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(completed_at).replace("Z", "+00:00"))
+            completed_timestamp = parsed.replace(tzinfo=parsed.tzinfo or UTC).timestamp()
+        except (TypeError, ValueError, OverflowError):
+            completed_timestamp = 0.0
+    return (
+        -completed_timestamp,
+        COMPLETED_SOURCE_RANK.get(str(item.get("source") or ""), 99),
+        str(item.get("member_name") or ""),
+        int(item.get("source_id") or 0),
+    )
+
+
 def _action_priority_rank(action: dict[str, Any]) -> int:
     # 明天生日仍属于窗口，但要在普通窗口前提醒；不复用 ATTENTION，
     # 避免把生日误计入“需要协助”人数。
@@ -645,22 +984,26 @@ def build_member_care_actions(
         raise PermissionError("当前账号没有学长关爱数据查看权限")
 
     actions: list[dict[str, Any]] = []
+    completed_today: list[dict[str, Any]] = []
     coverage = _source_coverage(permissions)
     if "renewals:read" in permissions:
         try:
             actions.extend(_renewal_actions(user_id, today.year, today))
+            completed_today.extend(_completed_renewal_actions(user_id, today))
             coverage["renewal"]["available"] = True
         except Exception as error:
             _mark_source_unavailable(coverage, "renewal", error)
     if "followups:manage" in permissions:
         try:
             actions.extend(_followup_actions(user_id, today))
+            completed_today.extend(_completed_followup_actions(user_id, today))
             coverage["followup"]["available"] = True
         except Exception as error:
             _mark_source_unavailable(coverage, "followup", error)
     if "members:detail_view" in permissions:
         try:
             actions.extend(_birthday_items(user_id, today))
+            completed_today.extend(_completed_birthday_actions(user_id, today))
             coverage["birthday"]["available"] = True
         except Exception as error:
             _mark_source_unavailable(coverage, "birthday", error)
@@ -713,6 +1056,35 @@ def build_member_care_actions(
             int(person["member_id"]),
         )
     )
+    completed_today.sort(key=_completed_sort_key)
+    # The completion list is a read-only projection of source records.  Keep
+    # the same minimal member context used by pending actions and never expose
+    # service notes or enterprise-sensitive details here.
+    completed_fields = {
+        "member_id",
+        "member_name",
+        "org_unit_id",
+        "org_name",
+        "class_name",
+        "group_name",
+        "source",
+        "source_id",
+        "action_type",
+        "label",
+        "reason",
+        "completed_at",
+        "channel",
+        "due_date",
+        "navigation_type",
+        "navigation_id",
+        "operation_item_id",
+        "task_id",
+        "renewal_cycle_id",
+    }
+    completed_today = [
+        {key: value for key, value in item.items() if key in completed_fields}
+        for item in completed_today
+    ]
 
     def count_people(predicate) -> int:
         return sum(1 for person in output_people if predicate(person["actions"]))
@@ -741,10 +1113,15 @@ def build_member_care_actions(
         "enterprise_visit_people_count": count_people(
             lambda items: any(item["action_type"] == "ENTERPRISE_VISIT" for item in items)
         ),
+        "completed_people_count": len(
+            {int(item["member_id"]) for item in completed_today}
+        ),
+        "completed_action_count": len(completed_today),
     }
     return {
         "as_of": today.isoformat(),
         "summary": summary,
         "source_coverage": coverage,
         "people": output_people,
+        "completed_today": completed_today,
     }

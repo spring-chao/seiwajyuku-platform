@@ -211,6 +211,28 @@ export type MemberCarePerson = {
   has_overdue: boolean;
 };
 
+export type MemberCareCompletedItem = {
+  member_id: number;
+  member_name: string;
+  org_unit_id: string;
+  org_name: string;
+  class_name?: string | null;
+  group_name?: string | null;
+  source: "RENEWAL" | "FOLLOWUP" | "BIRTHDAY";
+  source_id: number;
+  action_type: string;
+  label: string;
+  reason: string;
+  completed_at: string;
+  channel?: string | null;
+  due_date?: string | null;
+  navigation_type: "RENEWAL" | "FOLLOWUP" | "ENTERPRISE_VISIT" | "BIRTHDAY";
+  navigation_id: number;
+  operation_item_id?: number | null;
+  task_id?: number | null;
+  renewal_cycle_id?: number | null;
+};
+
 export type MemberCareActions = {
   as_of: string;
   summary: {
@@ -223,9 +245,12 @@ export type MemberCareActions = {
     birthday_people_count: number;
     followup_people_count: number;
     enterprise_visit_people_count: number;
+    completed_people_count: number;
+    completed_action_count: number;
   };
   source_coverage: MemberCareSourceCoverage;
   people: MemberCarePerson[];
+  completed_today: MemberCareCompletedItem[];
 };
 
 export type MemberCareSourceCoverage = {

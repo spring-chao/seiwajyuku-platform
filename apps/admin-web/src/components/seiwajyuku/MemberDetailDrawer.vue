@@ -108,6 +108,39 @@ const summaryCards = computed(() => [
     note: "在册且当前有效岗位"
   }
 ]);
+const keyFacts = computed(() =>
+  [
+    {
+      label: "续费",
+      types: ["RENEWAL_CYCLE", "RENEWAL_FOLLOWUP"],
+      fallback: profile.value?.renewal_month
+        ? `续费月份：${profile.value.renewal_month}`
+        : "暂无续费记录"
+    },
+    {
+      label: "关爱",
+      types: ["FOLLOWUP_RECORD", "ENTERPRISE_VISIT", "FOLLOWUP_TASK"],
+      fallback: "暂无关爱记录"
+    },
+    {
+      label: "学习",
+      types: ["ATTENDANCE", "LEARNING_ACTIVITY"],
+      fallback: "暂无学习记录"
+    },
+    {
+      label: "志工",
+      types: [],
+      fallback: activeAppointments.value.length
+        ? "当前有有效岗位"
+        : "暂无当前岗位"
+    }
+  ].map(item => ({
+    ...item,
+    latest: item.types.length
+      ? events.value.find(event => item.types.includes(event.event_type))
+      : undefined
+  }))
+);
 const recentEvents = computed(() => events.value.slice(0, 8));
 
 function countEvents(types: string[]) {
@@ -319,6 +352,25 @@ watch(
           </div>
         </section>
 
+        <section class="member-detail-section">
+          <div class="member-detail-section-title">
+            <h3>关键事实</h3>
+            <span>续费、学习、关爱和志工均来自现有记录</span>
+          </div>
+          <div class="member-detail-key-facts">
+            <article v-for="fact in keyFacts" :key="fact.label">
+              <span>{{ fact.label }}</span>
+              <strong>{{ fact.latest?.title || fact.fallback }}</strong>
+              <small v-if="fact.latest">
+                {{ eventStatusLabel(fact.latest.status) || "已记录" }} ·
+                {{
+                  formatDate(fact.latest.occurred_at || fact.latest.updated_at)
+                }}
+              </small>
+            </article>
+          </div>
+        </section>
+
         <section v-if="careActions.length" class="member-detail-section">
           <div class="member-detail-section-title">
             <h3>本次需要做</h3>
@@ -491,6 +543,30 @@ watch(
   color: #173f33;
   font-size: 22px;
 }
+.member-detail-key-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.member-detail-key-facts article {
+  display: grid;
+  gap: 4px;
+  min-height: 66px;
+  padding: 11px 12px;
+  background: #fbfdfc;
+  border: 1px solid #e1ebe6;
+  border-radius: 9px;
+}
+.member-detail-key-facts span,
+.member-detail-key-facts small {
+  color: #81968c;
+  font-size: 12px;
+}
+.member-detail-key-facts strong {
+  color: #345247;
+  font-size: 14px;
+  font-weight: 500;
+}
 .member-detail-actions,
 .member-detail-events,
 .member-detail-appointments {
@@ -546,7 +622,8 @@ watch(
 }
 @media (max-width: 560px) {
   .member-detail-facts,
-  .member-detail-summary-grid {
+  .member-detail-summary-grid,
+  .member-detail-key-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .member-detail-actions article,
