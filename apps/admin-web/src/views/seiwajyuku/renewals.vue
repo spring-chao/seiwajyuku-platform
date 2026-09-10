@@ -6,6 +6,7 @@ import { useUserStoreHook } from "@/store/modules/user";
 import {
   createRenewalCycleFromMember,
   createRenewalFollowup,
+  createRenewalSupportRequest,
   getRenewalActionCard,
   getRenewalAssignees,
   getRenewalCoverage,
@@ -14,6 +15,7 @@ import {
   getRenewalOverview,
   getRenewalTodayActions,
   getSystemEnvironment,
+  updateRenewalSupportRequest,
   updateRenewalCycle,
   type RenewalActionCard,
   type RenewalFollowup,
@@ -25,18 +27,29 @@ import {
   type RenewalStageCode,
   type RenewalTodayActionReason,
   type RenewalTodayAction,
-  type RenewalTodayActions
+  type RenewalTodayActions,
+  type RenewalRecommendedSupporter,
+  type RenewalSupportRequest,
+  type RenewalSupportStatus,
+  type RenewalSupporter
 } from "@/api/seiwajyuku";
 
 defineOptions({ name: "RenewalOperations" });
 
-const year = ref(2026);
+const currentYear = new Date().getFullYear();
+const year = ref(currentYear);
+const yearOptions = computed(() =>
+  [currentYear - 1, currentYear, currentYear + 1].map(value => ({
+    value,
+    label: `${value}年度`
+  }))
+);
 const loading = ref(false);
 const rows = ref<RenewalOverviewRow[]>([]);
 const cycles = ref<RenewalCycle[]>([]);
 const stageCycles = ref<RenewalCycle[]>([]);
 const coverage = ref<RenewalCoverage>({
-  year: 2026,
+  year: currentYear,
   summary: {
     member_total: 0,
     active_member_total: 0,
@@ -50,7 +63,7 @@ const coverage = ref<RenewalCoverage>({
   truncated: false
 });
 const todayActions = ref<RenewalTodayActions>({
-  year: 2026,
+  year: currentYear,
   as_of: "",
   summary: {
     total: 0,
@@ -70,6 +83,12 @@ const cycleDetailVisible = ref(false);
 const cycleDetailLoading = ref(false);
 const cycleSaving = ref(false);
 const followupSaving = ref(false);
+const supportRequestSaving = ref("");
+const supportFeedbackSaving = ref<number>();
+const supportExpanded = ref(false);
+const supportFeedbackForms = reactive<
+  Record<number, { feedback_summary: string; next_action: string }>
+>({});
 const selectedCycle = ref<RenewalCycle>();
 const actionCard = ref<RenewalActionCard>();
 const actionCardError = ref(false);
@@ -126,6 +145,31 @@ const canEditRenewals = computed(
   () => canManageRenewals.value && writeEnabled.value
 );
 const isClosedStage = computed(() => actionCard.value?.stage.code === "CLOSED");
+const canCoordinateSupport = computed(
+  () =>
+    Boolean(actionCard.value?.support.needed) &&
+    canManageRenewals.value &&
+    canEditRenewals.value &&
+    !isClosedStage.value
+);
+const supportRoleSections = computed(() => {
+  const roles = actionCard.value?.support.network.roles;
+  if (!roles) return [];
+  return [
+    { key: "referrers", label: "推荐人", entries: roles.referrers },
+    { key: "group_leaders", label: "组长", entries: roles.group_leaders },
+    { key: "group_counselors", label: "辅导员", entries: roles.group_counselors },
+    { key: "class_teachers", label: "班主任 / 副班主任", entries: roles.class_teachers },
+    { key: "class_development", label: "班级发展委", entries: roles.class_development },
+    { key: "center_development", label: "分中心发展委", entries: roles.center_development }
+  ];
+});
+const supportCanExpand = computed(() =>
+  supportRoleSections.value.some(section => section.entries.length > 2)
+);
+const primarySupporter = computed(
+  () => actionCard.value?.support.network.recommended_supporters[0]
+);
 
 const stageDefinitions: {
   code: RenewalStageCode;
@@ -262,6 +306,7 @@ const coverageStatusLabel = (status: RenewalCoverageRow["sync_status"]) =>
     SYNCED_INACTIVE: "已有周期，学员已流失",
     SYNCED_SUSPENDED: "已有周期，学员已暂停",
     READY_TO_CREATE: "可建立周期",
+    NOT_DUE_YET: "未到首个续费年度",
     MISSING_RENEWAL_MONTH: "缺少续费月份",
     INACTIVE: "流失，不进入新周期",
     SUSPENDED: "暂停，不进入新周期"
@@ -272,6 +317,7 @@ const coverageStatusType = (status: RenewalCoverageRow["sync_status"]) =>
     SYNCED_INACTIVE: "warning",
     SYNCED_SUSPENDED: "warning",
     READY_TO_CREATE: "primary",
+    NOT_DUE_YET: "info",
     MISSING_RENEWAL_MONTH: "danger",
     INACTIVE: "info",
     SUSPENDED: "info"
@@ -295,6 +341,20 @@ const stageTagType = (code?: string) =>
     RECOVERY: "danger",
     CLOSED: "info"
   })[code || ""] as "success" | "primary" | "warning" | "danger" | "info";
+const supportStatusLabel = (status?: RenewalSupportStatus) =>
+  ({
+    NONE: "—",
+    PENDING: "待助力",
+    IN_PROGRESS: "助力中",
+    FEEDBACK_RECEIVED: "已有反馈"
+  })[status || "NONE"];
+const supportStatusType = (status?: RenewalSupportStatus) =>
+  ({
+    NONE: "info",
+    PENDING: "warning",
+    IN_PROGRESS: "primary",
+    FEEDBACK_RECEIVED: "success"
+  })[status || "NONE"] as "success" | "primary" | "warning" | "info";
 const todayReasonTagType = (code?: string) =>
   ({
     FOLLOWUP_OVERDUE: "danger",
@@ -307,6 +367,117 @@ const reasonLabel = (reason: RenewalTodayAction["reasons"][number]) =>
   reason.label;
 const formatActionDate = (value?: string | null) =>
   value ? String(value).slice(0, 16).replace("T", " ") : "—";
+const supporterKey = (
+  supporter: Pick<
+    RenewalSupporter,
+    "member_id" | "person_id" | "name" | "role"
+  >
+) =>
+  supporter.member_id
+    ? `member-${supporter.member_id}`
+    : supporter.person_id
+      ? `person-${supporter.person_id}`
+      : `name-${supporter.role}-${supporter.name}`;
+const visibleSupporters = (entries: RenewalSupporter[]) =>
+  supportExpanded.value ? entries : entries.slice(0, 2);
+const supportRequestFor = (
+  supporter: Pick<
+    RenewalSupporter,
+    "member_id" | "person_id" | "name" | "role"
+  >
+) =>
+  actionCard.value?.support.current_requests.find(request => {
+    if (!["REQUESTED", "FEEDBACK_RECEIVED"].includes(request.status)) {
+      return false;
+    }
+    if (supporter.member_id) {
+      return request.supporter_member_id === supporter.member_id;
+    }
+    if (supporter.person_id) {
+      return request.supporter_person_id === supporter.person_id;
+    }
+    return (
+      request.supporter_role === supporter.role &&
+      request.supporter_name_snapshot === supporter.name
+    );
+  });
+const supportRequestForRecommended = (supporter: RenewalRecommendedSupporter) =>
+  supportRequestFor({
+    member_id: supporter.member_id,
+    person_id: supporter.person_id,
+    name: supporter.name,
+    role: supporter.primary_role
+  });
+function hydrateSupportFeedbackForms(requests: RenewalSupportRequest[]) {
+  Object.keys(supportFeedbackForms).forEach(key => {
+    delete supportFeedbackForms[Number(key)];
+  });
+  requests.forEach(request => {
+    supportFeedbackForms[request.id] = {
+      feedback_summary: request.feedback_summary || "",
+      next_action: request.next_action || ""
+    };
+  });
+}
+async function requestSupport(supporter: RenewalSupporter) {
+  if (!selectedCycle.value || !canCoordinateSupport.value) return;
+  const key = supporterKey(supporter);
+  supportRequestSaving.value = key;
+  try {
+    const response = await createRenewalSupportRequest(selectedCycle.value.id, {
+      supporter_role: supporter.role,
+      supporter_member_id: supporter.member_id || undefined,
+      supporter_person_id: supporter.person_id || undefined,
+      supporter_name_snapshot: supporter.name
+    });
+    ElMessage.success(
+      response.data.created
+        ? "已记录协同助力请求，系统不会自动发送消息"
+        : "该学长已在协同助力中"
+    );
+    await Promise.all([reloadActionCard(), load()]);
+  } catch (error: any) {
+    ElMessage.error(errorText(error, "记录协同助力请求失败"));
+  } finally {
+    supportRequestSaving.value = "";
+  }
+}
+async function requestRecommendedSupport(supporter: RenewalRecommendedSupporter) {
+  await requestSupport({
+    role: supporter.primary_role,
+    role_label: supporter.primary_role_label,
+    name: supporter.name,
+    member_id: supporter.member_id,
+    person_id: supporter.person_id,
+    resolved: supporter.resolved,
+    org_unit_id: supporter.org_unit_id,
+    org_name: supporter.org_name
+  });
+}
+async function saveSupportFeedback(request: RenewalSupportRequest) {
+  if (!selectedCycle.value || !canManageRenewals.value || !canEditRenewals.value) {
+    return;
+  }
+  const form = supportFeedbackForms[request.id];
+  if (!form?.feedback_summary.trim()) {
+    ElMessage.warning("请先填写简短反馈");
+    return;
+  }
+  supportFeedbackSaving.value = request.id;
+  try {
+    await updateRenewalSupportRequest(selectedCycle.value.id, request.id, {
+      status: "FEEDBACK_RECEIVED",
+      feedback_summary: form.feedback_summary.trim(),
+      next_action: form.next_action.trim() || undefined
+    });
+    ElMessage.success("助力反馈已保存并写入审计");
+    await Promise.all([reloadActionCard(), load()]);
+  } catch (error: any) {
+    ElMessage.error(errorText(error, "保存助力反馈失败"));
+  } finally {
+    supportFeedbackSaving.value = undefined;
+  }
+}
 const cycleStatusOptions = [
   ["PENDING_FIRST_CONTACT", "待首次联系"],
   ["CONTACTED_WAITING_REPLY", "已联系待回复"],
@@ -561,6 +732,8 @@ async function loadActionCard(cycleId: number) {
   try {
     const response = await getRenewalActionCard(cycleId);
     actionCard.value = response.data;
+    supportExpanded.value = false;
+    hydrateSupportFeedbackForms(response.data.support.current_requests);
     followupForm.channel = response.data.action.recommended_channel;
     generatedScriptChannel.value =
       response.data.action.recommended_channel === "PHONE" ? "PHONE" : "WECHAT";
@@ -617,6 +790,8 @@ async function openCycleDetail(cycle: any) {
   actionCard.value = undefined;
   actionCardError.value = false;
   scriptGenerated.value = false;
+  supportExpanded.value = false;
+  hydrateSupportFeedbackForms([]);
   cycleAssignees.value = [];
   cycleDetailVisible.value = true;
   cycleDetailLoading.value = true;
@@ -770,8 +945,12 @@ onMounted(async () => {
         </p>
       </div>
       <el-select v-model="year" class="year-select" @change="load">
-        <el-option :value="2026" label="2026年度" />
-        <el-option :value="2027" label="2027年度" />
+        <el-option
+          v-for="option in yearOptions"
+          :key="option.value"
+          :value="option.value"
+          :label="option.label"
+        />
       </el-select>
     </section>
 
@@ -1018,6 +1197,18 @@ onMounted(async () => {
           <el-table-column label="责任人" min-width="120">
             <template #default="{ row }">
               {{ row.assigned_user_name || "待分配" }}
+            </template>
+          </el-table-column>
+          <el-table-column label="助力状态" min-width="105">
+            <template #default="{ row }">
+              <el-tag
+                v-if="row.support_status !== 'NONE'"
+                :type="supportStatusType(row.support_status)"
+                effect="light"
+              >
+                {{ supportStatusLabel(row.support_status) }}
+              </el-tag>
+              <span v-else>—</span>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="120" fixed="right">
@@ -1270,6 +1461,18 @@ onMounted(async () => {
             cycleStatusLabel(row.status)
           }}</template>
         </el-table-column>
+        <el-table-column label="助力状态" min-width="105">
+          <template #default="{ row }">
+            <el-tag
+              v-if="row.support_status !== 'NONE'"
+              :type="supportStatusType(row.support_status)"
+              effect="light"
+            >
+              {{ supportStatusLabel(row.support_status) }}
+            </el-tag>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
         <el-table-column
           prop="assigned_user_name"
           label="责任人"
@@ -1362,10 +1565,10 @@ onMounted(async () => {
                   }}月续费
                 </el-tag>
                 <el-tag
-                  v-if="actionCard.current_context.needs_support"
+                  v-if="actionCard.support.needed"
                   type="warning"
                 >
-                  需要协助
+                  待协同助力
                 </el-tag>
               </div>
               <h3>{{ actionCard.member.name }} · 本次目标</h3>
@@ -1377,6 +1580,7 @@ onMounted(async () => {
                   actionCard.cycle.assigned_user_name || "待分配"
                 }}</span
               >
+              <span>入塾日期：{{ actionCard.member.join_date || "待维护" }}</span>
               <span
                 >同行：{{
                   actionCard.member.membership_years ?? "待维护"
@@ -1395,6 +1599,162 @@ onMounted(async () => {
             </strong>
             <p>{{ actionCard.action.recommendation_reason }}</p>
           </div>
+
+          <section class="relationship-support-card">
+            <div class="relationship-support-head">
+              <div>
+                <strong>关系助力</strong>
+                <p>
+                  只展示当前正式关系与任职；是否请谁助力由运营人员人工选择，系统不会自动发送消息。
+                </p>
+              </div>
+              <el-tag
+                v-if="actionCard.support.needed"
+                type="warning"
+                effect="light"
+              >
+                待协同助力
+              </el-tag>
+              <el-tag v-else type="info" effect="plain">
+                {{ actionCard.support.status_label }}
+              </el-tag>
+            </div>
+
+            <div
+              v-if="actionCard.support.needed && primarySupporter"
+              class="support-recommendation"
+            >
+              <div>
+                <span>推荐优先</span>
+                <strong>
+                  {{ primarySupporter.name }} ·
+                  {{ primarySupporter.primary_role_label }}
+                </strong>
+                <p>{{ primarySupporter.recommendation_reason }}</p>
+              </div>
+              <el-button
+                v-if="!supportRequestForRecommended(primarySupporter)"
+                type="primary"
+                plain
+                :loading="supportRequestSaving === `member-${primarySupporter.member_id}` || supportRequestSaving === `person-${primarySupporter.person_id}` || supportRequestSaving === `name-${primarySupporter.primary_role}-${primarySupporter.name}`"
+                :disabled="!canCoordinateSupport"
+                @click="requestRecommendedSupport(primarySupporter)"
+              >
+                请 TA 助力
+              </el-button>
+              <el-tag v-else type="success" effect="plain">已请助力</el-tag>
+            </div>
+
+            <div class="support-role-grid">
+              <article
+                v-for="section in supportRoleSections"
+                :key="section.key"
+                class="support-role-section"
+              >
+                <strong>{{ section.label }}</strong>
+                <template v-if="section.entries.length">
+                  <div
+                    v-for="supporter in visibleSupporters(section.entries)"
+                    :key="`${section.key}-${supporterKey(supporter)}`"
+                    class="supporter-row"
+                  >
+                    <div>
+                      <b>{{ supporter.name }}</b>
+                      <small>
+                        {{ supporter.role_label }}
+                        <template v-if="supporter.org_name">
+                          · {{ supporter.org_name }}
+                        </template>
+                      </small>
+                      <small v-if="!supporter.resolved" class="unresolved-supporter">
+                        推荐人身份尚未关联系统档案
+                      </small>
+                    </div>
+                    <el-tag
+                      v-if="supportRequestFor(supporter)"
+                      :type="supportRequestFor(supporter)?.status === 'FEEDBACK_RECEIVED' ? 'success' : 'primary'"
+                      effect="plain"
+                    >
+                      {{ supportRequestFor(supporter)?.status_label }}
+                    </el-tag>
+                    <el-button
+                      v-else-if="actionCard.support.needed"
+                      link
+                      type="primary"
+                      :loading="supportRequestSaving === supporterKey(supporter)"
+                      :disabled="!canCoordinateSupport"
+                      @click="requestSupport(supporter)"
+                    >
+                      请 TA 助力
+                    </el-button>
+                  </div>
+                </template>
+                <p v-else class="support-empty">待维护</p>
+              </article>
+            </div>
+            <el-button
+              v-if="supportCanExpand"
+              link
+              type="primary"
+              class="support-expand"
+              @click="supportExpanded = !supportExpanded"
+            >
+              {{ supportExpanded ? "收起关系人" : "展开更多关系人" }}
+            </el-button>
+
+            <div
+              v-if="actionCard.support.current_requests.length"
+              class="support-request-list"
+            >
+              <strong>已请助力</strong>
+              <article
+                v-for="request in actionCard.support.current_requests"
+                :key="request.id"
+                class="support-request-row"
+              >
+                <div class="support-request-meta">
+                  <b>
+                    {{ request.supporter_name_snapshot }} ·
+                    {{ request.supporter_role_label }}
+                  </b>
+                  <span>
+                    已请助力 · {{ formatActionDate(request.requested_at) }} ·
+                    {{ request.status_label }}
+                  </span>
+                  <p v-if="request.feedback_summary">
+                    反馈：{{ request.feedback_summary }}
+                  </p>
+                  <p v-if="request.next_action">下一步：{{ request.next_action }}</p>
+                </div>
+                <div
+                  v-if="canManageRenewals && ['REQUESTED', 'FEEDBACK_RECEIVED'].includes(request.status)"
+                  class="support-feedback-form"
+                >
+                  <el-input
+                    v-model="supportFeedbackForms[request.id].feedback_summary"
+                    :disabled="!canEditRenewals"
+                    maxlength="1000"
+                    placeholder="记录简短反馈，例如已沟通，计划班会后再聊"
+                  />
+                  <el-input
+                    v-model="supportFeedbackForms[request.id].next_action"
+                    :disabled="!canEditRenewals"
+                    maxlength="1000"
+                    placeholder="可选：下一步"
+                  />
+                  <el-button
+                    type="success"
+                    plain
+                    :loading="supportFeedbackSaving === request.id"
+                    :disabled="!canEditRenewals"
+                    @click="saveSupportFeedback(request)"
+                  >
+                    保存反馈
+                  </el-button>
+                </div>
+              </article>
+            </div>
+          </section>
 
           <div class="memory-block">
             <strong>经验证的共同经历</strong>
@@ -2289,6 +2649,115 @@ onMounted(async () => {
 .today-advice p {
   color: #e0f4eb;
 }
+.relationship-support-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  background: #fffdf7;
+  border: 1px solid #ecdfbd;
+  border-radius: 13px;
+}
+.relationship-support-head,
+.support-recommendation,
+.supporter-row,
+.support-request-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.relationship-support-head strong,
+.support-request-list > strong {
+  color: #5d4519;
+}
+.relationship-support-head p,
+.support-recommendation p,
+.support-request-meta p,
+.support-empty {
+  margin: 5px 0 0;
+  color: #7d725c;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.support-recommendation {
+  padding: 13px 14px;
+  background: #fff7e7;
+  border: 1px solid #edd6a6;
+  border-radius: 10px;
+}
+.support-recommendation span,
+.supporter-row small,
+.support-request-meta span {
+  display: block;
+  color: #8b7c60;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.support-recommendation strong {
+  display: block;
+  margin-top: 3px;
+  color: #604817;
+}
+.support-role-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.support-role-section {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #eee6d5;
+  border-radius: 10px;
+}
+.support-role-section > strong {
+  color: #635332;
+  font-size: 13px;
+}
+.supporter-row {
+  align-items: center;
+  padding-top: 7px;
+  border-top: 1px dashed #eee6d5;
+}
+.supporter-row b {
+  color: #3d4c42;
+  font-size: 13px;
+}
+.unresolved-supporter {
+  color: #a87420 !important;
+}
+.support-empty {
+  margin: 0;
+}
+.support-expand {
+  justify-self: start;
+  padding: 0;
+}
+.support-request-list {
+  display: grid;
+  gap: 9px;
+  padding-top: 3px;
+}
+.support-request-row {
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #ece5d5;
+  border-radius: 10px;
+}
+.support-request-meta {
+  min-width: 0;
+}
+.support-request-meta b {
+  color: #3f4c43;
+  font-size: 13px;
+}
+.support-feedback-form {
+  display: grid;
+  flex: 0 1 310px;
+  gap: 7px;
+}
 .continuity-card,
 .memory-block {
   display: grid;
@@ -2492,6 +2961,17 @@ onMounted(async () => {
   .reference-grid,
   .guidance-grid {
     grid-template-columns: 1fr;
+  }
+  .support-role-grid {
+    grid-template-columns: 1fr;
+  }
+  .relationship-support-head,
+  .support-recommendation,
+  .support-request-row {
+    flex-direction: column;
+  }
+  .support-feedback-form {
+    width: 100%;
   }
   .today-actions-search {
     align-items: stretch;

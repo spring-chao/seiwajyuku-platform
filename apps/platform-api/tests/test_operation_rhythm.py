@@ -109,6 +109,26 @@ def test_generate_rhythm_is_idempotent_and_expands_birthday_care() -> None:
     assert any(item["business_type"] == "BIRTHDAY_CARE" for item in snapshot["items"])
 
 
+def test_rhythm_does_not_fabricate_birthday_item_without_class_relation() -> None:
+    center_id, _, _, user_id = _insert_scope()
+    now = datetime.now(UTC).isoformat()
+    suffix = uuid4().hex[:8]
+    with transaction() as connection:
+        member_id = execute(
+            connection,
+            "INSERT INTO members(member_code, name, org_unit_id, status, birthday, created_at, updated_at) "
+            "VALUES (?, '未分班生日学长', ?, 'ACTIVE', '1980-08-26', ?, ?)",
+            (f"RHYTHM-UNASSIGNED-{suffix}", center_id, now, now),
+        ).lastrowid
+
+    generate_rhythm_cycles(user_id, 2026, 8)
+
+    assert fetch_one(
+        "SELECT id FROM operation_items WHERE business_type='BIRTHDAY_CARE' AND business_id=?",
+        (str(member_id),),
+    ) is None
+
+
 def test_class_calendar_date_change_syncs_related_rhythm_items() -> None:
     _, class_id, _, user_id = _insert_scope()
     update_class_operations(

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 from zipfile import BadZipFile
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -26,6 +28,10 @@ from app.services.renewals import (
     rollback_import,
     save_preview,
     update_cycle,
+)
+from app.services.renewal_support_network import (
+    create_renewal_support_request,
+    update_renewal_support_request,
 )
 from app.services.renewal_reconciliation import list_member_status_reconciliation
 from app.services.renewal_analytics import get_annual_renewal_analytics
@@ -62,20 +68,48 @@ class RenewalCycleFromMemberPayload(BaseModel):
     renewal_year: int = Field(ge=2020, le=2100)
     confirmation: str
 
+
+class RenewalSupportRequestPayload(BaseModel):
+    supporter_role: Literal[
+        "REFERRER",
+        "GROUP_LEADER",
+        "GROUP_COUNSELOR",
+        "CLASS_TEACHER",
+        "DEPUTY_CLASS_TEACHER",
+        "CLASS_DEVELOPMENT",
+        "CENTER_DEVELOPMENT",
+    ]
+    supporter_member_id: int | None = Field(default=None, ge=1)
+    supporter_person_id: str | None = Field(default=None, max_length=64)
+    supporter_name_snapshot: str = Field(min_length=1, max_length=128)
+
+
+class RenewalSupportRequestUpdatePayload(BaseModel):
+    status: Literal["REQUESTED", "FEEDBACK_RECEIVED", "CLOSED", "CANCELLED"] | None = None
+    feedback_summary: str | None = Field(default=None, max_length=1000)
+    next_action: str | None = Field(default=None, max_length=1000)
+
+
+def _current_year() -> int:
+    return datetime.now(UTC).year
+
 @router.get("/overview")
-def overview(year: int = 2026, user: dict = Depends(require_permission("renewals:read"))) -> dict:
+def overview(
+    year: int | None = Query(default=None, ge=2020, le=2100),
+    user: dict = Depends(require_permission("renewals:read")),
+) -> dict:
     return {"success": True, "data": list_overview(user["id"], year)}
 
 
 @router.get("/analytics/annual")
 def annual_analytics(
-    year: int = Query(default=2026, ge=2020, le=2100),
+    year: int | None = Query(default=None, ge=2020, le=2100),
     org_unit_id: str | None = None,
     user: dict = Depends(require_permission("renewals:read")),
 ) -> dict:
     try:
         data = get_annual_renewal_analytics(
-            user["id"], year, org_unit_id=org_unit_id
+            user["id"], year or _current_year(), org_unit_id=org_unit_id
         )
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
@@ -100,7 +134,7 @@ def member_status_reconciliation(
 
 @router.get("/actions/today")
 def today_actions(
-    year: int = Query(default=2026, ge=2020, le=2100),
+    year: int | None = Query(default=None, ge=2020, le=2100),
     org_unit_id: str | None = None,
     stage: str | None = None,
     reason: str | None = None,
@@ -123,7 +157,7 @@ def today_actions(
 
 @router.get("/cycles")
 def cycles(
-    year: int = 2026,
+    year: int | None = Query(default=None, ge=2020, le=2100),
     status: str | None = None,
     org_unit_id: str | None = None,
     due_month: int | None = Query(default=None, ge=1, le=12),
@@ -150,7 +184,7 @@ def cycles(
 
 @router.get("/coverage")
 def coverage(
-    year: int = 2026,
+    year: int | None = Query(default=None, ge=2020, le=2100),
     org_unit_id: str | None = None,
     member_name: str | None = None,
     include_synced: bool = False,
@@ -322,3 +356,43 @@ def create_cycle_followup(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": {"id": followup_id}}
+
+
+@router.post("/cycles/{cycle_id}/support-requests")
+def create_cycle_support_request(
+    cycle_id: int,
+    payload: RenewalSupportRequestPayload,
+    user: dict = Depends(require_permission("renewals:manage")),
+) -> dict:
+    try:
+        data = create_renewal_support_request(
+            cycle_id,
+            user["id"],
+            **payload.model_dump(),
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.patch("/cycles/{cycle_id}/support-requests/{request_id}")
+def edit_cycle_support_request(
+    cycle_id: int,
+    request_id: int,
+    payload: RenewalSupportRequestUpdatePayload,
+    user: dict = Depends(require_permission("renewals:manage")),
+) -> dict:
+    try:
+        data = update_renewal_support_request(
+            cycle_id,
+            request_id,
+            user["id"],
+            **payload.model_dump(exclude_unset=True),
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}

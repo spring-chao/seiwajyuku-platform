@@ -14,6 +14,12 @@ from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
 from app.services.member_memories import verified_member_memories
+from app.services.renewal_support_network import (
+    build_renewal_support_network,
+    list_cycle_support_statuses,
+    list_renewal_support_requests,
+    support_status,
+)
 
 
 CENTER_IDS = {
@@ -153,13 +159,27 @@ def _month(value: Any) -> int | None:
     return int(text) if text.isdigit() and 1 <= int(text) <= 12 else None
 
 
-def _member_renewal_month(value: Any) -> int | None:
-    """Return the recurring month maintained in the member master profile."""
-    match = re.fullmatch(r"\d{4}-(\d{2})", str(value or "").strip())
+def _member_renewal_schedule(value: Any) -> tuple[int, int] | None:
+    """Return the first eligible renewal year and its recurring month.
+
+    ``members.renewal_month`` is intentionally a YYYY-MM business fact: it
+    records the first year in which a member may enter a renewal cycle, not
+    merely a month-of-year preference.
+    """
+    match = re.fullmatch(r"(\d{4})-(\d{2})", str(value or "").strip())
     if not match:
         return None
-    month = int(match.group(1))
-    return month if 1 <= month <= 12 else None
+    first_renewal_year = int(match.group(1))
+    recurring_month = int(match.group(2))
+    if not 1 <= recurring_month <= 12:
+        return None
+    return first_renewal_year, recurring_month
+
+
+def _member_renewal_month(value: Any) -> int | None:
+    """Return the recurring month maintained in the member master profile."""
+    schedule = _member_renewal_schedule(value)
+    return schedule[1] if schedule else None
 
 
 def _initial_cycle_status(due_month: int, renewal_year: int, now: datetime) -> str:
@@ -468,10 +488,15 @@ def maybe_create_historical_cycle(
     """
     if str(member_status or "").upper() != "ACTIVE":
         return None
-    due_month = _member_renewal_month(renewal_month)
+    schedule = _member_renewal_schedule(renewal_month)
     current = now or datetime.now(UTC)
     target_year = renewal_year or current.year
-    if not due_month or _initial_cycle_status(due_month, target_year, current) != "RENEWED":
+    if not schedule:
+        return None
+    first_renewal_year, due_month = schedule
+    if target_year < first_renewal_year:
+        return None
+    if _initial_cycle_status(due_month, target_year, current) != "RENEWED":
         return None
     existing = execute(
         connection,
@@ -1022,7 +1047,7 @@ def rollback_import(
 
 def list_cycles(
     user_id: int,
-    year: int = 2026,
+    year: int | None = None,
     status: str | None = None,
     *,
     org_unit_id: str | None = None,
@@ -1037,6 +1062,7 @@ def list_cycles(
     months and cycles that are not marked RENEWED. Callers can select a month
     explicitly or opt into all months for historical review.
     """
+    year = year or datetime.now(UTC).year
     conditions = ["c.renewal_year=?"]
     params: list[Any] = [year]
     if status:
@@ -1083,16 +1109,18 @@ def list_cycles(
     allowed = accessible_org_ids(user_id)
     if allowed is not None:
         rows = [row for row in rows if row["org_unit_id"] in allowed]
+    support_states = list_cycle_support_statuses(rows)
     for row in rows:
         row["stage"] = determine_renewal_stage(
             row["renewal_year"], row["due_month"], row["status"]
         )
+        row["support_status"] = support_states[int(row["id"])]["code"]
     return rows
 
 
 def list_today_actions(
     user_id: int,
-    year: int = 2026,
+    year: int | None = None,
     *,
     org_unit_id: str | None = None,
     stage: str | None = None,
@@ -1105,10 +1133,11 @@ def list_today_actions(
     an action.  The heavier action-card endpoint remains the single source for
     message references and is opened only after an operator chooses a row.
     """
-    if not 2020 <= int(year) <= 2100:
-        raise ValueError("续费年度无效")
     current = as_of or datetime.now(UTC)
     current_date = current.date() if isinstance(current, datetime) else current
+    year = year or current_date.year
+    if not 2020 <= int(year) <= 2100:
+        raise ValueError("续费年度无效")
     requested_stage = str(stage or "").strip().upper() or None
     if requested_stage and requested_stage not in RENEWAL_STAGE_LABELS:
         raise ValueError("今日行动阶段筛选值无效")
@@ -1170,6 +1199,15 @@ def list_today_actions(
         followups_by_cycle.setdefault(int(followup["renewal_cycle_id"]), []).append(
             followup
         )
+
+    support_states = list_cycle_support_statuses(
+        rows,
+        latest_needs_support={
+            cycle_id: bool(values[0].get("needs_support"))
+            for cycle_id, values in followups_by_cycle.items()
+            if values
+        },
+    )
 
     items: list[dict[str, Any]] = []
     for row in rows:
@@ -1274,6 +1312,7 @@ def list_today_actions(
             "latest_channel": latest.get("channel") if latest else None,
             "intention": latest.get("intention") if latest else None,
             "needs_support": bool(latest.get("needs_support")) if latest else False,
+            "support_status": support_states[cycle_id]["code"],
             "next_action": safe_next_action,
             "next_followup_at": latest.get("next_followup_at") if latest else None,
             "primary_reason": reason_items[0]["code"],
@@ -1326,7 +1365,7 @@ def list_today_actions(
 
 def list_cycle_coverage(
     user_id: int,
-    year: int = 2026,
+    year: int | None = None,
     *,
     org_unit_id: str | None = None,
     member_name: str | None = None,
@@ -1340,6 +1379,7 @@ def list_cycle_coverage(
     being silently excluded from the operations page; creating a cycle is a
     separate, audited action.
     """
+    year = year or datetime.now(UTC).year
     if not 1 <= limit <= 500:
         raise ValueError("同步检查条数必须在1至500之间")
     conditions = ["1=1"]
@@ -1372,7 +1412,7 @@ def list_cycle_coverage(
         item = dict(row)
         member_status = str(item["member_status"] or "").upper()
         member_active = member_status == "ACTIVE"
-        recurring_month = _member_renewal_month(item.get("renewal_month"))
+        schedule = _member_renewal_schedule(item.get("renewal_month"))
         if item.get("cycle_id"):
             if member_active:
                 sync_status = "SYNCED"
@@ -1382,9 +1422,14 @@ def list_cycle_coverage(
                 sync_status = "SYNCED_INACTIVE"
         elif not member_active:
             sync_status = "SUSPENDED" if member_status == "SUSPENDED" else "INACTIVE"
-        elif recurring_month:
-            sync_status = "READY_TO_CREATE"
+        elif schedule:
+            first_renewal_year, recurring_month = schedule
             item["due_month"] = recurring_month
+            sync_status = (
+                "NOT_DUE_YET"
+                if year < first_renewal_year
+                else "READY_TO_CREATE"
+            )
         else:
             sync_status = "MISSING_RENEWAL_MONTH"
         item["sync_status"] = sync_status
@@ -1459,9 +1504,14 @@ def create_cycle_from_member(
         raise ValueError("学员不存在")
     if str(member["status"] or "").upper() != "ACTIVE":
         raise ValueError("只有在册学员可以建立新的续费周期")
-    due_month = _member_renewal_month(member.get("renewal_month"))
-    if not due_month:
+    schedule = _member_renewal_schedule(member.get("renewal_month"))
+    if not schedule:
         raise ValueError("请先在学员管理补充有效的续费月份")
+    first_renewal_year, due_month = schedule
+    if renewal_year < first_renewal_year:
+        raise ValueError(
+            f"该学长首个续费年度为{first_renewal_year}，不能建立{renewal_year}续费周期"
+        )
     allowed = accessible_org_ids(actor_user_id)
     if allowed is not None and member["org_unit_id"] not in allowed:
         raise PermissionError("学员不在当前账号的续费组织范围内")
@@ -1818,6 +1868,7 @@ def get_action_card(
         "c.result, c.assigned_user_id, u.display_name AS assigned_user_name, "
         "m.name AS member_name, m.join_date, m.study_start_date, m.membership_years, "
         "m.membership_years_overridden, "
+        "m.referrer, m.referrer_center, "
         f"{MEMBER_RENEWAL_ORG_SQL} AS member_org_unit_id, o.name AS org_name, "
         f"{MEMBER_CLASS_NAME_SQL} AS class_name, "
         f"{MEMBER_GROUP_NAME_SQL} AS group_name "
@@ -1848,6 +1899,14 @@ def get_action_card(
 
     stage = determine_renewal_stage(
         cycle["renewal_year"], cycle["due_month"], cycle["status"], as_of=current_date
+    )
+    support_network = build_renewal_support_network(cycle["member_id"], actor_user_id)
+    support_requests = list_renewal_support_requests(cycle_id, actor_user_id)
+    support_needed = bool(latest and latest.get("needs_support")) and stage["code"] != "CLOSED"
+    support_state = support_status(
+        cycle_status=cycle["status"],
+        needs_support=support_needed,
+        requests=support_requests,
     )
     memories = verified_member_memories(cycle["member_id"], limit=4, as_of=current_date)
     strategy = _renewal_action_strategy(stage["code"], latest_followup=latest)
@@ -1926,6 +1985,8 @@ def get_action_card(
                 else None
             ),
             "membership_years": membership_years,
+            "referrer": cycle.get("referrer"),
+            "referrer_center": cycle.get("referrer_center"),
         },
         "stage": stage,
         "latest_followup": latest,
@@ -1934,6 +1995,13 @@ def get_action_card(
             "needs_support": latest.get("needs_support") if latest else False,
             "next_action": latest.get("next_action") if latest else None,
             "next_followup_at": latest.get("next_followup_at") if latest else None,
+        },
+        "support": {
+            "needed": support_needed,
+            "status": support_state["code"],
+            "status_label": support_state["label"],
+            "network": support_network,
+            "current_requests": support_requests,
         },
         "verified_memories": memories,
         "action": {
@@ -1967,13 +2035,16 @@ def get_action_card(
             after={
                 "stage": stage["code"],
                 "memory_count": len(memories),
+                "support_needed": support_needed,
+                "support_status": support_state["code"],
                 "facts_only": True,
             },
         )
     return result
 
 
-def list_overview(user_id: int, year: int = 2026) -> dict[str, Any]:
+def list_overview(user_id: int, year: int | None = None) -> dict[str, Any]:
+    year = year or datetime.now(UTC).year
     allowed = accessible_org_ids(user_id)
     rows = fetch_all(
         "SELECT "

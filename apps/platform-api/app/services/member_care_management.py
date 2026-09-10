@@ -6,7 +6,12 @@ from typing import Any, Callable
 from app.db import fetch_all
 from app.services.followups import OPEN_STATES, list_tasks
 from app.services.iam import accessible_org_ids, user_context
-from app.services.member_care_actions import _member_contexts, build_member_care_actions
+from app.services.member_care_actions import (
+    _active_birthday_members,
+    _birthday_due_date,
+    _birthday_workflow_states,
+    build_member_care_actions,
+)
 from app.services.renewals import (
     CLOSED_RENEWAL_STATUSES,
     MEMBER_RENEWAL_ORG_SQL,
@@ -54,7 +59,7 @@ def _source_coverage(user_id: int) -> dict[str, dict[str, bool]]:
     source_permission = {
         "renewal": "renewals:read",
         "followup": "followups:manage",
-        "birthday": "plans:read",
+        "birthday": "members:detail_view",
     }
     coverage = {
         source: {"accessible": permission in permissions}
@@ -87,6 +92,7 @@ def _exception(
     navigation_type: str,
     navigation_id: int,
     due_date: str | None = None,
+    operation_item_id: int | None = None,
 ) -> dict[str, Any]:
     return {
         "exception_type": exception_type,
@@ -102,6 +108,7 @@ def _exception(
         "navigation_type": navigation_type,
         "navigation_id": navigation_id,
         "due_date": due_date,
+        "operation_item_id": operation_item_id,
     }
 
 
@@ -200,41 +207,43 @@ def _birthday_missed_exceptions(
     exceptions: list[dict[str, Any]],
     seen: set[tuple[str, str, int]],
 ) -> None:
-    conditions = [
-        "i.business_type='BIRTHDAY_CARE'",
-        "i.period LIKE ?",
-        "i.due_date IS NOT NULL",
-        "i.due_date < ?",
-    ]
-    params: list[Any] = [f"{as_of.year}-%", as_of.isoformat()]
-    rows = fetch_all(
-        "SELECT i.id, i.business_id, i.due_date, i.status, i.actual_at "
-        "FROM operation_items i WHERE " + " AND ".join(conditions) + " ORDER BY i.due_date, i.id",
-        tuple(params),
-    )
-    member_ids: set[int] = set()
-    normalized_rows: list[tuple[dict[str, Any], int, date]] = []
-    for row in rows:
-        try:
-            member_id = int(row.get("business_id"))
-        except (TypeError, ValueError):
-            continue
-        due_date = _calendar_date(row.get("due_date"))
-        if not due_date or due_date >= as_of:
-            continue
-        member_ids.add(member_id)
-        normalized_rows.append((row, member_id, due_date))
+    candidates: list[dict[str, Any]] = []
+    for member in _active_birthday_members(allowed_org_ids):
+        due_date = _birthday_due_date(member.get("birthday"), as_of.year)
+        if (
+            due_date
+            and due_date < as_of
+            and (not org_unit_id or member["org_unit_id"] == org_unit_id)
+        ):
+            candidates.append({**member, "due_date": due_date})
 
-    contexts = _member_contexts(member_ids, allowed_org_ids)
-    for row, member_id, due_date in normalized_rows:
-        context = contexts.get(member_id)
-        if not context or (org_unit_id and context["org_unit_id"] != org_unit_id):
+    states = _birthday_workflow_states(candidates)
+    for candidate in candidates:
+        member_id = int(candidate["member_id"])
+        due_date = candidate["due_date"]
+        state = states[(member_id, due_date.year)]
+        completion = state["completion"]
+        operation_item = state["operation_item"]
+        completion_dates: list[date | None] = []
+        if completion:
+            completion_dates.append(_calendar_date(completion.get("completed_at")))
+        if (
+            operation_item
+            and str(operation_item.get("status") or "").upper() == "COMPLETED"
+        ):
+            # Historical rhythm rows occasionally predate actual_at.  Preserve
+            # their existing compatibility semantics: a completed legacy row
+            # without a timestamp is not retroactively treated as missed.
+            completion_dates.append(_calendar_date(operation_item.get("actual_at")))
+        if completion_dates and any(
+            completed_at is None or completed_at <= due_date
+            for completed_at in completion_dates
+        ):
             continue
-        status = str(row.get("status") or "").upper()
-        actual_at = _calendar_date(row.get("actual_at"))
-        if status == "COMPLETED" and (not actual_at or actual_at <= due_date):
-            continue
-        if status == "COMPLETED" and actual_at:
+
+        late_dates = [completed_at for completed_at in completion_dates if completed_at]
+        if late_dates:
+            actual_at = min(late_dates)
             reason = (
                 f"生日为{due_date.month}月{due_date.day}日，本年度生日关怀在"
                 f"{actual_at.month}月{actual_at.day}日后才完成，仅用于内部运营复盘，不建议补发生日祝福"
@@ -244,21 +253,24 @@ def _birthday_missed_exceptions(
                 f"生日为{due_date.month}月{due_date.day}日，本年度生日关怀未在生日当天前留下完成记录，"
                 "仅用于内部运营复盘，不建议补发生日祝福"
             )
+        operation_item_id = int(operation_item["id"]) if operation_item else None
+        completion_id = int(completion["id"]) if completion else None
         _add_once(
             exceptions,
             seen,
             _exception(
                 exception_type="BIRTHDAY_CARE_MISSED",
-                org_unit_id=context["org_unit_id"],
-                org_name=context["org_name"],
+                org_unit_id=candidate["org_unit_id"],
+                org_name=candidate["org_name"],
                 member_id=member_id,
-                member_name=context.get("member_name"),
+                member_name=candidate.get("member_name"),
                 source="BIRTHDAY",
-                source_id=int(row["id"]),
+                source_id=operation_item_id or completion_id or member_id,
                 reason=reason,
                 navigation_type="BIRTHDAY",
                 navigation_id=member_id,
                 due_date=due_date.isoformat(),
+                operation_item_id=operation_item_id,
             ),
         )
 
@@ -540,6 +552,8 @@ def build_member_care_management_overview(
         if exception_type.startswith("RENEWAL_") and not coverage["renewal"]["accessible"]:
             return None
         if exception_type == "FOLLOWUP_NO_SCHEDULE" and not coverage["followup"]["accessible"]:
+            return None
+        if exception_type == "BIRTHDAY_CARE_MISSED" and not coverage["birthday"]["accessible"]:
             return None
         return _count_visible(exceptions, lambda item: item["exception_type"] == exception_type)
 

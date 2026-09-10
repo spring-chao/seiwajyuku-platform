@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+import calendar
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from app.db import fetch_all
+from app.db import execute, fetch_all, fetch_one, transaction
+from app.services.audit import write_audit
 from app.services.followups import OPEN_STATES, list_tasks
 from app.services.iam import accessible_org_ids, user_context
 from app.services.members import resolve_member_scope
@@ -104,55 +106,156 @@ def _member_contexts(
     return contexts
 
 
-def _birthday_items(user_id: int, today: date) -> list[dict[str, Any]]:
-    allowed = accessible_org_ids(user_id)
-    conditions = [
-        "i.business_type='BIRTHDAY_CARE'",
-        "i.status NOT IN ('COMPLETED', 'CANCELLED')",
-        "i.start_date IS NOT NULL",
-        "i.start_date<=?",
-    ]
-    params: list[Any] = [today.isoformat()]
-    if allowed is not None:
-        if not allowed:
-            return []
-        values = sorted(allowed)
-        conditions.append(
-            f"i.org_unit_id IN ({','.join('?' for _ in values)})"
-        )
-        params.extend(values)
+def _birthday_due_date(value: Any, year: int) -> date | None:
+    """Return one safe birthday occurrence without exposing the birth year."""
+    birthday = _calendar_date(value)
+    if not birthday or not 1900 <= year <= 9999:
+        return None
+    return date(year, birthday.month, min(birthday.day, calendar.monthrange(year, birthday.month)[1]))
+
+
+def _active_birthday_members(
+    allowed_org_ids: set[str] | None,
+) -> list[dict[str, Any]]:
+    """Load active member-master birthday facts within the caller's scope.
+
+    The member master determines who has a birthday.  Operational rhythm rows
+    are deliberately not consulted here because a member without a class must
+    remain eligible for care.
+    """
     rows = fetch_all(
-        "SELECT i.id, i.business_id, i.org_unit_id, i.status, i.start_date, "
-        "i.due_date, i.title FROM operation_items i WHERE "
-        + " AND ".join(conditions)
-        + " ORDER BY i.due_date, i.id",
-        tuple(params),
+        "SELECT id, birthday FROM members WHERE status='ACTIVE' AND birthday IS NOT NULL "
+        "ORDER BY id"
     )
-    result = []
-    for row in rows:
-        due_date = _calendar_date(row.get("due_date"))
-        start_date = _calendar_date(row.get("start_date"))
+    member_ids = {int(row["id"]) for row in rows}
+    contexts = _member_contexts(member_ids, allowed_org_ids)
+    return [
+        {**contexts[int(row["id"])], "birthday": row["birthday"]}
+        for row in rows
+        if int(row["id"]) in contexts
+    ]
+
+
+def _birthday_operation_matches_due_date(row: dict[str, Any], due_date: date) -> bool:
+    item_due_date = _calendar_date(row.get("due_date"))
+    return item_due_date == due_date or (
+        item_due_date is None
+        and str(row.get("period") or "") == due_date.strftime("%Y-%m")
+    )
+
+
+def _birthday_workflow_states(
+    candidates: list[dict[str, Any]],
+) -> dict[tuple[int, int], dict[str, dict[str, Any] | None]]:
+    """Return optional completion and rhythm state for master birthday dates.
+
+    The result is read-only and intentionally treats legacy operation items as
+    historical completion evidence.  The new completion table covers members
+    who have no class rhythm item at all.
+    """
+    if not candidates:
+        return {}
+    member_ids = sorted({int(item["member_id"]) for item in candidates})
+    years = sorted({item["due_date"].year for item in candidates})
+    placeholders = ",".join("?" for _ in member_ids)
+    completions = fetch_all(
+        "SELECT id, member_id, birthday_year, due_date, channel, completed_at, completed_by "
+        "FROM birthday_care_completions WHERE member_id IN ("
+        + placeholders
+        + ") AND birthday_year>=? AND birthday_year<=?",
+        (*member_ids, years[0], years[-1]),
+    )
+    completion_by_key = {
+        (int(row["member_id"]), int(row["birthday_year"])): row
+        for row in completions
+    }
+    operation_rows = fetch_all(
+        "SELECT id, business_id, org_unit_id, period, status, due_date, actual_at "
+        "FROM operation_items WHERE business_type='BIRTHDAY_CARE' "
+        "AND business_id IN ("
+        + placeholders
+        + ") AND period>=? AND period<?",
+        (*[str(member_id) for member_id in member_ids], f"{years[0]:04d}-01", f"{years[-1] + 1:04d}-01"),
+    )
+    operation_by_member: dict[int, list[dict[str, Any]]] = {}
+    for row in operation_rows:
         try:
-            member_id = int(row.get("business_id"))
+            operation_by_member.setdefault(int(row["business_id"]), []).append(row)
         except (TypeError, ValueError):
             continue
-        if not start_date or not due_date or today < start_date:
+
+    states: dict[tuple[int, int], dict[str, dict[str, Any] | None]] = {}
+    for candidate in candidates:
+        member_id = int(candidate["member_id"])
+        due_date = candidate["due_date"]
+        matching = [
+            row
+            for row in operation_by_member.get(member_id, [])
+            if _birthday_operation_matches_due_date(row, due_date)
+        ]
+        matching.sort(
+            key=lambda row: (
+                0 if str(row.get("status") or "").upper() == "COMPLETED" else 1,
+                0 if _calendar_date(row.get("due_date")) == due_date else 1,
+                -int(row["id"]),
+            )
+        )
+        states[(member_id, due_date.year)] = {
+            "completion": completion_by_key.get((member_id, due_date.year)),
+            "operation_item": matching[0] if matching else None,
+        }
+    return states
+
+
+def _birthday_items(user_id: int, today: date) -> list[dict[str, Any]]:
+    allowed = accessible_org_ids(user_id)
+    candidates: list[dict[str, Any]] = []
+    window_end = today + timedelta(days=7)
+    for member in _active_birthday_members(allowed):
+        current_year_due = _birthday_due_date(member.get("birthday"), today.year)
+        if not current_year_due:
             continue
-        if today < due_date:
-            days_until = (due_date - today).days
-            urgency = "WINDOW"
-            reason = "明天生日" if days_until == 1 else f"{days_until}天后生日｜已进入关怀窗口"
-        elif today == due_date:
+        due_date = (
+            current_year_due
+            if current_year_due >= today
+            else _birthday_due_date(member.get("birthday"), today.year + 1)
+        )
+        if due_date and today <= due_date <= window_end:
+            candidates.append({**member, "due_date": due_date})
+
+    states = _birthday_workflow_states(candidates)
+    result = []
+    for candidate in candidates:
+        member_id = int(candidate["member_id"])
+        due_date = candidate["due_date"]
+        state = states[(member_id, due_date.year)]
+        operation_item = state["operation_item"]
+        if state["completion"] or (
+            operation_item
+            and str(operation_item.get("status") or "").upper() == "COMPLETED"
+        ):
+            continue
+        days_until = (due_date - today).days
+        if days_until == 0:
             urgency = "TODAY"
             reason = "今天生日"
         else:
-            # 生日是关系提醒，不是可以补发的逾期任务。错过生日后由
-            # member_care_management 生成内部复盘异常，避免继续打扰前台运营。
-            continue
+            urgency = "WINDOW"
+            reason = "明天生日" if days_until == 1 else f"{days_until}天后生日｜已进入关怀窗口"
+        operation_item_id = (
+            int(operation_item["id"])
+            if operation_item
+            and str(operation_item.get("status") or "").upper() != "CANCELLED"
+            else None
+        )
         result.append(
             {
                 "member_id": member_id,
-                "source_id": int(row["id"]),
+                # source_id is a stable action key, not a promise that an
+                # operation item exists.  Frontends must use operation_item_id
+                # only when they specifically need the rhythm record.
+                "source_id": operation_item_id or member_id,
+                "operation_item_id": operation_item_id,
                 "action_type": "BIRTHDAY",
                 "label": f"生日关怀｜{reason}",
                 "reason": reason,
@@ -162,11 +265,223 @@ def _birthday_items(user_id: int, today: date) -> list[dict[str, Any]]:
                 "assigned_user_name": None,
                 "navigation_type": "BIRTHDAY",
                 "navigation_id": member_id,
-                "source_org_unit_id": row["org_unit_id"],
+                "source_org_unit_id": candidate["org_unit_id"],
                 "_source_order": len(result),
             }
         )
     return result
+
+
+def complete_birthday_care(
+    member_id: int,
+    actor_user_id: int,
+    *,
+    birthday_year: int,
+    due_date: str | date,
+    channel: str,
+    operation_item_id: int | None = None,
+    now: date | datetime | None = None,
+) -> dict[str, Any]:
+    """Record one explicit birthday-care completion without fabricating a class.
+
+    A pre-existing rhythm item remains its own workflow record.  When no such
+    item exists, a minimal per-member/year completion fact provides the same
+    durable, auditable close-out for an unassigned or unclassed member.
+    """
+    user = user_context(actor_user_id)
+    permissions = set((user or {}).get("permissions", []))
+    if "members:detail_view" not in permissions:
+        raise PermissionError("当前角色不能查看或完成生日关怀")
+    if "followups:manage" not in permissions:
+        raise PermissionError("当前角色不能登记生日关怀完成")
+    if not 1900 <= birthday_year <= 9999:
+        raise ValueError("生日年度无效")
+    normalized_channel = channel.strip().upper()
+    if normalized_channel not in {"WECHAT", "PHONE"}:
+        raise ValueError("生日关怀渠道仅支持 WECHAT 或 PHONE")
+    requested_due_date = _calendar_date(due_date)
+    if not requested_due_date or requested_due_date.year != birthday_year:
+        raise ValueError("生日关怀日期与年度不一致")
+    current = now or datetime.now(UTC)
+    if isinstance(current, datetime):
+        completed_at = (
+            current.astimezone(UTC)
+            if current.tzinfo
+            else current.replace(tzinfo=UTC)
+        )
+    else:
+        completed_at = datetime.combine(current, datetime.min.time(), tzinfo=UTC)
+    today = completed_at.date()
+    if requested_due_date > today + timedelta(days=7):
+        raise ValueError("只能登记已经进入七天生日关怀窗口的事项")
+
+    member = fetch_one(
+        "SELECT id, status, birthday, org_unit_id FROM members WHERE id=?", (member_id,)
+    )
+    if not member:
+        raise ValueError("学长不存在")
+    if str(member.get("status") or "").upper() != "ACTIVE":
+        raise ValueError("只有在册学长可以登记生日关怀完成")
+    expected_due_date = _birthday_due_date(member.get("birthday"), birthday_year)
+    if expected_due_date != requested_due_date:
+        raise ValueError("生日关怀日期与学员主档生日不一致")
+    allowed = accessible_org_ids(actor_user_id)
+    scoped_org_id = resolve_member_scope(member_id, member["org_unit_id"], allowed)
+    now_text = completed_at.isoformat()
+    channel_label = "微信祝福" if normalized_channel == "WECHAT" else "电话关爱"
+
+    with transaction() as connection:
+        operation_item: dict[str, Any] | None = None
+        if operation_item_id is not None:
+            if operation_item_id <= 0:
+                raise ValueError("运营事项编号无效")
+            row = execute(
+                connection,
+                "SELECT id, business_id, business_type, org_unit_id, period, status, due_date, actual_at "
+                "FROM operation_items WHERE id=?",
+                (operation_item_id,),
+            ).fetchone()
+            operation_item = dict(row) if row else None
+            if not operation_item:
+                raise ValueError("生日运营事项不存在")
+            try:
+                item_member_id = int(operation_item.get("business_id"))
+            except (TypeError, ValueError):
+                item_member_id = -1
+            if (
+                operation_item.get("business_type") != "BIRTHDAY_CARE"
+                or item_member_id != member_id
+                or not _birthday_operation_matches_due_date(operation_item, requested_due_date)
+            ):
+                raise ValueError("生日运营事项与学员主档生日不匹配")
+            if allowed is not None and operation_item["org_unit_id"] not in allowed:
+                raise PermissionError("生日运营事项不在当前组织授权范围内")
+            status = str(operation_item.get("status") or "").upper()
+            if status == "CANCELLED":
+                raise ValueError("生日运营事项已取消，不能在该事项上登记完成")
+            if status == "COMPLETED":
+                return {
+                    "id": int(operation_item["id"]),
+                    "record_type": "OPERATION_ITEM",
+                    "operation_item_id": int(operation_item["id"]),
+                    "completed_at": operation_item.get("actual_at"),
+                    "channel": normalized_channel,
+                    "created": False,
+                }
+            completion_note = f"生日关怀已完成｜{channel_label}"
+            execute(
+                connection,
+                "UPDATE operation_items SET status='COMPLETED', actual_at=?, completion_note=?, "
+                "manual_override=1, updated_at=? WHERE id=?",
+                (now_text, completion_note, now_text, operation_item["id"]),
+            )
+            execute(
+                connection,
+                "INSERT INTO operation_progress_records(item_id, status, note, occurred_at, actor_user_id, source_type, created_at) "
+                "VALUES (?, 'COMPLETED', ?, ?, ?, 'MEMBER_CARE', ?)",
+                (operation_item["id"], completion_note, now_text, actor_user_id, now_text),
+            )
+            write_audit(
+                connection,
+                actor_user_id=actor_user_id,
+                action="member_care.birthday.complete",
+                resource_type="operation_item",
+                resource_id=str(operation_item["id"]),
+                org_unit_id=scoped_org_id,
+                before={"status": status},
+                after={
+                    "member_id": member_id,
+                    "birthday_year": birthday_year,
+                    "due_date": requested_due_date.isoformat(),
+                    "channel": normalized_channel,
+                    "record_type": "OPERATION_ITEM",
+                },
+            )
+            return {
+                "id": int(operation_item["id"]),
+                "record_type": "OPERATION_ITEM",
+                "operation_item_id": int(operation_item["id"]),
+                "completed_at": now_text,
+                "channel": normalized_channel,
+                "created": True,
+            }
+
+        existing = execute(
+            connection,
+            "SELECT id, due_date, channel, completed_at FROM birthday_care_completions "
+            "WHERE member_id=? AND birthday_year=?",
+            (member_id, birthday_year),
+        ).fetchone()
+        if existing:
+            existing = dict(existing)
+            return {
+                "id": int(existing["id"]),
+                "record_type": "BIRTHDAY_CARE_COMPLETION",
+                "operation_item_id": None,
+                "completed_at": existing["completed_at"],
+                "channel": existing["channel"],
+                "created": False,
+            }
+        try:
+            completion_id = execute(
+                connection,
+                "INSERT INTO birthday_care_completions(member_id, birthday_year, due_date, channel, "
+                "completed_at, completed_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    member_id,
+                    birthday_year,
+                    requested_due_date.isoformat(),
+                    normalized_channel,
+                    now_text,
+                    actor_user_id,
+                    now_text,
+                    now_text,
+                ),
+            ).lastrowid
+        except Exception:
+            # The unique key is the last line of defence for concurrent retry
+            # requests.  If another transaction won, return its fact rather
+            # than turning a completed care action into an apparent failure.
+            existing = execute(
+                connection,
+                "SELECT id, due_date, channel, completed_at FROM birthday_care_completions "
+                "WHERE member_id=? AND birthday_year=?",
+                (member_id, birthday_year),
+            ).fetchone()
+            if not existing:
+                raise
+            existing = dict(existing)
+            return {
+                "id": int(existing["id"]),
+                "record_type": "BIRTHDAY_CARE_COMPLETION",
+                "operation_item_id": None,
+                "completed_at": existing["completed_at"],
+                "channel": existing["channel"],
+                "created": False,
+            }
+        write_audit(
+            connection,
+            actor_user_id=actor_user_id,
+            action="member_care.birthday.complete",
+            resource_type="birthday_care_completion",
+            resource_id=str(completion_id),
+            org_unit_id=scoped_org_id,
+            after={
+                "member_id": member_id,
+                "birthday_year": birthday_year,
+                "due_date": requested_due_date.isoformat(),
+                "channel": normalized_channel,
+                "record_type": "BIRTHDAY_CARE_COMPLETION",
+            },
+        )
+        return {
+            "id": int(completion_id),
+            "record_type": "BIRTHDAY_CARE_COMPLETION",
+            "operation_item_id": None,
+            "completed_at": now_text,
+            "channel": normalized_channel,
+            "created": True,
+        }
 
 
 def _followup_actions(user_id: int, today: date) -> list[dict[str, Any]]:
@@ -273,7 +588,7 @@ def build_member_care_actions(
     today = today.date() if isinstance(today, datetime) else today
     context = user_context(user_id)
     permissions = set((context or {}).get("permissions", []))
-    source_permissions = {"renewals:read", "followups:manage", "plans:read"}
+    source_permissions = {"renewals:read", "followups:manage", "members:detail_view"}
     if not permissions.intersection(source_permissions):
         raise PermissionError("当前账号没有学长关爱数据查看权限")
 
@@ -282,7 +597,7 @@ def build_member_care_actions(
         actions.extend(_renewal_actions(user_id, today.year, today))
     if "followups:manage" in permissions:
         actions.extend(_followup_actions(user_id, today))
-    if "plans:read" in permissions:
+    if "members:detail_view" in permissions:
         actions.extend(_birthday_items(user_id, today))
 
     member_ids = {int(action["member_id"]) for action in actions}

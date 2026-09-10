@@ -7,11 +7,14 @@ import pytest
 
 from app.api import member_care_management as management_api
 from app.db import execute, fetch_one, transaction
-from app.services.member_care_actions import build_member_care_actions
+from app.services.member_care_actions import (
+    build_member_care_actions,
+    complete_birthday_care,
+)
 from app.services.member_care_management import (
     build_member_care_management_overview,
 )
-from test_member_care_actions import _care_fixture
+from test_member_care_actions import _add_master_birthday_member, _care_fixture
 
 
 def _augment_management_facts(fixture: dict[str, int | str]) -> None:
@@ -145,11 +148,12 @@ def test_management_overview_source_coverage_is_not_reported_as_zero() -> None:
     assert read_only["source_coverage"] == {
         "renewal": {"accessible": True},
         "followup": {"accessible": False},
-        "birthday": {"accessible": True},
+        "birthday": {"accessible": False},
     }
     assert read_only["summary"]["followup_no_schedule_count"] is None
     assert read_only["summary"]["followup_overdue_count"] is None
     assert read_only["summary"]["enterprise_visit_overdue_count"] is None
+    assert read_only["summary"]["birthday_care_missed_count"] is None
     assert read_only["organizations"][0]["followup_no_schedule_count"] is None
 
     with pytest.raises(PermissionError):
@@ -177,6 +181,61 @@ def test_management_overview_org_scope_and_privacy() -> None:
             as_of=date(2099, 8, 20),
             org_unit_id="org-management-outside-scope",
         )
+
+
+def test_management_missed_uses_member_master_and_completion_facts() -> None:
+    fixture = _care_fixture()
+    missed_member_id = _add_master_birthday_member(
+        fixture,
+        name="主档生日未完成学长",
+        birthday="1988-08-10",
+    )
+    timely_member_id = _add_master_birthday_member(
+        fixture,
+        name="主档生日按时完成学长",
+        birthday="1988-08-11",
+    )
+    late_member_id = _add_master_birthday_member(
+        fixture,
+        name="主档生日延后完成学长",
+        birthday="1988-08-12",
+    )
+    actor_user_id = int(fixture["user_id"])
+    complete_birthday_care(
+        timely_member_id,
+        actor_user_id,
+        birthday_year=2099,
+        due_date="2099-08-11",
+        channel="WECHAT",
+        now=datetime(2099, 8, 11, 9, 0, tzinfo=UTC),
+    )
+    complete_birthday_care(
+        late_member_id,
+        actor_user_id,
+        birthday_year=2099,
+        due_date="2099-08-12",
+        channel="PHONE",
+        now=datetime(2099, 8, 15, 9, 0, tzinfo=UTC),
+    )
+
+    result = build_member_care_management_overview(
+        actor_user_id, as_of=date(2099, 8, 20)
+    )
+    missed_by_member = {
+        int(item["member_id"]): item
+        for item in result["exceptions"]
+        if item["exception_type"] == "BIRTHDAY_CARE_MISSED"
+    }
+    assert missed_member_id in missed_by_member
+    assert timely_member_id not in missed_by_member
+    assert late_member_id in missed_by_member
+    assert "后才完成" in missed_by_member[late_member_id]["reason"]
+    assert missed_by_member[missed_member_id]["operation_item_id"] is None
+    assert fetch_one(
+        "SELECT id FROM operation_items WHERE business_type='BIRTHDAY_CARE' "
+        "AND business_id IN (?, ?, ?)",
+        (str(missed_member_id), str(timely_member_id), str(late_member_id)),
+    ) is None
 
 
 def test_management_overview_api_returns_read_only_payload_and_403_without_source() -> None:

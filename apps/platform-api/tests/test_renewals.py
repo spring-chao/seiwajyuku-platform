@@ -17,7 +17,12 @@ from app.api import renewals as renewals_api
 from app.core.privacy import decrypt_text, phone_hash
 from app.db import execute, fetch_one, transaction
 from app.services.iam import create_user
-from app.services.members import create_member, get_member_timeline, update_member
+from app.services.members import (
+    create_member,
+    get_member_timeline,
+    inferred_renewal_month,
+    update_member,
+)
 from app.services.renewals import (
     _linked_member_id,
     _master_index,
@@ -740,6 +745,15 @@ def test_cycle_coverage_exposes_member_master_gaps_instead_of_hiding_them() -> N
             phone=f"138{suffix}",
             renewal_month=f"{year - 1}-09",
         ),
+        "not_due": create_member(
+            admin["id"],
+            member_code=f"RENEWAL-COVERAGE-NOT-DUE-{suffix}",
+            name=f"覆盖未到首续费{suffix}",
+            org_unit_id=org_id,
+            development_org_unit_id=None,
+            phone=f"133{suffix}",
+            renewal_month=f"{year + 1}-09",
+        ),
         "missing": create_member(
             admin["id"],
             member_code=f"RENEWAL-COVERAGE-MISSING-{suffix}",
@@ -798,8 +812,8 @@ def test_cycle_coverage_exposes_member_master_gaps_instead_of_hiding_them() -> N
     )
 
     assert coverage["summary"] == {
-        "member_total": 5,
-        "active_member_total": 3,
+        "member_total": 6,
+        "active_member_total": 4,
         "cycle_total": 1,
         "ready_to_create_count": 1,
         "missing_renewal_month_count": 1,
@@ -810,6 +824,8 @@ def test_cycle_coverage_exposes_member_master_gaps_instead_of_hiding_them() -> N
     assert by_member_id[member_ids["synced"]]["sync_status"] == "SYNCED"
     assert by_member_id[member_ids["ready"]]["sync_status"] == "READY_TO_CREATE"
     assert by_member_id[member_ids["ready"]]["due_month"] == 9
+    assert by_member_id[member_ids["not_due"]]["sync_status"] == "NOT_DUE_YET"
+    assert by_member_id[member_ids["not_due"]]["can_create_cycle"] is False
     assert by_member_id[member_ids["missing"]]["sync_status"] == "MISSING_RENEWAL_MONTH"
     assert by_member_id[member_ids["inactive"]]["sync_status"] == "INACTIVE"
     assert by_member_id[member_ids["suspended"]]["sync_status"] == "SUSPENDED"
@@ -877,13 +893,20 @@ def test_create_cycle_from_member_is_single_record_audited_and_idempotent() -> N
         org_unit_id=primary_org,
         development_org_unit_id=development_org,
         phone=f"135{suffix}",
-        renewal_month=f"{year - 1}-11",
+        renewal_month=f"{year + 1}-11",
     )
 
+    with pytest.raises(ValueError, match=f"首个续费年度为{year + 1}"):
+        create_cycle_from_member(
+            member_id,
+            admin["id"],
+            renewal_year=year,
+            confirmation="确认从学员主档建立续费周期",
+        )
     cycle_id = create_cycle_from_member(
         member_id,
         admin["id"],
-        renewal_year=year,
+        renewal_year=year + 1,
         confirmation="确认从学员主档建立续费周期",
     )
     cycle = fetch_one("SELECT * FROM renewal_cycles WHERE id=?", (cycle_id,))
@@ -902,9 +925,18 @@ def test_create_cycle_from_member_is_single_record_audited_and_idempotent() -> N
         create_cycle_from_member(
             member_id,
             admin["id"],
-            renewal_year=year,
+            renewal_year=year + 1,
             confirmation="确认从学员主档建立续费周期",
         )
+    recurring_cycle_id = create_cycle_from_member(
+        member_id,
+        admin["id"],
+        renewal_year=year + 2,
+        confirmation="确认从学员主档建立续费周期",
+    )
+    assert fetch_one(
+        "SELECT due_month FROM renewal_cycles WHERE id=?", (recurring_cycle_id,)
+    ) == {"due_month": 11}
 
 
 def test_join_date_infers_renewal_month_and_manual_override_is_preserved() -> None:
@@ -936,7 +968,7 @@ def test_join_date_infers_renewal_month_and_manual_override_is_preserved() -> No
         "SELECT renewal_month, renewal_month_overridden FROM members WHERE id=?",
         (member_id,),
     )
-    assert member == {"renewal_month": f"{year}-04", "renewal_month_overridden": 0}
+    assert member == {"renewal_month": f"{year + 1}-04", "renewal_month_overridden": 0}
 
     update_member(
         admin["id"],
@@ -947,12 +979,12 @@ def test_join_date_infers_renewal_month_and_manual_override_is_preserved() -> No
         "SELECT renewal_month, renewal_month_overridden FROM members WHERE id=?",
         (member_id,),
     )
-    assert updated == {"renewal_month": f"{year}-06", "renewal_month_overridden": 0}
+    assert updated == {"renewal_month": f"{year + 1}-06", "renewal_month_overridden": 0}
 
     update_member(
         admin["id"],
         member_id,
-        {"renewal_month": f"{year}-11", "renewal_month_overridden": True},
+        {"renewal_month": f"{year + 2}-11", "renewal_month_overridden": True},
     )
     update_member(
         admin["id"],
@@ -963,16 +995,28 @@ def test_join_date_infers_renewal_month_and_manual_override_is_preserved() -> No
         "SELECT renewal_month, renewal_month_overridden FROM members WHERE id=?",
         (member_id,),
     )
-    assert manual == {"renewal_month": f"{year}-11", "renewal_month_overridden": 1}
+    assert manual == {"renewal_month": f"{year + 2}-11", "renewal_month_overridden": 1}
 
-    historical_cycle = fetch_one(
-        "SELECT status, completed_at FROM renewal_cycles WHERE member_id=? AND renewal_year=?",
-        (member_id, year),
+    update_member(
+        admin["id"],
+        member_id,
+        {"renewal_month_overridden": False},
     )
-    if now.month > 4:
-        assert historical_cycle is not None
-        assert historical_cycle["status"] == "RENEWED"
-        assert historical_cycle["completed_at"] is not None
+    restored = fetch_one(
+        "SELECT renewal_month, renewal_month_overridden FROM members WHERE id=?",
+        (member_id,),
+    )
+    assert restored == {"renewal_month": f"{year + 1}-07", "renewal_month_overridden": 0}
+    assert fetch_one(
+        "SELECT id FROM renewal_cycles WHERE member_id=? AND renewal_year=?",
+        (member_id, year),
+    ) is None
+
+
+def test_inferred_renewal_month_is_first_anniversary_month() -> None:
+    assert inferred_renewal_month("2026-09-06") == "2027-09"
+    assert inferred_renewal_month("2026-12-15") == "2027-12"
+    assert inferred_renewal_month("2024-02-29") == "2025-02"
 
 
 def test_past_renewal_month_maintenance_completes_existing_open_cycle() -> None:
@@ -1448,6 +1492,27 @@ def test_historical_auto_reconciliation_does_not_reactivate_inactive_member() ->
         "WHERE member_id=? AND change_type='RENEWAL_REACTIVATION'",
         (member_id,),
     )["count"] == 0
+
+
+def test_historical_auto_reconciliation_never_creates_pre_first_renewal_cycle() -> None:
+    member_id, _, admin_id = _status_sync_fixture("ACTIVE")
+    with transaction() as connection:
+        cycle_id = maybe_create_historical_cycle(
+            connection,
+            member_id=member_id,
+            actor_user_id=admin_id,
+            member_status="ACTIVE",
+            renewal_month="2027-04",
+            org_unit_id="renewal-status-center",
+            renewal_year=2026,
+            now=datetime(2026, 9, 10, tzinfo=UTC),
+        )
+
+    assert cycle_id is None
+    assert fetch_one(
+        "SELECT id FROM renewal_cycles WHERE member_id=? AND renewal_year=2026",
+        (member_id,),
+    ) is None
 
 
 def test_import_snapshot_renewed_does_not_reactivate_inactive_member() -> None:

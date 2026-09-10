@@ -4,6 +4,7 @@ import dayjs from "dayjs";
 import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
 import {
+  completeMemberBirthdayCare,
   generateBirthdayGreetingDraft as requestBirthdayGreetingDraft,
   generateOperationRhythm,
   getClassOperations,
@@ -96,9 +97,9 @@ const birthdayGreetingLoading = ref(false);
 const birthdayGreetingDraftLoading = ref(false);
 const birthdayGreeting = ref<BirthdayGreetingContext>();
 const birthdayOperationItemId = ref<number>();
+const birthdayDueDate = ref("");
 const birthdayCareMissed = ref(false);
 const birthdayCompletionLoading = ref(false);
-const birthdayCompletionNote = ref("");
 const selectedBirthdayMemoryIds = ref<string[]>([]);
 const birthdayGreetingTone = ref<"standard" | "warm" | "concise">("warm");
 const birthdayGreetingDraft = ref("");
@@ -112,6 +113,13 @@ const canManageClassOperations = computed(() =>
   useUserStoreHook().permissions.includes("plans:period_write")
 );
 const canManageRhythm = canManageClassOperations;
+const canCompleteBirthdayCare = computed(() => {
+  const permissions = useUserStoreHook().permissions;
+  return (
+    permissions.includes("members:detail_view") &&
+    permissions.includes("followups:manage")
+  );
+});
 const classForm = ref({
   weekly_meeting_at: "",
   planned_class_meeting_at: "",
@@ -629,7 +637,8 @@ async function navigateCareAction(action: MemberCareAction) {
   if (action.navigation_type === "BIRTHDAY") {
     await openBirthdayGreeting({
       member_id: action.navigation_id,
-      operation_item_id: action.source_id
+      operation_item_id: action.operation_item_id ?? undefined,
+      due_date: action.due_date ?? undefined
     });
     return;
   }
@@ -690,7 +699,8 @@ async function navigateManagementException(item: unknown) {
   if (exception.navigation_type === "BIRTHDAY") {
     await openBirthdayGreeting({
       member_id: exception.navigation_id,
-      operation_item_id: exception.source_id,
+      operation_item_id: exception.operation_item_id ?? undefined,
+      due_date: exception.due_date ?? undefined,
       missed: exception.exception_type === "BIRTHDAY_CARE_MISSED"
     });
     return;
@@ -789,15 +799,34 @@ function openRhythmBusinessItem(item: any) {
   if (memberId) {
     openBirthdayGreeting({
       member_id: memberId,
-      operation_item_id: Number(item.id || 0) || undefined
+      operation_item_id: Number(item.id || 0) || undefined,
+      due_date: item.due_date || undefined
     });
   }
+}
+
+function nextBirthdayDueDate(monthDay?: string | null) {
+  const match = /^(\d{2})-(\d{2})$/.exec(monthDay || "");
+  if (!match) return "";
+  const monthValue = Number(match[1]);
+  const dayValue = Number(match[2]);
+  if (monthValue < 1 || monthValue > 12 || dayValue < 1) return "";
+  const today = dayjs().startOf("day");
+  const clamped = (targetYear: number) => {
+    const lastDay = new Date(targetYear, monthValue, 0).getDate();
+    return dayjs(
+      new Date(targetYear, monthValue - 1, Math.min(dayValue, lastDay))
+    ).format("YYYY-MM-DD");
+  };
+  const thisYear = clamped(today.year());
+  return dayjs(thisYear).isBefore(today) ? clamped(today.year() + 1) : thisYear;
 }
 
 async function openBirthdayGreeting(row: unknown) {
   const birthdayRow = row as {
     member_id?: number;
     operation_item_id?: number;
+    due_date?: string;
     missed?: boolean;
   } | null;
   const memberId = Number(birthdayRow?.member_id || 0);
@@ -807,14 +836,21 @@ async function openBirthdayGreeting(row: unknown) {
   birthdayGreeting.value = undefined;
   birthdayOperationItemId.value =
     Number(birthdayRow?.operation_item_id || 0) || undefined;
+  birthdayDueDate.value = dayjs(birthdayRow?.due_date).isValid()
+    ? dayjs(birthdayRow?.due_date).format("YYYY-MM-DD")
+    : "";
   birthdayCareMissed.value = birthdayRow?.missed === true;
-  birthdayCompletionNote.value = "";
   birthdayGreetingDraft.value = "";
   selectedBirthdayMemoryIds.value = [];
   try {
     const response = await getBirthdayGreetingContext(memberId);
     birthdayGreeting.value = response.data;
     selectedBirthdayMemoryIds.value = [...response.data.selected_memory_ids];
+    if (!birthdayDueDate.value) {
+      birthdayDueDate.value = nextBirthdayDueDate(
+        response.data.member.birthday_month_day
+      );
+    }
     if (!birthdayCareMissed.value) await generateBirthdayDraft();
   } catch (error) {
     birthdayGreetingVisible.value = false;
@@ -865,23 +901,24 @@ async function copyBirthdayGreeting() {
 }
 
 async function completeBirthdayCare(channel: "WECHAT" | "PHONE") {
-  const itemId = birthdayOperationItemId.value;
-  if (!itemId || birthdayCareMissed.value) return;
+  const memberId = birthdayGreeting.value?.member.id;
+  const dueDate = birthdayDueDate.value;
+  if (!memberId || !dueDate || birthdayCareMissed.value) return;
   birthdayCompletionLoading.value = true;
   const channelLabel = channel === "WECHAT" ? "微信祝福" : "电话关爱";
-  const note = birthdayCompletionNote.value.trim();
-  const completionNote = `生日关怀已完成｜${channelLabel}${note ? `｜${note}` : ""}`;
   try {
-    const response = await updateOperationRhythmItem(itemId, {
-      status: "COMPLETED",
-      note: completionNote
+    const response = await completeMemberBirthdayCare(memberId, {
+      birthday_year: Number(dayjs(dueDate).format("YYYY")),
+      due_date: dueDate,
+      channel,
+      operation_item_id: birthdayOperationItemId.value ?? null
     });
     birthdayGreetingVisible.value = false;
     birthdayOperationItemId.value = undefined;
-    birthdayCompletionNote.value = "";
+    birthdayDueDate.value = "";
     await load();
     ElMessage.success(
-      `已记录：${dayjs(response.data.actual_at || new Date()).format("M月D日 HH:mm")} · ${channelLabel}`
+      `已记录：${dayjs(response.data.completed_at || new Date()).format("M月D日 HH:mm")} · ${channelLabel}`
     );
   } catch (error) {
     ElMessage.error("生日关怀完成记录保存失败，请稍后重试");
@@ -2615,7 +2652,7 @@ function changePlan() {
           </section>
 
           <section
-            v-if="!birthdayCareMissed && birthdayOperationItemId"
+            v-if="!birthdayCareMissed && birthdayDueDate && canCompleteBirthdayCare"
             class="birthday-completion-section"
           >
             <div class="birthday-drawer-heading">
@@ -2625,15 +2662,6 @@ function changePlan() {
               </div>
               <el-tag type="warning">完成后停止提醒</el-tag>
             </div>
-            <el-input
-              v-model="birthdayCompletionNote"
-              type="textarea"
-              :rows="2"
-              resize="vertical"
-              maxlength="300"
-              show-word-limit
-              placeholder="可选备注，例如：聊了约 15 分钟，学长最近状态不错。"
-            />
             <div class="birthday-completion-actions">
               <el-button
                 type="primary"

@@ -9,7 +9,10 @@ import pytest
 from app.api import member_care_actions as member_care_api
 from app.db import execute, fetch_one, transaction
 from app.services.iam import create_user
-from app.services.member_care_actions import build_member_care_actions
+from app.services.member_care_actions import (
+    build_member_care_actions,
+    complete_birthday_care,
+)
 
 
 def _care_fixture() -> dict[str, int | str]:
@@ -30,18 +33,18 @@ def _care_fixture() -> dict[str, int | str]:
                 (org_id, code, name, now, now),
             )
         member_ids: dict[str, int] = {}
-        for key, name, org_id in (
-            ("all", "三类关爱学长", center_id),
-            ("birthday", "生日关怀学长", center_id),
-            ("overdue", "逾期跟进学长", center_id),
-            ("other", "其他分中心学长", other_center_id),
+        for key, name, org_id, birthday in (
+            ("all", "三类关爱学长", center_id, "1980-08-23"),
+            ("birthday", "生日关怀学长", center_id, "1980-08-20"),
+            ("overdue", "逾期跟进学长", center_id, "1980-08-10"),
+            ("other", "其他分中心学长", other_center_id, "1980-08-20"),
         ):
             member_ids[key] = int(
                 execute(
                     connection,
-                    "INSERT INTO members(member_code, name, org_unit_id, status, created_at, updated_at) "
-                    "VALUES (?, ?, ?, 'ACTIVE', ?, ?)",
-                    (f"CARE-MEMBER-{suffix}-{key}", name, org_id, now, now),
+                    "INSERT INTO members(member_code, name, org_unit_id, status, birthday, created_at, updated_at) "
+                    "VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?)",
+                    (f"CARE-MEMBER-{suffix}-{key}", name, org_id, birthday, now, now),
                 ).lastrowid
             )
 
@@ -113,7 +116,7 @@ def _care_fixture() -> dict[str, int | str]:
         birthday_specs = [
             (member_ids["all"], "2099-08-16", "2099-08-23", "PENDING"),
             (member_ids["birthday"], "2099-08-13", "2099-08-20", "PENDING"),
-            (member_ids["overdue"], "2099-08-01", "2099-08-10", "COMPLETED"),
+            (member_ids["overdue"], "2099-08-01", "2099-08-10", "PENDING"),
         ]
         for index, (member_id, start_date, due_date, status) in enumerate(birthday_specs):
             execute(
@@ -164,7 +167,10 @@ def _care_fixture() -> dict[str, int | str]:
         username=f"member-care-birthday-{suffix}",
         display_name="学长关爱生日测试账号",
         password="member-care-test-password",
-        roles=["ops_center_management"],
+        # Keep this a detail-only source test without using a volunteer role:
+        # in IAM 2.0 volunteer grants require an active appointment and direct
+        # legacy volunteer roles are deliberately suppressed.
+        roles=["employee_learning_management"],
         scopes=[{"scope_type": "SUBTREE", "org_unit_id": center_id}],
     )
     no_source_user_id = create_user(
@@ -172,7 +178,7 @@ def _care_fixture() -> dict[str, int | str]:
         username=f"member-care-nosource-{suffix}",
         display_name="学长关爱无来源权限账号",
         password="member-care-test-password",
-        roles=["volunteer_activity"],
+        roles=["ops_center_management"],
         scopes=[{"scope_type": "SUBTREE", "org_unit_id": center_id}],
     )
     return {
@@ -185,7 +191,38 @@ def _care_fixture() -> dict[str, int | str]:
         "other_cycle_id": other_cycle_id,
         "closed_cycle_id": closed_cycle_id,
         "cycle_id": cycle_id,
+        "all_member_id": member_ids["all"],
+        "birthday_member_id": member_ids["birthday"],
+        "overdue_member_id": member_ids["overdue"],
+        "other_member_id": member_ids["other"],
     }
+
+
+def _add_master_birthday_member(
+    fixture: dict[str, int | str],
+    *,
+    name: str,
+    birthday: str,
+    org_unit_id: str | None = None,
+) -> int:
+    now = datetime.now(UTC).isoformat()
+    suffix = uuid4().hex
+    with transaction() as connection:
+        return int(
+            execute(
+                connection,
+                "INSERT INTO members(member_code, name, org_unit_id, status, birthday, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?)",
+                (
+                    f"CARE-MASTER-{suffix}",
+                    name,
+                    org_unit_id or str(fixture["center_id"]),
+                    birthday,
+                    now,
+                    now,
+                ),
+            ).lastrowid
+        )
 
 
 def test_member_care_actions_merge_sources_and_sort_urgency() -> None:
@@ -218,6 +255,7 @@ def test_member_care_actions_merge_sources_and_sort_urgency() -> None:
     assert by_name["三类关爱学长"]["primary_action"]["urgency"] == "TODAY"
     assert by_name["三类关爱学长"]["has_overdue"] is False
     assert "生日关怀学长" in by_name
+    assert "其他分中心学长" not in by_name
     assert all(
         "service_purpose" not in person
         and "subject_statement" not in json.dumps(person, ensure_ascii=False)
@@ -239,7 +277,7 @@ def test_member_care_actions_respect_source_permissions_and_scope() -> None:
         for person in read_only["people"]
         for item in person["actions"]
     }
-    assert read_only_sources == {"RENEWAL", "BIRTHDAY"}
+    assert read_only_sources == {"RENEWAL"}
 
     followup_only = build_member_care_actions(
         int(fixture["followup_only_user_id"]), as_of=date(2099, 8, 20)
@@ -249,7 +287,7 @@ def test_member_care_actions_respect_source_permissions_and_scope() -> None:
         for person in followup_only["people"]
         for item in person["actions"]
     }
-    assert followup_sources == {"FOLLOWUP"}
+    assert followup_sources == {"FOLLOWUP", "BIRTHDAY"}
     assert all(
         item["action_type"] != "ENTERPRISE_VISIT"
         or item["navigation_type"] == "ENTERPRISE_VISIT"
@@ -281,6 +319,151 @@ def test_member_care_actions_remove_missed_birthdays_from_daily_list() -> None:
     ]
     assert result["summary"]["birthday_people_count"] == 0
     assert "生日关怀已逾期" not in json.dumps(result, ensure_ascii=False)
+
+
+def test_master_birthday_window_covers_today_to_seven_days_and_cross_year() -> None:
+    fixture = _care_fixture()
+    names = {
+        "today": "主档今天生日学长",
+        "tomorrow": "主档明天生日学长",
+        "seven": "主档七天后生日学长",
+        "eight": "主档八天后生日学长",
+        "leap": "主档闰日生日学长",
+        "next_year": "主档跨年生日学长",
+    }
+    _add_master_birthday_member(fixture, name=names["today"], birthday="1988-08-20")
+    _add_master_birthday_member(fixture, name=names["tomorrow"], birthday="1988-08-21")
+    _add_master_birthday_member(fixture, name=names["seven"], birthday="1988-08-27")
+    _add_master_birthday_member(fixture, name=names["eight"], birthday="1988-08-28")
+    _add_master_birthday_member(fixture, name=names["leap"], birthday="2000-02-29")
+    _add_master_birthday_member(fixture, name=names["next_year"], birthday="1988-01-02")
+
+    august = build_member_care_actions(
+        int(fixture["user_id"]), as_of=date(2099, 8, 20)
+    )
+    august_actions = {
+        person["member_name"]: action
+        for person in august["people"]
+        for action in person["actions"]
+        if action["source"] == "BIRTHDAY"
+    }
+    assert august_actions[names["today"]]["urgency"] == "TODAY"
+    assert august_actions[names["tomorrow"]]["urgency"] == "WINDOW"
+    assert august_actions[names["seven"]]["due_date"] == "2099-08-27"
+    assert names["eight"] not in august_actions
+    assert august_actions[names["today"]]["operation_item_id"] is None
+
+    leap = build_member_care_actions(
+        int(fixture["user_id"]), as_of=date(2099, 2, 21)
+    )
+    leap_action = next(
+        action
+        for person in leap["people"]
+        if person["member_name"] == names["leap"]
+        for action in person["actions"]
+        if action["source"] == "BIRTHDAY"
+    )
+    assert leap_action["due_date"] == "2099-02-28"
+
+    cross_year = build_member_care_actions(
+        int(fixture["user_id"]), as_of=date(2099, 12, 28)
+    )
+    cross_year_action = next(
+        action
+        for person in cross_year["people"]
+        if person["member_name"] == names["next_year"]
+        for action in person["actions"]
+        if action["source"] == "BIRTHDAY"
+    )
+    assert cross_year_action["due_date"] == "2100-01-02"
+
+
+def test_master_birthday_completion_without_rhythm_is_audited_and_idempotent() -> None:
+    fixture = _care_fixture()
+    member_id = _add_master_birthday_member(
+        fixture,
+        name="无班级无节奏生日学长",
+        birthday="1988-08-21",
+    )
+    as_of = datetime(2099, 8, 20, 10, 0, tzinfo=UTC)
+    before = build_member_care_actions(int(fixture["user_id"]), as_of=as_of.date())
+    birthday_action = next(
+        action
+        for person in before["people"]
+        if person["member_id"] == member_id
+        for action in person["actions"]
+        if action["source"] == "BIRTHDAY"
+    )
+    assert birthday_action["operation_item_id"] is None
+    assert fetch_one(
+        "SELECT id FROM operation_items WHERE business_type='BIRTHDAY_CARE' AND business_id=?",
+        (str(member_id),),
+    ) is None
+
+    completion = complete_birthday_care(
+        member_id,
+        int(fixture["user_id"]),
+        birthday_year=2099,
+        due_date="2099-08-21",
+        channel="WECHAT",
+        now=as_of,
+    )
+    assert completion["record_type"] == "BIRTHDAY_CARE_COMPLETION"
+    assert completion["created"] is True
+    duplicate = complete_birthday_care(
+        member_id,
+        int(fixture["user_id"]),
+        birthday_year=2099,
+        due_date="2099-08-21",
+        channel="PHONE",
+        now=as_of,
+    )
+    assert duplicate["id"] == completion["id"]
+    assert duplicate["created"] is False
+    assert fetch_one(
+        "SELECT COUNT(*) AS count FROM birthday_care_completions WHERE member_id=? AND birthday_year=2099",
+        (member_id,),
+    ) == {"count": 1}
+    assert fetch_one(
+        "SELECT id FROM audit_logs WHERE action='member_care.birthday.complete' "
+        "AND resource_type='birthday_care_completion' AND resource_id=?",
+        (str(completion["id"]),),
+    ) is not None
+    after = build_member_care_actions(int(fixture["user_id"]), as_of=as_of.date())
+    assert not any(
+        person["member_id"] == member_id
+        and any(action["source"] == "BIRTHDAY" for action in person["actions"])
+        for person in after["people"]
+    )
+
+
+def test_existing_birthday_operation_item_completes_without_new_completion_fact() -> None:
+    fixture = _care_fixture()
+    member_id = int(fixture["birthday_member_id"])
+    operation_item = fetch_one(
+        "SELECT id FROM operation_items WHERE business_type='BIRTHDAY_CARE' AND business_id=? "
+        "AND due_date='2099-08-20'",
+        (str(member_id),),
+    )
+    assert operation_item is not None
+    completion = complete_birthday_care(
+        member_id,
+        int(fixture["user_id"]),
+        birthday_year=2099,
+        due_date="2099-08-20",
+        channel="PHONE",
+        operation_item_id=int(operation_item["id"]),
+        now=datetime(2099, 8, 20, 9, 0, tzinfo=UTC),
+    )
+    assert completion["record_type"] == "OPERATION_ITEM"
+    assert fetch_one(
+        "SELECT status, actual_at FROM operation_items WHERE id=?",
+        (operation_item["id"],),
+    )["status"] == "COMPLETED"
+    assert fetch_one(
+        "SELECT id FROM birthday_care_completions WHERE member_id=? AND birthday_year=2099",
+        (member_id,),
+    ) is None
 
 
 def test_member_care_api_denies_user_without_source_permission() -> None:

@@ -721,7 +721,21 @@ function inferMembershipYears(joinDate: string) {
 }
 
 function inferredRenewalMonth(joinDate: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(joinDate) ? joinDate.slice(0, 7) : "";
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(joinDate);
+  if (!match) return "";
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(year, month - 1, day);
+  if (
+    year >= 9999 ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return "";
+  }
+  return `${String(year + 1).padStart(4, "0")}-${match[2]}`;
 }
 
 function normalizeAnnualSales(value?: string | null) {
@@ -2746,7 +2760,7 @@ onMounted(async () => {
               <span>{{
                 form.renewal_month_overridden
                   ? "当前为手动维护"
-                  : "按入塾日期自动更新"
+                  : "按入塾日期自动计算（满一年进入首次续费）"
               }}</span>
             </div>
           </el-form-item>

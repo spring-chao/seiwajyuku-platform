@@ -67,13 +67,19 @@ def inferred_membership_years(join_date: str | datetime | None) -> float | None:
 
 
 def inferred_renewal_month(join_date: str | datetime | None) -> str | None:
-    """Use the join-date month as the default recurring renewal month."""
+    """Return the first eligible renewal month, one full year after joining."""
     if not join_date:
         return None
     if isinstance(join_date, datetime):
-        return join_date.strftime("%Y-%m")
-    match = re.fullmatch(r"(\d{4}-\d{2})-\d{2}", str(join_date).strip())
-    return match.group(1) if match else None
+        joined = join_date.date()
+    else:
+        try:
+            joined = datetime.fromisoformat(str(join_date).strip()).date()
+        except ValueError:
+            return None
+    if joined.year >= 9999:
+        return None
+    return f"{joined.year + 1:04d}-{joined.month:02d}"
 
 
 def effective_membership_years(

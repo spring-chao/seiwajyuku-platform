@@ -186,6 +186,7 @@ export type MemberCareUrgency = "OVERDUE" | "TODAY" | "ATTENTION" | "WINDOW";
 export type MemberCareAction = {
   source: "RENEWAL" | "FOLLOWUP" | "BIRTHDAY";
   source_id: number;
+  operation_item_id?: number | null;
   action_type: string;
   label: string;
   reason: string;
@@ -243,6 +244,7 @@ export type MemberCareManagementException = {
   member_name?: string | null;
   source: "RENEWAL" | "FOLLOWUP" | "ENTERPRISE_VISIT" | "BIRTHDAY";
   source_id: number;
+  operation_item_id?: number | null;
   reason: string;
   days_overdue?: number | null;
   due_date?: string | null;
@@ -428,6 +430,30 @@ export const getMemberCareActionsToday = () =>
   http.request<{ success: boolean; data: MemberCareActions }>(
     "get",
     "/api/v1/operations/member-actions/today"
+  );
+
+export type BirthdayCareCompletion = {
+  id: number;
+  record_type: "OPERATION_ITEM" | "BIRTHDAY_CARE_COMPLETION";
+  operation_item_id?: number | null;
+  completed_at: string;
+  channel: "WECHAT" | "PHONE";
+  created: boolean;
+};
+
+export const completeMemberBirthdayCare = (
+  memberId: number,
+  data: {
+    birthday_year: number;
+    due_date: string;
+    channel: "WECHAT" | "PHONE";
+    operation_item_id?: number | null;
+  }
+) =>
+  http.request<{ success: boolean; data: BirthdayCareCompletion }>(
+    "post",
+    `/api/v1/operations/member-actions/birthday-care/${memberId}/complete`,
+    { data }
   );
 
 export const getMemberCareManagementOverview = (params?: {
@@ -1172,6 +1198,7 @@ export type RenewalCycle = {
   completed_at?: string;
   updated_at: string;
   stage: RenewalStage;
+  support_status: RenewalSupportStatus;
 };
 
 export type RenewalStageCode =
@@ -1189,6 +1216,96 @@ export type RenewalStage = {
   months_until_due: number;
   as_of_month: string;
   source: "CALENDAR_RULE";
+};
+
+export type RenewalSupportRole =
+  | "REFERRER"
+  | "GROUP_LEADER"
+  | "GROUP_COUNSELOR"
+  | "CLASS_TEACHER"
+  | "DEPUTY_CLASS_TEACHER"
+  | "CLASS_DEVELOPMENT"
+  | "CENTER_DEVELOPMENT";
+
+export type RenewalSupportStatus =
+  | "NONE"
+  | "PENDING"
+  | "IN_PROGRESS"
+  | "FEEDBACK_RECEIVED";
+
+export type RenewalSupportRequestStatus =
+  | "REQUESTED"
+  | "FEEDBACK_RECEIVED"
+  | "CLOSED"
+  | "CANCELLED";
+
+export type RenewalSupporter = {
+  role: RenewalSupportRole;
+  role_label: string;
+  name: string;
+  member_id?: number | null;
+  person_id?: string | null;
+  resolved: boolean;
+  org_unit_id?: string | null;
+  org_name?: string | null;
+  position_key?: string | null;
+  position_name?: string | null;
+};
+
+export type RenewalRecommendedSupporter = {
+  name: string;
+  member_id?: number | null;
+  person_id?: string | null;
+  resolved: boolean;
+  org_unit_id?: string | null;
+  org_name?: string | null;
+  roles: RenewalSupportRole[];
+  role_labels: string[];
+  primary_role: RenewalSupportRole;
+  primary_role_label: string;
+  priority: number;
+  recommendation_reason: string;
+};
+
+export type RenewalSupportNetwork = {
+  recommended_supporters: RenewalRecommendedSupporter[];
+  roles: {
+    referrers: RenewalSupporter[];
+    group_leaders: RenewalSupporter[];
+    group_counselors: RenewalSupporter[];
+    class_teachers: RenewalSupporter[];
+    class_development: RenewalSupporter[];
+    center_development: RenewalSupporter[];
+  };
+  data_quality: {
+    referrer_resolution: "NOT_PROVIDED" | "RESOLVED" | "AMBIGUOUS" | "UNRESOLVED" | "OUT_OF_SCOPE";
+    current_center_available: boolean;
+    current_class_available: boolean;
+    current_group_available: boolean;
+    eligible_supporter_count: number;
+  };
+};
+
+export type RenewalSupportRequest = {
+  id: number;
+  supporter_member_id?: number | null;
+  supporter_person_id?: string | null;
+  supporter_name_snapshot: string;
+  supporter_role: RenewalSupportRole;
+  supporter_role_label: string;
+  supporter_org_unit_id?: string | null;
+  supporter_org_name?: string | null;
+  status: RenewalSupportRequestStatus;
+  status_label: string;
+  requested_by?: number | null;
+  requested_by_name?: string | null;
+  requested_at: string;
+  feedback_summary?: string | null;
+  next_action?: string | null;
+  feedback_by?: number | null;
+  feedback_by_name?: string | null;
+  feedback_at?: string | null;
+  closed_at?: string | null;
 };
 
 export type RenewalActionCard = {
@@ -1211,6 +1328,8 @@ export type RenewalActionCard = {
     join_date?: string | null;
     study_start_date?: string | null;
     membership_years?: number | null;
+    referrer?: string | null;
+    referrer_center?: string | null;
   };
   stage: RenewalStage;
   latest_followup?: {
@@ -1229,6 +1348,13 @@ export type RenewalActionCard = {
     needs_support: boolean;
     next_action?: string | null;
     next_followup_at?: string | null;
+  };
+  support: {
+    needed: boolean;
+    status: RenewalSupportStatus;
+    status_label: string;
+    network: RenewalSupportNetwork;
+    current_requests: RenewalSupportRequest[];
   };
   verified_memories: BirthdayGreetingMemory[];
   action: {
@@ -1281,6 +1407,7 @@ export type RenewalTodayAction = {
   latest_channel?: string | null;
   intention?: string | null;
   needs_support: boolean;
+  support_status: RenewalSupportStatus;
   next_action?: string | null;
   next_followup_at?: string | null;
   primary_reason: RenewalTodayActionReason["code"];
@@ -1332,6 +1459,7 @@ export type RenewalCoverageRow = {
     | "SYNCED_INACTIVE"
     | "SYNCED_SUSPENDED"
     | "READY_TO_CREATE"
+    | "NOT_DUE_YET"
     | "MISSING_RENEWAL_MONTH"
     | "INACTIVE"
     | "SUSPENDED";
@@ -2384,6 +2512,35 @@ export const getRenewalActionCard = (cycleId: number) =>
   http.request<{ success: boolean; data: RenewalActionCard }>(
     "get",
     `/api/v1/renewals/cycles/${cycleId}/action-card`
+  );
+
+export const createRenewalSupportRequest = (
+  cycleId: number,
+  data: {
+    supporter_role: RenewalSupportRole;
+    supporter_member_id?: number | null;
+    supporter_person_id?: string | null;
+    supporter_name_snapshot: string;
+  }
+) =>
+  http.request<{
+    success: boolean;
+    data: RenewalSupportRequest & { created: boolean };
+  }>("post", `/api/v1/renewals/cycles/${cycleId}/support-requests`, { data });
+
+export const updateRenewalSupportRequest = (
+  cycleId: number,
+  requestId: number,
+  data: {
+    status?: RenewalSupportRequestStatus;
+    feedback_summary?: string | null;
+    next_action?: string | null;
+  }
+) =>
+  http.request<{ success: boolean; data: RenewalSupportRequest }>(
+    "patch",
+    `/api/v1/renewals/cycles/${cycleId}/support-requests/${requestId}`,
+    { data }
   );
 
 export const createRenewalFollowup = (
