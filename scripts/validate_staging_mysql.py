@@ -160,7 +160,10 @@ def _run_iam2_staff_validation() -> dict[str, object]:
         is_active=True,
         phone=phone,
         gender="MALE",
-        institution_id="institution-suzhou-operations",
+        # Ordinary staff now select one of the four formal shuku institutions;
+        # the historical Suzhou operations-center row remains readable for
+        # legacy records but is not a valid new-staff catalog choice.
+        institution_id="institution-suzhou",
         department_name="MySQL staging",
         supervisor_user_id=None,
         position_keys=["ops_center_learning"],
