@@ -51,6 +51,21 @@ def _seed_fixture() -> None:
             "VALUES (1, 'staging-operator', 'Staging Operator', 'not-used', ?, ?)",
             (now, now),
         )
+        # The disposable operator is the scoped actor for the validation
+        # flow.  Give it the CI-only system role so the test exercises the
+        # staff catalog and grant validation without depending on a real
+        # production identity.
+        execute(
+            connection,
+            "INSERT INTO user_roles(user_id, role_key, created_at) VALUES (1, 'system_admin', ?)",
+            (now,),
+        )
+        execute(
+            connection,
+            "INSERT INTO data_scope_grants(user_id, scope_type, org_unit_id, created_at) "
+            "VALUES (1, 'ALL', NULL, ?)",
+            (now,),
+        )
 
 
         execute(
