@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS org_units (
     id TEXT PRIMARY KEY,
     unit_code TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
-    unit_type TEXT NOT NULL CHECK (unit_type IN ('ROOT','REGIONAL_CENTER','CLASS','GROUP','SPECIAL_COHORT')),
+    unit_type TEXT NOT NULL CHECK (unit_type IN ('ROOT','REGIONAL_CENTER','OPERATING_UNIT','CLASS','GROUP','SPECIAL_COHORT')),
     parent_id TEXT REFERENCES org_units(id),
     active_from TEXT,
     active_until TEXT,
@@ -97,4 +97,3 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_user_id, created_at);
-
