@@ -68,7 +68,11 @@ def _seed_fixture() -> None:
             (now, now),
         )
         orgs = [
-            ("r1", "R1", "Regional One", "REGIONAL_CENTER", None),
+            # Keep the synthetic responsibility tree inside the formal Suzhou
+            # institution used by the staff-catalog validation. Historical
+            # operation-center rows remain readable, but are not valid choices
+            # for creating ordinary staff.
+            ("r1", "R1", "Regional One", "REGIONAL_CENTER", "org-suzhou"),
             ("c1", "C1", "Class A", "CLASS", "r1"),
             ("g1", "G1", "Group A", "GROUP", "c1"),
             ("s1", "S1", "Special A", "SPECIAL_COHORT", "r1"),
