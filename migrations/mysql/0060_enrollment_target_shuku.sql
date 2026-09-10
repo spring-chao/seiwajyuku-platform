@@ -1,6 +1,6 @@
 -- 0060: persist the shuku a prospective member is applying to.
 -- NULL is intentionally retained for historical applications and links that
--- predate this field; the service treats those rows as legacy review data.
+-- predate this field. The service treats those rows as legacy review data.
 
 ALTER TABLE member_enrollment_links
     ADD COLUMN target_shuku_org_unit_id VARCHAR(64) NULL;
