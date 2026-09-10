@@ -172,7 +172,7 @@ class IAM2StaffManagementTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         catalog = response.json()["data"]
         institutions = {item["business_code"]: item for item in catalog["institutions"]}
-        self.assertEqual(set(institutions), {"JIANGNAN", "SUZHOU"})
+        self.assertEqual(set(institutions), {"JIANGNAN", "SUZHOU", "CHANGZHOU", "WUXI"})
         self.assertNotIn("SEIWA_HQ", {item["institution_code"] for item in catalog["institutions"]})
         self.assertNotIn(
             "SUZHOU_OPERATIONS_CENTER",
@@ -180,11 +180,11 @@ class IAM2StaffManagementTests(unittest.TestCase):
         )
         self.assertEqual(institutions["SUZHOU"]["name"], "苏州塾")
         self.assertEqual(institutions["SUZHOU"]["scope_root_org_unit_id"], "org-suzhou")
-        self.assertFalse(institutions["JIANGNAN"]["scope_available"])
-        self.assertEqual(
-            {item["business_code"] for item in catalog["missing_institutions"]},
-            {"CHANGZHOU", "WUXI"},
-        )
+        self.assertEqual(institutions["JIANGNAN"]["scope_root_org_unit_id"], "org-jiangnan")
+        self.assertEqual(institutions["CHANGZHOU"]["scope_root_org_unit_id"], "org-changzhou")
+        self.assertEqual(institutions["WUXI"]["scope_root_org_unit_id"], "org-wuxi")
+        self.assertTrue(all(item["scope_available"] for item in institutions.values()))
+        self.assertEqual(catalog["missing_institutions"], [])
         positions = {item["position_key"]: item for item in catalog["positions"]}
         self.assertEqual(positions["ops_center_director"]["role_key"], "employee_operations_lead")
         self.assertIn("全部运营业务", positions["ops_center_director"]["duty_description"])
