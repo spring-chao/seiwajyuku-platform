@@ -52,12 +52,25 @@ def _seed_fixture() -> None:
             (now, now),
         )
         # The disposable operator is the scoped actor for the validation
-        # flow.  Give it the CI-only system role so the test exercises the
-        # staff catalog and grant validation without depending on a real
-        # production identity.
+        # flow.  Give it a CI-only role containing only staff:manage so the
+        # test exercises catalog/grant validation without depending on a
+        # production identity or inheriting unrelated admin permissions.
         execute(
             connection,
-            "INSERT INTO user_roles(user_id, role_key, created_at) VALUES (1, 'system_admin', ?)",
+            "INSERT IGNORE INTO roles"
+            "(role_key, role_name, is_system, is_active, created_at, updated_at) "
+            "VALUES ('staging_staff_manager', 'CI staging staff manager', 0, 1, ?, ?)",
+            (now, now),
+        )
+        execute(
+            connection,
+            "INSERT IGNORE INTO role_permissions(role_key, permission_key) "
+            "VALUES ('staging_staff_manager', 'staff:manage')",
+        )
+        execute(
+            connection,
+            "INSERT INTO user_roles(user_id, role_key, created_at) "
+            "VALUES (1, 'staging_staff_manager', ?)",
             (now,),
         )
         execute(
