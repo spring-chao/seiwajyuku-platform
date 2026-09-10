@@ -383,6 +383,9 @@ jobs:
           set -euo pipefail
           mysql_container="${{ job.services.mysql.id }}"
           for rollback in \
+            migrations/rollback/mysql/0059_renewal_support_requests.down.sql \
+            migrations/rollback/mysql/0058_wuxi_org_master_data.down.sql \
+            migrations/rollback/mysql/0057_birthday_care_completions.down.sql \
             migrations/rollback/mysql/0053_volunteer2_service_organizations.down.sql \
             migrations/rollback/mysql/0052_volunteer_membership_authority.down.sql \
             migrations/rollback/mysql/0051_iam2_staff_authorization.down.sql \
