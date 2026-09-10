@@ -223,10 +223,13 @@ async function loadCenters() {
   try {
     const response = await getOrgUnits();
     centers.value = response.data.filter(
-      item => item.unit_type === "REGIONAL_CENTER"
+      item =>
+        item.unit_type === "REGIONAL_CENTER" ||
+        (item.unit_type === "OPERATING_UNIT" &&
+          ["org-wuxi-guidance-1", "org-wuxi-guidance-2"].includes(item.id))
     );
   } catch (error: any) {
-    ElMessage.error(errorText(error, "分中心选项加载失败"));
+    ElMessage.error(errorText(error, "管理单元选项加载失败"));
   }
 }
 
@@ -1046,7 +1049,7 @@ onMounted(async () => {
                   :disabled="!canReview"
                 />
               </el-form-item>
-              <el-form-item label="正式归属分中心">
+              <el-form-item label="正式归属分中心/指导团">
                 <el-select
                   v-model="editForm.org_unit_id"
                   clearable

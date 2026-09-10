@@ -21,6 +21,7 @@ import {
   applyFullClassRosterRelations,
   getMemberChangeHistory,
   getMemberTimeline,
+  getMemberOrgCatalog,
   applyLegacyVolunteerAdoption,
   previewLegacyVolunteerAdoption,
   submitMemberServiceSignalFeedback,
@@ -32,6 +33,7 @@ import {
   type FullClassRosterPreflight,
   type MemberRosterImportPreview,
   type Member,
+  type MemberOrgCatalog,
   type MemberChangeHistory,
   type MemberServiceSignal,
   type MemberServiceSignalFeedbackStatus,
@@ -99,14 +101,21 @@ const legacyVolunteerPreviewLoading = ref(false);
 const legacyVolunteerApplyLoading = ref(false);
 const legacyVolunteerPreviewResult = ref<LegacyVolunteerAdoptionPreview>();
 const selectedOrg = ref("");
+const selectedShuku = ref("");
 const keyword = ref("");
 const classFilter = ref("");
 const groupFilter = ref("");
+const statusFilter = ref<"ACTIVE" | "SUSPENDED" | "INACTIVE" | "ALL">(
+  "ACTIVE"
+);
+const currentPage = ref(1);
+const pageSize = ref(50);
+const totalMembers = ref(0);
+const activeMemberCount = ref(0);
 const rows = ref<Member[]>([]);
 const route = useRoute();
 const router = useRouter();
 const suppressEditDialogReturn = ref(false);
-const unassignedFilterValue = "__UNASSIGNED__";
 const fullOrgConfirmationText = "确认创建20个普通班和112个普通班小组";
 const memberRosterConfirmationText = "确认补充导入学员主档";
 const legacyVolunteerAdoptionConfirmationText = "确认批量承接历史志工岗位";
@@ -194,6 +203,13 @@ const canApplyFullRelations = computed(() => {
   );
 });
 const orgs = ref<OrgUnit[]>([]);
+const memberOrgCatalog = ref<MemberOrgCatalog>({
+  shukus: [],
+  management_units: [],
+  classes: [],
+  groups: [],
+  units: []
+});
 const formRef = ref<FormInstance>();
 const canManage = computed(() =>
   useUserStoreHook().permissions.includes("members:manage")
@@ -278,61 +294,82 @@ const volunteerClassOptions = computed(() =>
     .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"))
 );
 const centerOrgs = computed(() =>
-  orgs.value.filter(item => item.unit_type === "REGIONAL_CENTER")
+  orgs.value.filter(
+    item =>
+      item.unit_type === "REGIONAL_CENTER" ||
+      (item.unit_type === "OPERATING_UNIT" &&
+        ["org-wuxi-guidance-1", "org-wuxi-guidance-2"].includes(item.id))
+  )
 );
-const classFilterOptions = computed(() => {
-  const names = new Set(
-    rows.value
-      .map(item => item.class_name?.trim())
-      .filter((name): name is string => Boolean(name))
-  );
-  const options = [...names].sort((left, right) =>
-    left.localeCompare(right, "zh-CN")
-  );
-  if (rows.value.some(item => !item.class_name?.trim())) {
-    options.unshift(unassignedFilterValue);
+const shukuOptions = computed(() => memberOrgCatalog.value.shukus);
+const managementFilterOptions = computed(() =>
+  memberOrgCatalog.value.management_units
+    .filter(
+      unit =>
+        !selectedShuku.value ||
+        unit.shuku_org_unit_id === selectedShuku.value
+    )
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"))
+);
+function isDescendantOf(orgId: string, ancestorId: string) {
+  if (orgId === ancestorId) return true;
+  const byId = new Map(memberOrgCatalog.value.units.map(unit => [unit.id, unit]));
+  const seen = new Set<string>();
+  let current = byId.get(orgId);
+  while (current?.parent_id && !seen.has(current.id)) {
+    if (current.parent_id === ancestorId) return true;
+    seen.add(current.id);
+    current = byId.get(current.parent_id);
   }
-  return options;
+  return false;
+}
+const classFilterOptions = computed(() => {
+  const allowed = new Set<string>();
+  if (selectedShuku.value) {
+    const descendants = new Set<string>([selectedShuku.value]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      memberOrgCatalog.value.units.forEach(unit => {
+        if (unit.parent_id && descendants.has(unit.parent_id) && !descendants.has(unit.id)) {
+          descendants.add(unit.id);
+          changed = true;
+        }
+      });
+    }
+    memberOrgCatalog.value.classes.forEach(unit => {
+      if (descendants.has(unit.id) || (unit.shuku_org_unit_id || "") === selectedShuku.value) {
+        allowed.add(unit.id);
+      }
+    });
+  } else {
+    memberOrgCatalog.value.classes.forEach(unit => allowed.add(unit.id));
+  }
+  return memberOrgCatalog.value.classes
+    .filter(unit => allowed.has(unit.id) && (!selectedOrg.value || isDescendantOf(unit.id, selectedOrg.value)))
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 });
 const groupFilterOptions = computed(() => {
-  const names = new Set(
-    rows.value
-      .filter(item => {
-        const className = item.class_name?.trim() || "";
-        return (
-          !classFilter.value ||
-          (classFilter.value === unassignedFilterValue
-            ? !className
-            : className === classFilter.value)
-        );
-      })
-      .map(item => item.group_name?.trim())
-      .filter((name): name is string => Boolean(name))
-  );
-  const options = [...names].sort((left, right) =>
-    left.localeCompare(right, "zh-CN")
-  );
-  if (
-    rows.value.some(item => {
-      const className = item.class_name?.trim() || "";
-      const matchesClass =
-        !classFilter.value ||
-        (classFilter.value === unassignedFilterValue
-          ? !className
-          : className === classFilter.value);
-      return matchesClass && !item.group_name?.trim();
-    })
-  ) {
-    options.unshift(unassignedFilterValue);
-  }
-  return options;
+  return memberOrgCatalog.value.groups
+    .filter(
+      unit =>
+        (!classFilter.value || unit.parent_id === classFilter.value) &&
+        (!selectedOrg.value || isDescendantOf(unit.id, selectedOrg.value)) &&
+        (!selectedShuku.value || isDescendantOf(unit.id, selectedShuku.value))
+    )
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 });
 const classOrgs = computed(() => {
   const candidates = orgs.value
     .filter(
       item =>
         ["CLASS", "SPECIAL_COHORT"].includes(item.unit_type) &&
-        item.parent_id === form.org_unit_id
+        (item.parent_id === form.org_unit_id ||
+          (item.parent_id === "org-wuxi" &&
+            item.name === "精进班" &&
+            ["org-wuxi-guidance-1", "org-wuxi-guidance-2"].includes(
+              form.org_unit_id
+            )))
     )
     .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 
@@ -405,32 +442,7 @@ const groupOptions = computed(() => {
   }
   return options;
 });
-const filteredRows = computed(() => {
-  const term = keyword.value.trim().toLowerCase();
-  return rows.value.filter(item => {
-    // Default to active members; an explicit search still includes historical
-    // inactive and suspended records.
-    if (!term && item.status !== "ACTIVE") return false;
-    const className = item.class_name?.trim() || "";
-    const matchesClass =
-      !classFilter.value ||
-      (classFilter.value === unassignedFilterValue
-        ? !className
-        : className === classFilter.value);
-    if (!matchesClass) return false;
-    const groupName = item.group_name?.trim() || "";
-    const matchesGroup =
-      !groupFilter.value ||
-      (groupFilter.value === unassignedFilterValue
-        ? !groupName
-        : groupName === groupFilter.value);
-    if (!matchesGroup) return false;
-    if (!term) return true;
-    return [item.name, item.member_code, item.phone_last4]
-      .filter(Boolean)
-      .some(value => String(value).toLowerCase().includes(term));
-  });
-});
+const filteredRows = computed(() => rows.value);
 
 const form = reactive({
   name: "",
@@ -484,7 +496,9 @@ const memberStatusLabel = (status: string) =>
   ({ ACTIVE: "在册", INACTIVE: "流失", SUSPENDED: "暂停" })[status] ?? status;
 const rules = computed<FormRules>(() => ({
   name: [{ required: true, message: "请输入姓名", trigger: "blur" }],
-  org_unit_id: [{ required: true, message: "请选择分中心", trigger: "change" }],
+  org_unit_id: [
+    { required: true, message: "请选择分中心/指导团", trigger: "change" }
+  ],
   phone: [
     ...(editingMemberId.value
       ? []
@@ -512,12 +526,25 @@ function volunteerPreviewEnvironmentLabel(environment?: string) {
 async function load() {
   loading.value = true;
   try {
-    const [members, organizations] = await Promise.all([
-      getMembers(selectedOrg.value || undefined),
-      getOrgUnits()
+    const [members, organizations, catalog] = await Promise.all([
+      getMembers({
+        shuku_org_unit_id: selectedShuku.value || undefined,
+        management_org_unit_id: selectedOrg.value || undefined,
+        class_org_unit_id: classFilter.value || undefined,
+        group_org_unit_id: groupFilter.value || undefined,
+        status: statusFilter.value,
+        keyword: keyword.value.trim() || undefined,
+        page: currentPage.value,
+        page_size: pageSize.value
+      }),
+      getOrgUnits(),
+      getMemberOrgCatalog()
     ]);
-    rows.value = members.data;
+    rows.value = members.data.items;
+    totalMembers.value = members.data.pagination.total;
+    activeMemberCount.value = members.data.summary.active_count;
     orgs.value = organizations.data;
+    memberOrgCatalog.value = catalog.data;
   } catch (error) {
     ElMessage.error(errorText(error));
   } finally {
@@ -697,19 +724,48 @@ async function openEdit(row: any) {
 async function onCenterChange() {
   classFilter.value = "";
   groupFilter.value = "";
+  currentPage.value = 1;
   await load();
-}
-
-function classFilterLabel(value: string) {
-  return value === unassignedFilterValue ? "未分配班级" : value;
 }
 
 function onClassFilterChange() {
   groupFilter.value = "";
+  currentPage.value = 1;
+  void load();
 }
 
-function groupFilterLabel(value: string) {
-  return value === unassignedFilterValue ? "未分配小组" : value;
+function onShukuChange() {
+  selectedOrg.value = "";
+  classFilter.value = "";
+  groupFilter.value = "";
+  currentPage.value = 1;
+  void load();
+}
+
+function onStatusChange() {
+  currentPage.value = 1;
+  void load();
+}
+
+function onKeywordChange() {
+  currentPage.value = 1;
+  void load();
+}
+
+function onGroupFilterChange() {
+  currentPage.value = 1;
+  void load();
+}
+
+function onPageChange(page: number) {
+  currentPage.value = page;
+  void load();
+}
+
+function onPageSizeChange(size: number) {
+  pageSize.value = size;
+  currentPage.value = 1;
+  void load();
 }
 
 function inferMembershipYears(joinDate: string) {
@@ -1700,13 +1756,28 @@ onMounted(async () => {
     <el-card shadow="never">
       <div class="toolbar">
         <el-select
+          v-model="selectedShuku"
+          clearable
+          filterable
+          placeholder="全部塾"
+          @change="onShukuChange"
+        >
+          <el-option
+            v-for="org in shukuOptions"
+            :key="org.id"
+            :label="org.name"
+            :value="org.id"
+          />
+        </el-select>
+        <el-select
           v-model="selectedOrg"
           clearable
-          placeholder="全部分中心"
+          filterable
+          placeholder="全部分中心/指导团"
           @change="onCenterChange"
         >
           <el-option
-            v-for="org in centerOrgs"
+            v-for="org in managementFilterOptions"
             :key="org.id"
             :label="org.name"
             :value="org.id"
@@ -1720,10 +1791,10 @@ onMounted(async () => {
           @change="onClassFilterChange"
         >
           <el-option
-            v-for="className in classFilterOptions"
-            :key="className"
-            :label="classFilterLabel(className)"
-            :value="className"
+            v-for="org in classFilterOptions"
+            :key="org.id"
+            :label="org.name"
+            :value="org.id"
           />
         </el-select>
         <el-select
@@ -1731,30 +1802,49 @@ onMounted(async () => {
           clearable
           filterable
           placeholder="全部小组"
+          @change="onGroupFilterChange"
         >
           <el-option
-            v-for="groupName in groupFilterOptions"
-            :key="groupName"
-            :label="groupFilterLabel(groupName)"
-            :value="groupName"
+            v-for="org in groupFilterOptions"
+            :key="org.id"
+            :label="org.name"
+            :value="org.id"
           />
+        </el-select>
+        <el-select
+          v-model="statusFilter"
+          placeholder="状态：在册"
+          @change="onStatusChange"
+        >
+          <el-option label="在册" value="ACTIVE" />
+          <el-option label="暂停" value="SUSPENDED" />
+          <el-option label="非在册" value="INACTIVE" />
+          <el-option label="全部状态" value="ALL" />
         </el-select>
         <el-input
           v-model="keyword"
           clearable
-          placeholder="默认在册；搜索可查姓名、编号、手机后四位及历史状态"
+          placeholder="搜索姓名、编号、手机后四位"
+          @change="onKeywordChange"
+          @clear="onKeywordChange"
         />
         <span class="result-count">
-          {{
-            keyword.trim() ? "已包含流失、暂停等历史状态" : "默认仅显示在册"
-          }}
-          · 共 {{ filteredRows.length }} 人
+          {{ statusFilter === "ACTIVE" ? "在册" : "符合当前状态" }}
+          {{ statusFilter === "ACTIVE" ? activeMemberCount : totalMembers }} 人
+          （当前筛选共 {{ totalMembers }} 人）
         </span>
       </div>
 
-      <el-table :data="filteredRows" stripe empty-text="暂无学员数据">
+      <el-table :data="filteredRows" stripe empty-text="当前范围暂无学员">
         <el-table-column prop="name" label="姓名" min-width="110" />
-        <el-table-column prop="org_name" label="所属分中心" min-width="140" />
+        <el-table-column label="所属塾" min-width="120">
+          <template #default="{ row }">{{ row.shuku_name || "—" }}</template>
+        </el-table-column>
+        <el-table-column label="所属分中心/指导团" min-width="160">
+          <template #default="{ row }">
+            {{ row.management_org_name || row.org_name || "—" }}
+          </template>
+        </el-table-column>
         <el-table-column prop="class_name" label="班级" min-width="120">
           <template #default="{ row }">{{ row.class_name || "—" }}</template>
         </el-table-column>
@@ -1807,6 +1897,18 @@ onMounted(async () => {
           </template>
         </el-table-column>
       </el-table>
+      <div class="member-pagination">
+        <span>共 {{ totalMembers }} 条</span>
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          layout="sizes, prev, pager, next, jumper"
+          :page-sizes="[30, 40, 50]"
+          :total="totalMembers"
+          @current-change="onPageChange"
+          @size-change="onPageSizeChange"
+        />
+      </div>
     </el-card>
 
     <el-dialog
@@ -2476,7 +2578,7 @@ onMounted(async () => {
           <el-form-item label="姓名" prop="name">
             <el-input v-model="form.name" />
           </el-form-item>
-          <el-form-item label="分中心" prop="org_unit_id">
+          <el-form-item label="分中心/指导团" prop="org_unit_id">
             <el-select v-model="form.org_unit_id" placeholder="请选择">
               <el-option
                 v-for="org in centerOrgs"
@@ -3156,13 +3258,20 @@ onMounted(async () => {
 }
 .toolbar {
   display: grid;
-  grid-template-columns: 220px 200px 200px minmax(260px, 1fr) auto;
+  grid-template-columns: repeat(5, minmax(150px, 1fr)) minmax(240px, 1.5fr);
   gap: 14px;
   align-items: center;
   margin-bottom: 18px;
 }
 .result-count {
   color: var(--el-text-color-secondary);
+}
+.member-pagination {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 16px;
 }
 .form-grid {
   display: grid;
@@ -3368,6 +3477,9 @@ onMounted(async () => {
   .toolbar,
   .form-grid {
     grid-template-columns: 1fr;
+  }
+  .member-pagination {
+    flex-wrap: wrap;
   }
   .form-grid .full {
     grid-column: auto;

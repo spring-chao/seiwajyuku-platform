@@ -14,7 +14,10 @@ from app.core.settings import get_settings
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
-from app.services.organization_policy import is_valid_member_class_parent
+from app.services.organization_policy import (
+    is_valid_member_class_parent,
+    is_valid_member_primary_org,
+)
 from app.services.renewals import maybe_create_historical_cycle
 from app.services.volunteer_positions import (
     MEMBER_ADMIN_CURRENT_SERVICE_SOURCE,
@@ -37,6 +40,20 @@ CURRENT_STUDY_CLASS_NAME_SQL = (
 )
 CURRENT_STUDY_GROUP_NAME_SQL = (
     "(SELECT ou.name FROM member_org_relations mor "
+    "JOIN org_units ou ON ou.id=mor.org_unit_id "
+    "WHERE mor.member_id=m.id AND mor.relation_type='STUDY_GROUP' "
+    "AND mor.valid_until IS NULL AND ou.is_active=1 "
+    "ORDER BY mor.is_primary DESC, mor.id DESC LIMIT 1)"
+)
+CURRENT_STUDY_CLASS_ID_SQL = (
+    "(SELECT mor.org_unit_id FROM member_org_relations mor "
+    "JOIN org_units ou ON ou.id=mor.org_unit_id "
+    "WHERE mor.member_id=m.id AND mor.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
+    "AND mor.valid_until IS NULL AND ou.is_active=1 "
+    "ORDER BY mor.is_primary DESC, mor.id DESC LIMIT 1)"
+)
+CURRENT_STUDY_GROUP_ID_SQL = (
+    "(SELECT mor.org_unit_id FROM member_org_relations mor "
     "JOIN org_units ou ON ou.id=mor.org_unit_id "
     "WHERE mor.member_id=m.id AND mor.relation_type='STUDY_GROUP' "
     "AND mor.valid_until IS NULL AND ou.is_active=1 "
@@ -196,12 +213,16 @@ def create_member(
     if allowed is not None and org_unit_id not in allowed:
         raise PermissionError("不能在授权组织之外创建学长")
     primary_org = select_one(
-        "SELECT unit_type, is_active FROM org_units WHERE id=?", (org_unit_id,)
+        "SELECT unit_type, parent_id, is_active FROM org_units WHERE id=?", (org_unit_id,)
     )
     if not primary_org or not primary_org["is_active"]:
-        raise ValueError("所属分中心不存在或已停用")
-    if primary_org["unit_type"] != "REGIONAL_CENTER":
-        raise ValueError("学员主归属必须是正式区域分中心")
+        raise ValueError("所属管理单元不存在或已停用")
+    if not is_valid_member_primary_org(
+        org_unit_id=org_unit_id,
+        unit_type=primary_org["unit_type"],
+        parent_id=primary_org.get("parent_id"),
+    ):
+        raise ValueError("学员主归属必须是正式区域分中心或无锡指导团")
     if development_org_unit_id:
         development_org = select_one(
             "SELECT unit_type, is_active FROM org_units WHERE id=?",
@@ -288,7 +309,7 @@ def create_member(
             parent_id=class_org["parent_id"],
             member_center_id=org_unit_id,
         ):
-            raise ValueError("学习班级须属于所选分中心，或为苏州塾直属班级")
+            raise ValueError("学习班级须属于所选管理单元，或为已确认的塾直属班级")
         class_org_id = class_org["id"]
         class_name = class_org["name"]
     elif class_name and class_name.strip():
@@ -304,7 +325,7 @@ def create_member(
             parent_id=class_matches[0]["parent_id"],
             member_center_id=org_unit_id,
         ):
-            raise ValueError("学习班级须属于所选分中心，或为苏州塾直属班级")
+            raise ValueError("学习班级须属于所选管理单元，或为已确认的塾直属班级")
         class_org_id = class_matches[0]["id"]
         class_name = class_matches[0]["name"]
     group_org_id: str | None = None
@@ -470,12 +491,16 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
 
     target_org = updates.get("org_unit_id", current["org_unit_id"])
     target_org_row = fetch_one(
-        "SELECT unit_type, is_active FROM org_units WHERE id=?", (target_org,)
+        "SELECT unit_type, parent_id, is_active FROM org_units WHERE id=?", (target_org,)
     )
     if not target_org_row or not target_org_row["is_active"]:
-        raise ValueError("所属分中心不存在或已停用")
-    if target_org_row["unit_type"] != "REGIONAL_CENTER":
-        raise ValueError("学员主归属必须是正式区域分中心")
+        raise ValueError("所属管理单元不存在或已停用")
+    if not is_valid_member_primary_org(
+        org_unit_id=target_org,
+        unit_type=target_org_row["unit_type"],
+        parent_id=target_org_row.get("parent_id"),
+    ):
+        raise ValueError("学员主归属必须是正式区域分中心或无锡指导团")
     if allowed is not None and target_org not in allowed:
         raise PermissionError("不能将学员转入授权范围外的分中心")
 
@@ -532,7 +557,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
             parent_id=class_row["parent_id"],
             member_center_id=target_org,
         ):
-            raise ValueError("学习班级须属于所选分中心，或为苏州塾直属班级")
+            raise ValueError("学习班级须属于所选管理单元，或为已确认的塾直属班级")
     group_row = None
     if target_group:
         group_row = fetch_one(
@@ -986,6 +1011,414 @@ def list_members(
             if row["org_unit_id"] in allowed or row["id"] in related_ids
         ]
     return rows
+
+
+MEMBER_MANAGEMENT_UNIT_TYPES = frozenset({"REGIONAL_CENTER", "OPERATING_UNIT"})
+MEMBER_CLASS_UNIT_TYPES = frozenset({"CLASS", "SPECIAL_COHORT"})
+JIANGNAN_ROOT_ORG_UNIT_ID = "org-jiangnan"
+
+
+def _member_org_rows() -> list[dict[str, Any]]:
+    """Load the active organization master once for catalog/query planning."""
+    return fetch_all(
+        "SELECT id, unit_code, name, unit_type, parent_id, is_active, created_at "
+        "FROM org_units WHERE is_active=1 ORDER BY name, id"
+    )
+
+
+def _org_descendants(
+    rows_by_id: dict[str, dict[str, Any]], children: dict[str | None, list[str]], root_id: str
+) -> set[str]:
+    result: set[str] = set()
+    pending = [root_id]
+    while pending:
+        current = pending.pop()
+        if current in result or current not in rows_by_id:
+            continue
+        result.add(current)
+        pending.extend(children.get(current, []))
+    return result
+
+
+def _member_org_catalog_rows(
+    user_id: int,
+) -> tuple[list[dict[str, Any]], set[str] | None, dict[str, dict[str, Any]], dict[str, list[str]]]:
+    rows = _member_org_rows()
+    rows_by_id = {str(row["id"]): row for row in rows}
+    children: dict[str | None, list[str]] = {}
+    for row in rows:
+        children.setdefault(row.get("parent_id"), []).append(str(row["id"]))
+    allowed = accessible_org_ids(user_id)
+    visible_rows = [
+        row for row in rows if allowed is None or str(row["id"]) in allowed
+    ]
+    return visible_rows, allowed, rows_by_id, children
+
+
+def list_member_org_catalog(user_id: int) -> dict[str, Any]:
+    """Return learner-management filter options from the org master.
+
+    The catalog intentionally does not inspect ``members``.  Empty Wuxi or
+    Changzhou units therefore remain selectable, while IAM scope still limits
+    every option to the caller's accessible tree.
+    """
+    rows, allowed, rows_by_id, children = _member_org_catalog_rows(user_id)
+    visible_ids = {str(row["id"]) for row in rows}
+    jiangnan = rows_by_id.get(JIANGNAN_ROOT_ORG_UNIT_ID)
+    shuku_ids = [
+        str(row["id"])
+        for row in rows
+        if str(row.get("parent_id") or "") == JIANGNAN_ROOT_ORG_UNIT_ID
+        and str(row.get("unit_type") or "").upper() == "ROOT"
+    ]
+    # ``SZ_ROOT`` predates the Jiangnan root migration and can still be an
+    # orphan on a freshly bootstrapped database.  Its stable unit code is a
+    # formal identity, so expose it as the Suzhou shuku without guessing from
+    # a translated name; no data is mutated by this compatibility path.
+    shuku_ids.extend(
+        str(row["id"])
+        for row in rows
+        if str(row.get("unit_code") or "").upper() in {"SZ_ROOT", "CZ_ROOT", "WX_ROOT"}
+        and str(row["id"]) not in shuku_ids
+        and str(row.get("unit_type") or "").upper() == "ROOT"
+    )
+    if jiangnan and JIANGNAN_ROOT_ORG_UNIT_ID in visible_ids and not shuku_ids:
+        shuku_ids = [JIANGNAN_ROOT_ORG_UNIT_ID]
+
+    def nearest_shuku_id(org_id: str) -> str | None:
+        current = rows_by_id.get(org_id)
+        seen: set[str] = set()
+        while current and str(current["id"]) not in seen:
+            current_id = str(current["id"])
+            seen.add(current_id)
+            parent_id = current.get("parent_id")
+            if current_id in shuku_ids:
+                return current_id
+            if parent_id == JIANGNAN_ROOT_ORG_UNIT_ID and current_id in shuku_ids:
+                return current_id
+            current = rows_by_id.get(str(parent_id)) if parent_id else None
+        return None
+
+    def payload(row: dict[str, Any]) -> dict[str, Any]:
+        item = {
+            "id": row["id"],
+            "unit_code": row.get("unit_code"),
+            "name": row["name"],
+            "unit_type": row["unit_type"],
+            "parent_id": row.get("parent_id"),
+            "is_active": row.get("is_active", 1),
+            "shuku_org_unit_id": nearest_shuku_id(str(row["id"])),
+        }
+        parent = rows_by_id.get(str(row.get("parent_id"))) if row.get("parent_id") else None
+        item["parent_name"] = parent.get("name") if parent else None
+        return item
+
+    shukus = [payload(rows_by_id[org_id]) for org_id in shuku_ids if org_id in visible_ids]
+    management_units = [
+        payload(row)
+        for row in rows
+        if str(row.get("unit_type") or "").upper() in MEMBER_MANAGEMENT_UNIT_TYPES
+        and nearest_shuku_id(str(row["id"])) is not None
+    ]
+    classes = [
+        payload(row)
+        for row in rows
+        if str(row.get("unit_type") or "").upper() in MEMBER_CLASS_UNIT_TYPES
+        and nearest_shuku_id(str(row["id"])) is not None
+    ]
+    groups = [
+        payload(row)
+        for row in rows
+        if str(row.get("unit_type") or "").upper() == "GROUP"
+        and nearest_shuku_id(str(row["id"])) is not None
+    ]
+    for collection in (shukus, management_units, classes, groups):
+        collection.sort(key=lambda item: (str(item.get("name") or ""), str(item["id"])))
+    return {
+        "shukus": shukus,
+        "management_units": management_units,
+        "classes": classes,
+        "groups": groups,
+        "units": [payload(row) for row in rows],
+    }
+
+
+def _member_query_scope(
+    user_id: int,
+    *,
+    shuku_org_unit_id: str | None,
+    management_org_unit_id: str | None,
+    class_org_unit_id: str | None,
+    group_org_unit_id: str | None,
+) -> tuple[list[dict[str, Any]], set[str] | None, dict[str, dict[str, Any]], dict[str, list[str]], set[str]]:
+    rows, allowed, rows_by_id, children = _member_org_catalog_rows(user_id)
+    visible_ids = {str(row["id"]) for row in rows}
+    for name, org_id in (
+        ("塾", shuku_org_unit_id),
+        ("管理单元", management_org_unit_id),
+        ("班级", class_org_unit_id),
+        ("小组", group_org_unit_id),
+    ):
+        if org_id and org_id not in visible_ids:
+            raise PermissionError(f"{name}不在当前用户授权范围内")
+    if shuku_org_unit_id:
+        shuku = rows_by_id.get(shuku_org_unit_id)
+        if not shuku or shuku.get("unit_type") != "ROOT":
+            raise ValueError("所选塾组织无效")
+    if management_org_unit_id:
+        management = rows_by_id.get(management_org_unit_id)
+        if not management or management.get("unit_type") not in MEMBER_MANAGEMENT_UNIT_TYPES:
+            raise ValueError("所选分中心/指导团无效")
+    if class_org_unit_id:
+        class_row = rows_by_id.get(class_org_unit_id)
+        if not class_row or class_row.get("unit_type") not in MEMBER_CLASS_UNIT_TYPES:
+            raise ValueError("所选班级无效")
+    if group_org_unit_id:
+        group = rows_by_id.get(group_org_unit_id)
+        if not group or group.get("unit_type") != "GROUP":
+            raise ValueError("所选小组无效")
+        if class_org_unit_id and str(group.get("parent_id")) != class_org_unit_id:
+            raise ValueError("所选小组不属于当前班级")
+
+    def is_in_tree(unit_id: str, ancestor_id: str) -> bool:
+        return unit_id in _org_descendants(rows_by_id, children, ancestor_id)
+
+    if shuku_org_unit_id and management_org_unit_id and not is_in_tree(
+        management_org_unit_id, shuku_org_unit_id
+    ):
+        raise ValueError("所选分中心/指导团不属于当前塾")
+    if shuku_org_unit_id and class_org_unit_id and not is_in_tree(
+        class_org_unit_id, shuku_org_unit_id
+    ):
+        raise ValueError("所选班级不属于当前塾")
+    if management_org_unit_id and class_org_unit_id and not is_in_tree(
+        class_org_unit_id, management_org_unit_id
+    ):
+        raise ValueError("所选班级不属于当前分中心/指导团")
+    if shuku_org_unit_id and group_org_unit_id and not is_in_tree(
+        group_org_unit_id, shuku_org_unit_id
+    ):
+        raise ValueError("所选小组不属于当前塾")
+    if management_org_unit_id and group_org_unit_id and not is_in_tree(
+        group_org_unit_id, management_org_unit_id
+    ):
+        raise ValueError("所选小组不属于当前分中心/指导团")
+
+    scope_ids = set(visible_ids)
+    if shuku_org_unit_id:
+        scope_ids &= _org_descendants(rows_by_id, children, shuku_org_unit_id)
+    if management_org_unit_id:
+        scope_ids &= _org_descendants(rows_by_id, children, management_org_unit_id)
+    return rows, allowed, rows_by_id, children, scope_ids
+
+
+def list_members_page(
+    user_id: int,
+    *,
+    shuku_org_unit_id: str | None = None,
+    management_org_unit_id: str | None = None,
+    class_org_unit_id: str | None = None,
+    group_org_unit_id: str | None = None,
+    status: str = "ACTIVE",
+    keyword: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    """Server-side, IAM-scoped learner query with independent status filter."""
+    if not 1 <= int(page):
+        raise ValueError("页码必须大于等于1")
+    if not 1 <= int(page_size) <= 100:
+        raise ValueError("每页条数必须在1至100之间")
+    normalized_status = str(status or "ACTIVE").strip().upper()
+    if normalized_status not in {"ACTIVE", "SUSPENDED", "INACTIVE", "ALL"}:
+        raise ValueError("状态筛选值无效")
+    normalized_keyword = str(keyword or "").strip()
+    if len(normalized_keyword) > 100:
+        raise ValueError("搜索关键词不能超过100个字符")
+    _, allowed, rows_by_id, children, scope_ids = _member_query_scope(
+        user_id,
+        shuku_org_unit_id=shuku_org_unit_id,
+        management_org_unit_id=management_org_unit_id,
+        class_org_unit_id=class_org_unit_id,
+        group_org_unit_id=group_org_unit_id,
+    )
+    if not scope_ids:
+        return {
+            "items": [],
+            "pagination": {"page": int(page), "page_size": int(page_size), "total": 0, "total_pages": 0},
+            "summary": {"active_count": 0},
+            "scope": {
+                "shuku_org_unit_id": shuku_org_unit_id,
+                "management_org_unit_id": management_org_unit_id,
+                "class_org_unit_id": class_org_unit_id,
+                "group_org_unit_id": group_org_unit_id,
+                "status": normalized_status,
+                "keyword": normalized_keyword or None,
+            },
+        }
+
+    now = datetime.now(UTC).isoformat()
+    allowed_ids = set(scope_ids)
+    if allowed is not None:
+        allowed_ids &= allowed
+    if not allowed_ids:
+        return {
+            "items": [],
+            "pagination": {"page": int(page), "page_size": int(page_size), "total": 0, "total_pages": 0},
+            "summary": {"active_count": 0},
+            "scope": {
+                "shuku_org_unit_id": shuku_org_unit_id,
+                "management_org_unit_id": management_org_unit_id,
+                "class_org_unit_id": class_org_unit_id,
+                "group_org_unit_id": group_org_unit_id,
+                "status": normalized_status,
+                "keyword": normalized_keyword or None,
+            },
+        }
+    scope_placeholders = ",".join("?" for _ in allowed_ids)
+
+    def relation_exists(ids: set[str], relation_types: tuple[str, ...] | None = None) -> tuple[str, list[Any]]:
+        if not ids:
+            return "0", []
+        placeholders = ",".join("?" for _ in ids)
+        conditions = [f"mor.org_unit_id IN ({placeholders})", "(mor.valid_from IS NULL OR mor.valid_from<=?)", "(mor.valid_until IS NULL OR mor.valid_until>=?)"]
+        values: list[Any] = [*sorted(ids), now, now]
+        if relation_types:
+            type_placeholders = ",".join("?" for _ in relation_types)
+            conditions.append(f"mor.relation_type IN ({type_placeholders})")
+            values.extend(relation_types)
+        return (
+            "EXISTS (SELECT 1 FROM member_org_relations mor WHERE mor.member_id=m.id AND "
+            + " AND ".join(conditions)
+            + ")",
+            values,
+        )
+
+    base_conditions: list[str] = []
+    base_params: list[Any] = []
+    primary_scope = f"m.org_unit_id IN ({scope_placeholders})"
+    base_params.extend(sorted(allowed_ids))
+    relation_scope, relation_params = relation_exists(allowed_ids)
+    base_conditions.append(f"({primary_scope} OR {relation_scope})")
+    base_params.extend(relation_params)
+    if class_org_unit_id:
+        class_scope, class_params = relation_exists({class_org_unit_id}, ("STUDY_CLASS", "SPECIAL_COHORT"))
+        base_conditions.append(f"(m.org_unit_id=? OR {class_scope})")
+        base_params.append(class_org_unit_id)
+        base_params.extend(class_params)
+    if group_org_unit_id:
+        group_scope, group_params = relation_exists({group_org_unit_id}, ("STUDY_GROUP",))
+        base_conditions.append(f"(m.org_unit_id=? OR {group_scope})")
+        base_params.append(group_org_unit_id)
+        base_params.extend(group_params)
+    conditions = list(base_conditions)
+    params = list(base_params)
+    if normalized_status != "ALL":
+        conditions.append("m.status=?")
+        params.append(normalized_status)
+    keyword_condition: str | None = None
+    keyword_params: list[str] = []
+    if normalized_keyword:
+        keyword_condition = "(m.name LIKE ? OR m.member_code LIKE ? OR m.phone_last4 LIKE ?)"
+        pattern = f"%{normalized_keyword}%"
+        keyword_params = [pattern, pattern, pattern]
+        conditions.append(keyword_condition)
+        params.extend(keyword_params)
+    where = " AND ".join(conditions)
+    total_row = fetch_one("SELECT COUNT(*) AS total FROM members m WHERE " + where, tuple(params))
+    total = int((total_row or {}).get("total") or 0)
+    # Build the active summary from the same scope/class/group/keyword
+    # predicates, independent of the selected status filter.
+    active_conditions = list(base_conditions)
+    active_query_params = list(base_params)
+    if keyword_condition:
+        active_conditions.append(keyword_condition)
+        active_query_params.extend(keyword_params)
+    active_conditions.append("m.status='ACTIVE'")
+    active_where = " AND ".join(active_conditions)
+    active_total_row = fetch_one(
+        "SELECT COUNT(*) AS total FROM members m WHERE "
+        + active_where,
+        tuple(active_query_params),
+    )
+    active_count = int((active_total_row or {}).get("total") or 0)
+    offset = (int(page) - 1) * int(page_size)
+    select_sql = (
+        "SELECT m.id, m.member_code, m.name, m.org_unit_id, o.name AS org_name, "
+        "m.status, m.phone_masked, m.phone_last4, "
+        f"{CURRENT_STUDY_CLASS_NAME_SQL} AS class_name, "
+        f"{CURRENT_STUDY_GROUP_NAME_SQL} AS group_name, "
+        f"{CURRENT_STUDY_CLASS_ID_SQL} AS class_org_unit_id, "
+        f"{CURRENT_STUDY_GROUP_ID_SQL} AS group_org_unit_id "
+        "FROM members m JOIN org_units o ON o.id=m.org_unit_id WHERE "
+        + where
+        + " ORDER BY m.name, m.id LIMIT ? OFFSET ?"
+    )
+    page_rows = fetch_all(select_sql, (*params, int(page_size), offset))
+
+    shuku_ids = {
+        str(row["id"])
+        for row in rows_by_id.values()
+        if str(row.get("unit_type") or "").upper() == "ROOT"
+        and (
+            row.get("parent_id") == JIANGNAN_ROOT_ORG_UNIT_ID
+            or str(row.get("unit_code") or "").upper()
+            in {"SZ_ROOT", "CZ_ROOT", "WX_ROOT"}
+        )
+    }
+
+    def nearest_shuku_id(org_id: str) -> str | None:
+        current = rows_by_id.get(org_id)
+        seen: set[str] = set()
+        while current and str(current["id"]) not in seen:
+            current_id = str(current["id"])
+            seen.add(current_id)
+            if current_id in shuku_ids:
+                return current_id
+            current = rows_by_id.get(str(current.get("parent_id"))) if current.get("parent_id") else None
+        return None
+
+    def management_for(row: dict[str, Any]) -> dict[str, Any] | None:
+        primary = rows_by_id.get(str(row["org_unit_id"]))
+        if primary and primary.get("unit_type") in MEMBER_MANAGEMENT_UNIT_TYPES:
+            return primary
+        class_row = rows_by_id.get(str(row.get("class_org_unit_id"))) if row.get("class_org_unit_id") else None
+        if class_row and class_row.get("parent_id") in rows_by_id:
+            parent = rows_by_id[str(class_row["parent_id"])]
+            if parent.get("unit_type") in MEMBER_MANAGEMENT_UNIT_TYPES:
+                return parent
+        return None
+
+    items: list[dict[str, Any]] = []
+    for row in page_rows:
+        item = dict(row)
+        shuku_id = nearest_shuku_id(str(row["org_unit_id"]))
+        shuku = rows_by_id.get(shuku_id) if shuku_id else None
+        management = management_for(row)
+        item["shuku_org_unit_id"] = shuku_id
+        item["shuku_name"] = shuku.get("name") if shuku else None
+        item["management_org_unit_id"] = management.get("id") if management else None
+        item["management_org_name"] = management.get("name") if management else None
+        items.append(item)
+    total_pages = (total + int(page_size) - 1) // int(page_size) if total else 0
+    return {
+        "items": items,
+        "pagination": {
+            "page": int(page),
+            "page_size": int(page_size),
+            "total": total,
+            "total_pages": total_pages,
+        },
+        "summary": {"active_count": active_count},
+        "scope": {
+            "shuku_org_unit_id": shuku_org_unit_id,
+            "management_org_unit_id": management_org_unit_id,
+            "class_org_unit_id": class_org_unit_id,
+            "group_org_unit_id": group_org_unit_id,
+            "status": normalized_status,
+            "keyword": normalized_keyword or None,
+        },
+    }
 
 
 def get_member_access_context(member_id: int, actor_user_id: int) -> dict[str, Any]:

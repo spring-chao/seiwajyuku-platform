@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from datetime import UTC, datetime
 from typing import Any, Iterable, Mapping
@@ -7,6 +8,9 @@ from typing import Any, Iterable, Mapping
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 SUPPORT_ROLE_META: dict[str, dict[str, Any]] = {
@@ -560,12 +564,24 @@ def list_cycle_support_statuses(
     cycle_ids = sorted({int(row["id"]) for row in cycle_rows})
     placeholders = ",".join("?" for _ in cycle_ids)
     requests_by_cycle: dict[int, list[dict[str, Any]]] = {cycle_id: [] for cycle_id in cycle_ids}
-    for row in fetch_all(
-        "SELECT renewal_cycle_id, status FROM renewal_support_requests "
-        "WHERE renewal_cycle_id IN (" + placeholders + ")",
-        tuple(cycle_ids),
-    ):
-        requests_by_cycle[int(row["renewal_cycle_id"])].append(dict(row))
+    support_source_available = True
+    try:
+        for row in fetch_all(
+            "SELECT renewal_cycle_id, status FROM renewal_support_requests "
+            "WHERE renewal_cycle_id IN (" + placeholders + ")",
+            tuple(cycle_ids),
+        ):
+            requests_by_cycle[int(row["renewal_cycle_id"])].append(dict(row))
+    except Exception as error:
+        # Support requests are optional coordination facts.  A deployment that
+        # has not yet applied migration 0059 must still return base renewal
+        # actions; only this enhancement is marked unavailable.
+        # This query is strictly an optional enhancement.  Treat a missing
+        # table and a transient support-store failure alike: base renewal
+        # action facts remain usable and the response advertises the missing
+        # enhancement explicitly.
+        LOGGER.warning("renewal support status unavailable: %s", type(error).__name__)
+        support_source_available = False
     needs = dict(latest_needs_support or {})
     missing = [cycle_id for cycle_id in cycle_ids if cycle_id not in needs]
     if missing:
@@ -582,6 +598,14 @@ def list_cycle_support_statuses(
                 needs[cycle_id] = bool(row.get("needs_support"))
         for cycle_id in missing:
             needs.setdefault(cycle_id, False)
+    if not support_source_available:
+        return {
+            int(row["id"]): {
+                "code": "UNAVAILABLE",
+                "label": "助力状态暂不可用",
+            }
+            for row in cycle_rows
+        }
     return {
         int(row["id"]): support_status(
             cycle_status=str(row.get("status") or ""),

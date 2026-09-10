@@ -224,7 +224,14 @@ export type MemberCareActions = {
     followup_people_count: number;
     enterprise_visit_people_count: number;
   };
+  source_coverage: MemberCareSourceCoverage;
   people: MemberCarePerson[];
+};
+
+export type MemberCareSourceCoverage = {
+  renewal: { accessible: boolean; available: boolean; error_code?: string };
+  followup: { accessible: boolean; available: boolean; error_code?: string };
+  birthday: { accessible: boolean; available: boolean; error_code?: string };
 };
 
 export type MemberCareManagementExceptionType =
@@ -289,9 +296,9 @@ export type MemberCareManagementOverview = {
     birthday_overdue_count: number | null;
   };
   source_coverage: {
-    renewal: { accessible: boolean };
-    followup: { accessible: boolean };
-    birthday: { accessible: boolean };
+    renewal: { accessible: boolean; available: boolean; error_code?: string };
+    followup: { accessible: boolean; available: boolean; error_code?: string };
+    birthday: { accessible: boolean; available: boolean; error_code?: string };
   };
   organizations: MemberCareManagementOrganization[];
   exceptions: MemberCareManagementException[];
@@ -540,6 +547,10 @@ export type Member = {
   name: string;
   org_unit_id: string;
   org_name: string;
+  shuku_org_unit_id?: string | null;
+  shuku_name?: string | null;
+  management_org_unit_id?: string | null;
+  management_org_name?: string | null;
   development_org_unit_id?: string;
   status: string;
   phone_masked: string;
@@ -840,6 +851,34 @@ export type OrgUnit = {
   created_at?: string | null;
   duplicate_name?: boolean;
   is_name_canonical?: boolean;
+  shuku_org_unit_id?: string | null;
+};
+
+export type MemberOrgCatalog = {
+  shukus: OrgUnit[];
+  management_units: OrgUnit[];
+  classes: OrgUnit[];
+  groups: OrgUnit[];
+  units: OrgUnit[];
+};
+
+export type MemberListResponse = {
+  items: Member[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total: number;
+    total_pages: number;
+  };
+  summary: { active_count: number };
+  scope: {
+    shuku_org_unit_id?: string | null;
+    management_org_unit_id?: string | null;
+    class_org_unit_id?: string | null;
+    group_org_unit_id?: string | null;
+    status: string;
+    keyword?: string | null;
+  };
 };
 
 export type LearningOrgReferenceCounts = {
@@ -1610,10 +1649,31 @@ export const getFollowupTasks = (status?: string) =>
     { params: status ? { status } : undefined }
   );
 
-export const getMembers = (orgUnitId?: string) =>
-  http.request<{ success: boolean; data: Member[] }>("get", "/api/v1/members", {
-    params: orgUnitId ? { org_unit_id: orgUnitId } : undefined
-  });
+export type MemberListParams = {
+  shuku_org_unit_id?: string;
+  management_org_unit_id?: string;
+  class_org_unit_id?: string;
+  group_org_unit_id?: string;
+  status?: "ACTIVE" | "SUSPENDED" | "INACTIVE" | "ALL";
+  keyword?: string;
+  page?: number;
+  page_size?: number;
+  /** Compatibility alias for older callers. */
+  org_unit_id?: string;
+};
+
+export const getMembers = (params?: MemberListParams) =>
+  http.request<{ success: boolean; data: MemberListResponse }>(
+    "get",
+    "/api/v1/members",
+    { params }
+  );
+
+export const getMemberOrgCatalog = () =>
+  http.request<{ success: boolean; data: MemberOrgCatalog }>(
+    "get",
+    "/api/v1/members/org-catalog"
+  );
 
 export const getMemberChangeHistory = (memberId: number) =>
   http.request<{ success: boolean; data: MemberChangeHistory[] }>(

@@ -19,6 +19,7 @@ from app.core.settings import get_settings
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
+from app.services.organization_policy import is_valid_member_primary_org
 from app.services.members import create_member
 
 
@@ -1161,14 +1162,22 @@ def _missing_enrollment_gates(row: dict[str, Any]) -> list[str]:
     if row["payment_status"] != "PAID":
         missing.append("尚未确认收款")
     if not row.get("org_unit_id"):
-        missing.append("尚未选择正式分中心")
+        missing.append("尚未选择正式管理单元")
     else:
         org = fetch_one(
-            "SELECT unit_type, is_active FROM org_units WHERE id=?",
+            "SELECT unit_type, parent_id, is_active FROM org_units WHERE id=?",
             (row["org_unit_id"],),
         )
-        if not org or not org["is_active"] or org["unit_type"] != "REGIONAL_CENTER":
-            missing.append("正式分中心无效或已停用")
+        if (
+            not org
+            or not org["is_active"]
+            or not is_valid_member_primary_org(
+                org_unit_id=str(row["org_unit_id"]),
+                unit_type=org["unit_type"],
+                parent_id=org.get("parent_id"),
+            )
+        ):
+            missing.append("正式管理单元无效或已停用")
     if not (row.get("name") or "").strip():
         missing.append("姓名无效")
     if not row.get("phone_hash"):
@@ -1247,10 +1256,18 @@ def _validate_target_org(actor_user_id: int, org_unit_id: str | None) -> None:
     if not org_unit_id:
         return
     org = fetch_one(
-        "SELECT unit_type, is_active FROM org_units WHERE id=?", (org_unit_id,)
+        "SELECT unit_type, parent_id, is_active FROM org_units WHERE id=?", (org_unit_id,)
     )
-    if not org or not org["is_active"] or org["unit_type"] != "REGIONAL_CENTER":
-        raise ValueError("只能选择有效的正式区域分中心")
+    if (
+        not org
+        or not org["is_active"]
+        or not is_valid_member_primary_org(
+            org_unit_id=org_unit_id,
+            unit_type=org["unit_type"],
+            parent_id=org.get("parent_id"),
+        )
+    ):
+        raise ValueError("只能选择有效的正式区域分中心或无锡指导团")
     allowed = accessible_org_ids(actor_user_id)
     if allowed is not None and org_unit_id not in allowed:
         raise PermissionError("不能选择授权范围外的分中心")

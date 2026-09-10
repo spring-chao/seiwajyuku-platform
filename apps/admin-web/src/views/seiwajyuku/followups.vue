@@ -198,6 +198,26 @@ function saveActiveDraft() {
 watch(recordForm, saveActiveDraft, { deep: true });
 watch(visitForm, saveActiveDraft, { deep: true });
 
+async function loadActiveMembers() {
+  const pageSize = 100;
+  const firstPage = await getMembers({
+    page: 1,
+    page_size: pageSize,
+    status: "ACTIVE"
+  });
+  const items = [...firstPage.data.items];
+  const totalPages = firstPage.data.pagination.total_pages;
+  for (let page = 2; page <= totalPages; page += 1) {
+    const response = await getMembers({
+      page,
+      page_size: pageSize,
+      status: "ACTIVE"
+    });
+    items.push(...response.data.items);
+  }
+  return items;
+}
+
 function errorText(error: any, fallback = "操作失败") {
   const detail = error?.response?.data?.detail;
   if (detail) {
@@ -223,12 +243,12 @@ async function load() {
     const [tasks, memberResult, capabilities, invitationResult] =
       await Promise.all([
         getFollowupTasks(status.value),
-        getMembers(),
+        loadActiveMembers(),
         getFollowupCapabilities(),
         getMyFollowupInvitations()
       ]);
     rows.value = tasks.data;
-    members.value = memberResult.data;
+    members.value = memberResult;
     invitationEnabled.value = capabilities.data.enabled;
     invitations.value = invitationResult.data;
   } catch (error) {

@@ -215,10 +215,16 @@ class OrganizationManagementTests(unittest.TestCase):
             row for row in listed.json()["data"]["units"] if row["id"] == group_id
         )
         self.assertEqual(listed_group["name"], new_name)
-        members = self.client.get("/api/v1/members", headers=self.headers)
+        members = self.client.get(
+            "/api/v1/members",
+            headers=self.headers,
+            params={"page_size": 100, "keyword": "ORG-MANAGEMENT-SYNC"},
+        )
         self.assertEqual(members.status_code, 200, members.text)
         member = next(
-            row for row in members.json()["data"] if row["id"] == self.sync_member_id
+            row
+            for row in members.json()["data"]["items"]
+            if row["id"] == self.sync_member_id
         )
         self.assertEqual(member["group_name"], new_name)
 

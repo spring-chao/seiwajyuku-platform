@@ -25,6 +25,7 @@ from app.core.settings import get_settings
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
+from app.services.organization_policy import is_valid_member_primary_org
 from app.services.organization_policy import is_valid_member_class_parent
 
 
@@ -253,7 +254,11 @@ def _build_plan(rows: list[dict[str, Any]], *, actor_user_id: int) -> tuple[list
     units = _active_units()
     centers_by_name: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for unit in units:
-        if unit.get("unit_type") == "REGIONAL_CENTER":
+        if is_valid_member_primary_org(
+            org_unit_id=str(unit["id"]),
+            unit_type=unit.get("unit_type"),
+            parent_id=unit.get("parent_id"),
+        ):
             centers_by_name[_text(unit.get("name"))].append(unit)
     members = fetch_all(
         "SELECT id, name, status, phone_hash, phone_last4, org_unit_id, "

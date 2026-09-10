@@ -17,7 +17,8 @@ from app.services.members import (
     get_member_edit_profile,
     get_member_enterprise_detail,
     get_member_timeline,
-    list_members,
+    list_member_org_catalog,
+    list_members_page,
     normal_export_csv,
     record_member_service_signal_feedback,
     reveal_contact,
@@ -219,12 +220,50 @@ def merge_member(
     }
 
 
+@router.get("/members/org-catalog")
+def member_org_catalog(
+    user: dict = Depends(require_permission("members:read")),
+) -> dict:
+    try:
+        data = list_member_org_catalog(user["id"])
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
 @router.get("/members")
 def members(
     org_unit_id: str | None = None,
+    shuku_org_unit_id: str | None = None,
+    management_org_unit_id: str | None = None,
+    class_org_unit_id: str | None = None,
+    group_org_unit_id: str | None = None,
+    status: str = Query("ACTIVE"),
+    keyword: str | None = Query(None, max_length=100),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
     user: dict = Depends(require_permission("members:read")),
 ) -> dict:
-    return {"success": True, "data": list_members(user["id"], org_unit_id)}
+    # ``org_unit_id`` remains a compatibility alias for existing callers; the
+    # new UI uses the explicit management-unit filter.
+    management_org_unit_id = management_org_unit_id or org_unit_id
+    try:
+        data = list_members_page(
+            user["id"],
+            shuku_org_unit_id=shuku_org_unit_id,
+            management_org_unit_id=management_org_unit_id,
+            class_org_unit_id=class_org_unit_id,
+            group_org_unit_id=group_org_unit_id,
+            status=status,
+            keyword=keyword,
+            page=page,
+            page_size=page_size,
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.get("/volunteer-position-catalog")

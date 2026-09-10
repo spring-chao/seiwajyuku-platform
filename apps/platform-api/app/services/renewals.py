@@ -1109,7 +1109,16 @@ def list_cycles(
     allowed = accessible_org_ids(user_id)
     if allowed is not None:
         rows = [row for row in rows if row["org_unit_id"] in allowed]
-    support_states = list_cycle_support_statuses(rows)
+    try:
+        support_states = list_cycle_support_statuses(rows)
+    except Exception:
+        support_states = {
+            int(row["id"]): {
+                "code": "UNAVAILABLE",
+                "label": "助力状态暂不可用",
+            }
+            for row in rows
+        }
     for row in rows:
         row["stage"] = determine_renewal_stage(
             row["renewal_year"], row["due_month"], row["status"]
@@ -1200,14 +1209,25 @@ def list_today_actions(
             followup
         )
 
-    support_states = list_cycle_support_statuses(
-        rows,
-        latest_needs_support={
-            cycle_id: bool(values[0].get("needs_support"))
-            for cycle_id, values in followups_by_cycle.items()
-            if values
-        },
-    )
+    try:
+        support_states = list_cycle_support_statuses(
+            rows,
+            latest_needs_support={
+                cycle_id: bool(values[0].get("needs_support"))
+                for cycle_id, values in followups_by_cycle.items()
+                if values
+            },
+        )
+    except Exception:
+        # Renewal support is an optional coordination enhancement.  Preserve
+        # the base cycle/follow-up action when its store is unavailable.
+        support_states = {
+            int(row["id"]): {
+                "code": "UNAVAILABLE",
+                "label": "助力状态暂不可用",
+            }
+            for row in rows
+        }
 
     items: list[dict[str, Any]] = []
     for row in rows:

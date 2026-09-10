@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -35,6 +36,47 @@ FOLLOWUP_TYPE_LABELS = {
     "COURSE": ("COURSE", "学习关怀"),
     "OTHER": ("OTHER", "日常关怀"),
 }
+
+LOGGER = logging.getLogger(__name__)
+SOURCE_KEYS = ("renewal", "followup", "birthday")
+
+
+def _source_error_code(error: BaseException) -> str:
+    """Map storage/runtime failures to a safe, non-sensitive UI code."""
+    text = str(error).lower()
+    if "no such table" in text or "doesn't exist" in text or "unknown table" in text:
+        return "SCHEMA_UNAVAILABLE"
+    if "permission" in text or "forbidden" in text:
+        return "FORBIDDEN"
+    return "SOURCE_UNAVAILABLE"
+
+
+def _source_coverage(
+    permissions: set[str],
+) -> dict[str, dict[str, Any]]:
+    source_permissions = {
+        "renewal": "renewals:read",
+        "followup": "followups:manage",
+        "birthday": "members:detail_view",
+    }
+    return {
+        source: {
+            "accessible": permission in permissions,
+            "available": False,
+        }
+        for source, permission in source_permissions.items()
+    }
+
+
+def _mark_source_unavailable(
+    coverage: dict[str, dict[str, Any]], source: str, error: BaseException
+) -> None:
+    entry = coverage[source]
+    entry["available"] = False
+    entry["error_code"] = _source_error_code(error)
+    # Logs retain the diagnostic detail for operators without leaking SQL or
+    # stack traces into the business response.
+    LOGGER.exception("member care source %s unavailable", source)
 
 
 def _calendar_date(value: Any) -> date | None:
@@ -158,13 +200,23 @@ def _birthday_workflow_states(
     member_ids = sorted({int(item["member_id"]) for item in candidates})
     years = sorted({item["due_date"].year for item in candidates})
     placeholders = ",".join("?" for _ in member_ids)
-    completions = fetch_all(
-        "SELECT id, member_id, birthday_year, due_date, channel, completed_at, completed_by "
-        "FROM birthday_care_completions WHERE member_id IN ("
-        + placeholders
-        + ") AND birthday_year>=? AND birthday_year<=?",
-        (*member_ids, years[0], years[-1]),
-    )
+    try:
+        completions = fetch_all(
+            "SELECT id, member_id, birthday_year, due_date, channel, completed_at, completed_by "
+            "FROM birthday_care_completions WHERE member_id IN ("
+            + placeholders
+            + ") AND birthday_year>=? AND birthday_year<=?",
+            (*member_ids, years[0], years[-1]),
+        )
+    except Exception as error:
+        # Completion records are an enhancement to the legacy rhythm source.
+        # A database that has not yet run 0057 must still show birthday
+        # candidates backed by operation_items instead of taking down the
+        # entire care aggregate.
+        if _source_error_code(error) != "SCHEMA_UNAVAILABLE":
+            raise
+        LOGGER.warning("birthday completion table unavailable; using rhythm fallback")
+        completions = []
     completion_by_key = {
         (int(row["member_id"]), int(row["birthday_year"])): row
         for row in completions
@@ -593,12 +645,25 @@ def build_member_care_actions(
         raise PermissionError("当前账号没有学长关爱数据查看权限")
 
     actions: list[dict[str, Any]] = []
+    coverage = _source_coverage(permissions)
     if "renewals:read" in permissions:
-        actions.extend(_renewal_actions(user_id, today.year, today))
+        try:
+            actions.extend(_renewal_actions(user_id, today.year, today))
+            coverage["renewal"]["available"] = True
+        except Exception as error:
+            _mark_source_unavailable(coverage, "renewal", error)
     if "followups:manage" in permissions:
-        actions.extend(_followup_actions(user_id, today))
+        try:
+            actions.extend(_followup_actions(user_id, today))
+            coverage["followup"]["available"] = True
+        except Exception as error:
+            _mark_source_unavailable(coverage, "followup", error)
     if "members:detail_view" in permissions:
-        actions.extend(_birthday_items(user_id, today))
+        try:
+            actions.extend(_birthday_items(user_id, today))
+            coverage["birthday"]["available"] = True
+        except Exception as error:
+            _mark_source_unavailable(coverage, "birthday", error)
 
     member_ids = {int(action["member_id"]) for action in actions}
     contexts = _member_contexts(member_ids, accessible_org_ids(user_id))
@@ -680,5 +745,6 @@ def build_member_care_actions(
     return {
         "as_of": today.isoformat(),
         "summary": summary,
+        "source_coverage": coverage,
         "people": output_people,
     }

@@ -146,9 +146,9 @@ def test_management_overview_source_coverage_is_not_reported_as_zero() -> None:
         int(fixture["read_only_user_id"]), as_of=date(2099, 8, 20)
     )
     assert read_only["source_coverage"] == {
-        "renewal": {"accessible": True},
-        "followup": {"accessible": False},
-        "birthday": {"accessible": False},
+        "renewal": {"accessible": True, "available": True},
+        "followup": {"accessible": False, "available": False},
+        "birthday": {"accessible": False, "available": False},
     }
     assert read_only["summary"]["followup_no_schedule_count"] is None
     assert read_only["summary"]["followup_overdue_count"] is None

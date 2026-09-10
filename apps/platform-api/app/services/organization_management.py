@@ -7,6 +7,7 @@ from uuid import uuid4
 from app.db import execute, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids
+from app.services.organization_policy import is_valid_member_primary_org
 from app.services.volunteer_positions import sync_member_current_volunteer_scope
 
 
@@ -356,10 +357,23 @@ def create_learning_org_unit(
     now = datetime.now(UTC).isoformat()
     with transaction() as connection:
         parent = _unit(connection, parent_id)
-        expected_parent_type = "REGIONAL_CENTER" if normalized_type == "CLASS" else "CLASS"
-        if not parent or not parent["is_active"] or parent["unit_type"] != expected_parent_type:
+        class_parent_valid = bool(
+            parent
+            and parent["is_active"]
+            and (
+                is_valid_member_primary_org(
+                    org_unit_id=parent["id"],
+                    unit_type=parent["unit_type"],
+                    parent_id=parent.get("parent_id"),
+                )
+            )
+        )
+        parent_valid = class_parent_valid if normalized_type == "CLASS" else bool(
+            parent and parent["is_active"] and parent["unit_type"] == "CLASS"
+        )
+        if not parent_valid:
             raise ValueError(
-                "班级必须建立在启用的分中心下" if normalized_type == "CLASS"
+                "班级必须建立在启用的分中心或无锡指导团下" if normalized_type == "CLASS"
                 else "小组必须建立在启用的普通班级下"
             )
         if normalized_type == "CLASS":
@@ -504,8 +518,12 @@ def preview_learning_org_move(
         target = _unit(connection, target_parent_id)
         if not unit or unit["unit_type"] != "CLASS" or not unit["is_active"]:
             raise ValueError("仅允许调整启用普通班级的归属")
-        if not target or target["unit_type"] != "REGIONAL_CENTER" or not target["is_active"]:
-            raise ValueError("目标必须是启用的区域分中心")
+        if not target or not target["is_active"] or not is_valid_member_primary_org(
+            org_unit_id=target["id"],
+            unit_type=target["unit_type"],
+            parent_id=target.get("parent_id"),
+        ):
+            raise ValueError("目标必须是启用的分中心或无锡指导团")
         allowed = accessible_org_ids(actor_user_id)
         if allowed is not None and unit_id not in allowed:
             raise PermissionError("原班级不在当前账号授权范围内")

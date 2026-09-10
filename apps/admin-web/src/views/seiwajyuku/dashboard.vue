@@ -98,6 +98,36 @@ const birthdayGreetingDraftLoading = ref(false);
 const birthdayGreeting = ref<BirthdayGreetingContext>();
 const birthdayOperationItemId = ref<number>();
 const birthdayDueDate = ref("");
+const memberCarePartialWarning = computed(() => {
+  const coverage = memberCare.value?.source_coverage;
+  if (!coverage) return "";
+  const labels: Record<string, string> = {
+    renewal: "续费",
+    followup: "日常关怀/走访",
+    birthday: "生日关怀"
+  };
+  const unavailable = Object.entries(coverage)
+    .filter(([, item]) => item.accessible && !item.available)
+    .map(([source]) => labels[source] || source);
+  return unavailable.length
+    ? `${unavailable.join("、")}数据源暂不可用，其余关爱数据仍正常显示。`
+    : "";
+});
+const managementCarePartialWarning = computed(() => {
+  const coverage = memberCareManagement.value?.source_coverage;
+  if (!coverage) return "";
+  const labels: Record<string, string> = {
+    renewal: "续费",
+    followup: "日常关怀/走访",
+    birthday: "生日关怀"
+  };
+  const unavailable = Object.entries(coverage)
+    .filter(([, item]) => item.accessible && !item.available)
+    .map(([source]) => labels[source] || source);
+  return unavailable.length
+    ? `${unavailable.join("、")}数据源暂不可用，其余健康数据仍正常显示。`
+    : "";
+});
 const birthdayCareMissed = ref(false);
 const birthdayCompletionLoading = ref(false);
 const selectedBirthdayMemoryIds = ref<string[]>([]);
@@ -1253,6 +1283,14 @@ function changePlan() {
         class="care-center-alert"
       />
       <template v-else-if="memberCare">
+        <el-alert
+          v-if="memberCarePartialWarning"
+          :title="memberCarePartialWarning"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="care-center-alert"
+        />
         <div class="care-center-summary">
           <button
             type="button"
@@ -1418,6 +1456,14 @@ function changePlan() {
         class="care-center-alert"
       />
       <template v-else-if="memberCareManagement">
+        <el-alert
+          v-if="managementCarePartialWarning"
+          :title="managementCarePartialWarning"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="care-center-alert"
+        />
         <div class="management-summary-grid">
           <button
             type="button"
@@ -1508,44 +1554,56 @@ function changePlan() {
           <span>当前数据覆盖：</span>
           <el-tag
             :type="
-              memberCareManagement.source_coverage.renewal.accessible
-                ? 'success'
-                : 'info'
+              !memberCareManagement.source_coverage.renewal.accessible
+                ? 'info'
+                : memberCareManagement.source_coverage.renewal.available
+                  ? 'success'
+                  : 'warning'
             "
             effect="plain"
           >
             {{
-              memberCareManagement.source_coverage.renewal.accessible
-                ? "✓ 续费关爱"
-                : "— 续费关爱（无权限）"
+              !memberCareManagement.source_coverage.renewal.accessible
+                ? "— 续费关爱（无权限）"
+                : memberCareManagement.source_coverage.renewal.available
+                  ? "✓ 续费关爱"
+                  : "! 续费关爱（暂不可用）"
             }}
           </el-tag>
           <el-tag
             :type="
-              memberCareManagement.source_coverage.birthday.accessible
-                ? 'success'
-                : 'info'
+              !memberCareManagement.source_coverage.birthday.accessible
+                ? 'info'
+                : memberCareManagement.source_coverage.birthday.available
+                  ? 'success'
+                  : 'warning'
             "
             effect="plain"
           >
             {{
-              memberCareManagement.source_coverage.birthday.accessible
-                ? "✓ 生日关怀"
-                : "— 生日关怀（无权限）"
+              !memberCareManagement.source_coverage.birthday.accessible
+                ? "— 生日关怀（无权限）"
+                : memberCareManagement.source_coverage.birthday.available
+                  ? "✓ 生日关怀"
+                  : "! 生日关怀（暂不可用）"
             }}
           </el-tag>
           <el-tag
             :type="
-              memberCareManagement.source_coverage.followup.accessible
-                ? 'success'
-                : 'info'
+              !memberCareManagement.source_coverage.followup.accessible
+                ? 'info'
+                : memberCareManagement.source_coverage.followup.available
+                  ? 'success'
+                  : 'warning'
             "
             effect="plain"
           >
             {{
-              memberCareManagement.source_coverage.followup.accessible
-                ? "✓ 普通关怀/走访"
-                : "— 普通关怀/走访（无权限）"
+              !memberCareManagement.source_coverage.followup.accessible
+                ? "— 普通关怀/走访（无权限）"
+                : memberCareManagement.source_coverage.followup.available
+                  ? "✓ 普通关怀/走访"
+                  : "! 普通关怀/走访（暂不可用）"
             }}
           </el-tag>
         </div>

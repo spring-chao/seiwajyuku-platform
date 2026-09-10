@@ -7,12 +7,15 @@ from uuid import uuid4
 import pytest
 
 from app.api import member_care_actions as member_care_api
+from app.services import member_care_actions as care_service
 from app.db import execute, fetch_one, transaction
 from app.services.iam import create_user
 from app.services.member_care_actions import (
     build_member_care_actions,
     complete_birthday_care,
 )
+from app.services import renewals as renewal_service
+from app.services.renewals import list_today_actions
 
 
 def _care_fixture() -> dict[str, int | str]:
@@ -475,3 +478,45 @@ def test_member_care_api_denies_user_without_source_permission() -> None:
     # The service obtains the authoritative permissions from IAM rather than
     # trusting a caller-supplied dictionary.
     assert exc.value.status_code == 403
+
+
+def test_member_care_source_failure_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
+    fixture = _care_fixture()
+    original = care_service._renewal_actions
+
+    def fail_renewal(*args, **kwargs):
+        raise RuntimeError("renewal source unavailable")
+
+    monkeypatch.setattr(care_service, "_renewal_actions", fail_renewal)
+    result = build_member_care_actions(
+        int(fixture["user_id"]), as_of=date(2099, 8, 20)
+    )
+    assert result["source_coverage"]["renewal"] == {
+        "accessible": True,
+        "available": False,
+        "error_code": "SOURCE_UNAVAILABLE",
+    }
+    assert result["source_coverage"]["followup"]["available"] is True
+    assert result["source_coverage"]["birthday"]["available"] is True
+    assert any(
+        action["source"] == "FOLLOWUP"
+        for person in result["people"]
+        for action in person["actions"]
+    )
+    monkeypatch.setattr(care_service, "_renewal_actions", original)
+
+
+def test_optional_renewal_support_failure_keeps_base_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _care_fixture()
+
+    def fail_support(*args, **kwargs):
+        raise RuntimeError("support store unavailable")
+
+    monkeypatch.setattr(renewal_service, "list_cycle_support_statuses", fail_support)
+    result = list_today_actions(
+        int(fixture["user_id"]), year=2099, as_of=date(2099, 8, 20)
+    )
+    assert result["items"]
+    assert all(item["support_status"] == "UNAVAILABLE" for item in result["items"])

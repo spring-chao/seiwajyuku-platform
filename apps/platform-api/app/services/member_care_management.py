@@ -10,6 +10,8 @@ from app.services.member_care_actions import (
     _active_birthday_members,
     _birthday_due_date,
     _birthday_workflow_states,
+    _mark_source_unavailable,
+    _source_coverage as action_source_coverage,
     build_member_care_actions,
 )
 from app.services.renewals import (
@@ -53,19 +55,10 @@ def _date_text(value: Any) -> str | None:
     return parsed.isoformat() if parsed else None
 
 
-def _source_coverage(user_id: int) -> dict[str, dict[str, bool]]:
+def _source_coverage(user_id: int) -> dict[str, dict[str, Any]]:
     context = user_context(user_id)
     permissions = set((context or {}).get("permissions", []))
-    source_permission = {
-        "renewal": "renewals:read",
-        "followup": "followups:manage",
-        "birthday": "members:detail_view",
-    }
-    coverage = {
-        source: {"accessible": permission in permissions}
-        for source, permission in source_permission.items()
-    }
-    return coverage
+    return action_source_coverage(permissions)
 
 
 def _validate_org_filter(
@@ -432,23 +425,27 @@ def _sort_exception(item: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def _empty_org(org_unit_id: str, org_name: str, coverage: dict[str, dict[str, bool]]) -> dict[str, Any]:
+def _empty_org(org_unit_id: str, org_name: str, coverage: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    def ready(source: str) -> bool:
+        entry = coverage[source]
+        return bool(entry.get("accessible") and entry.get("available"))
+
     return {
         "org_unit_id": org_unit_id,
         "org_name": org_name,
         "today_care_people_count": 0,
         "overdue_people_count": 0,
         "oldest_overdue_days": 0,
-        "renewal_support_needed_count": 0 if coverage["renewal"]["accessible"] else None,
-        "renewal_stage_untouched_count": 0 if coverage["renewal"]["accessible"] else None,
-        "renewal_recovery_open_count": 0 if coverage["renewal"]["accessible"] else None,
-        "renewal_unassigned_count": 0 if coverage["renewal"]["accessible"] else None,
-        "followup_no_schedule_count": 0 if coverage["followup"]["accessible"] else None,
-        "birthday_overdue_count": 0 if coverage["birthday"]["accessible"] else None,
-        "birthday_care_missed_count": 0 if coverage["birthday"]["accessible"] else None,
-        "followup_overdue_count": 0 if coverage["followup"]["accessible"] else None,
-        "enterprise_visit_overdue_count": 0 if coverage["followup"]["accessible"] else None,
-        "renewal_overdue_count": 0 if coverage["renewal"]["accessible"] else None,
+        "renewal_support_needed_count": 0 if ready("renewal") else None,
+        "renewal_stage_untouched_count": 0 if ready("renewal") else None,
+        "renewal_recovery_open_count": 0 if ready("renewal") else None,
+        "renewal_unassigned_count": 0 if ready("renewal") else None,
+        "followup_no_schedule_count": 0 if ready("followup") else None,
+        "birthday_overdue_count": 0 if ready("birthday") else None,
+        "birthday_care_missed_count": 0 if ready("birthday") else None,
+        "followup_overdue_count": 0 if ready("followup") else None,
+        "enterprise_visit_overdue_count": 0 if ready("followup") else None,
+        "renewal_overdue_count": 0 if ready("renewal") else None,
     }
 
 
@@ -470,6 +467,10 @@ def build_member_care_management_overview(
     allowed_org_ids = _validate_org_filter(user_id, org_unit_id)
 
     care_data = build_member_care_actions(user_id, as_of=today)
+    # The action aggregate is the canonical source-level isolation boundary.
+    # Carry its runtime availability into the management view so a failed
+    # optional source is shown as unavailable rather than as zero.
+    coverage = care_data.get("source_coverage", coverage)
     people = [
         person
         for person in care_data.get("people", [])
@@ -478,32 +479,41 @@ def build_member_care_management_overview(
     exceptions: list[dict[str, Any]] = []
     seen: set[tuple[str, str, int]] = set()
     _care_overdue_exceptions(care_data={"people": people}, as_of=today, exceptions=exceptions, seen=seen)
-    if coverage["birthday"]["accessible"]:
-        _birthday_missed_exceptions(
-            today,
-            allowed_org_ids=allowed_org_ids,
-            org_unit_id=org_unit_id,
-            exceptions=exceptions,
-            seen=seen,
-        )
+    if coverage["birthday"].get("accessible") and coverage["birthday"].get("available"):
+        try:
+            _birthday_missed_exceptions(
+                today,
+                allowed_org_ids=allowed_org_ids,
+                org_unit_id=org_unit_id,
+                exceptions=exceptions,
+                seen=seen,
+            )
+        except Exception as error:
+            _mark_source_unavailable(coverage, "birthday", error)
 
     renewal_rows: list[dict[str, Any]] = []
-    if coverage["renewal"]["accessible"]:
-        renewal_rows = _renewal_exceptions(
-            user_id,
-            today,
-            allowed_org_ids=allowed_org_ids,
-            org_unit_id=org_unit_id,
-            exceptions=exceptions,
-            seen=seen,
-        )
-    if coverage["followup"]["accessible"]:
-        _followup_exceptions(
-            user_id,
-            org_unit_id=org_unit_id,
-            exceptions=exceptions,
-            seen=seen,
-        )
+    if coverage["renewal"].get("accessible") and coverage["renewal"].get("available"):
+        try:
+            renewal_rows = _renewal_exceptions(
+                user_id,
+                today,
+                allowed_org_ids=allowed_org_ids,
+                org_unit_id=org_unit_id,
+                exceptions=exceptions,
+                seen=seen,
+            )
+        except Exception as error:
+            _mark_source_unavailable(coverage, "renewal", error)
+    if coverage["followup"].get("accessible") and coverage["followup"].get("available"):
+        try:
+            _followup_exceptions(
+                user_id,
+                org_unit_id=org_unit_id,
+                exceptions=exceptions,
+                seen=seen,
+            )
+        except Exception as error:
+            _mark_source_unavailable(coverage, "followup", error)
     exceptions.sort(key=_sort_exception)
 
     organizations: dict[str, dict[str, Any]] = {}
@@ -549,11 +559,17 @@ def build_member_care_management_overview(
         org["overdue_people_count"] = sum(1 for item in overdue_people if item[0] == org_id)
 
     def exception_count(exception_type: str) -> int | None:
-        if exception_type.startswith("RENEWAL_") and not coverage["renewal"]["accessible"]:
+        if exception_type.startswith("RENEWAL_") and not (
+            coverage["renewal"].get("accessible") and coverage["renewal"].get("available")
+        ):
             return None
-        if exception_type == "FOLLOWUP_NO_SCHEDULE" and not coverage["followup"]["accessible"]:
+        if exception_type == "FOLLOWUP_NO_SCHEDULE" and not (
+            coverage["followup"].get("accessible") and coverage["followup"].get("available")
+        ):
             return None
-        if exception_type == "BIRTHDAY_CARE_MISSED" and not coverage["birthday"]["accessible"]:
+        if exception_type == "BIRTHDAY_CARE_MISSED" and not (
+            coverage["birthday"].get("accessible") and coverage["birthday"].get("available")
+        ):
             return None
         return _count_visible(exceptions, lambda item: item["exception_type"] == exception_type)
 
@@ -575,22 +591,22 @@ def build_member_care_management_overview(
         "birthday_care_missed_count": exception_count("BIRTHDAY_CARE_MISSED"),
         "renewal_overdue_count": (
             _count_visible(exceptions, lambda item: item["exception_type"] == "CARE_OVERDUE" and item["source"] == "RENEWAL")
-            if coverage["renewal"]["accessible"]
+            if coverage["renewal"].get("accessible") and coverage["renewal"].get("available")
             else None
         ),
         "followup_overdue_count": (
             _count_visible(exceptions, lambda item: item["exception_type"] == "CARE_OVERDUE" and item["source"] == "FOLLOWUP")
-            if coverage["followup"]["accessible"]
+            if coverage["followup"].get("accessible") and coverage["followup"].get("available")
             else None
         ),
         "enterprise_visit_overdue_count": (
             _count_visible(exceptions, lambda item: item["exception_type"] == "CARE_OVERDUE" and item["source"] == "ENTERPRISE_VISIT")
-            if coverage["followup"]["accessible"]
+            if coverage["followup"].get("accessible") and coverage["followup"].get("available")
             else None
         ),
         "birthday_overdue_count": (
             _count_visible(exceptions, lambda item: item["exception_type"] == "CARE_OVERDUE" and item["source"] == "BIRTHDAY")
-            if coverage["birthday"]["accessible"]
+            if coverage["birthday"].get("accessible") and coverage["birthday"].get("available")
             else None
         ),
     }
