@@ -322,7 +322,10 @@ jobs:
           expected_migration_count="$(find migrations/mysql -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
           # The IAM2 volunteer fixtures add M003/M004's valid primary-region
           # relations, so the staging backfill contains six legacy relations.
-          test "$source_counts" = "${expected_migration_count}:6:3:4"
+          # 0056 adds the confirmed Changzhou and Wuxi institution rows; the
+          # clean migrated schema therefore contains six active institutions
+          # (the four legacy rows plus those two formal shuku rows).
+          test "$source_counts" = "${expected_migration_count}:6:3:6"
           test "$restore_counts" = "$source_counts"
       - name: Verify Volunteer 2 guarded rollback on populated snapshot
         run: |
