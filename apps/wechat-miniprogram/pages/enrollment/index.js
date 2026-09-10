@@ -2,6 +2,7 @@ const app = getApp();
 
 const REQUIRED_FIELDS = [
   ["name", "姓名"],
+  ["target_shuku_org_unit_id", "申请加入的塾"],
   ["phone", "手机号"],
   ["birthday", "出生日期"],
   ["gender", "性别"],
@@ -84,7 +85,8 @@ Page({
       title: "新学长信息登记",
       subtitle: "欢迎您填写入塾申请资料",
       notice: "提交资料不代表已经正式入塾。工作人员审核资料、确认所属分中心及会费后，才会建立正式学员档案。",
-      privacy_notice: "所填资料仅用于入塾审核与后续服务。手机号、税号和企业财务资料将按权限使用。"
+      privacy_notice: "所填资料仅用于入塾审核与后续服务。手机号、税号和企业财务资料将按权限使用。",
+      target_shuku_options: []
     },
     purposeItems: [
       {
@@ -108,8 +110,12 @@ Page({
     profitOptions: PROFIT_OPTIONS,
     growthOptions: GROWTH_OPTIONS,
     goalYearOptions: GOAL_YEAR_OPTIONS,
+    targetShukuOptions: [],
+    targetShukuOptionIds: [],
+    targetShukuLocked: false,
     form: {
       name: "",
+      target_shuku_org_unit_id: "",
       phone: "",
       birthday: "",
       gender: "",
@@ -190,6 +196,10 @@ Page({
       this.setData({
         state: "ready",
         formMeta: { ...this.data.formMeta, ...metadata },
+        targetShukuOptions: (metadata.target_shuku_options || []).map(item => item.name),
+        targetShukuOptionIds: (metadata.target_shuku_options || []).map(item => item.id),
+        targetShukuLocked: Boolean(metadata.target_shuku_locked),
+        "form.target_shuku_org_unit_id": metadata.target_shuku_org_unit_id || "",
         industryOptions: metadata.industry_options || INDUSTRY_OPTIONS,
         politicalOptions: metadata.political_status_options || POLITICAL_OPTIONS,
         positionOptions: metadata.position_options || POSITION_OPTIONS,
@@ -208,6 +218,14 @@ Page({
   handleInput(event) {
     const field = event.currentTarget.dataset.field;
     this.setData({ [`form.${field}`]: event.detail.value });
+  },
+
+  handleTargetShukuChange(event) {
+    if (this.data.targetShukuLocked) return;
+    const index = Number(event.detail.value);
+    this.setData({
+      "form.target_shuku_org_unit_id": this.data.targetShukuOptionIds[index] || ""
+    });
   },
 
   handleBirthdayChange(event) {
@@ -344,6 +362,7 @@ Page({
     const goalYears = this.data.isGoalYearsOther ? form.goal_years_other.trim() : form.goal_years;
     const payload = cleanPayload({
       name: form.name.trim(),
+      target_shuku_org_unit_id: form.target_shuku_org_unit_id,
       phone: form.phone.trim(),
       privacy_consent: true,
       rules_acknowledged: true,

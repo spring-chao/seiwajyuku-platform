@@ -31,10 +31,19 @@ export type PublicEnrollmentForm = {
   growth_target_options: { value: string; label: string }[];
   goal_year_options: string[];
   collects_organization: false;
+  target_shuku_options: Array<{
+    id: string;
+    unit_code: string;
+    name: string;
+  }>;
+  target_shuku_org_unit_id?: string | null;
+  target_shuku_name?: string | null;
+  target_shuku_locked?: boolean;
 };
 
 export type PublicEnrollmentPayload = {
   name: string;
+  target_shuku_org_unit_id: string;
   phone: string;
   privacy_consent: true;
   gender: "MALE" | "FEMALE";
@@ -87,6 +96,8 @@ export type EnrollmentApplicationListItem = {
   duplicate_member_risk: boolean;
   org_unit_id?: string | null;
   org_unit_name?: string | null;
+  target_shuku_org_unit_id?: string | null;
+  target_shuku_name?: string | null;
   join_date?: string | null;
   converted_member_id?: number | null;
   created_at: string;
@@ -194,6 +205,7 @@ export type EnrollmentReviewPayload = {
   annual_sales?: string | null;
   profit_margin?: string | null;
   notes?: string | null;
+  target_shuku_org_unit_id?: string | null;
   org_unit_id?: string | null;
   join_date?: string | null;
 };
@@ -207,6 +219,8 @@ export type EnrollmentLink = {
   disabled_at?: string | null;
   last_rotated_at?: string | null;
   raw_token?: string;
+  target_shuku_org_unit_id?: string | null;
+  target_shuku_name?: string | null;
 };
 
 export type EnrollmentMiniProgramCode = {
@@ -294,11 +308,14 @@ export const getActiveEnrollmentLink = () =>
     "/api/v1/enrollment-links/active"
   );
 
-export const createEnrollmentLink = (name: string) =>
+export const createEnrollmentLink = (
+  name: string,
+  target_shuku_org_unit_id?: string | null
+) =>
   http.request<{ success: boolean; data: EnrollmentLink }>(
     "post",
     "/api/v1/enrollment-links",
-    { data: { name } }
+    { data: { name, target_shuku_org_unit_id } }
   );
 
 export const rotateEnrollmentLink = (linkId: number) =>

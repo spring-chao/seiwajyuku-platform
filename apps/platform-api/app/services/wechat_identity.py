@@ -562,19 +562,95 @@ def resolve_member_session(token: str) -> dict[str, Any]:
     return session
 
 
+def resolve_person_identities(
+    person_id: str,
+    *,
+    verified_user_id: int | None = None,
+    member_id_hint: int | None = None,
+) -> dict[str, Any]:
+    """Resolve all currently effective business identities for one person.
+
+    ``person_id`` is the natural-person key.  Member, employee and volunteer
+    records are independent optional identities; this resolver intentionally
+    does not infer one from another or from a phone/openid value.
+    """
+
+    normalized_person_id = str(person_id or "").strip()
+    if not normalized_person_id:
+        return {
+            "has_member": False,
+            "member": None,
+            "has_staff": False,
+            "staff": None,
+            "has_volunteer": False,
+            "volunteer": {"is_volunteer": False, "roles": []},
+        }
+    member_row = fetch_one(
+        "SELECT m.id FROM member_identities mi JOIN members m ON m.id=mi.member_id "
+        "JOIN person_profiles p ON p.id=mi.person_id "
+        "WHERE mi.person_id=? AND mi.status='ACTIVE' AND m.status='ACTIVE' "
+        "AND p.status='ACTIVE' ORDER BY m.id LIMIT 1",
+        (normalized_person_id,),
+    )
+    member_id = int(member_row["id"]) if member_row else None
+    if member_id is None and member_id_hint is not None:
+        hinted = fetch_one(
+            "SELECT m.id FROM member_identities mi JOIN members m ON m.id=mi.member_id "
+            "JOIN person_profiles p ON p.id=mi.person_id "
+            "WHERE mi.person_id=? AND mi.member_id=? AND mi.status='ACTIVE' "
+            "AND m.status='ACTIVE' AND p.status='ACTIVE' LIMIT 1",
+            (normalized_person_id, int(member_id_hint)),
+        )
+        member_id = int(hinted["id"]) if hinted else None
+    member = _member_payload_for_id(member_id) if member_id is not None else None
+    staff = resolve_employee_mobile_principal(
+        normalized_person_id, verified_user_id=verified_user_id
+    )
+    volunteer = (
+        get_member_volunteer_services(member_id)
+        if member_id is not None
+        else {"is_volunteer": False, "roles": []}
+    )
+    return {
+        "has_member": bool(member),
+        "member": member,
+        "has_staff": bool(staff),
+        "staff": staff,
+        "has_volunteer": bool(volunteer.get("is_volunteer")),
+        "volunteer": volunteer,
+    }
+
+
+def _member_payload_for_id(member_id: int) -> dict[str, Any] | None:
+    """Keep the connection-independent resolver call explicit and testable."""
+
+    return _member_payload_from_fetch(member_id)
+
+
+def _member_payload_from_fetch(member_id: int) -> dict[str, Any] | None:
+    # ``_member_payload`` already performs the privacy-safe projection but
+    # requires a connection.  Use a short-lived read connection here so this
+    # resolver remains side-effect free.
+    from app.db import connect
+
+    connection = connect()
+    try:
+        return _member_payload(connection, member_id)
+    finally:
+        connection.close()
+
+
 def get_wechat_identity_context(session: dict[str, Any]) -> dict[str, Any]:
     """Return business-language identities; never expose person/account IDs."""
 
-    member = session.get("member")
-    volunteer = (
-        get_member_volunteer_services(int(session["member_id"]))
-        if member and session.get("member_id") is not None
-        else {"is_volunteer": False, "roles": []}
-    )
-    employee = resolve_employee_mobile_principal(
+    resolved = resolve_person_identities(
         str(session.get("person_id") or ""),
         verified_user_id=session.get("verified_user_id"),
+        member_id_hint=session.get("member_id"),
     )
+    member = resolved["member"] or session.get("member")
+    volunteer = resolved["volunteer"]
+    employee = resolved["staff"]
     kinds: list[str] = []
     if member:
         kinds.append("MEMBER")

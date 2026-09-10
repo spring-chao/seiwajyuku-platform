@@ -401,6 +401,49 @@ def _validate_password(password: str) -> str:
     return password
 
 
+def _resolve_existing_member_person(
+    connection: Any, *, name: str, phone_hash_value: str
+) -> tuple[int, str | None] | None:
+    """Resolve an already-known member without treating staff as members.
+
+    A staff create may reuse a person only when one ACTIVE member matches both
+    the exact normalized name and the exact protected phone hash.  A phone
+    match with a different name, or more than one exact match, is deliberately
+    surfaced for manual review instead of guessed or merged.
+    """
+
+    exact = execute(
+        connection,
+        "SELECT m.id AS member_id, mi.person_id, mi.status AS identity_status FROM members m "
+        "LEFT JOIN member_identities mi ON mi.member_id=m.id "
+        "WHERE m.status='ACTIVE' AND m.name=? AND m.phone_hash=? "
+        "ORDER BY m.id LIMIT 3",
+        (name, phone_hash_value),
+    ).fetchall()
+    if len(exact) > 1:
+        raise ValueError("姓名和手机号匹配到多个在册学员，请先人工核对")
+    if exact:
+        identity = exact[0]
+        if identity["identity_status"] is None:
+            # Older member records can predate the person-identity table.  A
+            # staff create may establish that missing bridge in this same
+            # transaction, without inventing a member or guessing a person.
+            return int(identity["member_id"]), None
+        if identity["identity_status"] != "ACTIVE" or not identity["person_id"]:
+            raise ValueError("已有学员身份记录状态异常，请先人工核对")
+        return int(identity["member_id"]), identity["person_id"]
+
+    phone_matches = execute(
+        connection,
+        "SELECT m.id, m.name FROM members m "
+        "WHERE m.status='ACTIVE' AND m.phone_hash=? LIMIT 2",
+        (phone_hash_value,),
+    ).fetchall()
+    if phone_matches:
+        raise ValueError("检测到可能已有学员档案，请核对后再关联")
+    return None
+
+
 def _auto_grants(
     connection: Any,
     position_keys: list[str],
@@ -930,7 +973,45 @@ def create_staff(
         _validate_actor_grants(actor_user_id, normalized_grants)
         basis = str(authorization_basis or "").strip() or "SYSTEM_AUTO:POSITION_SCOPE_MAPPING"
         reason = str(authorization_reason or "").strip()
-        if phone_fields and execute(
+        member_match = _resolve_existing_member_person(
+            connection, name=staff_name, phone_hash_value=phone_fields["phone_hash"]
+        )
+        member_id: int | None = None
+        person_reused = False
+        if member_match:
+            member_id, person_id = member_match
+            person_reused = bool(person_id)
+            if person_id:
+                profile = execute(
+                    connection,
+                    "SELECT status FROM person_profiles WHERE id=?",
+                    (person_id,),
+                ).fetchone()
+                if not profile or profile["status"] != "ACTIVE":
+                    raise ValueError("已有学员身份的自然人记录不可用，请先人工核对")
+            else:
+                person_id = f"person-{uuid4()}"
+                execute(
+                    connection,
+                    "INSERT INTO person_profiles(id, display_name, status, created_at, updated_at) "
+                    "VALUES (?, ?, 'ACTIVE', ?, ?)",
+                    (person_id, staff_name, now, now),
+                )
+                execute(
+                    connection,
+                    "INSERT INTO member_identities(member_id, person_id, status, "
+                    "source_reference, created_at, updated_at) VALUES (?, ?, 'ACTIVE', ?, ?, ?)",
+                    (member_id, person_id, source_reference, now, now),
+                )
+        else:
+            person_id = f"person-{uuid4()}"
+            execute(
+                connection,
+                "INSERT INTO person_profiles(id, display_name, status, created_at, updated_at) "
+                "VALUES (?, ?, 'ACTIVE', ?, ?)",
+                (person_id, staff_name, now, now),
+            )
+        if execute(
             connection,
             "SELECT person_id FROM employee_profile_details WHERE work_phone_hash=?",
             (phone_fields["phone_hash"],),
@@ -943,13 +1024,6 @@ def create_staff(
             (username, staff_name, password_hash, 1 if is_active else 0, now, now),
         )
         user_id = int(cursor.lastrowid)
-        person_id = f"person-{uuid4()}"
-        execute(
-            connection,
-            "INSERT INTO person_profiles(id, display_name, status, created_at, updated_at) "
-            "VALUES (?, ?, 'ACTIVE', ?, ?)",
-            (person_id, staff_name, now, now),
-        )
         execute(
             connection,
             "INSERT INTO account_person_links"
@@ -1038,12 +1112,16 @@ def create_staff(
                 "authorization_basis": basis,
                 "grant_ids": grant_ids,
                 "account_active": bool(is_active),
+                "person_reused": person_reused,
+                "linked_member_id": member_id,
             },
         )
     return {
         "id": user_id,
         "employment_id": employment_id,
         "temporary_password": generated_password,
+        "person_reused": person_reused,
+        "linked_member_id": member_id,
     }
 
 

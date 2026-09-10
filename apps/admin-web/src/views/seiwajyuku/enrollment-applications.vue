@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import dayjs from "dayjs";
 import QRCode from "qrcode";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -35,8 +35,11 @@ const statusFilter = ref<StatusFilter>("ALL");
 const detailVisible = ref(false);
 const detail = ref<EnrollmentApplicationDetail>();
 const centers = ref<OrgUnit[]>([]);
+const orgUnits = ref<OrgUnit[]>([]);
 const activeLink = ref<EnrollmentLink | null>(null);
 const linkLoading = ref(false);
+const linkName = ref("学长服务助手-新学长信息登记");
+const linkTargetShuku = ref("");
 const rawPublicUrl = ref("");
 const rawToken = ref("");
 const qrDataUrl = ref("");
@@ -99,6 +102,17 @@ const growthTargetOptions = [
   { value: "5", label: "5倍" }
 ];
 
+const targetShukuOptions = computed(() =>
+  orgUnits.value
+    .filter(
+      item =>
+        item.unit_type === "ROOT" &&
+        item.parent_id === "org-jiangnan" &&
+        item.id !== "org-jiangnan"
+    )
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"))
+);
+
 const editForm = reactive({
   name: "",
   gender: "" as "" | "MALE" | "FEMALE" | "OTHER",
@@ -139,10 +153,40 @@ const editForm = reactive({
   annual_sales: "",
   profit_margin: "",
   notes: "",
+  target_shuku_org_unit_id: "",
   org_unit_id: "",
   join_date: "",
   review_note: ""
 });
+
+const scopedCenters = computed(() => {
+  const target = editForm.target_shuku_org_unit_id;
+  if (!target) return centers.value;
+  const allowed = new Set([target]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    orgUnits.value.forEach(item => {
+      if (item.parent_id && allowed.has(item.parent_id) && !allowed.has(item.id)) {
+        allowed.add(item.id);
+        changed = true;
+      }
+    });
+  }
+  return centers.value.filter(item => allowed.has(item.id));
+});
+
+watch(
+  () => editForm.target_shuku_org_unit_id,
+  () => {
+    if (
+      editForm.org_unit_id &&
+      !scopedCenters.value.some(item => item.id === editForm.org_unit_id)
+    ) {
+      editForm.org_unit_id = "";
+    }
+  }
+);
 
 const statusTabs: Array<{ value: StatusFilter; label: string }> = [
   { value: "ALL", label: "全部" },
@@ -222,6 +266,7 @@ async function loadRows() {
 async function loadCenters() {
   try {
     const response = await getOrgUnits();
+    orgUnits.value = response.data;
     centers.value = response.data.filter(
       item =>
         item.unit_type === "REGIONAL_CENTER" ||
@@ -275,6 +320,7 @@ function syncEditForm(value: EnrollmentApplicationDetail) {
     profit_margin: value.profit_margin || "",
     notes: value.notes || "",
     org_unit_id: value.org_unit_id || "",
+    target_shuku_org_unit_id: value.target_shuku_org_unit_id || "",
     join_date: value.join_date || "",
     review_note: value.review_note || ""
   });
@@ -319,6 +365,7 @@ function buildReviewPayload(
     company_products: editForm.company_products.trim() || null,
     employee_count: editForm.employee_count,
     notes: editForm.notes.trim() || null,
+    target_shuku_org_unit_id: editForm.target_shuku_org_unit_id || null,
     org_unit_id: editForm.org_unit_id || null,
     join_date: editForm.join_date || null
   };
@@ -583,24 +630,21 @@ async function loadActiveLink() {
 }
 
 async function createLink() {
+  if (!linkName.value.trim()) {
+    ElMessage.warning("请填写入口名称");
+    return;
+  }
   try {
-    const { value } = await ElMessageBox.prompt(
-      "系统全局只保留一个有效小程序码入口。创建新码会停用旧入口。",
-      "创建小程序码入口",
-      {
-        inputValue: "学长服务助手-新学长信息登记",
-        inputValidator: value => !!value.trim() || "请填写入口名称"
-      }
-    );
     linkLoading.value = true;
-    const response = await createEnrollmentLink(value.trim());
+    const response = await createEnrollmentLink(
+      linkName.value.trim(),
+      linkTargetShuku.value || null
+    );
     activeLink.value = response.data;
     await rememberRawToken(response.data);
     ElMessage.success("小程序码入口已创建，请立即下载并保存小程序码");
   } catch (error: any) {
-    if (error !== "cancel" && error !== "close") {
-      ElMessage.error(errorText(error, "二维码创建失败"));
-    }
+    ElMessage.error(errorText(error, "二维码创建失败"));
   } finally {
     linkLoading.value = false;
   }
@@ -721,6 +765,9 @@ onMounted(async () => {
             <el-descriptions-item label="名称">{{
               activeLink.name
             }}</el-descriptions-item>
+            <el-descriptions-item label="申请塾">
+              {{ activeLink.target_shuku_name || "通用入口（由新人选择）" }}
+            </el-descriptions-item>
             <el-descriptions-item label="最近轮换">
               {{
                 formatTime(activeLink.last_rotated_at || activeLink.created_at)
@@ -778,9 +825,25 @@ onMounted(async () => {
         </div>
       </div>
       <el-empty v-else description="当前没有有效的入塾二维码">
-        <el-button type="primary" @click="createLink"
-          >创建小程序码入口</el-button
-        >
+        <div class="link-create-form">
+          <el-input v-model="linkName" placeholder="入口名称" />
+          <el-select
+            v-model="linkTargetShuku"
+            clearable
+            filterable
+            placeholder="通用入口（新人自行选择申请塾）"
+          >
+            <el-option
+              v-for="item in targetShukuOptions"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+            />
+          </el-select>
+          <el-button type="primary" @click="createLink"
+            >创建小程序码入口</el-button
+          >
+        </div>
       </el-empty>
     </el-card>
 
@@ -862,6 +925,11 @@ onMounted(async () => {
             scope.row.org_unit_name || "待分配"
           }}</template>
         </el-table-column>
+        <el-table-column label="申请塾" min-width="120">
+          <template #default="scope">
+            {{ scope.row.target_shuku_name || "历史申请未选择" }}
+          </template>
+        </el-table-column>
         <el-table-column label="风险" min-width="130">
           <template #default="scope">
             <el-tag
@@ -924,8 +992,33 @@ onMounted(async () => {
             show-icon
           />
 
+          <el-alert
+            v-if="!detail.target_shuku_org_unit_id"
+            title="历史申请未选择申请塾"
+            description="请先在下方选择申请加入的塾，再继续审核或分配正式管理组织。"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
+
           <el-form label-position="top" class="review-form">
             <div class="form-grid">
+              <el-form-item label="申请加入的塾">
+                <el-select
+                  v-model="editForm.target_shuku_org_unit_id"
+                  clearable
+                  filterable
+                  :disabled="!canReview"
+                  placeholder="历史申请请先选择"
+                >
+                  <el-option
+                    v-for="item in targetShukuOptions"
+                    :key="item.id"
+                    :label="item.name"
+                    :value="item.id"
+                  />
+                </el-select>
+              </el-form-item>
               <el-form-item label="姓名">
                 <el-input v-model="editForm.name" :disabled="!canReview" />
               </el-form-item>
@@ -1058,7 +1151,7 @@ onMounted(async () => {
                   placeholder="正式入塾前必须选择"
                 >
                   <el-option
-                    v-for="center in centers"
+                    v-for="center in scopedCenters"
                     :key="center.id"
                     :label="center.name"
                     :value="center.id"
@@ -1487,6 +1580,14 @@ onMounted(async () => {
   margin-top: 16px;
 }
 
+.link-create-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: min(720px, 100%);
+}
+
 .qr-preview {
   padding: 10px;
   text-align: center;
@@ -1621,7 +1722,8 @@ onMounted(async () => {
   }
 
   .link-layout,
-  .form-grid {
+  .form-grid,
+  .link-create-form {
     grid-template-columns: 1fr;
   }
 

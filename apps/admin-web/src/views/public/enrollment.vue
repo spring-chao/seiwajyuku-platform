@@ -31,9 +31,16 @@ const positionOptions = computed(
       "经营者二代"
     ]
 );
+const targetShukuOptions = computed(
+  () => config.value?.target_shuku_options || []
+);
+const targetShukuLocked = computed(
+  () => Boolean(config.value?.target_shuku_locked)
+);
 
 const form = reactive({
   name: "",
+  target_shuku_org_unit_id: "",
   phone: "",
   gender: "" as "" | "MALE" | "FEMALE",
   birthday: "",
@@ -72,6 +79,9 @@ const requiredText = (label: string, max: number) => [
 ];
 
 const rules: FormRules = {
+  target_shuku_org_unit_id: [
+    { required: true, message: "请选择申请加入的塾", trigger: "change" }
+  ],
   name: [
     { required: true, message: "请填写姓名", trigger: "blur" },
     { max: 255, message: "姓名过长", trigger: "blur" }
@@ -151,6 +161,8 @@ async function loadForm() {
   try {
     const response = await getPublicEnrollmentForm(token.value);
     config.value = response.data;
+    form.target_shuku_org_unit_id =
+      response.data.target_shuku_org_unit_id || "";
     pageState.value = "ready";
   } catch {
     pageState.value = "invalid";
@@ -189,6 +201,7 @@ async function submit() {
   errorMessage.value = "";
   const payload: PublicEnrollmentPayload = {
     name: form.name.trim(),
+    target_shuku_org_unit_id: form.target_shuku_org_unit_id,
     phone: form.phone.trim(),
     privacy_consent: true,
     rules_acknowledged: true,
@@ -284,6 +297,28 @@ onMounted(loadForm);
           size="large"
           @submit.prevent="submit"
         >
+          <el-form-item label="申请加入的塾" prop="target_shuku_org_unit_id" required>
+            <template v-if="targetShukuLocked">
+              <el-alert
+                :title="config?.target_shuku_name || '申请塾已指定'"
+                description="本入口为塾专属登记码，申请塾已锁定。"
+                type="success"
+                :closable="false"
+                show-icon
+              />
+            </template>
+            <el-radio-group v-else v-model="form.target_shuku_org_unit_id">
+              <el-radio
+                v-for="option in targetShukuOptions"
+                :key="option.id"
+                :value="option.id"
+              >
+                {{ option.name }}
+              </el-radio>
+            </el-radio-group>
+            <div class="target-shuku-hint">江南塾为上级组织，请选择具体申请塾。</div>
+          </el-form-item>
+
           <div class="section-heading">
             <span>01</span>
             <div>
@@ -718,6 +753,17 @@ h1 {
   margin-bottom: 0;
   color: #87928c;
   font-size: 13px;
+}
+
+.target-shuku-hint {
+  margin-top: 6px;
+  color: #6f8178;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.target-shuku-hint + * {
+  margin-top: 8px;
 }
 
 .two-column {

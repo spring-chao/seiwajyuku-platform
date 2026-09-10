@@ -139,6 +139,7 @@ REVIEW_FIELDS = {
     "revenue_growth_target",
     "profit_growth_target",
     "notes",
+    "target_shuku_org_unit_id",
     "org_unit_id",
     "join_date",
 }
@@ -400,11 +401,66 @@ def _link_public_metadata(row: dict[str, Any]) -> dict[str, Any]:
     return safe
 
 
+def _target_shuku_options(connection: Any | None = None) -> list[dict[str, Any]]:
+    """Return the public application targets from the formal org tree.
+
+    ``org-jiangnan`` is a service umbrella, not an application destination.
+    Only active ROOT nodes directly below it are selectable.  The query uses
+    stable IDs and parentage; display names are presentation data only.
+    """
+
+    sql = (
+        "SELECT id, unit_code, name FROM org_units "
+        "WHERE is_active=1 AND unit_type='ROOT' AND parent_id='org-jiangnan' "
+        "ORDER BY unit_code, id"
+    )
+    rows = (
+        fetch_all(sql)
+        if connection is None
+        else [dict(row) for row in execute(connection, sql).fetchall()]
+    )
+    return [
+        {"id": row["id"], "unit_code": row["unit_code"], "name": row["name"]}
+        for row in rows
+        if str(row.get("id") or "") != "org-jiangnan"
+    ]
+
+
+def _validate_target_shuku(
+    target_shuku_org_unit_id: str | None, *, connection: Any | None = None
+) -> dict[str, Any] | None:
+    """Validate one of the formal shuku roots and return its metadata."""
+
+    target = _clean_optional(target_shuku_org_unit_id)
+    if not target:
+        return None
+    sql = (
+        "SELECT id, unit_code, name, unit_type, parent_id, is_active "
+        "FROM org_units WHERE id=?"
+    )
+    row = (
+        fetch_one(sql, (target,))
+        if connection is None
+        else _row_from_connection(connection, sql, (target,))
+    )
+    if (
+        not row
+        or not row.get("is_active")
+        or str(row.get("unit_type") or "").upper() != "ROOT"
+        or row.get("parent_id") != "org-jiangnan"
+        or row.get("id") == "org-jiangnan"
+    ):
+        raise EnrollmentValidationError("申请加入的塾无效，请重新选择")
+    return row
+
+
 def get_active_enrollment_link() -> dict[str, Any] | None:
     row = fetch_one(
-        "SELECT id, name, status, created_by, created_at, updated_at, "
+        "SELECT l.id, l.name, l.status, l.created_by, l.created_at, l.updated_at, "
+        "l.target_shuku_org_unit_id, o.name AS target_shuku_name, "
         "disabled_at, last_rotated_at FROM member_enrollment_links "
-        "WHERE status='ACTIVE' ORDER BY id DESC LIMIT 1"
+        "l LEFT JOIN org_units o ON o.id=l.target_shuku_org_unit_id "
+        "WHERE l.status='ACTIVE' ORDER BY l.id DESC LIMIT 1"
     )
     return _link_public_metadata(row) if row else None
 
@@ -444,7 +500,11 @@ def get_public_portal() -> dict[str, Any]:
     }
 
 
-def create_enrollment_link(actor_user_id: int, name: str) -> dict[str, Any]:
+def create_enrollment_link(
+    actor_user_id: int,
+    name: str,
+    target_shuku_org_unit_id: str | None = None,
+) -> dict[str, Any]:
     # 微信小程序码的 scene 最多承载 32 个可见字符；128 bit 随机值已经
     # 足够作为公开入口令牌，同时保留 H5 旧令牌的兼容解析能力。
     raw_token = secrets.token_urlsafe(16)
@@ -453,6 +513,9 @@ def create_enrollment_link(actor_user_id: int, name: str) -> dict[str, Any]:
     if not cleaned_name:
         raise ValueError("二维码名称不能为空")
     with transaction() as connection:
+        target = _validate_target_shuku(
+            target_shuku_org_unit_id, connection=connection
+        )
         execute(
             connection,
             "UPDATE member_enrollment_links SET status='DISABLED', active_slot=NULL, "
@@ -462,9 +525,16 @@ def create_enrollment_link(actor_user_id: int, name: str) -> dict[str, Any]:
         cursor = execute(
             connection,
             "INSERT INTO member_enrollment_links"
-            "(name, token_hash, status, active_slot, created_by, created_at, updated_at) "
-            "VALUES (?, ?, 'ACTIVE', 1, ?, ?, ?)",
-            (cleaned_name, _token_hash(raw_token), actor_user_id, now, now),
+            "(name, token_hash, status, active_slot, created_by, created_at, updated_at, "
+            "target_shuku_org_unit_id) VALUES (?, ?, 'ACTIVE', 1, ?, ?, ?, ?)",
+            (
+                cleaned_name,
+                _token_hash(raw_token),
+                actor_user_id,
+                now,
+                now,
+                target["id"] if target else None,
+            ),
         )
         link_id = int(cursor.lastrowid)
         write_audit(
@@ -473,12 +543,18 @@ def create_enrollment_link(actor_user_id: int, name: str) -> dict[str, Any]:
             action="enrollment.link.create",
             resource_type="member_enrollment_link",
             resource_id=str(link_id),
-            after={"name": cleaned_name, "status": "ACTIVE"},
+            after={
+                "name": cleaned_name,
+                "status": "ACTIVE",
+                "target_shuku_org_unit_id": target["id"] if target else None,
+            },
         )
     return {
         "id": link_id,
         "name": cleaned_name,
         "status": "ACTIVE",
+        "target_shuku_org_unit_id": target["id"] if target else None,
+        "target_shuku_name": target["name"] if target else None,
         "raw_token": raw_token,
         "created_at": now,
         "updated_at": now,
@@ -638,7 +714,8 @@ def _resolve_public_link(token: str) -> dict[str, Any] | None:
     if not token or len(token) > 512:
         return None
     raw_link = fetch_one(
-        "SELECT id, name, token_hash FROM member_enrollment_links "
+        "SELECT id, name, token_hash, target_shuku_org_unit_id "
+        "FROM member_enrollment_links "
         "WHERE token_hash=? AND status='ACTIVE' LIMIT 1",
         (_token_hash(token),),
     )
@@ -657,7 +734,8 @@ def _resolve_public_link(token: str) -> dict[str, Any] | None:
     except (KeyError, TypeError, ValueError, OverflowError):
         return None
     link = fetch_one(
-        "SELECT id, name, token_hash, status, updated_at FROM member_enrollment_links "
+        "SELECT id, name, token_hash, status, updated_at, target_shuku_org_unit_id "
+        "FROM member_enrollment_links "
         "WHERE id=? AND status='ACTIVE' LIMIT 1",
         (link_id,),
     )
@@ -691,6 +769,8 @@ def get_public_enrollment_form(token: str) -> dict[str, Any]:
     link = _resolve_public_link(token)
     if not link:
         raise ValueError("申请链接无效或已停用")
+    target = _validate_target_shuku(link.get("target_shuku_org_unit_id"))
+    target_options = _target_shuku_options()
     return {
         "title": "新学长入塾申请",
         "link_name": link["name"],
@@ -699,6 +779,7 @@ def get_public_enrollment_form(token: str) -> dict[str, Any]:
         "privacy_notice": "所填资料仅用于入塾审核与后续服务。手机号、税号和企业财务资料将按权限使用。",
         "required_fields": [
             "name",
+            "target_shuku_org_unit_id",
             "phone",
             "birthday",
             "gender",
@@ -745,6 +826,10 @@ def get_public_enrollment_form(token: str) -> dict[str, Any]:
         ],
         "goal_year_options": ["1", "2", "3", "5", "OTHER"],
         "collects_organization": False,
+        "target_shuku_options": target_options,
+        "target_shuku_org_unit_id": target["id"] if target else None,
+        "target_shuku_name": target["name"] if target else None,
+        "target_shuku_locked": bool(target),
     }
 
 
@@ -893,6 +978,14 @@ def submit_public_enrollment(
         raise ValueError("申请链接无效或已停用")
     _check_submission_rate_limit(link["token_hash"], client_address)
 
+    submitted_target = _clean_optional(payload.get("target_shuku_org_unit_id"))
+    linked_target = _clean_optional(link.get("target_shuku_org_unit_id"))
+    if linked_target and submitted_target != linked_target:
+        raise EnrollmentValidationError("该入口已锁定申请塾，不能更改")
+    target = _validate_target_shuku(submitted_target or linked_target)
+    if not target:
+        raise EnrollmentValidationError("请选择申请加入的塾")
+
     name = payload["name"].strip()
     if not name:
         raise ValueError("姓名不能为空")
@@ -919,6 +1012,7 @@ def submit_public_enrollment(
         {
             "application_no": application_no,
             "link_id": link["id"],
+            "target_shuku_org_unit_id": target["id"],
             "phone_ciphertext": phone_fields["phone_ciphertext"],
             "phone_hash": phone_fields["phone_hash"],
             "phone_last4": phone_fields["phone_last4"],
@@ -940,6 +1034,7 @@ def submit_public_enrollment(
     insert_columns = [
         "application_no",
         "link_id",
+        "target_shuku_org_unit_id",
         "phone_ciphertext",
         "phone_hash",
         "phone_last4",
@@ -1017,6 +1112,7 @@ def submit_public_enrollment(
                     "phone": phone_fields["phone_masked"],
                     "duplicate_member_risk": bool(duplicate_member),
                     "link_id": link["id"],
+                    "target_shuku_org_unit_id": target["id"],
                     "rules_acknowledged": bool(values["rules_acknowledged"]),
                 },
             )
@@ -1058,14 +1154,23 @@ def _scope_condition(actor_user_id: int) -> tuple[str, tuple[Any, ...]]:
     can_review_unassigned = "enrollment:unassigned_review" in actor.get("permissions", [])
     if not allowed:
         return (
-            " AND a.org_unit_id IS NULL" if can_review_unassigned else " AND 1=0",
+            " AND a.org_unit_id IS NULL AND a.target_shuku_org_unit_id IS NULL"
+            if can_review_unassigned
+            else " AND 1=0",
             (),
         )
     placeholders = ",".join("?" for _ in allowed)
-    condition = f"a.org_unit_id IN ({placeholders})"
+    condition = (
+        f"(a.org_unit_id IN ({placeholders}) "
+        f"OR a.target_shuku_org_unit_id IN ({placeholders}))"
+    )
+    params = tuple(sorted(allowed)) + tuple(sorted(allowed))
     if can_review_unassigned:
-        condition = f"(a.org_unit_id IS NULL OR {condition})"
-    return f" AND {condition}", tuple(sorted(allowed))
+        condition = (
+            f"(a.org_unit_id IS NULL AND a.target_shuku_org_unit_id IS NULL "
+            f"OR {condition})"
+        )
+    return f" AND {condition}", params
 
 
 def list_enrollment_applications(
@@ -1099,9 +1204,12 @@ def list_enrollment_applications(
         "SELECT a.id, a.application_no, a.name, a.phone_masked, a.phone_ciphertext, "
         "a.company_name, "
         "a.application_status, a.payment_status, a.duplicate_member_risk, "
-        "a.org_unit_id, o.name AS org_unit_name, a.join_date, a.converted_member_id, "
+        "a.org_unit_id, o.name AS org_unit_name, "
+        "a.target_shuku_org_unit_id, target_o.name AS target_shuku_name, "
+        "a.join_date, a.converted_member_id, "
         "a.created_at, a.updated_at FROM member_enrollment_applications a "
-        "LEFT JOIN org_units o ON o.id=a.org_unit_id WHERE "
+        "LEFT JOIN org_units o ON o.id=a.org_unit_id "
+        "LEFT JOIN org_units target_o ON target_o.id=a.target_shuku_org_unit_id WHERE "
         + " AND ".join(conditions)
         + scope_sql
         + " ORDER BY CASE a.application_status WHEN 'SUBMITTED' THEN 1 "
@@ -1124,12 +1232,14 @@ def _application_row(
     application_id: int, connection: Any | None = None, *, lock: bool = False
 ) -> dict[str, Any] | None:
     sql = (
-        "SELECT a.*, o.name AS org_unit_name, l.name AS link_name, "
+        "SELECT a.*, o.name AS org_unit_name, "
+        "target_o.name AS target_shuku_name, l.name AS link_name, "
         "reviewer.display_name AS reviewer_name, payer.display_name AS payment_confirmer_name, "
         "converter.display_name AS converter_name "
         "FROM member_enrollment_applications a "
         "JOIN member_enrollment_links l ON l.id=a.link_id "
         "LEFT JOIN org_units o ON o.id=a.org_unit_id "
+        "LEFT JOIN org_units target_o ON target_o.id=a.target_shuku_org_unit_id "
         "LEFT JOIN app_users reviewer ON reviewer.id=a.reviewed_by "
         "LEFT JOIN app_users payer ON payer.id=a.payment_confirmed_by "
         "LEFT JOIN app_users converter ON converter.id=a.converted_by "
@@ -1147,11 +1257,20 @@ def _assert_application_scope(actor_user_id: int, row: dict[str, Any]) -> None:
     if allowed is None:
         return
     actor = user_context(actor_user_id) or {"permissions": []}
-    if not row.get("org_unit_id") and "enrollment:unassigned_review" in actor.get(
-        "permissions", []
+    if (
+        not row.get("org_unit_id")
+        and not row.get("target_shuku_org_unit_id")
+        and "enrollment:unassigned_review" in actor.get("permissions", [])
     ):
         return
-    if not row.get("org_unit_id") or row["org_unit_id"] not in allowed:
+    if row.get("org_unit_id"):
+        if row["org_unit_id"] not in allowed:
+            raise PermissionError("入塾申请不在当前组织授权范围内")
+        return
+    if (
+        not row.get("target_shuku_org_unit_id")
+        or row["target_shuku_org_unit_id"] not in allowed
+    ):
         raise PermissionError("入塾申请不在当前组织授权范围内")
 
 
@@ -1161,6 +1280,14 @@ def _missing_enrollment_gates(row: dict[str, Any]) -> list[str]:
         missing.append("申请尚未审核通过")
     if row["payment_status"] != "PAID":
         missing.append("尚未确认收款")
+    target = row.get("target_shuku_org_unit_id")
+    if not target:
+        missing.append("尚未选择申请加入的塾")
+    else:
+        try:
+            _validate_target_shuku(str(target))
+        except EnrollmentValidationError:
+            missing.append("申请加入的塾无效或已停用")
     if not row.get("org_unit_id"):
         missing.append("尚未选择正式管理单元")
     else:
@@ -1252,7 +1379,25 @@ def get_enrollment_application(actor_user_id: int, application_id: int) -> dict[
     return safe
 
 
-def _validate_target_org(actor_user_id: int, org_unit_id: str | None) -> None:
+def _organization_is_descendant(
+    org_unit_id: str, target_shuku_org_unit_id: str
+) -> bool:
+    rows = fetch_all(
+        "WITH RECURSIVE descendants(id) AS ("
+        " SELECT id FROM org_units WHERE id=? AND is_active=1 "
+        " UNION ALL SELECT o.id FROM org_units o JOIN descendants d ON o.parent_id=d.id "
+        " WHERE o.is_active=1"
+        ") SELECT id FROM descendants WHERE id=?",
+        (target_shuku_org_unit_id, org_unit_id),
+    )
+    return bool(rows)
+
+
+def _validate_target_org(
+    actor_user_id: int,
+    org_unit_id: str | None,
+    target_shuku_org_unit_id: str | None = None,
+) -> None:
     if not org_unit_id:
         return
     org = fetch_one(
@@ -1267,7 +1412,11 @@ def _validate_target_org(actor_user_id: int, org_unit_id: str | None) -> None:
             parent_id=org.get("parent_id"),
         )
     ):
-        raise ValueError("只能选择有效的正式区域分中心或无锡指导团")
+        raise ValueError("只能选择有效的正式管理组织")
+    if target_shuku_org_unit_id:
+        _validate_target_shuku(target_shuku_org_unit_id)
+        if not _organization_is_descendant(org_unit_id, target_shuku_org_unit_id):
+            raise ValueError("最终管理组织必须属于申请加入的塾")
     allowed = accessible_org_ids(actor_user_id)
     if allowed is not None and org_unit_id not in allowed:
         raise PermissionError("不能选择授权范围外的分中心")
@@ -1293,8 +1442,24 @@ def review_enrollment_application(
     unknown = set(incoming) - REVIEW_FIELDS - FINANCIAL_FIELDS
     if unknown:
         raise ValueError("包含不允许修改的申请字段")
+    target_id = _clean_optional(
+        incoming.get("target_shuku_org_unit_id", current.get("target_shuku_org_unit_id"))
+    )
+    if "target_shuku_org_unit_id" in incoming:
+        target = _validate_target_shuku(target_id)
+        incoming["target_shuku_org_unit_id"] = target["id"] if target else None
+    elif target_id:
+        _validate_target_shuku(target_id)
+    if decision == "APPROVE" and not target_id:
+        raise ValueError("审核通过前必须先选择申请加入的塾")
     if "org_unit_id" in incoming:
-        _validate_target_org(actor_user_id, incoming.get("org_unit_id"))
+        if incoming.get("org_unit_id") and not target_id:
+            raise ValueError("选择正式管理组织前必须先选择申请加入的塾")
+        _validate_target_org(
+            actor_user_id, incoming.get("org_unit_id"), target_id
+        )
+    elif current.get("org_unit_id") and target_id:
+        _validate_target_org(actor_user_id, current.get("org_unit_id"), target_id)
     if "name" in incoming and not (incoming.get("name") or "").strip():
         raise ValueError("姓名不能为空")
     if "gender" in incoming and incoming.get("gender") not in {None, "MALE", "FEMALE"}:
@@ -1374,6 +1539,11 @@ def review_enrollment_application(
     assignments: list[str] = []
     params: list[Any] = []
     changed_fields = set(incoming) | financial_changes | invoice_input_fields
+    target_changed = (
+        "target_shuku_org_unit_id" in incoming
+        and incoming.get("target_shuku_org_unit_id")
+        != current.get("target_shuku_org_unit_id")
+    )
     for field in sorted(incoming):
         value = incoming[field]
         if isinstance(value, str):
@@ -1410,10 +1580,31 @@ def review_enrollment_application(
             resource_type="member_enrollment_application",
             resource_id=str(application_id),
             org_unit_id=incoming.get("org_unit_id", current.get("org_unit_id")),
-            before={"status": current["application_status"]},
+            before={
+                "status": current["application_status"],
+                **(
+                    {
+                        "target_shuku_org_unit_id": current.get(
+                            "target_shuku_org_unit_id"
+                        )
+                    }
+                    if target_changed
+                    else {}
+                ),
+            },
             after={
                 "status": "APPROVED" if decision == "APPROVE" else current["application_status"],
                 "changed_fields": sorted(changed_fields),
+                **(
+                    {
+                        "target_shuku_org_unit_id": incoming.get(
+                            "target_shuku_org_unit_id"
+                        ),
+                        "target_shuku_changed": True,
+                    }
+                    if target_changed
+                    else {}
+                ),
             },
         )
     return get_enrollment_application(actor_user_id, application_id)

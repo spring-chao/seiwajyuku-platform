@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.core.privacy import phone_hash
 from app.core.security import hash_password
 from app.db import execute, fetch_one, transaction
 from app.main import app
@@ -164,6 +165,121 @@ class IAM2StaffManagementTests(unittest.TestCase):
         )
         self.assertEqual(audit["purpose"], "SYSTEM_AUTO:POSITION_SCOPE_MAPPING")
         self.assertIn("employee_learning_management", audit["after_json"])
+
+    def test_staff_create_reuses_existing_member_person_without_creating_member(self) -> None:
+        phone = f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}"
+        name = f"已有学员兼专职-{uuid4().hex[:6]}"
+        member_id = create_member(
+            self.admin_id,
+            member_code=f"IAM2-REUSE-{uuid4().hex[:8]}",
+            name=name,
+            org_unit_id=self.center_a,
+            development_org_unit_id=None,
+            phone=phone,
+        )
+        person_id = f"person-{uuid4()}"
+        now = datetime.now(UTC).isoformat()
+        with transaction() as connection:
+            execute(
+                connection,
+                "INSERT INTO person_profiles(id, display_name, status, created_at, updated_at) "
+                "VALUES (?, ?, 'ACTIVE', ?, ?)",
+                (person_id, name, now, now),
+            )
+            execute(
+                connection,
+                "INSERT INTO member_identities(member_id, person_id, status, source_reference, "
+                "created_at, updated_at) VALUES (?, ?, 'ACTIVE', ?, ?, ?)",
+                (member_id, person_id, "IAM2_TEST", now, now),
+            )
+
+        account = f"reuse-member-{uuid4().hex[:12]}"
+        response = self.client.post(
+            "/api/v1/staff-management/staff",
+            headers=self.admin_headers,
+            json={
+                "name": name,
+                "gender": "MALE",
+                "phone": phone,
+                "login_account": account,
+                "temporary_password": "reuse123",
+                "institution_id": "institution-suzhou",
+                "position_keys": ["ops_center_learning"],
+                "responsibility_org_unit_id": self.center_a,
+                "responsibility_scope_type": "UNIT",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()["data"]
+        self.assertTrue(data["person_reused"])
+        self.assertEqual(data["linked_member_id"], member_id)
+        linked = fetch_one(
+            "SELECT apl.person_id FROM account_person_links apl "
+            "JOIN app_users u ON u.id=apl.user_id WHERE u.username=?",
+            (account,),
+        )
+        self.assertEqual(linked["person_id"], person_id)
+        self.assertEqual(
+            fetch_one(
+                "SELECT COUNT(*) AS n FROM members WHERE phone_hash=?",
+                (phone_hash(phone),),
+            )["n"],
+            1,
+        )
+
+    def test_staff_only_create_does_not_invent_member_or_volunteer_identity(self) -> None:
+        user_id, _, payload = self._create_staff(
+            [
+                {
+                    "role_key": "employee_learning_management",
+                    "org_unit_id": self.center_a,
+                    "scope_type": "UNIT",
+                }
+            ]
+        )
+        self.assertIsNotNone(
+            fetch_one(
+                "SELECT person_id FROM account_person_links WHERE user_id=?", (user_id,)
+            )["person_id"]
+        )
+        self.assertEqual(
+            fetch_one(
+                "SELECT COUNT(*) AS n FROM members WHERE phone_hash=?",
+                (phone_hash(payload["phone"]),),
+            )["n"],
+            0,
+        )
+
+    def test_staff_create_phone_match_with_different_name_requires_manual_review(self) -> None:
+        phone = f"13{int(uuid4().hex[:8], 16) % 1_000_000_000:09d}"
+        member_id = create_member(
+            self.admin_id,
+            member_code=f"IAM2-MISMATCH-{uuid4().hex[:8]}",
+            name=f"电话已有学员-{uuid4().hex[:6]}",
+            org_unit_id=self.center_a,
+            development_org_unit_id=None,
+            phone=phone,
+        )
+        account = f"manual-review-{uuid4().hex[:12]}"
+        response = self.client.post(
+            "/api/v1/staff-management/staff",
+            headers=self.admin_headers,
+            json={
+                "name": "姓名不一致的专职",
+                "gender": "FEMALE",
+                "phone": phone,
+                "login_account": account,
+                "temporary_password": "review123",
+                "institution_id": "institution-suzhou",
+                "position_keys": ["ops_center_learning"],
+                "responsibility_org_unit_id": self.center_a,
+                "responsibility_scope_type": "UNIT",
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("核对", response.json()["detail"])
+        self.assertIsNone(fetch_one("SELECT id FROM app_users WHERE username=?", (account,)))
+        self.assertIsNotNone(fetch_one("SELECT id FROM members WHERE id=?", (member_id,)))
 
     def test_staff_catalog_uses_formal_institutions_scope_mapping_and_position_duties(self) -> None:
         response = self.client.get(

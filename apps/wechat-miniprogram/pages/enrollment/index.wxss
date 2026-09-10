@@ -156,6 +156,54 @@ page {
   background: #fffdf9;
 }
 
+.target-shuku-card {
+  margin-top: 18rpx;
+  padding: 32rpx;
+  border: 2rpx solid #b99a62;
+  border-radius: 28rpx;
+  background: #fffaf1;
+  box-shadow: 0 10rpx 28rpx rgba(74, 39, 42, 0.06);
+}
+
+.target-shuku-title {
+  margin-top: 10rpx;
+  color: #762230;
+  font-size: 32rpx;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.required-mark {
+  color: #a72b3b;
+}
+
+.target-shuku-card picker {
+  display: block;
+  width: 100%;
+  margin-top: 20rpx;
+}
+
+.target-shuku-locked {
+  margin-top: 20rpx;
+  padding: 22rpx 24rpx;
+  border: 1rpx solid #d6c2a4;
+  border-radius: 18rpx;
+  background: #f6eee1;
+}
+
+.target-shuku-name {
+  color: #762230;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.target-shuku-hint {
+  margin-top: 10rpx;
+  color: #796c68;
+  font-size: 23rpx;
+  line-height: 1.55;
+}
+
 .purpose-card,
 .rules-card {
   border-color: #ead9c6;

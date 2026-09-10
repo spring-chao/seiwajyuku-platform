@@ -81,6 +81,7 @@ class EnrollmentApplicationTests(unittest.TestCase):
     def _submit(self, token: str, phone: str, **overrides):
         payload = {
             "name": "申请测试学长",
+            "target_shuku_org_unit_id": "org-suzhou",
             "phone": phone,
             "privacy_consent": True,
             "rules_acknowledged": True,
@@ -118,6 +119,12 @@ class EnrollmentApplicationTests(unittest.TestCase):
         data = form.json()["data"]
         self.assertFalse(data["collects_organization"])
         self.assertIn("company_address", data["required_fields"])
+        self.assertIn("target_shuku_org_unit_id", data["required_fields"])
+        self.assertEqual(
+            {item["id"] for item in data["target_shuku_options"]},
+            {"org-suzhou", "org-changzhou", "org-wuxi"},
+        )
+        self.assertNotIn("org-jiangnan", {item["id"] for item in data["target_shuku_options"]})
         self.assertIn("employee_count", data["required_fields"])
         self.assertIn("industry_category", data["required_fields"])
         for field in (
@@ -148,6 +155,41 @@ class EnrollmentApplicationTests(unittest.TestCase):
             token, _phone(), org_unit_id="enrollment-test-center"
         )
         self.assertEqual(rejected.status_code, 422, rejected.text)
+
+    def test_target_shuku_is_required_for_generic_links_and_locked_for_shuku_links(self) -> None:
+        generic_id, generic_token = self._create_link()
+        missing = self._submit(generic_token, _phone(), target_shuku_org_unit_id=None)
+        self.assertEqual(missing.status_code, 422, missing.text)
+
+        self.client.post(
+            f"/api/v1/enrollment-links/{generic_id}/disable", headers=self.headers
+        )
+        locked = self.client.post(
+            "/api/v1/enrollment-links",
+            headers=self.headers,
+            json={"name": "无锡专属申请码", "target_shuku_org_unit_id": "org-wuxi"},
+        )
+        self.assertEqual(locked.status_code, 200, locked.text)
+        locked_data = locked.json()["data"]
+        locked_token = locked_data["raw_token"]
+        form = self.client.get(f"/api/v1/public/enrollment/{locked_token}")
+        self.assertEqual(form.status_code, 200, form.text)
+        form_data = form.json()["data"]
+        self.assertTrue(form_data["target_shuku_locked"])
+        self.assertEqual(form_data["target_shuku_org_unit_id"], "org-wuxi")
+        wrong = self._submit(
+            locked_token, _phone(), target_shuku_org_unit_id="org-suzhou"
+        )
+        self.assertEqual(wrong.status_code, 422, wrong.text)
+        accepted = self._submit(
+            locked_token, _phone(), target_shuku_org_unit_id="org-wuxi"
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        stored = fetch_one(
+            "SELECT target_shuku_org_unit_id FROM member_enrollment_applications "
+            "ORDER BY id DESC LIMIT 1"
+        )
+        self.assertEqual(stored["target_shuku_org_unit_id"], "org-wuxi")
 
     def test_v111_structured_fields_and_rules_acknowledgement(self) -> None:
         _, token = self._create_link()
@@ -339,6 +381,7 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["application_status"], "SUBMITTED")
         self.assertEqual(row["payment_status"], "UNCONFIRMED")
+        self.assertEqual(row["target_shuku_org_unit_id"], "org-suzhou")
         self.assertIsNone(row["org_unit_id"])
         self.assertEqual(row["company_address"], "苏州工业园区测试路1号")
         self.assertEqual(row["invoice_type"], "NORMAL")
@@ -541,8 +584,11 @@ class EnrollmentApplicationTests(unittest.TestCase):
             "/api/v1/enrollment-applications", headers=central_headers
         )
         self.assertEqual(central_list.status_code, 200, central_list.text)
-        self.assertEqual(central_list.json()["data"][0]["id"], application_id)
-        self.assertEqual(central_list.json()["data"][0]["phone"], phone)
+        # A target shuku is not a substitute for a final management scope:
+        # before assignment, a center-scoped reviewer cannot see this
+        # unassigned application even though it is within the same Jiangnan
+        # umbrella.
+        self.assertEqual(central_list.json()["data"], [])
 
         assigned = self.client.patch(
             f"/api/v1/enrollment-applications/{application_id}/review",
@@ -550,6 +596,12 @@ class EnrollmentApplicationTests(unittest.TestCase):
             json={"decision": "SAVE", "org_unit_id": "enrollment-test-center"},
         )
         self.assertEqual(assigned.status_code, 200, assigned.text)
+        central_list = self.client.get(
+            "/api/v1/enrollment-applications", headers=central_headers
+        )
+        self.assertEqual(central_list.status_code, 200, central_list.text)
+        self.assertEqual(central_list.json()["data"][0]["id"], application_id)
+        self.assertEqual(central_list.json()["data"][0]["phone"], phone)
         visible = self.client.get(
             f"/api/v1/enrollment-applications/{application_id}",
             headers=scoped_headers,

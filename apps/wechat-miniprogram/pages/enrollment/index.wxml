@@ -16,6 +16,19 @@
       <view class="hero-copy">{{formMeta.subtitle}}</view>
     </view>
 
+    <view class="target-shuku-card">
+      <view class="card-kicker">申请加入</view>
+      <view class="target-shuku-title">请选择您准备加入的塾 <text class="required-mark">*</text></view>
+      <view wx:if="{{targetShukuLocked}}" class="target-shuku-locked">
+        <view class="target-shuku-name">{{formMeta.target_shuku_name || '已指定塾'}}</view>
+        <view class="target-shuku-hint">本入口为塾专属登记码，申请塾已锁定</view>
+      </view>
+      <picker wx:else mode="selector" range="{{targetShukuOptions}}" bindchange="handleTargetShukuChange">
+        <view class="picker-value {{form.target_shuku_org_unit_id ? '' : 'placeholder'}}">{{form.target_shuku_org_unit_id ? (targetShukuOptions[targetShukuOptionIds.indexOf(form.target_shuku_org_unit_id)] || '请选择') : '请选择苏州塾、常州塾或无锡塾'}}</view>
+      </picker>
+      <view wx:if="{{!targetShukuLocked}}" class="target-shuku-hint">江南塾为上级组织，申请目标请选择具体塾。</view>
+    </view>
+
     <view class="purpose-card">
       <view class="card-kicker">登记前先了解</view>
       <view class="purpose-title">这份资料会用于</view>
@@ -210,7 +223,7 @@
         <view class="section-title">加入守则与缴费说明</view>
       </view>
       <view class="rules-copy">
-        <view>学长服务助手面向认同稻盛哲学、经营学理念的企业经营者，提供相互学习、相互交流和共同成长的学习服务，致力于让幸福企业遍布苏城。</view>
+        <view>学长服务助手面向认同稻盛哲学、经营学理念的企业经营者，提供相互学习、相互交流和共同成长的学习服务，致力于让幸福企业遍布江南。</view>
         <view class="rules-paragraph">每一位准备加入本学习服务的学员，均需认真阅读并遵守以下加入守则。</view>
         <view class="rules-heading">（一）加入条件</view>
         <view>1. 依法开展经营的企业经营者，包括企业股东、总经理、合伙人等；</view>

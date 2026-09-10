@@ -34,6 +34,11 @@ class PublicEnrollmentPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=255)
+    # The intended shuku is a separate application fact from the final
+    # management unit selected during review.  Keep it nullable at the schema
+    # boundary so old installed clients receive a business validation error
+    # instead of a pydantic compatibility failure.
+    target_shuku_org_unit_id: str | None = Field(default=None, max_length=64)
     phone: str = Field(pattern=r"^1\d{10}$")
     privacy_consent: Literal[True]
     gender: Literal["MALE", "FEMALE"]
@@ -129,6 +134,7 @@ class EnrollmentReviewPayload(BaseModel):
     annual_sales: str | None = Field(default=None, max_length=255)
     profit_margin: str | None = Field(default=None, max_length=64)
     notes: str | None = Field(default=None, max_length=1000)
+    target_shuku_org_unit_id: str | None = Field(default=None, max_length=64)
     org_unit_id: str | None = Field(default=None, max_length=64)
     join_date: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
 
@@ -151,6 +157,7 @@ class EnrollmentLinkPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(default="学长服务助手-新学长信息登记", min_length=1, max_length=255)
+    target_shuku_org_unit_id: str | None = Field(default=None, max_length=64)
 
 
 class MiniProgramCodePayload(BaseModel):
@@ -330,7 +337,9 @@ def create_link(
     user: dict = Depends(require_permission("enrollment:manage_link")),
 ) -> dict:
     try:
-        data = create_enrollment_link(user["id"], payload.name)
+        data = create_enrollment_link(
+            user["id"], payload.name, payload.target_shuku_org_unit_id
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": data}
