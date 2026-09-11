@@ -95,6 +95,7 @@ Page({
       contact: null,
       fee_amount: null,
       fee_unit: null,
+      fee_applies_to: [],
       service_address: null,
       contacts: null
     },

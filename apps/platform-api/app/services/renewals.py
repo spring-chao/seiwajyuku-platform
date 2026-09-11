@@ -20,6 +20,7 @@ from app.services.renewal_support_network import (
     list_renewal_support_requests,
     support_status,
 )
+from app.services.shuku_business_config import get_annual_member_service_fee
 
 
 CENTER_IDS = {
@@ -1930,6 +1931,7 @@ def get_action_card(
     )
     memories = verified_member_memories(cycle["member_id"], limit=4, as_of=current_date)
     strategy = _renewal_action_strategy(stage["code"], latest_followup=latest)
+    annual_service_fee = get_annual_member_service_fee(cycle["member_org_unit_id"])
     salutation = (
         cycle["member_name"]
         if str(cycle["member_name"]).endswith(("学长", "学姐"))
@@ -2008,6 +2010,7 @@ def get_action_card(
             "referrer": cycle.get("referrer"),
             "referrer_center": cycle.get("referrer_center"),
         },
+        "annual_service_fee": annual_service_fee,
         "stage": stage,
         "latest_followup": latest,
         "current_context": {
@@ -2041,7 +2044,7 @@ def get_action_card(
             "memory_fallback_used": not bool(memories),
             "join_date_available": bool(join_date),
         },
-        "policy": "阶段由后端月份规则决定；建议仅使用已验证经历，不包含手机号或明确金额，不自动修改续费数据。",
+        "policy": "阶段由后端月份规则决定；年度学员服务费只读取塾级业务配置，建议仅使用已验证经历，不自动修改续费数据。",
     }
     with transaction() as connection:
         write_audit(

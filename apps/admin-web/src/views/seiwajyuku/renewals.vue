@@ -1591,6 +1591,25 @@ onMounted(async () => {
             </div>
           </div>
 
+          <el-alert
+            v-if="actionCard.annual_service_fee.status === 'READY'"
+            title="年度学员服务费"
+            :description="`学员服务费：${actionCard.annual_service_fee.amount} ${actionCard.annual_service_fee.unit}；适用于首次入塾及年度续费。`"
+            type="info"
+            :closable="false"
+            show-icon
+            class="annual-service-fee-alert"
+          />
+          <el-alert
+            v-else
+            title="年度学员服务费资料暂未配置"
+            description="当前塾的费用配置尚未确认；请联系业务负责人，不要自行推断或发送金额。"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="annual-service-fee-alert"
+          />
+
           <div class="today-advice">
             <span>今日建议</span>
             <strong>
@@ -2628,6 +2647,9 @@ onMounted(async () => {
   gap: 7px;
   color: #657a71;
   font-size: 13px;
+}
+.annual-service-fee-alert {
+  margin-top: 18px;
 }
 .today-advice {
   padding: 18px 20px;

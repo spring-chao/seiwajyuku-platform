@@ -249,6 +249,7 @@ class EnrollmentApplicationTests(unittest.TestCase):
         data = response.json()["data"]
         self.assertEqual(data["fee_amount"], "4800")
         self.assertEqual(data["fee_unit"], "元/人/年")
+        self.assertEqual(data["fee_applies_to"], ["ENROLLMENT", "RENEWAL"])
         self.assertEqual(data["service_address"], "常州测试服务地址")
         self.assertEqual(
             data["contacts"],

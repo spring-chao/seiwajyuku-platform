@@ -65,6 +65,7 @@ assert.match(js, /target_shuku_org_unit_id=\$\{encodeURIComponent/);
 assert.match(wxml, /请选择您准备加入的塾/);
 assert.match(wxml, /BUSINESS_CONFIG_REQUIRED/);
 assert.match(wxml, /formMeta\.fee_amount/);
+assert.match(wxml, /适用于首次入塾及年度续费/);
 assert.match(wxml, /formMeta\.contacts/);
 assert.match(js, /copyPaymentAccount/);
 assert.match(js, /copyContactPhone/);

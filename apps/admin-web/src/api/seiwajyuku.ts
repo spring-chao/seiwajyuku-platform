@@ -1395,6 +1395,13 @@ export type RenewalActionCard = {
     referrer?: string | null;
     referrer_center?: string | null;
   };
+  annual_service_fee: {
+    status: "READY" | "BUSINESS_CONFIG_REQUIRED";
+    code: "BUSINESS_CONFIG_REQUIRED" | null;
+    amount?: string | null;
+    unit?: string | null;
+    applies_to: ("ENROLLMENT" | "RENEWAL")[];
+  };
   stage: RenewalStage;
   latest_followup?: {
     id: number;

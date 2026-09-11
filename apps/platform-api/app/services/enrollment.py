@@ -21,6 +21,10 @@ from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
 from app.services.organization_policy import is_valid_member_primary_org
 from app.services.members import create_member
+from app.services.shuku_business_config import (
+    ANNUAL_MEMBER_SERVICE_FEE_APPLIES_TO,
+    normalize_fee_amount,
+)
 
 
 PUBLIC_SUCCESS_MESSAGE = "申请已提交，请等待工作人员联系。"
@@ -782,6 +786,7 @@ def _public_shuku_profile(target_shuku_org_unit_id: str | None) -> dict[str, Any
         "payment": None,
         "fee_amount": None,
         "fee_unit": None,
+        "fee_applies_to": [],
         "service_address": None,
         "contact": None,
         "contacts": None,
@@ -874,13 +879,14 @@ def _public_shuku_profile(target_shuku_org_unit_id: str | None) -> dict[str, Any
     fee_amount = terms.get("fee_amount")
     if fee_amount in (None, ""):
         fee_amount = row.get("fee_amount")
-    if fee_amount not in (None, ""):
-        try:
-            fee_amount = format(Decimal(str(fee_amount)).normalize(), "f")
-        except (InvalidOperation, ValueError):
-            fee_amount = str(fee_amount)
+    fee_amount = normalize_fee_amount(fee_amount)
     fee_unit = terms.get("fee_unit") or row.get("fee_unit")
     service_address = terms.get("service_address") or row.get("service_address")
+    fee_applies_to = (
+        list(ANNUAL_MEMBER_SERVICE_FEE_APPLIES_TO)
+        if fee_amount and fee_unit
+        else []
+    )
     return {
         "status": "READY",
         "code": None,
@@ -890,6 +896,7 @@ def _public_shuku_profile(target_shuku_org_unit_id: str | None) -> dict[str, Any
         "payment": payment or None,
         "fee_amount": fee_amount,
         "fee_unit": fee_unit,
+        "fee_applies_to": fee_applies_to,
         "service_address": service_address,
         "contact": contact or None,
         "contacts": contacts or None,
@@ -982,6 +989,7 @@ def get_public_enrollment_form(
         "contact": shuku_profile.get("contact"),
         "fee_amount": shuku_profile.get("fee_amount"),
         "fee_unit": shuku_profile.get("fee_unit"),
+        "fee_applies_to": shuku_profile.get("fee_applies_to"),
         "service_address": shuku_profile.get("service_address"),
         "contacts": shuku_profile.get("contacts"),
     }

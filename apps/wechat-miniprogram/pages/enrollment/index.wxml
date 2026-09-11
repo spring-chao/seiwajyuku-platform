@@ -242,6 +242,7 @@
           <view wx:if="{{formMeta.joining_notice}}">{{formMeta.joining_notice}}</view>
           <view wx:if="{{formMeta.payment_instructions}}" class="rules-paragraph">{{formMeta.payment_instructions}}</view>
           <view wx:if="{{formMeta.fee_amount}}">学员服务费：{{formMeta.fee_amount}} {{formMeta.fee_unit}}</view>
+          <view wx:if="{{formMeta.fee_amount}}" class="fee-scope">适用于首次入塾及年度续费</view>
           <view wx:if="{{formMeta.payment && formMeta.payment.payee_name}}">收款户名：{{formMeta.payment.payee_name}}</view>
           <view wx:if="{{formMeta.payment && formMeta.payment.bank_name}}">开户行：{{formMeta.payment.bank_name}}</view>
           <view wx:if="{{formMeta.payment && formMeta.payment.bank_account}}" class="copyable-line">

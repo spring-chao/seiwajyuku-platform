@@ -10,11 +10,22 @@ from app.migrations import MIGRATION_ROOT
 FORWARD = (
     MIGRATION_ROOT / "sqlite" / "0062_seed_confirmed_shuku_business_configs.sql"
 )
+FORWARD_0063 = (
+    MIGRATION_ROOT
+    / "sqlite"
+    / "0063_complete_changzhou_wuxi_fee_and_service_address.sql"
+)
 ROLLBACK = (
     MIGRATION_ROOT
     / "rollback"
     / "sqlite"
     / "0062_seed_confirmed_shuku_business_configs.down.sql"
+)
+ROLLBACK_0063 = (
+    MIGRATION_ROOT
+    / "rollback"
+    / "sqlite"
+    / "0063_complete_changzhou_wuxi_fee_and_service_address.down.sql"
 )
 
 
@@ -92,5 +103,68 @@ def test_0062_is_idempotent_and_rollback_refuses_to_discard_confirmed_data() -> 
         assert connection.execute(
             "SELECT COUNT(*) FROM enrollment_shuku_profiles"
         ).fetchone()[0] == 3
+    finally:
+        connection.close()
+
+
+def test_0063_completes_all_three_annual_fees_and_confirmed_addresses() -> None:
+    connection = _connection_before_0062()
+    try:
+        connection.executescript(FORWARD.read_text(encoding="utf-8"))
+        connection.executescript(FORWARD_0063.read_text(encoding="utf-8"))
+        connection.executescript(FORWARD_0063.read_text(encoding="utf-8"))
+        rows = connection.execute(
+            "SELECT shuku_org_unit_id, fee_amount, fee_unit, service_address "
+            "FROM enrollment_shuku_profile_terms ORDER BY shuku_org_unit_id"
+        ).fetchall()
+        assert [(row["shuku_org_unit_id"], row["fee_amount"], row["fee_unit"]) for row in rows] == [
+            ("org-changzhou", 4800, "元/人/年"),
+            ("org-suzhou", 4800, "元/人/年"),
+            ("org-wuxi", 4800, "元/人/年"),
+        ]
+        addresses = {
+            row["shuku_org_unit_id"]: row["service_address"]
+            for row in rows
+        }
+        assert addresses == {
+            "org-changzhou": "常州市天宁区青洋北路与西歧路交叉口西南140米福北工业园",
+            "org-suzhou": "苏州市高新区竹园路189号2幢102室2楼",
+            "org-wuxi": "无锡市滨湖区雪浪街道蠡湖大道2008号（蠡湖大道与震泽路交叉口）中邦蠡湖商务园35号",
+        }
+    finally:
+        connection.close()
+
+
+def test_0063_refuses_to_overwrite_or_rollback_business_edits() -> None:
+    connection = _connection_before_0062()
+    try:
+        connection.executescript(FORWARD.read_text(encoding="utf-8"))
+        connection.execute(
+            "UPDATE enrollment_shuku_profile_terms SET fee_amount=5000 "
+            "WHERE shuku_org_unit_id='org-changzhou'"
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.executescript(FORWARD_0063.read_text(encoding="utf-8"))
+        assert connection.execute(
+            "SELECT fee_amount FROM enrollment_shuku_profile_terms "
+            "WHERE shuku_org_unit_id='org-changzhou'"
+        ).fetchone()[0] == 5000
+    finally:
+        connection.close()
+
+    connection = _connection_before_0062()
+    try:
+        connection.executescript(FORWARD.read_text(encoding="utf-8"))
+        connection.executescript(FORWARD_0063.read_text(encoding="utf-8"))
+        connection.execute(
+            "UPDATE enrollment_shuku_profile_terms SET service_address='业务后来确认的新地址' "
+            "WHERE shuku_org_unit_id='org-wuxi'"
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.executescript(ROLLBACK_0063.read_text(encoding="utf-8"))
+        assert connection.execute(
+            "SELECT service_address FROM enrollment_shuku_profile_terms "
+            "WHERE shuku_org_unit_id='org-wuxi'"
+        ).fetchone()[0] == "业务后来确认的新地址"
     finally:
         connection.close()

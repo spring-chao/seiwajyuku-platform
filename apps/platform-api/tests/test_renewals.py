@@ -214,6 +214,66 @@ def test_action_card_falls_back_without_inventing_activity_facts() -> None:
     assert "报告会" not in card["action"]["wechat_reference"]
 
 
+def test_renewal_action_card_reads_the_shared_annual_service_fee() -> None:
+    suffix = uuid4().hex[:8]
+    now = datetime.now(UTC).isoformat()
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    assert admin is not None
+    member_id: int
+    with transaction() as connection:
+        execute(
+            connection,
+            "INSERT OR IGNORE INTO enrollment_shuku_profiles"
+            "(shuku_org_unit_id, display_name, joining_notice, is_active, created_at, updated_at) "
+            "VALUES ('org-changzhou', '常州塾', '测试加入说明', 1, ?, ?)",
+            (now, now),
+        )
+        execute(
+            connection,
+            "INSERT INTO enrollment_shuku_profile_terms"
+            "(shuku_org_unit_id, fee_amount, fee_unit, service_address, is_active, created_at, updated_at) "
+            "VALUES ('org-changzhou', 4800, '元/人/年', '常州测试服务地址', 1, ?, ?) "
+            "ON CONFLICT(shuku_org_unit_id) DO UPDATE SET fee_amount=excluded.fee_amount, "
+            "fee_unit=excluded.fee_unit, service_address=excluded.service_address, "
+            "is_active=excluded.is_active, updated_at=excluded.updated_at",
+            (now, now),
+        )
+        member_id = int(
+            execute(
+                connection,
+                "INSERT INTO members(member_code, name, org_unit_id, status, "
+                "join_date, created_at, updated_at) "
+                "VALUES (?, '共享费用续费测试学长', 'org-changzhou', 'ACTIVE', ?, ?, ?)",
+                (f"SHARED-FEE-{suffix}", "2095-03-18", now, now),
+            ).lastrowid
+        )
+        cycle_id = int(
+            execute(
+                connection,
+                "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, "
+                "due_month, status, assigned_user_id, created_at, updated_at) "
+                "VALUES (?, 2099, 'org-changzhou', 11, 'IN_COMMUNICATION', ?, ?, ?)",
+                (member_id, admin["id"], now, now),
+            ).lastrowid
+        )
+    user_id = create_user(
+        admin["id"],
+        username=f"shared-fee-renewal-{suffix}",
+        display_name="共享费用续费测试",
+        password="shared-fee-renewal-password",
+        roles=["ops_center_operations"],
+        scopes=[{"scope_type": "SUBTREE", "org_unit_id": "org-changzhou"}],
+    )
+    card = get_action_card(cycle_id, user_id, as_of=date(2099, 8, 19))
+    assert card["annual_service_fee"] == {
+        "status": "READY",
+        "code": None,
+        "amount": "4800",
+        "unit": "元/人/年",
+        "applies_to": ["ENROLLMENT", "RENEWAL"],
+    }
+
+
 def _today_actions_fixture() -> tuple[int, str, int, str]:
     suffix = uuid4().hex[:8]
     center_id = f"renewal-today-center-{suffix}"
