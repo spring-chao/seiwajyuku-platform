@@ -67,6 +67,8 @@ class EnrollmentApplicationTests(unittest.TestCase):
             execute(connection, "DELETE FROM member_enrollment_submission_guards")
             execute(connection, "DELETE FROM member_enrollment_applications")
             execute(connection, "DELETE FROM member_enrollment_links")
+            execute(connection, "DELETE FROM enrollment_shuku_contacts")
+            execute(connection, "DELETE FROM enrollment_shuku_profile_terms")
             execute(connection, "DELETE FROM enrollment_shuku_profiles")
 
     def _create_link(self) -> tuple[int, str]:
@@ -199,6 +201,63 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertEqual(data["joining_notice"], "无锡加入说明（测试）")
         self.assertEqual(data["payment"]["bank_account"], "TEST-ACCOUNT")
         self.assertEqual(data["contact"]["contact_name"], "测试联系人")
+
+    def test_public_form_returns_profile_terms_and_multiple_contacts(self) -> None:
+        _, token = self._create_link()
+        now = datetime.now(UTC).isoformat()
+        with transaction() as connection:
+            execute(
+                connection,
+                "INSERT INTO enrollment_shuku_profiles"
+                "(shuku_org_unit_id, display_name, joining_notice, payment_instructions, "
+                "payee_name, bank_name, bank_account, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+                (
+                    "org-changzhou",
+                    "常州塾",
+                    "常州加入说明（测试）",
+                    None,
+                    "测试收款主体",
+                    "测试开户行",
+                    "TEST-CHANGZHOU",
+                    now,
+                    now,
+                ),
+            )
+            execute(
+                connection,
+                "INSERT INTO enrollment_shuku_profile_terms"
+                "(shuku_org_unit_id, fee_amount, fee_unit, service_address, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, 1, ?, ?)",
+                ("org-changzhou", "4800.00", "元/人/年", "常州测试服务地址", now, now),
+            )
+            execute(
+                connection,
+                "INSERT INTO enrollment_shuku_contacts"
+                "(shuku_org_unit_id, contact_name, contact_phone, sort_order, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, 1, ?, ?), (?, ?, ?, ?, 1, ?, ?)",
+                (
+                    "org-changzhou", "常夏", "15380081186", 10, now, now,
+                    "org-changzhou", "常德", "15366836286", 20, now, now,
+                ),
+            )
+        response = self.client.get(
+            f"/api/v1/public/enrollment/{token}",
+            params={"target_shuku_org_unit_id": "org-changzhou"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()["data"]
+        self.assertEqual(data["fee_amount"], "4800")
+        self.assertEqual(data["fee_unit"], "元/人/年")
+        self.assertEqual(data["service_address"], "常州测试服务地址")
+        self.assertEqual(
+            data["contacts"],
+            [
+                {"name": "常夏", "phone": "15380081186", "sort_order": 10},
+                {"name": "常德", "phone": "15366836286", "sort_order": 20},
+            ],
+        )
+        self.assertEqual(data["contact"]["contact_name"], "常夏")
 
     def test_target_shuku_is_required_for_generic_links_and_locked_for_shuku_links(self) -> None:
         generic_id, generic_token = self._create_link()

@@ -92,7 +92,11 @@ Page({
       joining_notice: null,
       payment_instructions: null,
       payment: null,
-      contact: null
+      contact: null,
+      fee_amount: null,
+      fee_unit: null,
+      service_address: null,
+      contacts: null
     },
     purposeItems: [
       {
@@ -249,7 +253,9 @@ Page({
 
   changeTargetShuku() {
     if (this.data.targetShukuLocked) return;
-    this.setData({ state: "selecting" });
+    // The section-05 content changes with the target shuku, so a prior
+    // acknowledgement must not silently carry over to a new profile.
+    this.setData({ state: "selecting", rulesAcknowledged: false });
   },
 
   handleBirthdayChange(event) {
@@ -326,6 +332,24 @@ Page({
       content: this.data.formMeta.privacy_notice,
       showCancel: false,
       confirmText: "我已了解"
+    });
+  },
+
+  copyPaymentAccount(event) {
+    const value = event && event.currentTarget && event.currentTarget.dataset.value;
+    if (!value) return;
+    wx.setClipboardData({
+      data: String(value),
+      success: () => wx.showToast({ title: "账号已复制", icon: "success" })
+    });
+  },
+
+  copyContactPhone(event) {
+    const value = event && event.currentTarget && event.currentTarget.dataset.phone;
+    if (!value) return;
+    wx.setClipboardData({
+      data: String(value),
+      success: () => wx.showToast({ title: "号码已复制", icon: "success" })
     });
   },
 

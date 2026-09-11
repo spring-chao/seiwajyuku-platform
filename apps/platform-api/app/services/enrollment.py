@@ -8,7 +8,7 @@ import re
 import secrets
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -776,18 +776,23 @@ def _public_shuku_profile(target_shuku_org_unit_id: str | None) -> dict[str, Any
     missing = {
         "status": "BUSINESS_CONFIG_REQUIRED",
         "code": "BUSINESS_CONFIG_REQUIRED",
+        "display_name": None,
         "joining_notice": None,
         "payment_instructions": None,
         "payment": None,
+        "fee_amount": None,
+        "fee_unit": None,
+        "service_address": None,
         "contact": None,
+        "contacts": None,
     }
     if not target_shuku_org_unit_id:
         return missing
     try:
+        # SELECT * keeps the endpoint compatible while 0062 is rolling out:
+        # 0061 clients/databases only have the original profile columns.
         row = fetch_one(
-            "SELECT display_name, joining_notice, payment_instructions, "
-            "payee_name, bank_name, bank_account, contact_name, contact_phone, "
-            "contact_address FROM enrollment_shuku_profiles "
+            "SELECT * FROM enrollment_shuku_profiles "
             "WHERE shuku_org_unit_id=? AND is_active=1 LIMIT 1",
             (target_shuku_org_unit_id,),
         )
@@ -805,11 +810,77 @@ def _public_shuku_profile(target_shuku_org_unit_id: str | None) -> dict[str, Any
         for key in ("payee_name", "bank_name", "bank_account")
         if row.get(key)
     }
+    def _missing_table(exc: Exception) -> bool:
+        message = str(exc).lower()
+        return "no such table" in message or "doesn't exist" in message
+
+    terms: dict[str, Any] = {}
+    try:
+        terms = fetch_one(
+            "SELECT fee_amount, fee_unit, service_address "
+            "FROM enrollment_shuku_profile_terms "
+            "WHERE shuku_org_unit_id=? AND is_active=1 LIMIT 1",
+            (target_shuku_org_unit_id,),
+        ) or {}
+    except Exception as exc:
+        if not _missing_table(exc):
+            raise
+
+    contact_rows: list[dict[str, Any]] = []
+    try:
+        contact_rows = fetch_all(
+            "SELECT contact_name, contact_phone, sort_order "
+            "FROM enrollment_shuku_contacts "
+            "WHERE shuku_org_unit_id=? AND is_active=1 "
+            "ORDER BY sort_order, id",
+            (target_shuku_org_unit_id,),
+        )
+    except Exception as exc:
+        if not _missing_table(exc):
+            raise
+
+    contacts = [
+        {
+            "name": item.get("contact_name"),
+            "phone": item.get("contact_phone"),
+            "sort_order": int(item.get("sort_order") or 0),
+        }
+        for item in contact_rows
+        if item.get("contact_name") or item.get("contact_phone")
+    ]
+    # 0061 stored one optional contact on the profile row. Keep it as a
+    # compatibility fallback until all environments have the 0062 table.
+    if not contacts and (row.get("contact_name") or row.get("contact_phone")):
+        contacts = [
+            {
+                "name": row.get("contact_name"),
+                "phone": row.get("contact_phone"),
+                "sort_order": 0,
+            }
+        ]
+    first_contact = contacts[0] if contacts else None
     contact = {
-        key: row.get(key)
-        for key in ("contact_name", "contact_phone", "contact_address")
-        if row.get(key)
+        "contact_name": first_contact.get("name")
+        if first_contact
+        else row.get("contact_name"),
+        "contact_phone": first_contact.get("phone")
+        if first_contact
+        else row.get("contact_phone"),
+        "contact_address": row.get("contact_address")
+        or terms.get("service_address"),
     }
+    contact = {key: value for key, value in contact.items() if value}
+
+    fee_amount = terms.get("fee_amount")
+    if fee_amount in (None, ""):
+        fee_amount = row.get("fee_amount")
+    if fee_amount not in (None, ""):
+        try:
+            fee_amount = format(Decimal(str(fee_amount)).normalize(), "f")
+        except (InvalidOperation, ValueError):
+            fee_amount = str(fee_amount)
+    fee_unit = terms.get("fee_unit") or row.get("fee_unit")
+    service_address = terms.get("service_address") or row.get("service_address")
     return {
         "status": "READY",
         "code": None,
@@ -817,7 +888,11 @@ def _public_shuku_profile(target_shuku_org_unit_id: str | None) -> dict[str, Any
         "joining_notice": row.get("joining_notice"),
         "payment_instructions": row.get("payment_instructions"),
         "payment": payment or None,
+        "fee_amount": fee_amount,
+        "fee_unit": fee_unit,
+        "service_address": service_address,
         "contact": contact or None,
+        "contacts": contacts or None,
     }
 
 
@@ -905,6 +980,10 @@ def get_public_enrollment_form(
         "payment_instructions": shuku_profile.get("payment_instructions"),
         "payment": shuku_profile.get("payment"),
         "contact": shuku_profile.get("contact"),
+        "fee_amount": shuku_profile.get("fee_amount"),
+        "fee_unit": shuku_profile.get("fee_unit"),
+        "service_address": shuku_profile.get("service_address"),
+        "contacts": shuku_profile.get("contacts"),
     }
 
 

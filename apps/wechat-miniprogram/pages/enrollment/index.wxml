@@ -241,13 +241,22 @@
         <view wx:if="{{formMeta.business_config_status === 'READY'}}">
           <view wx:if="{{formMeta.joining_notice}}">{{formMeta.joining_notice}}</view>
           <view wx:if="{{formMeta.payment_instructions}}" class="rules-paragraph">{{formMeta.payment_instructions}}</view>
+          <view wx:if="{{formMeta.fee_amount}}">学员服务费：{{formMeta.fee_amount}} {{formMeta.fee_unit}}</view>
           <view wx:if="{{formMeta.payment && formMeta.payment.payee_name}}">收款户名：{{formMeta.payment.payee_name}}</view>
           <view wx:if="{{formMeta.payment && formMeta.payment.bank_name}}">开户行：{{formMeta.payment.bank_name}}</view>
-          <view wx:if="{{formMeta.payment && formMeta.payment.bank_account}}">收款账号：{{formMeta.payment.bank_account}}</view>
-          <view wx:if="{{formMeta.contact && formMeta.contact.contact_name}}" class="rules-heading">如有疑问请联系</view>
-          <view wx:if="{{formMeta.contact && formMeta.contact.contact_name}}">联系人：{{formMeta.contact.contact_name}}</view>
-          <view wx:if="{{formMeta.contact && formMeta.contact.contact_phone}}">联系电话：{{formMeta.contact.contact_phone}}</view>
-          <view wx:if="{{formMeta.contact && formMeta.contact.contact_address}}">联系地址：{{formMeta.contact.contact_address}}</view>
+          <view wx:if="{{formMeta.payment && formMeta.payment.bank_account}}" class="copyable-line">
+            <text>收款账号：{{formMeta.payment.bank_account}}</text>
+            <button class="copy-button" size="mini" data-value="{{formMeta.payment.bank_account}}" bindtap="copyPaymentAccount">复制</button>
+          </view>
+          <view wx:if="{{formMeta.contacts && formMeta.contacts.length}}" class="rules-heading">咨询联系</view>
+          <view wx:if="{{formMeta.contacts && formMeta.contacts.length}}" wx:for="{{formMeta.contacts}}" wx:key="phone" class="copyable-line contact-line">
+            <text>{{item.name}}：{{item.phone}}</text>
+            <button class="copy-button" size="mini" data-phone="{{item.phone}}" bindtap="copyContactPhone">复制号码</button>
+          </view>
+          <view wx:if="{{!(formMeta.contacts && formMeta.contacts.length) && formMeta.contact && formMeta.contact.contact_name}}" class="rules-heading">如有疑问请联系</view>
+          <view wx:if="{{!(formMeta.contacts && formMeta.contacts.length) && formMeta.contact && formMeta.contact.contact_name}}">联系人：{{formMeta.contact.contact_name}}</view>
+          <view wx:if="{{!(formMeta.contacts && formMeta.contacts.length) && formMeta.contact && formMeta.contact.contact_phone}}">联系电话：{{formMeta.contact.contact_phone}}</view>
+          <view wx:if="{{formMeta.service_address || (formMeta.contact && formMeta.contact.contact_address)}}">运营服务地址：{{formMeta.service_address || formMeta.contact.contact_address}}</view>
         </view>
         <view wx:else class="config-warning">当前塾的加入、缴费和联系资料尚未配置（BUSINESS_CONFIG_REQUIRED），请先联系工作人员确认。平台不会展示未经确认的收款账号或联系人。</view>
       </view>

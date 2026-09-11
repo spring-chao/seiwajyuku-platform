@@ -64,8 +64,25 @@ assert.match(js, /state: "selecting"/);
 assert.match(js, /target_shuku_org_unit_id=\$\{encodeURIComponent/);
 assert.match(wxml, /请选择您准备加入的塾/);
 assert.match(wxml, /BUSINESS_CONFIG_REQUIRED/);
-assert.doesNotMatch(wxml, /无锡稻合企业管理顾问有限公司/);
-assert.doesNotMatch(wxml, /512914112210201/);
-assert.doesNotMatch(wxml, /199-8486-4833/);
+assert.match(wxml, /formMeta\.fee_amount/);
+assert.match(wxml, /formMeta\.contacts/);
+assert.match(js, /copyPaymentAccount/);
+assert.match(js, /copyContactPhone/);
+assert.match(js, /state: "selecting", rulesAcknowledged: false/);
+for (const businessValue of [
+  "无锡稻合企业管理顾问有限公司",
+  "512914112210201",
+  "8110501011602342242",
+  "1103054509100146820",
+  "19984864833",
+  "13776052728",
+  "15380081186",
+  "15366836286",
+  "18051598063",
+  "18021183718"
+]) {
+  assert.doesNotMatch(js, new RegExp(businessValue));
+  assert.doesNotMatch(wxml, new RegExp(businessValue));
+}
 
 console.log("enrollment form mini-program tests passed");

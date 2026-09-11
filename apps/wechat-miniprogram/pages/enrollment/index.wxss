@@ -473,6 +473,37 @@ page {
   font-weight: 600;
 }
 
+.copyable-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.contact-line {
+  margin-top: 12rpx;
+}
+
+.copyable-line text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
+}
+
+.copy-button {
+  flex: 0 0 auto;
+  min-width: 108rpx;
+  height: 52rpx;
+  margin: 0;
+  padding: 0 14rpx;
+  border: 1rpx solid #b99a62;
+  border-radius: 12rpx;
+  color: #762230;
+  background: #fffaf1;
+  font-size: 22rpx;
+  line-height: 50rpx;
+}
+
 .consent-row {
   display: flex;
   align-items: flex-start;
