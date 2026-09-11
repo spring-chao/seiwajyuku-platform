@@ -1,5 +1,5 @@
 -- 0062: seed the business-confirmed public enrollment profiles.
--- 0061 remains the empty profile capability; this migration records the
+-- 0061 remains the empty profile capability. This migration records the
 -- confirmed facts for Suzhou, Changzhou and Wuxi only.
 
 CREATE TABLE IF NOT EXISTS enrollment_shuku_profile_terms (
