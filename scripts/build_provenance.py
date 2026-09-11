@@ -56,6 +56,26 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _sha256_file_variants(path: Path) -> set[str]:
+    """Return raw and newline-normalized hashes for text migrations.
+
+    The migration traceability manifest fingerprints the Git blob (LF
+    endings).  A Windows checkout with ``core.autocrlf=true`` presents the
+    same tracked SQL as CRLF, so validating only the working-tree bytes would
+    reject an unchanged migration.  Accept only the raw bytes and the two
+    equivalent CRLF/LF representations; all other content changes still
+    produce a different hash.
+    """
+
+    data = path.read_bytes()
+    variants = {data}
+    if b"\r\n" in data or b"\n" in data:
+        lf = data.replace(b"\r\n", b"\n")
+        variants.add(lf)
+        variants.add(lf.replace(b"\n", b"\r\n"))
+    return {hashlib.sha256(item).hexdigest() for item in variants}
+
+
 def validate_migration_manifest(path: Path, repo_root: Path) -> dict[str, Any]:
     """Validate the checked-in migration traceability manifest and file hashes."""
 
@@ -89,7 +109,7 @@ def validate_migration_manifest(path: Path, repo_root: Path) -> dict[str, Any]:
                 file_path = (repo_root / relative_path).resolve()
                 if repo_root.resolve() not in file_path.parents or not file_path.is_file():
                     raise RuntimeError(f"migration manifest 引用文件不存在：{relative_path}")
-                if _sha256_file(file_path) != expected_hash.lower():
+                if expected_hash.lower() not in _sha256_file_variants(file_path):
                     raise RuntimeError(f"migration manifest 文件 SHA 不一致：{relative_path}")
     if not seen:
         raise RuntimeError("migration manifest 不能是空清单")

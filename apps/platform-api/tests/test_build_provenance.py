@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 
@@ -29,6 +30,17 @@ def test_r11_migration_manifest_validates_all_recovered_files():
         "0041",
         "0042",
     ]
+
+
+def test_migration_hash_accepts_checkout_newline_variants_but_not_content_changes(tmp_path):
+    migration = tmp_path / "sample.sql"
+    migration.write_bytes(b"-- sample\r\nSELECT 1;\r\n")
+
+    expected_lf = hashlib.sha256(b"-- sample\nSELECT 1;\n").hexdigest()
+    assert expected_lf in build_provenance._sha256_file_variants(migration)
+
+    migration.write_bytes(b"-- sample\r\nSELECT 2;\r\n")
+    assert expected_lf not in build_provenance._sha256_file_variants(migration)
 
 
 def test_manifest_cli_defaults_to_pending_without_explicit_ci_result():
