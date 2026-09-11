@@ -1,8 +1,8 @@
 <view class="page-shell">
   <view class="hero-card">
     <view class="eyebrow">身份确认</view>
-    <view class="hero-title">绑定我的学员身份</view>
-    <view class="hero-copy">输入正式入塾时登记的姓名和手机号；如刚刚解除绑定，也可以在这里重新确认新的学员身份。系统只会显示最小脱敏信息，不会公开查询其他学员。</view>
+    <view class="hero-title">绑定我的身份</view>
+    <view class="hero-copy">输入系统登记的姓名和手机号，平台会在江南统一人员资料中确认您的学员、志工或专职人员身份。工作人员首次绑定还需要允许微信验证手机号。</view>
   </view>
   <view class="section-card">
     <view class="field-row">
@@ -13,8 +13,7 @@
       <view class="field-label">手机号</view>
       <input class="field-input" always-embed="true" placeholder-class="field-input-placeholder" placeholder-style="color:#b7aaaa;" type="number" maxlength="11" data-field="phone" bindinput="handleInput" placeholder="请输入登记手机号" style="color:#3d2a2a;caret-color:#741f2b;background-color:#ffffff;" />
     </view>
-    <button class="primary-button" loading="{{loading}}" disabled="{{loading}}" bindtap="bindIdentity">微信登录并确认绑定</button>
-    <button class="plain-button" bindtap="openStaffBind">我是工作人员，使用后台账号确认</button>
+    <button class="primary-button" open-type="getPhoneNumber" loading="{{loading}}" disabled="{{loading}}" bindgetphonenumber="bindIdentity">验证并绑定</button>
   </view>
-  <view class="privacy-copy">绑定成功后，微信身份只作为登录凭证；平台学习记录始终归属于正式学员 member_id。</view>
+  <view class="privacy-copy">绑定成功后，微信身份只作为登录凭证；平台记录始终归属于统一人员身份。您不需要选择塾或身份类型。</view>
 </view>

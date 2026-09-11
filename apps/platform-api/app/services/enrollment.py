@@ -765,12 +765,78 @@ def _resolve_public_link(token: str) -> dict[str, Any] | None:
     return link
 
 
-def get_public_enrollment_form(token: str) -> dict[str, Any]:
+def _public_shuku_profile(target_shuku_org_unit_id: str | None) -> dict[str, Any]:
+    """Return the configured, public-facing profile for one target shuku.
+
+    Payment and contact details are business-owned configuration.  An empty
+    or not-yet-migrated profile is deliberately represented as a missing
+    configuration instead of falling back to a value embedded in the client.
+    """
+
+    missing = {
+        "status": "BUSINESS_CONFIG_REQUIRED",
+        "code": "BUSINESS_CONFIG_REQUIRED",
+        "joining_notice": None,
+        "payment_instructions": None,
+        "payment": None,
+        "contact": None,
+    }
+    if not target_shuku_org_unit_id:
+        return missing
+    try:
+        row = fetch_one(
+            "SELECT display_name, joining_notice, payment_instructions, "
+            "payee_name, bank_name, bank_account, contact_name, contact_phone, "
+            "contact_address FROM enrollment_shuku_profiles "
+            "WHERE shuku_org_unit_id=? AND is_active=1 LIMIT 1",
+            (target_shuku_org_unit_id,),
+        )
+    except Exception as exc:
+        # Keep rolling deployments safe when the additive profile migration is
+        # still being applied.  Do not turn a missing table into a 500.
+        message = str(exc).lower()
+        if "no such table" not in message and "doesn't exist" not in message:
+            raise
+        return missing
+    if not row or not str(row.get("joining_notice") or "").strip():
+        return missing
+    payment = {
+        key: row.get(key)
+        for key in ("payee_name", "bank_name", "bank_account")
+        if row.get(key)
+    }
+    contact = {
+        key: row.get(key)
+        for key in ("contact_name", "contact_phone", "contact_address")
+        if row.get(key)
+    }
+    return {
+        "status": "READY",
+        "code": None,
+        "display_name": row.get("display_name"),
+        "joining_notice": row.get("joining_notice"),
+        "payment_instructions": row.get("payment_instructions"),
+        "payment": payment or None,
+        "contact": contact or None,
+    }
+
+
+def get_public_enrollment_form(
+    token: str,
+    requested_target_shuku_org_unit_id: str | None = None,
+) -> dict[str, Any]:
     link = _resolve_public_link(token)
     if not link:
         raise ValueError("申请链接无效或已停用")
-    target = _validate_target_shuku(link.get("target_shuku_org_unit_id"))
+    locked_target_id = link.get("target_shuku_org_unit_id")
+    if locked_target_id and requested_target_shuku_org_unit_id:
+        if str(locked_target_id) != str(requested_target_shuku_org_unit_id):
+            raise EnrollmentValidationError("该申请入口已锁定申请塾，不能更改")
+    target = _validate_target_shuku(
+        requested_target_shuku_org_unit_id or locked_target_id
+    )
     target_options = _target_shuku_options()
+    shuku_profile = _public_shuku_profile(target["id"] if target else None)
     return {
         "title": "新学长入塾申请",
         "link_name": link["name"],
@@ -829,7 +895,16 @@ def get_public_enrollment_form(token: str) -> dict[str, Any]:
         "target_shuku_options": target_options,
         "target_shuku_org_unit_id": target["id"] if target else None,
         "target_shuku_name": target["name"] if target else None,
-        "target_shuku_locked": bool(target),
+        "target_shuku_locked": bool(locked_target_id),
+        "business_config_status": shuku_profile["status"],
+        "business_config_code": shuku_profile["code"],
+        "shuku_profile": shuku_profile,
+        # Keep the most useful fields at the top level for older clients and
+        # make the profile object the canonical source for new clients.
+        "joining_notice": shuku_profile.get("joining_notice"),
+        "payment_instructions": shuku_profile.get("payment_instructions"),
+        "payment": shuku_profile.get("payment"),
+        "contact": shuku_profile.get("contact"),
     }
 
 

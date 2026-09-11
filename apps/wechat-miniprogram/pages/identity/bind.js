@@ -14,7 +14,7 @@ Page({
     this.setData({ [field]: event.detail.value });
   },
 
-  async bindIdentity() {
+  async bindIdentity(event = {}) {
     const name = (this.data.name || "").trim();
     const phone = (this.data.phone || "").trim();
     if (!name || !/^1\d{10}$/.test(phone)) {
@@ -30,16 +30,33 @@ Page({
         });
       });
       if (!login.code) throw new Error("微信登录凭证获取失败，请重试");
-      const response = await request("/api/v1/wechat/member-bindings/verify", {
+      const phoneVerification = event && event.detail && event.detail.code
+        ? event.detail.code
+        : "";
+      const response = await request("/api/v1/wechat/person-bindings/verify", {
         method: "POST",
-        data: { code: login.code, name, phone }
+        data: {
+          wx_login_code: login.code,
+          name,
+          phone,
+          phone_verification: phoneVerification
+        }
       });
       const data = response.data || {};
-      app.setMemberSession(data.access_token);
+      app.setPersonSession(data.access_token);
       this.setData({ preview: data.member || null });
+      const identities = data.identities || {};
+      const labels = {
+        MEMBER: "学员",
+        VOLUNTEER: "志工",
+        OPERATIONS_EMPLOYEE: "专职人员"
+      };
+      const identityText = (identities.identity_kinds || [])
+        .map(item => labels[item] || item)
+        .join(" · ") || "人员身份";
       wx.showModal({
         title: "身份已绑定",
-        content: `${(data.member && data.member.name_masked) || '学员'}，${(data.member && data.member.class_name) || '当前暂无班级'}。`,
+        content: `${(data.member && data.member.name_masked) || name}：${identityText}。`,
         showCancel: false,
         success: () => wx.navigateBack({ delta: 1 })
       });
@@ -53,10 +70,5 @@ Page({
     } finally {
       this.setData({ loading: false });
     }
-  }
-  ,
-
-  openStaffBind() {
-    wx.navigateTo({ url: "/pages/identity/staff-bind" });
   }
 });

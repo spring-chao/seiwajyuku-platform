@@ -5,7 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.wechat_identity import WeChatProviderError, exchange_wechat_code
+from app.services.wechat_identity import (
+    WeChatProviderError,
+    exchange_wechat_code,
+    verify_wechat_phone_ownership,
+)
 
 
 def _mock_client(response: MagicMock) -> MagicMock:
@@ -67,3 +71,30 @@ def test_wechat_provider_success_returns_only_safe_identity_fields() -> None:
             "appid": "test-app-id",
             "openid": "openid-for-test",
         }
+
+
+def test_wechat_phone_ownership_uses_provider_phone_and_returns_boolean() -> None:
+    token_response = MagicMock(status_code=200)
+    token_response.json.return_value = {"access_token": "short-lived-token"}
+    phone_response = MagicMock(status_code=200)
+    phone_response.json.return_value = {
+        "phone_info": {"phoneNumber": "13800000000"}
+    }
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.get.return_value = token_response
+    client.post.return_value = phone_response
+    with patch.dict(
+        os.environ,
+        {
+            "APP_ENV": "test",
+            "WECHAT_LOCAL_TEST_MODE": "false",
+            "WECHAT_MINIPROGRAM_APP_ID": "test-app-id",
+            "WECHAT_MINIPROGRAM_APP_SECRET": "test-app-secret",
+        },
+    ), patch("app.services.wechat_identity.httpx.Client", return_value=client):
+        assert verify_wechat_phone_ownership("phone-code", "13800000000") is True
+        phone_response.json.return_value = {
+            "phone_info": {"phoneNumber": "13900000000"}
+        }
+        assert verify_wechat_phone_ownership("phone-code", "13800000000") is False

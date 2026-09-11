@@ -86,7 +86,13 @@ Page({
       subtitle: "欢迎您填写入塾申请资料",
       notice: "提交资料不代表已经正式入塾。工作人员审核资料、确认所属分中心及会费后，才会建立正式学员档案。",
       privacy_notice: "所填资料仅用于入塾审核与后续服务。手机号、税号和企业财务资料将按权限使用。",
-      target_shuku_options: []
+      target_shuku_options: [],
+      business_config_status: "TARGET_SHUKU_REQUIRED",
+      business_config_code: "BUSINESS_CONFIG_REQUIRED",
+      joining_notice: null,
+      payment_instructions: null,
+      payment: null,
+      contact: null
     },
     purposeItems: [
       {
@@ -188,18 +194,22 @@ Page({
     return "服务暂时不可用，请稍后重试。";
   },
 
-  async loadForm() {
+  async loadForm(requestedTargetId = "") {
     this.setData({ state: "loading" });
     try {
-      const response = await this.request(`/api/v1/public/enrollment/${encodeURIComponent(this.data.token)}`, { method: "GET" });
+      const query = requestedTargetId
+        ? `?target_shuku_org_unit_id=${encodeURIComponent(requestedTargetId)}`
+        : "";
+      const response = await this.request(`/api/v1/public/enrollment/${encodeURIComponent(this.data.token)}${query}`, { method: "GET" });
       const metadata = response.data || {};
+      const selectedTargetId = metadata.target_shuku_org_unit_id || "";
       this.setData({
-        state: "ready",
+        state: !metadata.target_shuku_locked && !selectedTargetId ? "selecting" : "ready",
         formMeta: { ...this.data.formMeta, ...metadata },
         targetShukuOptions: (metadata.target_shuku_options || []).map(item => item.name),
         targetShukuOptionIds: (metadata.target_shuku_options || []).map(item => item.id),
         targetShukuLocked: Boolean(metadata.target_shuku_locked),
-        "form.target_shuku_org_unit_id": metadata.target_shuku_org_unit_id || "",
+        "form.target_shuku_org_unit_id": selectedTargetId,
         industryOptions: metadata.industry_options || INDUSTRY_OPTIONS,
         politicalOptions: metadata.political_status_options || POLITICAL_OPTIONS,
         positionOptions: metadata.position_options || POSITION_OPTIONS,
@@ -226,6 +236,20 @@ Page({
     this.setData({
       "form.target_shuku_org_unit_id": this.data.targetShukuOptionIds[index] || ""
     });
+  },
+
+  async continueToForm() {
+    const targetId = this.data.form.target_shuku_org_unit_id;
+    if (!targetId) {
+      wx.showToast({ title: "请先选择准备加入的塾", icon: "none" });
+      return;
+    }
+    await this.loadForm(targetId);
+  },
+
+  changeTargetShuku() {
+    if (this.data.targetShukuLocked) return;
+    this.setData({ state: "selecting" });
   },
 
   handleBirthdayChange(event) {
@@ -406,7 +430,7 @@ Page({
   },
 
   retry() {
-    this.loadForm();
+    this.loadForm(this.data.targetShukuLocked ? this.data.form.target_shuku_org_unit_id : "");
   },
 
   onShareAppMessage() {

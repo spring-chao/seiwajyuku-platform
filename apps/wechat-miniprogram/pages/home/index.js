@@ -144,10 +144,6 @@ Page({
     wx.navigateTo({ url: "/pages/identity/bind" });
   },
 
-  openStaffBinding() {
-    wx.navigateTo({ url: "/pages/identity/staff-bind" });
-  },
-
   openLearning() {
     if (this.data.identityState !== "bound") return;
     wx.navigateTo({ url: "/pages/learning/index" });

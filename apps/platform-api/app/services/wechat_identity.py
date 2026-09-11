@@ -32,6 +32,13 @@ WECHAT_BINDING_NO_MATCH_MESSAGE = "姓名或手机号未匹配，请核对后重
 WECHAT_BINDING_AMBIGUOUS_MESSAGE = "姓名和手机号匹配到多名学员，请联系工作人员"
 WECHAT_BINDING_OPENID_CONFLICT_MESSAGE = "当前微信已绑定其他学员，请先解绑后再绑定"
 WECHAT_BINDING_MEMBER_CONFLICT_MESSAGE = "该学员已有微信绑定，如需更换请联系工作人员"
+WECHAT_PERSON_BINDING_NO_MATCH_MESSAGE = (
+    "未找到对应的在册学员或在职工作人员，请核对姓名和手机号。"
+)
+WECHAT_PERSON_BINDING_AMBIGUOUS_MESSAGE = "检测到重复身份资料，请联系工作人员核对。"
+WECHAT_STAFF_PHONE_REQUIRED_MESSAGE = (
+    "为保护工作人员权限，请先允许微信获取手机号后重试。"
+)
 
 
 class WeChatIdentityError(ValueError):
@@ -270,6 +277,74 @@ def exchange_wechat_code(code: str) -> dict[str, str]:
     }
 
 
+def _wechat_access_token() -> str:
+    """Get a short-lived app access token without exposing provider details."""
+
+    settings = get_settings()
+    if not settings.wechat_miniprogram_app_id or not settings.wechat_miniprogram_app_secret:
+        raise WeChatProviderError("微信手机号验证服务尚未配置")
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(
+                "https://api.weixin.qq.com/cgi-bin/token",
+                params={
+                    "grant_type": "client_credential",
+                    "appid": settings.wechat_miniprogram_app_id,
+                    "secret": settings.wechat_miniprogram_app_secret,
+                },
+            )
+            data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise WeChatProviderError("微信手机号验证服务暂时不可用，请稍后重试") from exc
+    access_token = data.get("access_token") if isinstance(data, dict) else None
+    if response.status_code != 200 or not access_token:
+        raise WeChatProviderError("微信手机号验证服务暂时不可用，请稍后重试")
+    return str(access_token)
+
+
+def verify_wechat_phone_ownership(
+    phone_verification: str | None,
+    expected_phone: str,
+) -> bool:
+    """Verify that the current WeChat user owns ``expected_phone``.
+
+    The local provider stub is intentionally limited to dev/test.  Production
+    calls the official ``getuserphonenumber`` endpoint and only compares the
+    normalized number; the raw number is never logged or returned.
+    """
+
+    cleaned_code = (phone_verification or "").strip()
+    if not cleaned_code:
+        return False
+    settings = get_settings()
+    expected = normalize_phone(expected_phone)
+    if settings.wechat_local_test_mode and settings.app_env in {"dev", "test"}:
+        return cleaned_code in {"local-test-phone", expected}
+    if len(cleaned_code) > 512:
+        return False
+    access_token = _wechat_access_token()
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                "https://api.weixin.qq.com/wxa/business/getuserphonenumber",
+                params={"access_token": access_token},
+                json={"code": cleaned_code},
+            )
+            data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise WeChatProviderError("微信手机号验证服务暂时不可用，请稍后重试") from exc
+    if response.status_code != 200 or not isinstance(data, dict) or data.get("errcode"):
+        raise WeChatProviderError("微信手机号验证服务暂时不可用，请稍后重试")
+    phone_info = data.get("phone_info")
+    provider_phone = phone_info.get("phoneNumber") if isinstance(phone_info, dict) else None
+    if not provider_phone:
+        return False
+    try:
+        return normalize_phone(str(provider_phone)) == expected
+    except ValueError:
+        return False
+
+
 def _upsert_person_binding(
     *,
     appid: str,
@@ -439,6 +514,155 @@ def verify_member_binding(*, code: str, name: str, phone: str) -> dict[str, Any]
         "access_token": _binding_token(binding_id, token_version),
         "expires_in": 7 * 24 * 60 * 60,
         "member": member,
+    }
+
+
+def resolve_person_by_name_phone(name: str, phone: str) -> list[dict[str, Any]]:
+    """Resolve natural-person candidates from the unified Jiangnan dataset.
+
+    Members and active staff are read from their canonical tables and then
+    deduplicated by the formal ``person_id``.  A member without a historical
+    person link remains a distinct candidate until the binding transaction can
+    create its formal identity; it is never guessed to be an existing staff
+    person with the same display name and phone.
+    """
+
+    cleaned_name = (name or "").strip()
+    if not cleaned_name:
+        return []
+    try:
+        hashed_phone = phone_hash(normalize_phone(phone))
+    except ValueError:
+        return []
+    candidates: dict[str, dict[str, Any]] = {}
+    member_rows = fetch_all(
+        "SELECT m.id AS member_id, mi.person_id "
+        "FROM members m "
+        "LEFT JOIN member_identities mi ON mi.member_id=m.id AND mi.status='ACTIVE' "
+        "LEFT JOIN person_profiles p ON p.id=mi.person_id AND p.status='ACTIVE' "
+        "WHERE m.name=? AND m.phone_hash=? AND m.status='ACTIVE' "
+        "AND (mi.person_id IS NULL OR p.id IS NOT NULL) ORDER BY m.id",
+        (cleaned_name, hashed_phone),
+    )
+    for row in member_rows:
+        member_id = int(row["member_id"])
+        person_id = str(row["person_id"]) if row.get("person_id") else None
+        key = f"person:{person_id}" if person_id else f"member:{member_id}"
+        candidate = candidates.setdefault(
+            key,
+            {
+                "person_id": person_id,
+                "member_id": member_id,
+                "staff_user_ids": [],
+            },
+        )
+        # Keep the stable lowest member id as the session hint if one person
+        # has more than one active membership row.
+        candidate["member_id"] = min(int(candidate["member_id"]), member_id)
+
+    staff_rows = fetch_all(
+        "SELECT DISTINCT p.id AS person_id, u.id AS user_id "
+        "FROM employee_profile_details epd "
+        "JOIN person_profiles p ON p.id=epd.person_id AND p.status='ACTIVE' "
+        "JOIN operations_employments oe ON oe.person_id=p.id "
+        "AND oe.employment_status='ACTIVE' "
+        "JOIN account_person_links apl ON apl.person_id=p.id "
+        "JOIN app_users u ON u.id=apl.user_id AND u.is_active=1 "
+        "WHERE p.display_name=? AND epd.work_phone_hash=? "
+        "ORDER BY p.id, u.id",
+        (cleaned_name, hashed_phone),
+    )
+    for row in staff_rows:
+        person_id = str(row["person_id"])
+        key = f"person:{person_id}"
+        candidate = candidates.setdefault(
+            key,
+            {"person_id": person_id, "member_id": None, "staff_user_ids": []},
+        )
+        user_id = int(row["user_id"])
+        if user_id not in candidate["staff_user_ids"]:
+            candidate["staff_user_ids"].append(user_id)
+    return list(candidates.values())
+
+
+def verify_person_binding(
+    *,
+    wx_login_code: str,
+    name: str,
+    phone: str,
+    phone_verification: str | None = None,
+) -> dict[str, Any]:
+    """Bind one WeChat credential to a uniquely resolved natural person."""
+
+    _require_binding_enabled()
+    cleaned_name = (name or "").strip()
+    if not cleaned_name or len(cleaned_name) > 120:
+        raise WeChatIdentityError(WECHAT_PERSON_BINDING_NO_MATCH_MESSAGE)
+    try:
+        normalized_phone = normalize_phone(phone)
+    except ValueError as exc:
+        raise WeChatIdentityError(WECHAT_PERSON_BINDING_NO_MATCH_MESSAGE) from exc
+    identity = exchange_wechat_code(wx_login_code)
+    appid, openid = identity.get("appid"), identity.get("openid")
+    if not appid or not openid:
+        raise WeChatProviderError("微信身份服务暂时不可用，请稍后重试")
+
+    candidates = resolve_person_by_name_phone(cleaned_name, normalized_phone)
+    if not candidates:
+        raise WeChatIdentityError(WECHAT_PERSON_BINDING_NO_MATCH_MESSAGE)
+    if len(candidates) > 1:
+        raise WeChatIdentityError(WECHAT_PERSON_BINDING_AMBIGUOUS_MESSAGE)
+    candidate = candidates[0]
+
+    verified_user_id: int | None = None
+    staff_principal = None
+    for user_id in candidate.get("staff_user_ids", []):
+        principal = resolve_employee_mobile_principal(
+            str(candidate.get("person_id") or ""), verified_user_id=int(user_id)
+        )
+        if principal:
+            verified_user_id = int(user_id)
+            staff_principal = principal
+            break
+    has_staff = bool(staff_principal)
+    if has_staff:
+        _require_staff_mobile_enabled()
+        if not phone_verification:
+            raise WeChatIdentityError(WECHAT_STAFF_PHONE_REQUIRED_MESSAGE)
+        if not verify_wechat_phone_ownership(phone_verification, normalized_phone):
+            raise WeChatIdentityError("微信验证手机号与工作人员档案不一致，请核对后重试。")
+
+    member_id = candidate.get("member_id")
+    person_id = candidate.get("person_id")
+    if member_id is None and not has_staff:
+        raise WeChatIdentityError(WECHAT_PERSON_BINDING_NO_MATCH_MESSAGE)
+    if member_id is not None and not person_id:
+        with transaction() as connection:
+            person_id = _member_person_for_binding(connection, int(member_id))
+    if not person_id:
+        raise WeChatIdentityError("人员身份暂时不可用，请联系工作人员")
+
+    binding_id, token_version = _upsert_person_binding(
+        appid=str(appid),
+        openid=str(openid),
+        member_id=int(member_id) if member_id is not None else None,
+        person_id=str(person_id),
+        verified_user_id=verified_user_id,
+        binding_source="MINIPROGRAM_PERSON_SELF_SERVICE",
+        action_prefix="wechat.person_binding",
+        openid_conflict_message="当前微信已绑定其他人员，请先解绑后再绑定",
+        person_conflict_message="该人员已有微信绑定，如需更换请联系工作人员",
+    )
+    token = _binding_token(binding_id, token_version)
+    session = resolve_wechat_session(token)
+    identities = get_wechat_identity_context(session)
+    if not identities.get("identity_kinds"):
+        raise WeChatIdentityError(WECHAT_PERSON_BINDING_NO_MATCH_MESSAGE)
+    return {
+        "access_token": token,
+        "expires_in": 7 * 24 * 60 * 60,
+        "member": identities.get("member"),
+        "identities": identities,
     }
 
 

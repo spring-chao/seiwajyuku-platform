@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.settings import get_settings
 from app.services.wechat_identity import (
@@ -12,6 +12,7 @@ from app.services.wechat_identity import (
     resolve_wechat_session,
     resolve_member_session,
     revoke_member_binding,
+    verify_person_binding,
     verify_staff_binding,
     verify_member_binding,
 )
@@ -37,6 +38,19 @@ class StaffBindingVerifyPayload(BaseModel):
     code: str = Field(min_length=1, max_length=512)
     username: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=1, max_length=256)
+
+
+class PersonBindingVerifyPayload(BaseModel):
+    """Unified natural-person binding payload for the current mini-program."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    wx_login_code: str = Field(min_length=1, max_length=512)
+    name: str = Field(min_length=1, max_length=120)
+    phone: str = Field(min_length=6, max_length=32)
+    # Optional for member-only identities; mandatory and verified against the
+    # staff profile when the resolved person has an effective staff identity.
+    phone_verification: str | None = Field(default=None, max_length=512)
 
 
 class FollowupRecordPayload(BaseModel):
@@ -72,6 +86,25 @@ def verify_binding(payload: MemberBindingVerifyPayload) -> dict:
             code=payload.code,
             name=payload.name,
             phone=payload.phone,
+        )
+    except WeChatProviderError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except WeChatIdentityError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/person-bindings/verify")
+def verify_person_identity(payload: PersonBindingVerifyPayload) -> dict:
+    """Bind one WeChat user to all currently effective identities of a person."""
+
+    _ensure_enabled()
+    try:
+        data = verify_person_binding(
+            wx_login_code=payload.wx_login_code,
+            name=payload.name,
+            phone=payload.phone,
+            phone_verification=payload.phone_verification,
         )
     except WeChatProviderError as exc:
         raise HTTPException(503, str(exc)) from exc

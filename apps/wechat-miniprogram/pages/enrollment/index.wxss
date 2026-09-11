@@ -165,6 +165,18 @@ page {
   box-shadow: 0 10rpx 28rpx rgba(74, 39, 42, 0.06);
 }
 
+.selection-card {
+  padding-bottom: 32rpx;
+}
+
+.selection-target-card {
+  margin-top: 18rpx;
+}
+
+.selection-target-card .submit-button {
+  margin-top: 28rpx;
+}
+
 .target-shuku-title {
   margin-top: 10rpx;
   color: #762230;
@@ -202,6 +214,15 @@ page {
   color: #796c68;
   font-size: 23rpx;
   line-height: 1.55;
+}
+
+.config-warning {
+  padding: 20rpx 22rpx;
+  border: 1rpx solid #e4c58a;
+  border-radius: 16rpx;
+  color: #795320;
+  background: #fff7e5;
+  line-height: 1.65;
 }
 
 .purpose-card,

@@ -67,6 +67,7 @@ class EnrollmentApplicationTests(unittest.TestCase):
             execute(connection, "DELETE FROM member_enrollment_submission_guards")
             execute(connection, "DELETE FROM member_enrollment_applications")
             execute(connection, "DELETE FROM member_enrollment_links")
+            execute(connection, "DELETE FROM enrollment_shuku_profiles")
 
     def _create_link(self) -> tuple[int, str]:
         response = self.client.post(
@@ -155,6 +156,49 @@ class EnrollmentApplicationTests(unittest.TestCase):
             token, _phone(), org_unit_id="enrollment-test-center"
         )
         self.assertEqual(rejected.status_code, 422, rejected.text)
+
+    def test_public_form_loads_target_shuku_profile_only_after_target_selection(self) -> None:
+        _, token = self._create_link()
+        initial = self.client.get(f"/api/v1/public/enrollment/{token}")
+        self.assertEqual(initial.status_code, 200, initial.text)
+        initial_data = initial.json()["data"]
+        self.assertIsNone(initial_data["target_shuku_org_unit_id"])
+        self.assertEqual(initial_data["business_config_status"], "BUSINESS_CONFIG_REQUIRED")
+
+        now = datetime.now(UTC).isoformat()
+        with transaction() as connection:
+            execute(
+                connection,
+                "INSERT INTO enrollment_shuku_profiles"
+                "(shuku_org_unit_id, display_name, joining_notice, payment_instructions, "
+                "payee_name, bank_name, bank_account, contact_name, contact_phone, contact_address, "
+                "is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+                (
+                    "org-wuxi",
+                    "无锡塾",
+                    "无锡加入说明（测试）",
+                    "无锡缴费说明（测试）",
+                    "测试收款主体",
+                    "测试开户行",
+                    "TEST-ACCOUNT",
+                    "测试联系人",
+                    "13800000000",
+                    "测试地址",
+                    now,
+                    now,
+                ),
+            )
+        selected = self.client.get(
+            f"/api/v1/public/enrollment/{token}",
+            params={"target_shuku_org_unit_id": "org-wuxi"},
+        )
+        self.assertEqual(selected.status_code, 200, selected.text)
+        data = selected.json()["data"]
+        self.assertEqual(data["target_shuku_org_unit_id"], "org-wuxi")
+        self.assertEqual(data["business_config_status"], "READY")
+        self.assertEqual(data["joining_notice"], "无锡加入说明（测试）")
+        self.assertEqual(data["payment"]["bank_account"], "TEST-ACCOUNT")
+        self.assertEqual(data["contact"]["contact_name"], "测试联系人")
 
     def test_target_shuku_is_required_for_generic_links_and_locked_for_shuku_links(self) -> None:
         generic_id, generic_token = self._create_link()

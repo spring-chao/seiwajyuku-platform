@@ -24,10 +24,9 @@
       <button class="plain-button" bindtap="unbind">解除本机绑定</button>
     </view>
     <view wx:else class="identity-card">
-      <view class="identity-name">尚未绑定正式学员身份</view>
-      <view class="identity-copy">可绑定学员身份，或使用已有后台账号确认工作人员身份。</view>
+      <view class="identity-name">尚未绑定平台身份</view>
+      <view class="identity-copy">输入姓名和手机号，系统会自动确认您在江南塾的全部有效身份。</view>
       <button class="primary-button" bindtap="openBinding">{{bindingActionLabel}}</button>
-      <button class="plain-button" bindtap="openStaffBinding">工作人员身份确认</button>
     </view>
   </view>
 
@@ -60,6 +59,6 @@
     </view>
   </view>
 
-  <view wx:if="{{!loading && identityState === 'unbound'}}" class="entry-hint">绑定正式学员身份后，可使用学习和“我的成长”入口。</view>
+  <view wx:if="{{!loading && identityState === 'unbound'}}" class="entry-hint">绑定后，系统会按您当前有效的人员身份显示可用入口。</view>
   <view class="footer-copy">页面只显示与你当前身份相关的服务；暂未开放的功能会明确提示。</view>
 </view>

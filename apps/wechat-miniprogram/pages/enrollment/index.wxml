@@ -1,4 +1,18 @@
 <view class="page-shell">
+  <view wx:if="{{state === 'selecting' && !submitted}}" class="selection-card">
+    <view class="hero-card">
+      <view class="eyebrow">新学长入塾申请</view>
+      <view class="hero-title">请选择您准备加入的塾</view>
+      <view class="hero-copy">先选择实际加入的塾，下一步填写统一资料表。江南塾为上级组织，不作为申请目标。</view>
+    </view>
+    <view class="target-shuku-card selection-target-card">
+      <view class="target-shuku-title">申请加入哪个塾？ <text class="required-mark">*</text></view>
+      <picker mode="selector" range="{{targetShukuOptions}}" bindchange="handleTargetShukuChange">
+      <view class="picker-value {{form.target_shuku_org_unit_id ? '' : 'placeholder'}}">{{form.target_shuku_org_unit_id ? (targetShukuOptions[targetShukuOptionIds.indexOf(form.target_shuku_org_unit_id)] || '请选择') : '请选择申请塾'}}</view>
+      </picker>
+      <button class="submit-button" bindtap="continueToForm">确定，进入资料填写</button>
+    </view>
+  </view>
   <scroll-view wx:if="{{state === 'ready' && !submitted}}" class="page-scroll" scroll-y>
     <view class="hero-card">
       <view class="hero-brand">
@@ -18,15 +32,16 @@
 
     <view class="target-shuku-card">
       <view class="card-kicker">申请加入</view>
-      <view class="target-shuku-title">请选择您准备加入的塾 <text class="required-mark">*</text></view>
+      <view class="target-shuku-title">{{formMeta.target_shuku_name || '已选择申请塾'}} <text class="required-mark">*</text></view>
       <view wx:if="{{targetShukuLocked}}" class="target-shuku-locked">
         <view class="target-shuku-name">{{formMeta.target_shuku_name || '已指定塾'}}</view>
         <view class="target-shuku-hint">本入口为塾专属登记码，申请塾已锁定</view>
       </view>
-      <picker wx:else mode="selector" range="{{targetShukuOptions}}" bindchange="handleTargetShukuChange">
-        <view class="picker-value {{form.target_shuku_org_unit_id ? '' : 'placeholder'}}">{{form.target_shuku_org_unit_id ? (targetShukuOptions[targetShukuOptionIds.indexOf(form.target_shuku_org_unit_id)] || '请选择') : '请选择苏州塾、常州塾或无锡塾'}}</view>
-      </picker>
-      <view wx:if="{{!targetShukuLocked}}" class="target-shuku-hint">江南塾为上级组织，申请目标请选择具体塾。</view>
+      <view wx:else class="target-shuku-locked">
+        <view class="target-shuku-name">{{formMeta.target_shuku_name}}</view>
+        <view class="target-shuku-hint">提交前可以更改申请塾，资料表主体不会改变。</view>
+        <button class="plain-button" bindtap="changeTargetShuku">更改申请塾</button>
+      </view>
     </view>
 
     <view class="purpose-card">
@@ -223,23 +238,18 @@
         <view class="section-title">加入守则与缴费说明</view>
       </view>
       <view class="rules-copy">
-        <view>学长服务助手面向认同稻盛哲学、经营学理念的企业经营者，提供相互学习、相互交流和共同成长的学习服务，致力于让幸福企业遍布江南。</view>
-        <view class="rules-paragraph">每一位准备加入本学习服务的学员，均需认真阅读并遵守以下加入守则。</view>
-        <view class="rules-heading">（一）加入条件</view>
-        <view>1. 依法开展经营的企业经营者，包括企业股东、总经理、合伙人等；</view>
-        <view>2. 认同稻盛哲学与经营学，并自愿加入的企业经营者配偶、二代接班人；</view>
-        <view>3. 加入后按照学员守则要求，坚持线上读书打卡、分享学习感悟，并积极参加线下学习活动。不得利用本平台资源发布与稻盛经营学无关的企业咨询、企业培训等商业广告，或从事其他商业推广活动；不得以个人商业推广为目的，在相关群内主动添加非本班陌生学长微信（线下活动正常认识除外）。违反相关约定者，自愿接受退出处理。</view>
-        <view class="rules-heading">（二）缴费说明</view>
-        <view>学员服务费：4800元/人/年。</view>
-        <view>汇款账户：无锡稻合企业管理顾问有限公司</view>
-        <view>账号：512914112210201</view>
-        <view>开户行：招商银行苏州新区支行</view>
-        <view>转款后请将转款截图提交工作人员。收到会费后，工作人员将开具电子发票，并通过微信或邮箱提供。</view>
-        <view class="rules-heading">如有疑问请联系</view>
-        <view>运营服务主体</view>
-        <view>张玲嫣：199-8486-4833</view>
-        <view>胡延辉：137-7605-2728</view>
-        <view>苏州市高新区竹园路189号2幢102室2楼</view>
+        <view wx:if="{{formMeta.business_config_status === 'READY'}}">
+          <view wx:if="{{formMeta.joining_notice}}">{{formMeta.joining_notice}}</view>
+          <view wx:if="{{formMeta.payment_instructions}}" class="rules-paragraph">{{formMeta.payment_instructions}}</view>
+          <view wx:if="{{formMeta.payment && formMeta.payment.payee_name}}">收款户名：{{formMeta.payment.payee_name}}</view>
+          <view wx:if="{{formMeta.payment && formMeta.payment.bank_name}}">开户行：{{formMeta.payment.bank_name}}</view>
+          <view wx:if="{{formMeta.payment && formMeta.payment.bank_account}}">收款账号：{{formMeta.payment.bank_account}}</view>
+          <view wx:if="{{formMeta.contact && formMeta.contact.contact_name}}" class="rules-heading">如有疑问请联系</view>
+          <view wx:if="{{formMeta.contact && formMeta.contact.contact_name}}">联系人：{{formMeta.contact.contact_name}}</view>
+          <view wx:if="{{formMeta.contact && formMeta.contact.contact_phone}}">联系电话：{{formMeta.contact.contact_phone}}</view>
+          <view wx:if="{{formMeta.contact && formMeta.contact.contact_address}}">联系地址：{{formMeta.contact.contact_address}}</view>
+        </view>
+        <view wx:else class="config-warning">当前塾的加入、缴费和联系资料尚未配置（BUSINESS_CONFIG_REQUIRED），请先联系工作人员确认。平台不会展示未经确认的收款账号或联系人。</view>
       </view>
       <view class="consent-row" bindtap="toggleRules">
         <view class="checkbox {{rulesAcknowledged ? 'checked' : ''}}">{{rulesAcknowledged ? '✓' : ''}}</view>

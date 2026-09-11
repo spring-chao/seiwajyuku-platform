@@ -60,5 +60,12 @@ assert.match(js, /\["profit_margin", "利润率"\]/);
 assert.match(js, /\["goal_years", "计划学习年限"\]/);
 assert.match(js, /\["revenue_growth_target", "业绩提升目标"\]/);
 assert.match(js, /\["profit_growth_target", "利润提升目标"\]/);
+assert.match(js, /state: "selecting"/);
+assert.match(js, /target_shuku_org_unit_id=\$\{encodeURIComponent/);
+assert.match(wxml, /请选择您准备加入的塾/);
+assert.match(wxml, /BUSINESS_CONFIG_REQUIRED/);
+assert.doesNotMatch(wxml, /无锡稻合企业管理顾问有限公司/);
+assert.doesNotMatch(wxml, /512914112210201/);
+assert.doesNotMatch(wxml, /199-8486-4833/);
 
 console.log("enrollment form mini-program tests passed");

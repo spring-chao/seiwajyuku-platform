@@ -191,9 +191,12 @@ def _client_address(request: Request) -> str:
 
 
 @router.get("/public/enrollment/{token}")
-def public_enrollment_form(token: str) -> dict:
+def public_enrollment_form(
+    token: str,
+    target_shuku_org_unit_id: str | None = Query(default=None, max_length=64),
+) -> dict:
     try:
-        data = get_public_enrollment_form(token)
+        data = get_public_enrollment_form(token, target_shuku_org_unit_id)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     return {"success": True, "data": data}
