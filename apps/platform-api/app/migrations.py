@@ -20,7 +20,89 @@ MIGRATION_ROOT = _find_migration_root()
 
 
 def _split_mysql(script: str) -> list[str]:
-    return [statement.strip() for statement in script.split(";") if statement.strip()]
+    """Split MySQL statements without treating comment/string semicolons as delimiters."""
+
+    statements: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    line_comment = False
+    block_comment = False
+    index = 0
+
+    while index < len(script):
+        char = script[index]
+        next_char = script[index + 1] if index + 1 < len(script) else ""
+
+        if line_comment:
+            current.append(char)
+            if char in "\r\n":
+                line_comment = False
+            index += 1
+            continue
+
+        if block_comment:
+            current.append(char)
+            if char == "*" and next_char == "/":
+                current.append(next_char)
+                index += 2
+                block_comment = False
+            else:
+                index += 1
+            continue
+
+        if quote is not None:
+            current.append(char)
+            if char == "\\" and index + 1 < len(script):
+                current.append(next_char)
+                index += 2
+            elif char == quote:
+                if next_char == quote:
+                    current.append(next_char)
+                    index += 2
+                else:
+                    quote = None
+                    index += 1
+            else:
+                index += 1
+            continue
+
+        if char == "-" and next_char == "-" and (
+            index + 2 >= len(script) or script[index + 2].isspace()
+        ):
+            current.extend((char, next_char))
+            index += 2
+            line_comment = True
+            continue
+        if char == "#":
+            current.append(char)
+            index += 1
+            line_comment = True
+            continue
+        if char == "/" and next_char == "*":
+            current.extend((char, next_char))
+            index += 2
+            block_comment = True
+            continue
+        if char in "'\"`":
+            current.append(char)
+            index += 1
+            quote = char
+            continue
+        if char == ";":
+            statement = "".join(current).strip()
+            if statement:
+                statements.append(statement)
+            current = []
+            index += 1
+            continue
+
+        current.append(char)
+        index += 1
+
+    statement = "".join(current).strip()
+    if statement:
+        statements.append(statement)
+    return statements
 
 
 def run_migrations() -> list[str]:
