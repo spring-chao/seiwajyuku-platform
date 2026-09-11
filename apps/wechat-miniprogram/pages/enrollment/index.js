@@ -97,7 +97,8 @@ Page({
       fee_unit: null,
       fee_applies_to: [],
       service_address: null,
-      contacts: null
+      contacts: null,
+      joining_rules: []
     },
     purposeItems: [
       {
@@ -122,7 +123,8 @@ Page({
     growthOptions: GROWTH_OPTIONS,
     goalYearOptions: GOAL_YEAR_OPTIONS,
     targetShukuOptions: [],
-    targetShukuOptionIds: [],
+    selectedTargetShukuId: "",
+    selectedTargetShukuName: "",
     targetShukuLocked: false,
     form: {
       name: "",
@@ -208,11 +210,22 @@ Page({
       const response = await this.request(`/api/v1/public/enrollment/${encodeURIComponent(this.data.token)}${query}`, { method: "GET" });
       const metadata = response.data || {};
       const selectedTargetId = metadata.target_shuku_org_unit_id || "";
+      const targetOptions = (metadata.target_shuku_options || []).map(item => ({
+        id: item.id,
+        unitCode: item.unit_code,
+        name: item.name
+      }));
+      const selectedTarget = targetOptions.find(item => item.id === selectedTargetId);
+      const selectedTargetName = metadata.target_shuku_name || (selectedTarget && selectedTarget.name) || "";
+      const joiningRules = Array.isArray(metadata.joining_rules)
+        ? metadata.joining_rules
+        : (metadata.joining_notice ? [metadata.joining_notice] : []);
       this.setData({
         state: !metadata.target_shuku_locked && !selectedTargetId ? "selecting" : "ready",
-        formMeta: { ...this.data.formMeta, ...metadata },
-        targetShukuOptions: (metadata.target_shuku_options || []).map(item => item.name),
-        targetShukuOptionIds: (metadata.target_shuku_options || []).map(item => item.id),
+        formMeta: { ...this.data.formMeta, ...metadata, joining_rules: joiningRules },
+        targetShukuOptions: targetOptions,
+        selectedTargetShukuId: selectedTargetId,
+        selectedTargetShukuName: selectedTargetName,
         targetShukuLocked: Boolean(metadata.target_shuku_locked),
         "form.target_shuku_org_unit_id": selectedTargetId,
         industryOptions: metadata.industry_options || INDUSTRY_OPTIONS,
@@ -235,16 +248,19 @@ Page({
     this.setData({ [`form.${field}`]: event.detail.value });
   },
 
-  handleTargetShukuChange(event) {
+  handleTargetShukuSelect(event) {
     if (this.data.targetShukuLocked) return;
-    const index = Number(event.detail.value);
+    const { id, name } = (event && event.currentTarget && event.currentTarget.dataset) || {};
+    if (!id) return;
     this.setData({
-      "form.target_shuku_org_unit_id": this.data.targetShukuOptionIds[index] || ""
+      "form.target_shuku_org_unit_id": id,
+      selectedTargetShukuId: id,
+      selectedTargetShukuName: name || ""
     });
   },
 
   async continueToForm() {
-    const targetId = this.data.form.target_shuku_org_unit_id;
+    const targetId = this.data.selectedTargetShukuId || this.data.form.target_shuku_org_unit_id;
     if (!targetId) {
       wx.showToast({ title: "请先选择准备加入的塾", icon: "none" });
       return;

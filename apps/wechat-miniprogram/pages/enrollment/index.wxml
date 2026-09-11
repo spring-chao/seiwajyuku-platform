@@ -7,10 +7,14 @@
     </view>
     <view class="target-shuku-card selection-target-card">
       <view class="target-shuku-title">申请加入哪个塾？ <text class="required-mark">*</text></view>
-      <picker mode="selector" range="{{targetShukuOptions}}" bindchange="handleTargetShukuChange">
-      <view class="picker-value {{form.target_shuku_org_unit_id ? '' : 'placeholder'}}">{{form.target_shuku_org_unit_id ? (targetShukuOptions[targetShukuOptionIds.indexOf(form.target_shuku_org_unit_id)] || '请选择') : '请选择申请塾'}}</view>
-      </picker>
-      <button class="submit-button" bindtap="continueToForm">确定，进入资料填写</button>
+      <view class="target-shuku-options">
+        <view wx:for="{{targetShukuOptions}}" wx:key="id" class="target-shuku-option {{item.id == selectedTargetShukuId ? 'selected' : ''}}" data-id="{{item.id}}" data-name="{{item.name}}" bindtap="handleTargetShukuSelect">
+          <view class="target-shuku-option-name">{{item.name}}</view>
+          <view wx:if="{{item.id == selectedTargetShukuId}}" class="target-shuku-option-check">✓</view>
+        </view>
+      </view>
+      <view wx:if="{{selectedTargetShukuName}}" class="selection-summary">已选择：<text>{{selectedTargetShukuName}}</text></view>
+      <button class="selection-next-button" loading="{{state === 'loading'}}" disabled="{{!selectedTargetShukuId || state === 'loading'}}" bindtap="continueToForm">下一步，填写资料</button>
     </view>
   </view>
   <scroll-view wx:if="{{state === 'ready' && !submitted}}" class="page-scroll" scroll-y>
@@ -238,28 +242,42 @@
         <view class="section-title">加入守则与缴费说明</view>
       </view>
       <view class="rules-copy">
-        <view wx:if="{{formMeta.business_config_status === 'READY'}}">
-          <view wx:if="{{formMeta.joining_notice}}">{{formMeta.joining_notice}}</view>
-          <view wx:if="{{formMeta.payment_instructions}}" class="rules-paragraph">{{formMeta.payment_instructions}}</view>
-          <view wx:if="{{formMeta.fee_amount}}">学员服务费：{{formMeta.fee_amount}} {{formMeta.fee_unit}}</view>
-          <view wx:if="{{formMeta.fee_amount}}" class="fee-scope">适用于首次入塾及年度续费</view>
-          <view wx:if="{{formMeta.payment && formMeta.payment.payee_name}}">收款户名：{{formMeta.payment.payee_name}}</view>
-          <view wx:if="{{formMeta.payment && formMeta.payment.bank_name}}">开户行：{{formMeta.payment.bank_name}}</view>
-          <view wx:if="{{formMeta.payment && formMeta.payment.bank_account}}" class="copyable-line">
-            <text>收款账号：{{formMeta.payment.bank_account}}</text>
-            <button class="copy-button" size="mini" data-value="{{formMeta.payment.bank_account}}" bindtap="copyPaymentAccount">复制</button>
-          </view>
-          <view wx:if="{{formMeta.contacts && formMeta.contacts.length}}" class="rules-heading">咨询联系</view>
-          <view wx:if="{{formMeta.contacts && formMeta.contacts.length}}" wx:for="{{formMeta.contacts}}" wx:key="phone" class="copyable-line contact-line">
-            <text>{{item.name}}：{{item.phone}}</text>
-            <button class="copy-button" size="mini" data-phone="{{item.phone}}" bindtap="copyContactPhone">复制号码</button>
-          </view>
-          <view wx:if="{{!(formMeta.contacts && formMeta.contacts.length) && formMeta.contact && formMeta.contact.contact_name}}" class="rules-heading">如有疑问请联系</view>
-          <view wx:if="{{!(formMeta.contacts && formMeta.contacts.length) && formMeta.contact && formMeta.contact.contact_name}}">联系人：{{formMeta.contact.contact_name}}</view>
-          <view wx:if="{{!(formMeta.contacts && formMeta.contacts.length) && formMeta.contact && formMeta.contact.contact_phone}}">联系电话：{{formMeta.contact.contact_phone}}</view>
-          <view wx:if="{{formMeta.service_address || (formMeta.contact && formMeta.contact.contact_address)}}">运营服务地址：{{formMeta.service_address || formMeta.contact.contact_address}}</view>
+        <view class="rules-subsection">
+          <view class="rules-heading">（一）加入守则</view>
+          <view wx:for="{{formMeta.joining_rules}}" wx:key="*this" class="rules-paragraph">{{item}}</view>
+          <view wx:if="{{!formMeta.joining_rules.length && formMeta.joining_notice}}" class="rules-paragraph">{{formMeta.joining_notice}}</view>
         </view>
-        <view wx:else class="config-warning">当前塾的加入、缴费和联系资料尚未配置（BUSINESS_CONFIG_REQUIRED），请先联系工作人员确认。平台不会展示未经确认的收款账号或联系人。</view>
+        <view class="rules-subsection payment-subsection">
+          <view class="rules-heading">（二）缴费说明</view>
+          <view wx:if="{{formMeta.business_config_status === 'READY'}}">
+            <view wx:if="{{formMeta.fee_amount}}">学员服务费：{{formMeta.fee_amount}} {{formMeta.fee_unit}}</view>
+            <view wx:if="{{formMeta.fee_amount}}" class="fee-scope">适用于首次入塾及年度续费</view>
+            <view wx:if="{{formMeta.payment_instructions}}" class="rules-paragraph">{{formMeta.payment_instructions}}</view>
+            <view wx:if="{{formMeta.payment && formMeta.payment.payee_name}}">收款户名：{{formMeta.payment.payee_name}}</view>
+            <view wx:if="{{formMeta.payment && formMeta.payment.bank_name}}">开户行：{{formMeta.payment.bank_name}}</view>
+            <view wx:if="{{formMeta.payment && formMeta.payment.bank_account}}" class="copyable-line copyable-account" data-value="{{formMeta.payment.bank_account}}" bindtap="copyPaymentAccount">
+              <text class="copyable-label">收款账号</text>
+              <text class="copyable-text">{{formMeta.payment.bank_account}}</text>
+            </view>
+            <view wx:if="{{formMeta.payment && formMeta.payment.bank_account}}" class="copy-hint">点击收款账号即可复制</view>
+            <view wx:if="{{formMeta.contacts && formMeta.contacts.length}}" class="rules-heading contact-heading">咨询联系</view>
+            <view wx:if="{{formMeta.contacts && formMeta.contacts.length}}" wx:for="{{formMeta.contacts}}" wx:key="phone" class="copyable-line contact-line">
+              <text class="contact-name">{{item.name}}</text>
+              <text class="copyable-text contact-phone" data-phone="{{item.phone}}" bindtap="copyContactPhone">{{item.phone}}</text>
+            </view>
+            <view wx:if="{{!(formMeta.contacts && formMeta.contacts.length) && formMeta.contact && formMeta.contact.contact_name}}" class="rules-heading contact-heading">如有疑问请联系</view>
+            <view wx:if="{{!(formMeta.contacts && formMeta.contacts.length) && formMeta.contact && formMeta.contact.contact_name}}">联系人：{{formMeta.contact.contact_name}}</view>
+            <view wx:if="{{!(formMeta.contacts && formMeta.contacts.length) && formMeta.contact && formMeta.contact.contact_phone}}" class="copyable-line">
+              <text class="copyable-label">联系电话</text>
+              <text class="copyable-text" data-phone="{{formMeta.contact.contact_phone}}" bindtap="copyContactPhone">{{formMeta.contact.contact_phone}}</text>
+            </view>
+            <view wx:if="{{formMeta.service_address || (formMeta.contact && formMeta.contact.contact_address)}}" class="service-address">
+              <view class="service-address-label">运营服务地址</view>
+              <view>{{formMeta.service_address || formMeta.contact.contact_address}}</view>
+            </view>
+          </view>
+          <view wx:else class="config-warning">当前塾的缴费和联系资料尚未配置（BUSINESS_CONFIG_REQUIRED），请先联系工作人员确认。平台不会展示未经确认的收款账号或联系人。</view>
+        </view>
       </view>
       <view class="consent-row" bindtap="toggleRules">
         <view class="checkbox {{rulesAcknowledged ? 'checked' : ''}}">{{rulesAcknowledged ? '✓' : ''}}</view>

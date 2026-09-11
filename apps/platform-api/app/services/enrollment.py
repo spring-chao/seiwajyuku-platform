@@ -30,6 +30,17 @@ from app.services.shuku_business_config import (
 PUBLIC_SUCCESS_MESSAGE = "申请已提交，请等待工作人员联系。"
 ACTIVE_APPLICATION_STATUSES = {"SUBMITTED", "APPROVED"}
 EDITABLE_APPLICATION_STATUSES = {"SUBMITTED", "APPROVED"}
+# The joining rules are shared by every Jiangnan shuku.  Keep the canonical
+# copy in the API metadata so the mini-program never has to embed a second
+# version of this business fact.  The wording is restored from the previously
+# published enrollment form, with the confirmed Jiangnan-wide service scope.
+COMMON_JOINING_RULES = (
+    "盛和塾是认同稻盛哲学、经营学理念的企业经营者相互学习、相互交流和共同成长的学习平台，致力于让幸福企业遍布江南。",
+    "每一位准备加入本学习服务的学员，均需认真阅读并遵守以下加入守则。",
+    "1. 依法开展经营的企业经营者，包括企业股东、总经理、合伙人等；",
+    "2. 认同稻盛哲学与经营学，并自愿加入的企业经营者配偶、二代接班人；",
+    "3. 加入后按照学员守则要求，坚持线上读书打卡、分享学习感悟，并积极参加线下学习活动。不得利用盛和塾资源平台发布与稻盛经营学无关的企业咨询、企业培训等商业广告，或从事其他商业推广活动；不得以个人商业推广为目的，在相关群内主动添加非本班陌生学长微信（线下活动正常认识除外）。违反相关约定者，自愿接受退出处理。",
+)
 FINANCIAL_FIELDS = {"annual_sales", "profit_margin"}
 INVOICE_FIELDS = {
     "company_tax_id",
@@ -781,6 +792,7 @@ def _public_shuku_profile(target_shuku_org_unit_id: str | None) -> dict[str, Any
         "status": "BUSINESS_CONFIG_REQUIRED",
         "code": "BUSINESS_CONFIG_REQUIRED",
         "display_name": None,
+        "joining_rules": list(COMMON_JOINING_RULES),
         "joining_notice": None,
         "payment_instructions": None,
         "payment": None,
@@ -891,6 +903,7 @@ def _public_shuku_profile(target_shuku_org_unit_id: str | None) -> dict[str, Any
         "status": "READY",
         "code": None,
         "display_name": row.get("display_name"),
+        "joining_rules": list(COMMON_JOINING_RULES),
         "joining_notice": row.get("joining_notice"),
         "payment_instructions": row.get("payment_instructions"),
         "payment": payment or None,
@@ -983,6 +996,7 @@ def get_public_enrollment_form(
         "shuku_profile": shuku_profile,
         # Keep the most useful fields at the top level for older clients and
         # make the profile object the canonical source for new clients.
+        "joining_rules": shuku_profile.get("joining_rules", list(COMMON_JOINING_RULES)),
         "joining_notice": shuku_profile.get("joining_notice"),
         "payment_instructions": shuku_profile.get("payment_instructions"),
         "payment": shuku_profile.get("payment"),

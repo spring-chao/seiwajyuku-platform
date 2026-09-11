@@ -128,6 +128,9 @@ class EnrollmentApplicationTests(unittest.TestCase):
             {"org-suzhou", "org-changzhou", "org-wuxi"},
         )
         self.assertNotIn("org-jiangnan", {item["id"] for item in data["target_shuku_options"]})
+        self.assertEqual(len(data["joining_rules"]), 5)
+        self.assertTrue(any("1. 依法开展经营的企业经营者" in item for item in data["joining_rules"]))
+        self.assertIn("不得利用盛和塾资源平台发布", data["joining_rules"][-1])
         self.assertIn("employee_count", data["required_fields"])
         self.assertIn("industry_category", data["required_fields"])
         for field in (

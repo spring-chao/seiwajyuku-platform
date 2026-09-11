@@ -173,8 +173,79 @@ page {
   margin-top: 18rpx;
 }
 
-.selection-target-card .submit-button {
-  margin-top: 28rpx;
+.target-shuku-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18rpx;
+  margin-top: 22rpx;
+}
+
+.target-shuku-option {
+  position: relative;
+  box-sizing: border-box;
+  flex: 1 1 29%;
+  min-width: 180rpx;
+  min-height: 92rpx;
+  padding: 26rpx 42rpx 24rpx 24rpx;
+  border: 2rpx solid #d6c2a4;
+  border-radius: 18rpx;
+  color: #5e504c;
+  background: #fffdf9;
+  font-size: 28rpx;
+  font-weight: 600;
+  line-height: 1.45;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.target-shuku-option.selected {
+  border-color: #762230;
+  color: #fffaf5;
+  background: #762230;
+}
+
+.target-shuku-option-name {
+  word-break: keep-all;
+}
+
+.target-shuku-option-check {
+  position: absolute;
+  top: 14rpx;
+  right: 18rpx;
+  color: #e2cfa7;
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+.selection-summary {
+  margin-top: 20rpx;
+  color: #796c68;
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.selection-summary text {
+  color: #762230;
+  font-weight: 700;
+}
+
+.selection-next-button {
+  box-sizing: border-box;
+  width: 100%;
+  height: 88rpx;
+  margin: 28rpx 0 0;
+  border: 0;
+  border-radius: 18rpx;
+  color: #fffaf5;
+  background: #762230;
+  font-size: 29rpx;
+  font-weight: 600;
+  line-height: 88rpx;
+}
+
+.selection-next-button[disabled] {
+  color: #f5f0e8;
+  background: #b6a8a4;
+  box-shadow: none;
 }
 
 .target-shuku-title {
@@ -464,6 +535,12 @@ page {
   margin-top: 12rpx;
 }
 
+.rules-subsection + .rules-subsection {
+  margin-top: 30rpx;
+  padding-top: 26rpx;
+  border-top: 1rpx solid #ead9c6;
+}
+
 .rules-paragraph {
   margin-top: 18rpx !important;
 }
@@ -476,8 +553,7 @@ page {
 .copyable-line {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12rpx;
+  gap: 18rpx;
 }
 
 .contact-line {
@@ -490,24 +566,48 @@ page {
   font-size: 24rpx;
 }
 
-.copyable-line text {
+.copyable-label,
+.contact-name {
+  flex: 0 0 auto;
+  color: #675651;
+}
+
+.copyable-text {
   flex: 1;
   min-width: 0;
+  color: #762230;
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-underline-offset: 6rpx;
   word-break: break-all;
 }
 
-.copy-button {
-  flex: 0 0 auto;
-  min-width: 108rpx;
-  height: 52rpx;
-  margin: 0;
-  padding: 0 14rpx;
-  border: 1rpx solid #b99a62;
-  border-radius: 12rpx;
+.copy-hint {
+  margin-top: 6rpx;
+  color: #a59791;
+  font-size: 21rpx;
+}
+
+.copyable-account {
+  align-items: flex-start;
+  margin-top: 12rpx;
+}
+
+.contact-heading {
+  margin-top: 24rpx !important;
+}
+
+.service-address {
+  margin-top: 22rpx;
+  color: #675651;
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.service-address-label {
+  margin-bottom: 6rpx;
   color: #762230;
-  background: #fffaf1;
-  font-size: 22rpx;
-  line-height: 50rpx;
+  font-weight: 600;
 }
 
 .consent-row {

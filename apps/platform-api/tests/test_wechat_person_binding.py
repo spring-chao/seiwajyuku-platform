@@ -156,6 +156,24 @@ def test_unified_binding_requires_wechat_phone_ownership_for_staff() -> None:
     assert "微信获取手机号" in response.json()["detail"]
 
 
+def test_unified_binding_exposes_staff_feature_gate_after_person_resolution() -> None:
+    name = f"开关阻断专职-{uuid4().hex[:8]}"
+    phone = _phone()
+    _seed_staff(name=name, phone=phone)
+    with _client_context(), patch.dict(
+        os.environ, {"WECHAT_STAFF_MOBILE_OPERATIONS_ENABLED": "false"}
+    ), patch(
+        "app.services.wechat_identity.exchange_wechat_code",
+        return_value={"appid": "person-binding-test-app", "openid": f"gate-{uuid4().hex[:10]}"},
+    ), TestClient(app) as client:
+        response = client.post(
+            "/api/v1/wechat/person-bindings/verify",
+            json={"wx_login_code": "login-code", "name": name, "phone": phone},
+        )
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "工作人员移动运营功能尚未开启"
+
+
 def test_unified_binding_returns_member_volunteer_and_staff_for_one_person() -> None:
     name = f"统一复合身份-{uuid4().hex[:8]}"
     phone = _phone()
