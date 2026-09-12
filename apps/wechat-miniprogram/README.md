@@ -9,6 +9,13 @@
 - 微信公众平台必须配置该 API 网关的 request 合法域名；正式 AppID 的域名配置不会继承测试 AppID。
 - AppSecret 永远不写入此目录、GitHub 或小程序源码，只由后端环境变量管理。
 
+## 开发者工具 dev/test 配置
+
+- `app.js` 通过 `config.runtime.js` 选择运行配置；只有微信 `envVersion=develop` 时使用 `config.dev.js` 的本地测试 API（默认 `http://127.0.0.1:8000`）。
+- trial/release 运行时继续使用 `config.js` 的正式 `/platform` 网关，不需要也不允许手工改动生产配置文件来测试本地流程。
+- 本地 API 必须使用 `APP_ENV=test`（或 `dev`）、`WECHAT_LOCAL_TEST_MODE=true`、`WECHAT_MEMBER_BINDING_ENABLED=true` 和 `WECHAT_STAFF_MOBILE_OPERATIONS_ENABLED=true`；生产环境严禁开启 `WECHAT_LOCAL_TEST_MODE`。
+- 在微信开发者工具的本地私有项目设置中关闭 URL 合法域名校验（不要提交该私有设置），并启动本地 API 后再编译开发版。
+
 ## 发布前配置
 
 1. 确认 `project.config.json` 中的正式微信小程序 AppID 与微信公众平台一致。

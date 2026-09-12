@@ -41,6 +41,15 @@ def environment() -> dict[str, str | bool]:
         "member_service_signal_feedback_enabled": (
             settings.member_service_signal_feedback_enabled
         ),
+        # These are non-sensitive, read-only rollout indicators.  Returning
+        # the values observed by this process makes it possible to distinguish
+        # a CloudBase control-plane update from an instance that has actually
+        # reloaded its runtime environment.
+        "wechat_member_binding_enabled": settings.wechat_member_binding_enabled,
+        "wechat_staff_mobile_operations_enabled": (
+            settings.wechat_staff_mobile_operations_enabled
+        ),
+        "wechat_local_test_mode": settings.wechat_local_test_mode,
     }
 
 

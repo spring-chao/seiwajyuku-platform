@@ -4,6 +4,8 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
 const appJs = fs.readFileSync(path.join(root, "app.js"), "utf8");
+const runtimeConfigJs = fs.readFileSync(path.join(root, "config.runtime.js"), "utf8");
+const devConfigJs = fs.readFileSync(path.join(root, "config.dev.js"), "utf8");
 const requestJs = fs.readFileSync(path.join(root, "utils/request.js"), "utf8");
 const homeJs = fs.readFileSync(path.join(root, "pages/home/index.js"), "utf8");
 const homeWxml = fs.readFileSync(path.join(root, "pages/home/index.wxml"), "utf8");
@@ -14,6 +16,10 @@ const operationsJs = fs.readFileSync(path.join(root, "pages/operations/index.js"
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "app.json"), "utf8"));
 
 assert.match(appJs, /personSessionToken/);
+assert.match(appJs, /require\("\.\/config\.runtime"\)/);
+assert.match(runtimeConfigJs, /envVersion === "develop"/);
+assert.match(runtimeConfigJs, /\.\/config\.dev/);
+assert.match(devConfigJs, /127\.0\.0\.1:8000/);
 assert.match(appJs, /setPersonSession/);
 assert.match(requestJs, /personSessionToken \|\| app\.globalData\.memberSessionToken/);
 assert.match(staffBindJs, /\/api\/v1\/wechat\/staff-bindings\/verify/);

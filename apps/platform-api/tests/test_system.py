@@ -34,6 +34,9 @@ class SystemApiTests(unittest.TestCase):
                 "identity_admin_writes_enabled": True,
                 "volunteer_service_invitations_enabled": True,
                 "member_service_signal_feedback_enabled": True,
+                "wechat_member_binding_enabled": False,
+                "wechat_staff_mobile_operations_enabled": False,
+                "wechat_local_test_mode": False,
             },
         )
 

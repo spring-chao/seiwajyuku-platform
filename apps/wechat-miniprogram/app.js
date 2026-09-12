@@ -1,4 +1,6 @@
-const appConfig = require("./config");
+// Developer Tools (envVersion=develop) use the isolated test API from
+// config.dev.js; trial/release builds keep the production gateway in config.js.
+const appConfig = require("./config.runtime");
 
 App({
   globalData: {
