@@ -1,0 +1,6 @@
+<view class="page-shell">
+  <view class="hero-card"><view class="eyebrow">移动运营</view><view class="hero-title">续费关注</view><view class="hero-copy">观3、续2、追1使用现有续费周期；选择学长后可直接记录关爱。</view></view>
+  <view wx:if="{{!loading && !errorMessage}}" class="tabs"><view wx:for="{{groups}}" wx:key="key" class="tab {{activeStage === item.key ? 'active' : ''}}" data-stage="{{item.key}}" bindtap="chooseStage">{{item.name}}</view></view>
+  <view wx:if="{{loading}}" class="state-card">正在加载…</view><view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view><view wx:if="{{!loading && !errorMessage && !items.length}}" class="section-card">当前阶段没有需要关注的学长。</view>
+  <view wx:for="{{items}}" wx:key="cycle_id" class="section-card renewal-card {{focusMemberId === item.member_id ? 'focused' : ''}}" data-item="{{item}}" bindtap="openMember"><view class="section-title">{{item.member_name}}</view><view>{{item.class_name || item.org_name || '当前组织待确认'}}</view><view class="muted">距续费时间：{{item.months_until_due}} 个月 · {{item.status_label}}</view><view class="go-copy">查看上下文并记录关爱 ›</view></view>
+</view>

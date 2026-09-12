@@ -27,6 +27,34 @@
     },
     {
       "action": "allow",
+      "page": "pages/identity/staff-bind"
+    },
+    {
+      "action": "allow",
+      "page": "pages/operations/index"
+    },
+    {
+      "action": "allow",
+      "page": "pages/operations/today-actions"
+    },
+    {
+      "action": "allow",
+      "page": "pages/operations/member-search"
+    },
+    {
+      "action": "allow",
+      "page": "pages/operations/member-detail"
+    },
+    {
+      "action": "allow",
+      "page": "pages/operations/care-record"
+    },
+    {
+      "action": "allow",
+      "page": "pages/operations/renewal-watch"
+    },
+    {
+      "action": "allow",
       "page": "pages/study-meeting/index"
     },
     {

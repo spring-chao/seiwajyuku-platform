@@ -64,6 +64,35 @@ class FollowupRecordPayload(BaseModel):
     next_followup_at: str | None = Field(default=None, max_length=64)
 
 
+class MobileCareRecordPayload(BaseModel):
+    """Short mobile form mapped to an existing care or renewal fact."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    channel: str = Field(min_length=2, max_length=32)
+    situation: str = Field(min_length=1, max_length=2000)
+    next_action: str | None = Field(default=None, max_length=2000)
+    next_followup_at: str | None = Field(default=None, max_length=64)
+
+
+class MobileRenewalCareRecordPayload(MobileCareRecordPayload):
+    renewal_cycle_id: int = Field(ge=1)
+
+
+class MobileBirthdayCarePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    due_date: str = Field(min_length=10, max_length=32)
+    channel: str = Field(min_length=2, max_length=32)
+    operation_item_id: int | None = Field(default=None, ge=1)
+
+
+class MobileContactAccessPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    purpose: str = Field(default="移动端关爱联系", min_length=4, max_length=500)
+
+
 def _ensure_enabled() -> None:
     if not get_settings().wechat_member_binding_enabled:
         raise HTTPException(404, "微信学员身份功能尚未开启")
@@ -244,17 +273,118 @@ def operations_today_actions(
 
 @router.get("/operations/member-search")
 def operations_member_search(
-    name: str = Query(min_length=1, max_length=100),
+    keyword: str | None = Query(default=None, min_length=1, max_length=100),
+    # ``name`` remains accepted for the already released early mobile route.
+    name: str | None = Query(default=None, min_length=1, max_length=100),
     limit: int = Query(default=20, ge=1, le=50),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
 ) -> dict:
+    query = (keyword or name or "").strip()
+    if not query:
+        raise HTTPException(400, "请输入姓名或手机号后4位")
     return {
         "success": True,
         "data": _operation_call(
             wechat_operations.member_search,
             _operation_session(credentials),
-            name=name,
+            keyword=query,
             limit=limit,
+        ),
+    }
+
+
+@router.get("/operations/members/{member_id}")
+def operations_member_detail(
+    member_id: int,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    return {
+        "success": True,
+        "data": _operation_call(
+            wechat_operations.member_detail,
+            _operation_session(credentials),
+            member_id=member_id,
+        ),
+    }
+
+
+@router.post("/operations/members/{member_id}/care-records")
+def operations_record_member_care(
+    member_id: int,
+    payload: MobileCareRecordPayload,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    return {
+        "success": True,
+        "data": _operation_call(
+            wechat_operations.record_care,
+            _operation_session(credentials),
+            member_id=member_id,
+            **payload.model_dump(),
+        ),
+    }
+
+
+@router.post("/operations/members/{member_id}/renewal-care-records")
+def operations_record_renewal_care(
+    member_id: int,
+    payload: MobileRenewalCareRecordPayload,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    return {
+        "success": True,
+        "data": _operation_call(
+            wechat_operations.record_renewal_care,
+            _operation_session(credentials),
+            member_id=member_id,
+            **payload.model_dump(),
+        ),
+    }
+
+
+@router.post("/operations/members/{member_id}/birthday-care")
+def operations_complete_birthday_care(
+    member_id: int,
+    payload: MobileBirthdayCarePayload,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    return {
+        "success": True,
+        "data": _operation_call(
+            wechat_operations.complete_mobile_birthday_care,
+            _operation_session(credentials),
+            member_id=member_id,
+            **payload.model_dump(),
+        ),
+    }
+
+
+@router.post("/operations/members/{member_id}/contact-access")
+def operations_member_contact_access(
+    member_id: int,
+    payload: MobileContactAccessPayload,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    return {
+        "success": True,
+        "data": _operation_call(
+            wechat_operations.reveal_member_contact,
+            _operation_session(credentials),
+            member_id=member_id,
+            **payload.model_dump(),
+        ),
+    }
+
+
+@router.get("/operations/renewal-watch")
+def operations_renewal_watch(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    return {
+        "success": True,
+        "data": _operation_call(
+            wechat_operations.renewal_watch,
+            _operation_session(credentials),
         ),
     }
 

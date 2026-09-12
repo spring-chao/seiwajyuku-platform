@@ -1811,6 +1811,7 @@ def add_followup(
     needs_support: bool = False,
     next_action: str | None = None,
     next_followup_at: str | None = None,
+    allow_brief_summary: bool = False,
 ) -> int:
     cycle = _cycle_with_member_scope(cycle_id)
     if not cycle:
@@ -1820,7 +1821,9 @@ def add_followup(
         raise PermissionError("续费周期不在组织授权范围内")
     if channel.strip().upper() not in {"PHONE", "WECHAT", "MEETING", "VISIT", "OTHER"}:
         raise ValueError("不支持的联系渠道")
-    if len(summary.strip()) < 4:
+    if not summary.strip():
+        raise ValueError("请填写本次情况")
+    if not allow_brief_summary and len(summary.strip()) < 4:
         raise ValueError("跟进摘要至少填写4个字符")
     normalized_next_followup_at = _normalize_followup_datetime(next_followup_at)
     now = datetime.now(UTC).isoformat()

@@ -242,7 +242,7 @@ def test_volunteer2_multiple_current_posts_and_staff_mobile_iam2_boundary() -> N
         workbench = client.get("/api/v1/wechat/operations/workbench", headers=headers)
         assert workbench.status_code == 200, workbench.text
         assert {item["key"] for item in workbench.json()["data"]["entries"]}.issuperset(
-            {"member_search", "followup_records"}
+            {"today_actions", "member_search", "care_records"}
         )
         search = client.get(
             "/api/v1/wechat/operations/member-search",

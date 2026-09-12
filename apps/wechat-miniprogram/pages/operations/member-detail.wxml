@@ -1,0 +1,17 @@
+<view class="page-shell">
+  <view wx:if="{{loading}}" class="state-card">正在加载…</view>
+  <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <block wx:if="{{!loading && !errorMessage && detail}}">
+    <view class="hero-card"><view class="eyebrow">学长详情</view><view class="hero-title">{{detail.member.name}}</view><view class="hero-copy">{{detail.member.class_name || detail.member.org_name || '当前组织待确认'}}</view></view>
+
+    <view class="section-card"><view class="section-title">基本资料</view><view class="row">入塾时间 <text>{{detail.member.join_date || '待维护'}}</text></view><view class="row">学习年限 <text>{{detail.member.membership_years || '待维护'}}</text></view><view class="row">当前组织 <text>{{detail.member.org_name || '待维护'}}</text></view></view>
+    <view class="section-card"><view class="section-title">续费状态</view><view>{{detail.renewal.status_label || detail.renewal.reason || '待确认'}}</view><view class="muted">{{detail.renewal.stage_label || ''}}{{detail.renewal.months_until_due !== null && detail.renewal.months_until_due !== undefined ? ' · 距续费 ' + detail.renewal.months_until_due + ' 个月' : ''}}</view></view>
+    <view class="section-card"><view class="section-title">最近学习情况</view><view wx:if="{{detail.learning.latest}}">{{detail.learning.latest.title || '最近学习记录待确认'}}</view><view wx:else class="muted">暂无可展示的学习记录</view></view>
+    <view class="section-card"><view class="section-title">最近关爱记录</view><view wx:if="{{detail.care.latest}}">{{detail.care.latest.title || '最近关爱记录待确认'}}</view><view wx:else class="muted">暂无可展示的关爱记录</view></view>
+    <view class="section-card"><view class="section-title">当前志工任职</view><view wx:if="{{detail.volunteer_roles.length}}" wx:for="{{detail.volunteer_roles}}" wx:key="position_name" class="role-row">{{item.position_name}} · {{item.service_unit_name || item.scope_name || '当前服务范围'}}</view><view wx:else class="muted">当前没有志工任职</view></view>
+
+    <view wx:if="{{detail.actions.can_reveal_contact}}" class="section-card contact-card"><view class="section-title">联系方式</view><view wx:if="{{contactPhone}}" class="contact-phone">{{contactPhone}}</view><view wx:else class="muted">仅在本次关爱联系时按需查看，不展示在列表或资料中。</view><button wx:if="{{!contactPhone}}" class="plain-button" bindtap="revealContact">查看联系方式</button><button wx:else class="plain-button" bindtap="callContact">拨打电话</button></view>
+
+    <view class="action-bar"><button wx:if="{{detail.actions.can_record_care || detail.actions.can_record_renewal}}" class="primary-button" bindtap="recordCare">记录关爱</button><button wx:if="{{detail.actions.can_view_renewal}}" class="plain-button" bindtap="viewRenewal">查看续费</button></view>
+  </block>
+</view>

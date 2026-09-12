@@ -1444,27 +1444,39 @@ def get_member_access_context(member_id: int, actor_user_id: int) -> dict[str, A
 def search_members(
     user_id: int,
     *,
-    name: str,
+    name: str | None = None,
     phone: str | None = None,
+    phone_last4: str | None = None,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """Search members with the same scope and relation rules as member views."""
-    name = name.strip()
-    if not name or len(name) > 100:
-        raise ValueError("姓名不能为空且不能超过100个字符")
+    name = (name or "").strip()
+    if len(name) > 100:
+        raise ValueError("姓名不能超过100个字符")
     if not 1 <= limit <= 50:
         raise ValueError("匹配条数必须在1至50之间")
     phone_digest = None
     if phone is not None and phone.strip():
         phone_digest = phone_hash(normalize_phone(phone))
-    conditions = ["m.name LIKE ?"]
-    params: list[Any] = [f"%{name}%"]
+    normalized_last4 = (phone_last4 or "").strip()
+    if normalized_last4 and (len(normalized_last4) != 4 or not normalized_last4.isdecimal()):
+        raise ValueError("手机号后4位必须为4个数字")
+    if not any((name, phone_digest, normalized_last4)):
+        raise ValueError("请输入姓名、完整手机号或手机号后4位")
+    conditions: list[str] = []
+    params: list[Any] = []
+    if name:
+        conditions.append("m.name LIKE ?")
+        params.append(f"%{name}%")
     if phone_digest:
         conditions.append("m.phone_hash=?")
         params.append(phone_digest)
+    if normalized_last4:
+        conditions.append("m.phone_last4=?")
+        params.append(normalized_last4)
     rows = fetch_all(
         "SELECT m.id, m.name, m.org_unit_id, o.name AS org_name, m.status, "
-        "m.phone_masked, "
+        "m.phone_masked, m.join_date, "
         f"{CURRENT_STUDY_CLASS_NAME_SQL} AS class_name, "
         f"{CURRENT_STUDY_GROUP_NAME_SQL} AS group_name "
         "FROM members m JOIN org_units o ON o.id=m.org_unit_id WHERE "
@@ -1490,6 +1502,7 @@ def search_members(
                 "group_name": row["group_name"],
                 "status": row["status"],
                 "phone_masked": row["phone_masked"],
+                "join_date": row["join_date"],
             }
         )
     return result

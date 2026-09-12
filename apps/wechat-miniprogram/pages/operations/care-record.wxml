@@ -1,0 +1,7 @@
+<view class="page-shell">
+  <view class="hero-card"><view class="eyebrow">移动运营</view><view class="hero-title">{{birthdayDueDate ? '完成生日关爱' : '记录关爱'}}</view><view class="hero-copy">只记录本次必要情况；复杂配置继续留在管理端。</view></view>
+  <view class="section-card"><view class="field-label">联系方式</view><picker range="{{channels}}" range-key="name" value="{{channelIndex}}" bindchange="chooseChannel"><view class="picker-field">{{channels[channelIndex].name}} <text>›</text></view></picker></view>
+  <view wx:if="{{!birthdayDueDate}}" class="section-card"><view class="field-label">本次情况</view><textarea class="field-textarea" value="{{situation}}" data-field="situation" bindinput="input" maxlength="2000" placeholder="简要记录这次联系的情况"/></view>
+  <view wx:if="{{!birthdayDueDate}}" class="section-card"><view class="field-label">下一步行动（可选）</view><textarea class="field-textarea short" value="{{nextAction}}" data-field="nextAction" bindinput="input" maxlength="2000" placeholder="如有需要再填写"/><view class="field-label next-label">下次跟进时间（可选）</view><picker mode="date" value="{{nextFollowupAt}}" bindchange="chooseNextDate"><view class="picker-field">{{nextFollowupAt || '选择日期'}} <text>›</text></view></picker></view>
+  <button class="primary-button" loading="{{saving}}" bindtap="submit">{{birthdayDueDate ? '完成生日关爱' : '提交关爱记录'}}</button>
+</view>

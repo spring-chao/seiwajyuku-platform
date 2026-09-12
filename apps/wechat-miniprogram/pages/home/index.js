@@ -126,6 +126,16 @@ Page({
     }
     if (!current()) return;
     this.setData({ ...next, loading: false });
+    // A staff-only person should land directly on the operational workbench.
+    // A member/volunteer/staff composite keeps the combined entry page so the
+    // person session can expose each identity without merging permissions.
+    const isStaffOnly = next.isEmployee && !next.member && !next.isVolunteer && next.operationEntries.length;
+    if (isStaffOnly && !this._staffOnlyRedirected) {
+      this._staffOnlyRedirected = true;
+      wx.redirectTo({ url: "/pages/operations/index" });
+    } else if (!isStaffOnly) {
+      this._staffOnlyRedirected = false;
+    }
   },
 
   openEnrollment() {

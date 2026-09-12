@@ -1,1 +1,17 @@
-<view class="page-shell"><view class="hero-card"><view class="eyebrow">移动运营</view><view class="hero-title">今日行动</view><view class="hero-copy">按当前组织授权实时显示的待办。</view></view><view wx:if="{{loading}}" class="state-card">正在加载…</view><view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view><view wx:if="{{!loading && !errorMessage && !items.length}}" class="section-card">今天暂无待办。</view><view wx:for="{{items}}" wx:key="id" class="section-card"><view class="section-title">{{item.member_name}} · {{item.source}}</view><view>{{item.label}}</view><view class="muted">{{item.due_date || '时间待确认'}} · {{item.status || ''}}</view><button wx:if="{{item.source === '关怀任务' && item.can_record}}" class="plain-button" data-item="{{item}}" bindtap="openFollowup">记录跟进</button></view></view>
+<view class="page-shell">
+  <view class="hero-card"><view class="eyebrow">移动运营</view><view class="hero-title">今日行动</view><view class="hero-copy">从待处理到已完成，始终使用后台同一事实来源。</view></view>
+  <view wx:if="{{!loading && !errorMessage}}" class="tab-card">
+    <view class="tab {{activeTab === 'pending' ? 'active' : ''}}" data-tab="pending" bindtap="showTab">今日待处理 {{summary.pending_action_count || 0}}</view>
+    <view class="tab {{activeTab === 'completed' ? 'active' : ''}}" data-tab="completed" bindtap="showTab">今日已完成 {{summary.completed_action_count || 0}}</view>
+  </view>
+  <view wx:if="{{loading}}" class="state-card">正在加载…</view>
+  <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <view wx:if="{{!loading && !errorMessage && !items.length}}" class="section-card">{{activeTab === 'pending' ? '今天暂无待处理行动。' : '今天还没有已完成行动。'}}</view>
+  <view wx:for="{{items}}" wx:key="id" class="section-card action-card" data-item="{{item}}" bindtap="openMember">
+    <view class="section-title">{{item.member_name}}</view>
+    <view class="muted">{{item.class_name || item.org_name || '当前组织待确认'}}</view>
+    <view class="type-tag">{{item.action_type_name}}</view>
+    <view class="reason">{{item.reason || item.label}}</view>
+    <view class="muted">关键时间：{{item.key_time || '待确认'}} · 查看学长 ›</view>
+  </view>
+</view>

@@ -1,1 +1,19 @@
-<view class="page-shell"><view class="hero-card"><view class="eyebrow">移动运营</view><view class="hero-title">运营工作台</view><view class="hero-copy">{{workerName}}，这里只显示你当前后台授权范围内的工作。</view></view><view wx:if="{{loading}}" class="state-card">正在加载…</view><view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view><view wx:if="{{!loading && !errorMessage && !entries.length}}" class="section-card">当前没有已授权的移动运营功能。</view><view wx:for="{{entries}}" wx:key="key" class="section-card entry" data-key="{{item.key}}" bindtap="openEntry"><view class="section-title">{{item.name}}</view><view class="entry-copy">{{item.description}}</view><view class="entry-arrow">进入 ›</view></view></view>
+<view class="page-shell">
+  <view class="hero-card">
+    <view class="eyebrow">移动运营</view>
+    <view class="hero-title">{{workerName}}，{{greeting}}</view>
+    <view class="hero-copy">今天把最重要的运营动作做完就好。</view>
+  </view>
+
+  <view wx:if="{{!loading && !errorMessage}}" class="count-card">
+    <view class="count-item"><view class="count-number">{{summary.pending_action_count || 0}}</view><view>今日待处理</view></view>
+    <view class="count-divider"></view>
+    <view class="count-item"><view class="count-number">{{summary.completed_action_count || 0}}</view><view>今日已完成</view></view>
+  </view>
+  <view wx:if="{{loading}}" class="state-card">正在加载…</view>
+  <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <view wx:if="{{!loading && !errorMessage && !entries.length}}" class="section-card">当前没有已授权的移动运营功能。</view>
+  <view wx:for="{{entries}}" wx:key="key" class="section-card entry" data-key="{{item.key}}" bindtap="openEntry">
+    <view class="section-title">{{item.name}}</view><view class="entry-copy">{{item.description}}</view><view class="entry-arrow">进入 ›</view>
+  </view>
+</view>
