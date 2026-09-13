@@ -7,10 +7,10 @@ function loadPage({ requestError } = {}) {
   const calls = [];
   const app = {
     globalData: {},
-    setMemberSession(token) { calls.push({ session: token }); }
+    setPersonSession(token) { calls.push({ session: token }); }
   };
-  const request = async () => {
-    calls.push({ request: true });
+  const request = async (path, options) => {
+    calls.push({ request: { path, options } });
     if (requestError) throw requestError;
     return { data: { access_token: 'new-session', member: { name_masked: '李*', class_name: '测试班' } } };
   };
@@ -51,7 +51,12 @@ test('successful binding stores the new session and confirms the masked member',
   const { page, calls } = loadPage();
   page.data.name = '李四';
   page.data.phone = '13800000000';
-  await page.bindIdentity();
+  await page.bindIdentity({ detail: { code: 'phone-verification-code' } });
+  const request = calls.find(item => item.request).request;
+  assert.equal(request.path, '/api/v1/wechat/person-bindings/verify');
+  assert.equal(request.options.method, 'POST');
+  assert.equal(request.options.data.wx_login_code, 'login-code');
+  assert.equal(request.options.data.phone_verification, 'phone-verification-code');
   assert.deepEqual(calls.find(item => item.session), { session: 'new-session' });
   assert.equal(calls.find(item => item.modal)?.modal.title, '身份已绑定');
   assert.deepEqual(calls.find(item => item.navigateBack), { navigateBack: 1 });

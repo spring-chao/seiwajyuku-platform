@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# Cancel only superseded runs for the same PR. Each push keeps its provenance run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   api:
     runs-on: ubuntu-latest
@@ -48,10 +53,9 @@ jobs:
           cache-dependency-path: apps/admin-web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: node --test tests/study-meeting-error.test.mjs
-      - run: node --test tests/member-volunteer-display.test.mjs
-      - run: node --test tests/staff-management-simplified.test.mjs
-      - run: node --test tests/today-action-loop.test.mjs
+      - name: Verify test discovery and failure propagation
+        run: node --test ../../scripts/tests/run_node_tests.test.mjs
+      - run: pnpm test
       - run: pnpm build:staging
 
   wechat-miniprogram:
@@ -68,7 +72,7 @@ jobs:
           MINIPROGRAM_EXPECTED_ENVIRONMENT: PRODUCTION
           MINIPROGRAM_EXPECTED_API_BASE_URL: https://shengheshu-d2g2zyyl99f6c6fc2-1453587887.ap-shanghai.app.tcloudbase.com/platform
       - name: Study meeting plan, attendance and photo tests
-        run: node --test scripts/test_study_meeting_miniprogram.mjs scripts/test_home_identity_miniprogram.mjs scripts/test_miniprogram_portal.mjs scripts/test_profile_miniprogram.mjs apps/wechat-miniprogram/tests/current-volunteer-service.test.js apps/wechat-miniprogram/tests/enrollment-form.test.js apps/wechat-miniprogram/tests/learning-summary.test.js apps/wechat-miniprogram/tests/staff-mobile-operations.test.js apps/wechat-miniprogram/tests/study-meeting-flow.test.js apps/wechat-miniprogram/tests/study-meeting-plan.test.js
+        run: node scripts/run_node_tests.mjs miniprogram
 
   cloud-function-cleanup:
     runs-on: ubuntu-latest

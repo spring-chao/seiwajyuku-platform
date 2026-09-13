@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node ../../scripts/run_node_tests.mjs admin-web",
     "dev": "NODE_OPTIONS=--max-old-space-size=4096 vite",
     "serve": "pnpm dev",
     "build": "rimraf dist && node --max-old-space-size=8192 node_modules/vite/bin/vite.js build",
