@@ -125,7 +125,13 @@ def main() -> int:
     after = None
     with transaction() as connection:
         before = int(execute(connection, "SELECT COUNT(*) AS count FROM learning_credit_entries").fetchone()["count"])
-        staging = apply_matches_to_staging(connection, batch_id=batch_id, results=matches)
+        staging = apply_matches_to_staging(
+            connection,
+            batch_id=batch_id,
+            results=matches,
+            snapshot_id=snapshot.get("snapshot_id"),
+            snapshot_fingerprint=snapshot.get("fingerprint"),
+        )
         after = int(execute(connection, "SELECT COUNT(*) AS count FROM learning_credit_entries").fetchone()["count"])
         row_counts = {
             row["match_status"]: int(row["count"])

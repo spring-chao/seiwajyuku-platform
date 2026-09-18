@@ -86,10 +86,10 @@ def _insert_hq_ledger_sample(fixture: dict) -> int:
             "INSERT INTO learning_credit_entries "
             "(member_id, credit_category, credit_type, points, source_type, source_id, "
             "class_org_unit_id, learning_cycle_id, rule_key, rule_version, rule_version_id, "
-            "rule_snapshot_json, occurred_at, posted_at, status, idempotency_key, "
+            "rule_snapshot_json, occurred_at, occurred_precision, occurred_year, occurred_month, posted_at, status, idempotency_key, "
             "reversal_of_entry_id, created_by, created_at, updated_at) "
             "VALUES (?, 'STANDARD_LEARNING', 'DAILY_READING', 1, ?, 'hq-rollback-ledger-sample', "
-            "?, NULL, 'DAILY_READING', '2026.1', ?, '{}', ?, NULL, 'POSTED', "
+            "?, NULL, 'DAILY_READING', '2026.1', ?, '{}', ?, 'EXACT_DATE', 2026, 3, NULL, 'POSTED', "
             "'HQ_ROLLBACK_LEDGER_SAMPLE', NULL, ?, ?, ?)",
             (
                 fixture["member_ids"]["learner"],

@@ -39,6 +39,18 @@ from app.services.historical_credit_import import (
     list_historical_credit_import_anomalies,
     register_suzhou_credit_workbook,
 )
+from app.services.historical_credit_review import (
+    accept_year_only_period,
+    approve_calculated_totals,
+    bulk_confirm_high_confidence_matches,
+    confirm_class_mapping,
+    confirm_member_match,
+    confirm_month_period,
+    confirm_no_credit,
+    get_historical_credit_review_workbench,
+    resolve_credit_anomalies,
+    upsert_class_mapping_candidates,
+)
 
 
 router = APIRouter(prefix="/api/v1/learning-credits", tags=["learning-credits"])
@@ -105,6 +117,84 @@ class BusinessCalendarPayload(BaseModel):
     version_label: str = Field(min_length=1, max_length=64)
     status: str = Field(default="DRAFT", pattern="^(DRAFT|PUBLISHED)$")
     days: list[BusinessCalendarDayPayload] = Field(default_factory=list, max_length=366)
+
+
+class HistoricalClassMappingCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_sheet: str = Field(min_length=1, max_length=255)
+    raw_class_name: str | None = Field(default=None, max_length=255)
+    org_unit_id: str | None = Field(default=None, max_length=64)
+    mapping_status: str = Field(default="PENDING_REVIEW", max_length=32)
+    mapping_reason: str = Field(min_length=1, max_length=255)
+    candidate_org_unit_ids: list[str] = Field(default_factory=list, max_length=50)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class HistoricalClassMappingCandidatesPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mappings: list[HistoricalClassMappingCandidate] = Field(min_length=1, max_length=500)
+    snapshot_id: str | None = Field(default=None, max_length=128)
+    snapshot_fingerprint: str | None = Field(default=None, max_length=128)
+
+
+class HistoricalClassMappingConfirmationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mapping_id: int = Field(gt=0)
+    confirmed_org_unit_id: str = Field(min_length=1, max_length=64)
+    reason: str = Field(min_length=1, max_length=1000)
+    snapshot_id: str = Field(min_length=1, max_length=128)
+    snapshot_fingerprint: str = Field(min_length=1, max_length=128)
+
+
+class HistoricalBulkMatchConfirmationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_count: int = Field(ge=0, le=100000)
+    snapshot_id: str = Field(min_length=1, max_length=128)
+    snapshot_fingerprint: str = Field(min_length=1, max_length=128)
+    algorithm_version: str = Field(min_length=1, max_length=64)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class HistoricalRowsDecisionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    row_ids: list[int] = Field(min_length=1, max_length=500)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class HistoricalMemberMatchConfirmationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    row_id: int = Field(gt=0)
+    member_id: int = Field(gt=0)
+    reason: str = Field(min_length=1, max_length=1000)
+    snapshot_id: str = Field(min_length=1, max_length=128)
+    snapshot_fingerprint: str = Field(min_length=1, max_length=128)
+
+
+class HistoricalCreditResolutionPayload(HistoricalRowsDecisionPayload):
+    resolution: str = Field(pattern="^(REJECTED|NEEDS_SOURCE_CORRECTION)$")
+
+
+class HistoricalYearAcceptancePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_count: int = Field(ge=0, le=100000)
+    reason: str = Field(min_length=1, max_length=1000)
+    legacy_credit_type: str | None = Field(default=None, max_length=64)
+    source_sheet: str | None = Field(default=None, max_length=255)
+    source_column_name: str | None = Field(default=None, max_length=255)
+
+
+class HistoricalMonthConfirmationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_ids: list[int] = Field(min_length=1, max_length=5000)
+    reason: str = Field(min_length=1, max_length=1000)
 
 
 def _error(exc: Exception) -> HTTPException:
@@ -190,6 +280,196 @@ def dry_run_historical_credit_import_endpoint(
 ) -> dict:
     try:
         return {"success": True, "data": dry_run_historical_credit_import(batch_id)}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/historical-imports/{batch_id}/review-workbench")
+def historical_credit_review_workbench(
+    batch_id: int,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {"success": True, "data": get_historical_credit_review_workbench(batch_id)}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-imports/{batch_id}/class-mappings/candidates")
+def historical_class_mapping_candidates(
+    batch_id: int,
+    payload: HistoricalClassMappingCandidatesPayload,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": upsert_class_mapping_candidates(
+                batch_id=batch_id,
+                mappings=[item.model_dump() for item in payload.mappings],
+                snapshot_id=payload.snapshot_id,
+                snapshot_fingerprint=payload.snapshot_fingerprint,
+                actor_user_id=user["id"],
+            ),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-imports/{batch_id}/class-mappings/confirm")
+def historical_class_mapping_confirm(
+    batch_id: int,
+    payload: HistoricalClassMappingConfirmationPayload,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": confirm_class_mapping(
+                batch_id=batch_id,
+                mapping_id=payload.mapping_id,
+                confirmed_org_unit_id=payload.confirmed_org_unit_id,
+                actor_user_id=user["id"],
+                reason=payload.reason,
+                snapshot_id=payload.snapshot_id,
+                snapshot_fingerprint=payload.snapshot_fingerprint,
+            ),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-imports/{batch_id}/matches/bulk-confirm")
+def historical_bulk_match_confirm(
+    batch_id: int,
+    payload: HistoricalBulkMatchConfirmationPayload,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": bulk_confirm_high_confidence_matches(
+                batch_id=batch_id,
+                expected_count=payload.expected_count,
+                snapshot_id=payload.snapshot_id,
+                snapshot_fingerprint=payload.snapshot_fingerprint,
+                algorithm_version=payload.algorithm_version,
+                actor_user_id=user["id"],
+                reason=payload.reason,
+            ),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-imports/{batch_id}/matches/confirm")
+def historical_member_match_confirm(
+    batch_id: int,
+    payload: HistoricalMemberMatchConfirmationPayload,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": confirm_member_match(
+                batch_id=batch_id, row_id=payload.row_id, member_id=payload.member_id,
+                actor_user_id=user["id"], reason=payload.reason,
+                snapshot_id=payload.snapshot_id, snapshot_fingerprint=payload.snapshot_fingerprint,
+            ),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-imports/{batch_id}/credit/approve-totals")
+def historical_credit_totals_approve(
+    batch_id: int,
+    payload: HistoricalRowsDecisionPayload,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": approve_calculated_totals(
+                batch_id=batch_id, row_ids=payload.row_ids,
+                actor_user_id=user["id"], reason=payload.reason,
+            ),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-imports/{batch_id}/credit/confirm-zero")
+def historical_credit_zero_confirm(
+    batch_id: int,
+    payload: HistoricalRowsDecisionPayload,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": confirm_no_credit(
+                batch_id=batch_id, row_ids=payload.row_ids,
+                actor_user_id=user["id"], reason=payload.reason,
+            ),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-imports/{batch_id}/credit/resolve-anomalies")
+def historical_credit_anomaly_resolve(
+    batch_id: int,
+    payload: HistoricalCreditResolutionPayload,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": resolve_credit_anomalies(
+                batch_id=batch_id, row_ids=payload.row_ids, resolution=payload.resolution,
+                actor_user_id=user["id"], reason=payload.reason,
+            ),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-imports/{batch_id}/period/accept-year")
+def historical_period_year_accept(
+    batch_id: int,
+    payload: HistoricalYearAcceptancePayload,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": accept_year_only_period(
+                batch_id=batch_id, expected_count=payload.expected_count,
+                actor_user_id=user["id"], reason=payload.reason,
+                legacy_credit_type=payload.legacy_credit_type,
+                source_sheet=payload.source_sheet,
+                source_column_name=payload.source_column_name,
+            ),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-imports/{batch_id}/period/confirm-month")
+def historical_period_month_confirm(
+    batch_id: int,
+    payload: HistoricalMonthConfirmationPayload,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": confirm_month_period(
+                batch_id=batch_id, item_ids=payload.item_ids,
+                actor_user_id=user["id"], reason=payload.reason,
+            ),
+        }
     except (ValueError, PermissionError) as exc:
         raise _error(exc) from exc
 

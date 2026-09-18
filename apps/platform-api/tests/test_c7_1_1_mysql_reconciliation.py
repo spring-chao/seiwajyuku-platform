@@ -122,11 +122,11 @@ def _insert_sample_ledger_entry(fixture: dict[str, int | str]) -> int:
             "INSERT INTO learning_credit_entries "
             "(member_id, credit_category, credit_type, points, source_type, source_id, "
             "class_org_unit_id, learning_cycle_id, rule_key, rule_version, rule_version_id, "
-            "rule_snapshot_json, occurred_at, posted_at, status, idempotency_key, "
+                "rule_snapshot_json, occurred_at, occurred_precision, occurred_year, occurred_month, posted_at, status, idempotency_key, "
             "reversal_of_entry_id, created_by, created_at, updated_at) "
             "VALUES (?, 'STANDARD_LEARNING', 'DAILY_READING', 1, "
             "'LEARNING_ACTIVITY_DAILY_READING', 'c7-1-1-ledger-sample', ?, NULL, "
-            "'DAILY_READING', '2026.1', ?, '{}', ?, NULL, 'POSTED', "
+                "'DAILY_READING', '2026.1', ?, '{}', ?, 'EXACT_DATE', 2026, 1, NULL, 'POSTED', "
             "'C7_1_1_MYSQL_LEDGER_SAMPLE', NULL, ?, ?, ?)",
             (
                 int(fixture["member_id"]),

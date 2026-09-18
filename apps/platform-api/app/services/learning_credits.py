@@ -25,6 +25,9 @@ STANDARD_LEARNING = "STANDARD_LEARNING"
 EXTENSION_ACTIVITY = "EXTENSION_ACTIVITY"
 GROUP_MEETING_ATTENDANCE = "GROUP_MEETING_ATTENDANCE"
 COURSE_COMPLETION = "COURSE_COMPLETION"
+OCCURRED_EXACT_DATE = "EXACT_DATE"
+OCCURRED_MONTH = "MONTH"
+OCCURRED_YEAR = "YEAR"
 
 
 class LearningCreditError(ValueError):
@@ -138,7 +141,62 @@ def _entry_payload(row: Any) -> dict[str, Any]:
         result["member_id"] = int(result["member_id"])
     if result.get("learning_cycle_id") is not None:
         result["learning_cycle_id"] = int(result["learning_cycle_id"])
+    precision = str(result.get("occurred_precision") or OCCURRED_EXACT_DATE)
+    occurred_year = result.get("occurred_year")
+    occurred_month = result.get("occurred_month")
+    if occurred_year is not None:
+        result["occurred_year"] = int(occurred_year)
+    if occurred_month is not None:
+        result["occurred_month"] = int(occurred_month)
+    result["occurred_precision"] = precision
+    if precision == OCCURRED_EXACT_DATE and result.get("occurred_at"):
+        result["period_display"] = str(result["occurred_at"])[:10]
+    elif precision == OCCURRED_MONTH and occurred_year is not None and occurred_month is not None:
+        result["period_display"] = f"{int(occurred_year):04d}年{int(occurred_month)}月"
+    elif precision == OCCURRED_YEAR and occurred_year is not None:
+        result["period_display"] = f"{int(occurred_year):04d}年"
+    else:
+        result["period_display"] = None
     return result
+
+
+def _occurrence_fields(item: dict[str, Any]) -> tuple[str | None, str, int, int | None]:
+    """Validate an exact date, month, or year period without guessing."""
+
+    occurred_at = item.get("occurred_at")
+    precision = str(item.get("occurred_precision") or (OCCURRED_EXACT_DATE if occurred_at else ""))
+    supplied_year = item.get("occurred_year")
+    supplied_month = item.get("occurred_month")
+    if precision == OCCURRED_EXACT_DATE:
+        if not occurred_at:
+            raise LearningCreditError("EXACT_DATE 必须提供 occurred_at")
+        text = occurred_at.isoformat() if isinstance(occurred_at, (date, datetime)) else str(occurred_at)
+        try:
+            parsed = date.fromisoformat(text[:10])
+        except ValueError as exc:
+            raise LearningCreditError("occurred_at 必须是有效日期") from exc
+        year = int(supplied_year or parsed.year)
+        month = int(supplied_month or parsed.month)
+        if year != parsed.year or month != parsed.month:
+            raise LearningCreditError("occurred_at 与 occurred_year/occurred_month 不一致")
+        return text, OCCURRED_EXACT_DATE, year, month
+    if precision == OCCURRED_MONTH:
+        if occurred_at is not None:
+            raise LearningCreditError("MONTH 不允许携带 occurred_at")
+        if supplied_year is None or supplied_month is None:
+            raise LearningCreditError("MONTH 必须同时提供 occurred_year 和 occurred_month")
+        year, month = int(supplied_year), int(supplied_month)
+        if not 2000 <= year <= 2100 or not 1 <= month <= 12:
+            raise LearningCreditError("MONTH 的年份或月份无效")
+        return None, OCCURRED_MONTH, year, month
+    if precision == OCCURRED_YEAR:
+        if occurred_at is not None or supplied_month is not None or supplied_year is None:
+            raise LearningCreditError("YEAR 必须只提供 occurred_year")
+        year = int(supplied_year)
+        if not 2000 <= year <= 2100:
+            raise LearningCreditError("YEAR 的年份无效")
+        return None, OCCURRED_YEAR, year, None
+    raise LearningCreditError("occurred_precision 必须是 EXACT_DATE、MONTH 或 YEAR")
 
 
 def _attendance_proposals(connection, session: dict[str, Any]) -> list[dict[str, Any]]:
@@ -538,11 +596,25 @@ def list_credit_entries(
         conditions.append("e.member_id=?")
         params.append(member_id)
     if occurred_from:
-        conditions.append("e.occurred_at>=?")
-        params.append(occurred_from)
+        try:
+            lower = date.fromisoformat(occurred_from[:10])
+        except ValueError as exc:
+            raise LearningCreditError("occurred_from 必须是有效日期") from exc
+        conditions.append(
+            "(e.occurred_year>? OR (e.occurred_year=? AND "
+            "(e.occurred_month IS NULL OR e.occurred_month>=?)))"
+        )
+        params.extend((lower.year, lower.year, lower.month))
     if occurred_to:
-        conditions.append("e.occurred_at<=?")
-        params.append(occurred_to)
+        try:
+            upper = date.fromisoformat(occurred_to[:10])
+        except ValueError as exc:
+            raise LearningCreditError("occurred_to 必须是有效日期") from exc
+        conditions.append(
+            "(e.occurred_year<? OR (e.occurred_year=? AND "
+            "(e.occurred_month IS NULL OR e.occurred_month<=?)))"
+        )
+        params.extend((upper.year, upper.year, upper.month))
     if credit_category:
         conditions.append("e.credit_category=?")
         params.append(credit_category)
@@ -559,7 +631,8 @@ def list_credit_entries(
     rows = fetch_all(
         "SELECT e.*, m.name AS member_name FROM learning_credit_entries e "
         "JOIN members m ON m.id=e.member_id WHERE " + " AND ".join(conditions) +
-        " ORDER BY e.occurred_at DESC, e.id DESC LIMIT 1000",
+        " ORDER BY e.occurred_year DESC, (e.occurred_month IS NULL) ASC, "
+        "e.occurred_month DESC, e.occurred_at DESC, e.id DESC LIMIT 1000",
         tuple(params),
     )
     return [_entry_payload(row) | {"member_name": row.get("member_name")} for row in rows]
@@ -588,31 +661,64 @@ def member_credit_summary(*, actor_user_id: int, member_id: int) -> dict[str, An
     values = {str(row["credit_category"]): float(row["points"] or 0) for row in rows}
     standard = values.get(STANDARD_LEARNING, 0)
     extension = values.get(EXTENSION_ACTIVITY, 0)
+    period_conditions = ["member_id=?", "status IN ('POSTED', 'REVERSED')"]
+    period_params: list[Any] = [member_id]
+    if allowed is not None:
+        if not allowed:
+            period_rows: list[dict[str, Any]] = []
+        else:
+            placeholders = ",".join("?" for _ in allowed)
+            period_conditions.append(f"class_org_unit_id IN ({placeholders})")
+            period_params.extend(sorted(allowed))
+            period_rows = fetch_all(
+                "SELECT occurred_precision, COUNT(*) AS entry_count, COALESCE(SUM(points), 0) AS points "
+                "FROM learning_credit_entries WHERE " + " AND ".join(period_conditions) +
+                " GROUP BY occurred_precision ORDER BY occurred_precision",
+                tuple(period_params),
+            )
+    else:
+        period_rows = fetch_all(
+            "SELECT occurred_precision, COUNT(*) AS entry_count, COALESCE(SUM(points), 0) AS points "
+            "FROM learning_credit_entries WHERE " + " AND ".join(period_conditions) +
+            " GROUP BY occurred_precision ORDER BY occurred_precision",
+            tuple(period_params),
+        )
     return {
         "member_id": member_id,
         "standard_learning_points": standard,
         "extension_activity_points": extension,
         "total_points": standard + extension,
+        "period_breakdown": [
+            {
+                "occurred_precision": str(row["occurred_precision"]),
+                "entry_count": int(row["entry_count"]),
+                "points": float(row["points"] or 0),
+            }
+            for row in period_rows
+        ],
     }
 
 
 def _insert_entry(connection, item: dict[str, Any], *, status: str, actor_user_id: int | None) -> dict[str, Any]:
     now = _db_timestamp(connection)
     posted_at = now if status == "POSTED" else None
+    occurred_at, occurred_precision, occurred_year, occurred_month = _occurrence_fields(item)
     try:
         cursor = execute(
             connection,
             "INSERT INTO learning_credit_entries "
             "(member_id, credit_category, credit_type, points, source_type, source_id, "
             "class_org_unit_id, learning_cycle_id, rule_key, rule_version, rule_version_id, "
-            "rule_snapshot_json, occurred_at, posted_at, status, idempotency_key, "
+            "rule_snapshot_json, occurred_at, occurred_precision, occurred_year, occurred_month, "
+            "posted_at, status, idempotency_key, "
             "reversal_of_entry_id, created_by, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 int(item["member_id"]), item["credit_category"], item["credit_type"], item["points"],
                 item["source_type"], str(item["source_id"]), item.get("class_org_unit_id"),
                 item.get("learning_cycle_id"), item["rule_key"], str(item["rule_version"]),
-                item.get("rule_version_id"), _json(item["rule_snapshot"]), item["occurred_at"],
+                item.get("rule_version_id"), _json(item["rule_snapshot"]), occurred_at,
+                occurred_precision, occurred_year, occurred_month,
                 posted_at, status, item["idempotency_key"], item.get("reversal_of_entry_id"),
                 actor_user_id, now, now,
             ),
@@ -789,6 +895,9 @@ def reverse_credit_entry(*, actor_user_id: int, entry_id: int, reason: str) -> d
             "rule_version_id": original["rule_version_id"],
             "rule_snapshot": {**_decode(original["rule_snapshot_json"]), "reversal_reason": reason.strip()},
             "occurred_at": original["occurred_at"],
+            "occurred_precision": original.get("occurred_precision") or OCCURRED_EXACT_DATE,
+            "occurred_year": original.get("occurred_year"),
+            "occurred_month": original.get("occurred_month"),
             "idempotency_key": reversal_key,
             "reversal_of_entry_id": entry_id,
         }

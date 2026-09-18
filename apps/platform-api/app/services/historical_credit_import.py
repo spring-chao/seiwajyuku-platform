@@ -422,10 +422,30 @@ def _batch_summary(connection: Any, batch_id: int) -> dict[str, Any]:
     item_count = execute(
         connection, "SELECT COUNT(*) AS count FROM learning_credit_import_items WHERE batch_id=?", (batch_id,)
     ).fetchone()["count"]
+    period_counts = execute(
+        connection,
+        "SELECT occurred_precision, period_review_status, COUNT(*) AS count, COALESCE(SUM(points), 0) AS points "
+        "FROM learning_credit_import_items WHERE batch_id=? "
+        "GROUP BY occurred_precision, period_review_status ORDER BY occurred_precision, period_review_status",
+        (batch_id,),
+    ).fetchall()
+    decision_count = execute(
+        connection, "SELECT COUNT(*) AS count FROM learning_credit_import_decisions WHERE batch_id=?", (batch_id,)
+    ).fetchone()["count"]
     data = dict(batch)
     data["metadata"] = json.loads(data.pop("metadata_json") or "{}")
     data["validation_counts"] = {row["validation_status"]: int(row["count"]) for row in counts}
     data["item_count"] = int(item_count)
+    data["period_counts"] = [
+        {
+            "occurred_precision": str(row["occurred_precision"]),
+            "period_review_status": str(row["period_review_status"]),
+            "count": int(row["count"]),
+            "points": _clean_points(float(row["points"] or 0)),
+        }
+        for row in period_counts
+    ]
+    data["decision_count"] = int(decision_count)
     data["ledger_entries_delta"] = 0
     return data
 
@@ -459,22 +479,33 @@ def register_suzhou_credit_workbook(
                 connection,
                 "INSERT INTO learning_credit_import_rows "
                 "(batch_id, source_sheet, source_row_number, raw_name, raw_class_name, raw_group_name, raw_total_points, calculated_total_points, "
-                "match_status, validation_status, review_status, match_reason, metadata_json, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "match_status, validation_status, review_status, match_reason, metadata_json, credit_review_status, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (batch_id, row["source_sheet"], row["source_row_number"], row["raw_name"], row["raw_class_name"],
                  row["raw_group_name"], row["raw_total_points"], row["calculated_total_points"], row["match_status"],
-                 row["validation_status"], row["review_status"], row["match_reason"], json.dumps(row["metadata"], ensure_ascii=False), now, now),
+                 row["validation_status"], row["review_status"], row["match_reason"], json.dumps(row["metadata"], ensure_ascii=False),
+                 "NOT_REQUIRED" if row["validation_status"] == VALIDATION_PASS else "PENDING", now, now),
             )
             for item in row["items"]:
+                period = classify_period(month=item["source_month"], source_year=source_year)
+                period_track = item["metadata"].get("period_track")
+                period_review_status = (
+                    "DUAL_TRACK_PENDING" if period_track == "DUAL_TRACK_PENDING"
+                    else "READY" if period["period_review_status"] == "READY"
+                    else "PERIOD_REVIEW_REQUIRED"
+                )
+                occurred_precision = "MONTH" if item["source_month"] is not None else "YEAR"
                 execute(
                     connection,
                     "INSERT INTO learning_credit_import_items "
                     "(batch_id, import_row_id, source_sheet, source_row_number, source_column_index, source_column_name, credit_category, legacy_credit_type, "
-                    "source_month, accounting_month, points, source_rule_version, status, metadata_json, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_REVIEW', ?, ?, ?)",
+                    "source_month, accounting_month, points, source_rule_version, status, metadata_json, "
+                    "occurred_precision, occurred_year, occurred_month, period_review_status, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_REVIEW', ?, ?, ?, ?, ?, ?, ?)",
                     (batch_id, int(row_cursor.lastrowid), item["source_sheet"], row["source_row_number"], item["source_column_index"], item["source_column_name"],
                      item["credit_category"], item["legacy_credit_type"], item["source_month"], item["accounting_month"],
-                     item["points"], HISTORICAL_SOURCE_RULE_VERSION, json.dumps(item["metadata"], ensure_ascii=False), now, now),
+                     item["points"], HISTORICAL_SOURCE_RULE_VERSION, json.dumps(item["metadata"], ensure_ascii=False),
+                     occurred_precision, source_year, item["source_month"], period_review_status, now, now),
                 )
         if actor_user_id is not None:
             write_audit(
@@ -497,7 +528,8 @@ def get_historical_credit_import_batch(batch_id: int) -> dict[str, Any]:
 def list_historical_credit_import_anomalies(batch_id: int) -> list[dict[str, Any]]:
     return fetch_all(
         "SELECT id, source_sheet, source_row_number, raw_name, raw_class_name, raw_group_name, "
-        "raw_total_points, calculated_total_points, validation_status, review_status, match_status, match_reason "
+        "raw_total_points, calculated_total_points, validation_status, review_status, credit_review_status, "
+        "resolved_total_points, credit_review_reason, match_status, match_reason "
         "FROM learning_credit_import_rows WHERE batch_id=? AND validation_status<>'PASS' "
         "ORDER BY source_sheet, source_row_number",
         (batch_id,),
@@ -521,25 +553,119 @@ def get_historical_credit_import_row(batch_id: int, row_id: int) -> dict[str, An
 
 
 def dry_run_historical_credit_import(batch_id: int) -> dict[str, Any]:
-    """Return proposed historical items only; this function never writes."""
+    """Return a complete historical proposal without writing any table."""
 
     batch = get_historical_credit_import_batch(batch_id)
-    ready = fetch_all(
-        "SELECT i.id, i.matched_member_id, i.points, i.legacy_credit_type, i.source_month, i.accounting_month "
-        "FROM learning_credit_import_items i JOIN learning_credit_import_rows r ON r.id=i.import_row_id "
-        "WHERE i.batch_id=? AND i.matched_member_id IS NOT NULL "
-        "AND r.match_status IN ('AUTO_MATCHED','CONFIRMED') AND r.validation_status='PASS' "
-        "AND i.status IN ('PENDING_REVIEW','READY') ORDER BY i.id",
+    rows = fetch_all(
+        "SELECT i.*, r.raw_name, r.raw_class_name, r.raw_group_name, r.match_status, "
+        "r.validation_status, r.credit_review_status, r.resolved_total_points, r.review_status, r.match_reason, "
+        "r.id AS source_row_id, r.metadata_json AS row_metadata_json, b.source_year "
+        "FROM learning_credit_import_items i "
+        "JOIN learning_credit_import_rows r ON r.id=i.import_row_id "
+        "JOIN learning_credit_import_batches b ON b.id=i.batch_id "
+        "WHERE i.batch_id=? ORDER BY i.occurred_year DESC, (i.occurred_month IS NULL) ASC, i.occurred_month DESC, i.id",
         (batch_id,),
     )
+    ready: list[dict[str, Any]] = []
+    blocked: list[dict[str, Any]] = []
+    reason_counts: dict[str, dict[str, Any]] = {}
+
+    def period_display(item: dict[str, Any]) -> str | None:
+        precision = str(item.get("occurred_precision") or "")
+        year = item.get("occurred_year")
+        month = item.get("occurred_month")
+        if precision == "MONTH" and year is not None and month is not None:
+            return f"{int(year):04d}年{int(month)}月"
+        if precision == "YEAR" and year is not None:
+            return f"{int(year):04d}年"
+        return None
+
+    for raw in rows:
+        item = dict(raw)
+        item.pop("row_metadata_json", None)
+        item["period_display"] = period_display(item)
+        item["points"] = float(item["points"] or 0)
+        reason: str | None = None
+        if item.get("matched_member_id") is None or item.get("match_status") not in {"AUTO_MATCHED", "CONFIRMED"}:
+            reason = item.get("match_reason") or "MEMBER_MAPPING_REQUIRED"
+        elif item.get("validation_status") == VALIDATION_PASS:
+            reason = None
+        elif item.get("validation_status") == VALIDATION_TOTAL_MISSING and item.get("credit_review_status") == "APPROVED":
+            reason = None
+        elif item.get("validation_status") == VALIDATION_ZERO:
+            reason = "NO_CREDIT_CONFIRMED"
+        elif item.get("credit_review_status") == "REJECTED":
+            reason = "CREDIT_REVIEW_REJECTED"
+        elif item.get("credit_review_status") == "NEEDS_SOURCE_CORRECTION":
+            reason = "SOURCE_CORRECTION_REQUIRED"
+        else:
+            reason = "CREDIT_REVIEW_REQUIRED"
+
+        if reason is None:
+            if item.get("period_review_status") == "DUAL_TRACK_PENDING" or item.get("source_month") == 9:
+                reason = "DUAL_TRACK_PENDING"
+            elif item.get("occurred_precision") == "YEAR" and item.get("period_review_status") != "YEAR_ACCEPTED":
+                reason = "PERIOD_YEAR_ACCEPTANCE_REQUIRED"
+            elif item.get("occurred_precision") == "MONTH" and item.get("period_review_status") not in {"READY", "MONTH_CONFIRMED"}:
+                reason = "PERIOD_MONTH_CONFIRMATION_REQUIRED"
+        if reason is None and item.get("status") not in {"PENDING_REVIEW", "READY"}:
+            reason = "ITEM_NOT_READY"
+
+        if reason is None:
+            ready.append(item)
+        else:
+            item["blocked_reason"] = reason
+            blocked.append(item)
+            current = reason_counts.setdefault(reason, {"count": 0, "points": 0})
+            current["count"] += 1
+            current["points"] += item["points"]
+
+    for value in reason_counts.values():
+        value["points"] = _clean_points(value["points"])
+    track_counts: dict[str, dict[str, Any]] = {}
+    for item in ready:
+        track = "SEPTEMBER_DUAL_TRACK" if item.get("source_month") == 9 else (
+            "YEAR_ACCEPTED" if item.get("occurred_precision") == "YEAR" else "HISTORICAL_BASELINE"
+        )
+        current = track_counts.setdefault(track, {"count": 0, "points": 0})
+        current["count"] += 1
+        current["points"] += item["points"]
+    for value in track_counts.values():
+        value["points"] = _clean_points(value["points"])
+    september_dual_track_items = [item for item in rows if item.get("source_month") == 9]
+    identity_rows = fetch_all(
+        "SELECT match_status, COUNT(*) AS count FROM learning_credit_import_rows WHERE batch_id=? GROUP BY match_status",
+        (batch_id,),
+    )
+    credit_rows = fetch_all(
+        "SELECT validation_status, credit_review_status, COUNT(*) AS count FROM learning_credit_import_rows "
+        "WHERE batch_id=? GROUP BY validation_status, credit_review_status",
+        (batch_id,),
+    )
+    blocked_reason = None
+    if not ready:
+        blocked_reason = "PLATFORM_MEMBER_SNAPSHOT_REQUIRED" if not rows or all(
+            item.get("blocked_reason") == "MEMBER_MAPPING_REQUIRED" for item in blocked
+        ) else next(iter(reason_counts), "HISTORICAL_REVIEW_REQUIRED")
     return {
         "mode": "DRY_RUN",
         "batch": batch,
         "source_rule_version": HISTORICAL_SOURCE_RULE_VERSION,
+        "total_item_count": len(rows),
         "proposed_item_count": len(ready),
-        "proposed_points": _clean_points(sum(float(item["points"]) for item in ready)),
-        "blocked_reason": "PLATFORM_MEMBER_SNAPSHOT_REQUIRED" if not ready else None,
+        "proposed_points": _clean_points(sum(item["points"] for item in ready)),
+        "blocked_item_count": len(blocked),
+        "blocked_points": _clean_points(sum(item["points"] for item in blocked)),
+        "blocked_reason": blocked_reason,
+        "blocked_reason_counts": reason_counts,
+        "track_counts": track_counts,
+        "september_dual_track_items": len(september_dual_track_items),
+        "september_dual_track_points": _clean_points(sum(float(item.get("points") or 0) for item in september_dual_track_items)),
+        "identity_match_counts": {str(row["match_status"]): int(row["count"]) for row in identity_rows},
+        "credit_review_counts": [dict(row) for row in credit_rows],
         "details": ready,
+        "blocked_details": blocked,
         "learning_credit_entries_delta": 0,
         "ledger_write": False,
+        "staging_write": False,
     }

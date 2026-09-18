@@ -265,8 +265,8 @@ def test_class_meeting_projection_is_idempotent_and_skips_existing_ledger_entry(
             "INSERT INTO learning_credit_entries "
             "(member_id, credit_category, credit_type, points, source_type, source_id, "
             "class_org_unit_id, rule_key, rule_version, rule_version_id, rule_snapshot_json, "
-            "occurred_at, status, idempotency_key, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'POSTED', ?, ?, ?)",
+            "occurred_at, occurred_precision, occurred_year, occurred_month, status, idempotency_key, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'EXACT_DATE', ?, ?, 'POSTED', ?, ?, ?)",
             (
                 item["member_id"],
                 item["credit_category"],
@@ -280,6 +280,8 @@ def test_class_meeting_projection_is_idempotent_and_skips_existing_ledger_entry(
                 item["rule_version_id"],
                 "{}",
                 item["occurred_at"],
+                int(item["occurred_at"][0:4]),
+                int(item["occurred_at"][5:7]),
                 item["idempotency_key"],
                 now,
                 now,
