@@ -93,6 +93,87 @@ def test_guarded_apply_requires_fingerprints_and_builds_audit_payload() -> None:
     assert audit["timestamp"]
 
 
+def test_named_unused_placeholders_require_complete_zero_reference_evidence() -> None:
+    policy = load_canonical_policy()
+    placeholder_rows = [
+        {
+            "id": 41,
+            "course_key": "AUTO-QR-EXCELLENT-IMPROVEMENT",
+            "course_name": "优秀改善创新案例分享",
+            "aliases": ["优秀改善创新案例分享"],
+        },
+        {
+            "id": 38,
+            "course_key": "AUTO-QR-HAPPINESS-CARE",
+            "course_name": "幸福关爱委讲解",
+            "aliases": ["幸福关爱委"],
+        },
+        {
+            "id": 39,
+            "course_key": "AUTO-QR-IMPROVEMENT-INNOVATION",
+            "course_name": "改善创新委讲解与案例分享",
+            "aliases": ["改善创新委", "改善创新案例"],
+        },
+    ]
+    placeholder_rows = [
+        {
+            **row,
+            "year_index": 2,
+            "credit_points": 0,
+            "status": "PENDING",
+            "source": "SYSTEM_DEFAULT",
+            "created_at": "2026-09-01T00:00:00+00:00",
+            "updated_at": "2026-09-01T00:00:00+00:00",
+        }
+        for row in placeholder_rows
+    ]
+    references = {
+        row["course_key"]: {
+            "all_reference_count": 0,
+            "generic_rule_mapping": 0,
+            "course_rule_mapping": 0,
+            "study_meeting_course_reference": 0,
+            "completion_fact": 0,
+            "ledger_reference": 0,
+        }
+        for row in placeholder_rows
+    }
+    result = reconcile_course_rules(
+        version={"id": 3, "status": "DRAFT"},
+        production_rules=placeholder_rows,
+        policy=policy,
+        reference_counts=references,
+    )
+    removals = [item for item in result["plan"] if item["action"] == "REMOVE_UNUSED_PLACEHOLDER"]
+    assert {item["course_key"] for item in removals} == {
+        row["course_key"] for row in placeholder_rows
+    }
+    assert removals[0]["before"]["created_at"] == placeholder_rows[0]["created_at"]
+    assert result["placeholder_removal_count"] == 3
+    assert result["extra_count"] == 0
+
+    captured: list[dict] = []
+    guarded_apply(
+        result,
+        expected_production_fingerprint=result["production_fingerprint"],
+        expected_canonical_fingerprint=result["canonical_fingerprint"],
+        actor="test-operator",
+        reason="删除已核实未使用占位规则",
+        reconciliation_batch_id="c3-placeholder-test-001",
+        writer=lambda plan: captured.extend(plan),
+    )
+    assert any(item["action"] == "REMOVE_UNUSED_PLACEHOLDER" for item in captured)
+
+    blocked = reconcile_course_rules(
+        version={"id": 3, "status": "DRAFT"},
+        production_rules=placeholder_rows,
+        policy=policy,
+    )
+    blocked_items = [item for item in blocked["plan"] if item["action"] == "BLOCK"]
+    assert len(blocked_items) == 3
+    assert all("REFERENCE_EVIDENCE_MISSING" in item["reason"] for item in blocked_items)
+
+
 def test_matching_requires_exact_class_and_does_not_use_group_as_identity() -> None:
     snapshot = {
         "tables": {

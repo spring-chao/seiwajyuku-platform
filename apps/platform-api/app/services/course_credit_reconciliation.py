@@ -29,8 +29,25 @@ DIFF_TYPES = {
     "ALIAS_DIFFERENT",
     "STATUS_DIFFERENT",
     "EXTRA_IN_PRODUCTION",
+    "UNUSED_PLACEHOLDER",
     "CONFLICT",
 }
+
+UNUSED_PLACEHOLDER_KEYS = frozenset(
+    {
+        "AUTO-QR-EXCELLENT-IMPROVEMENT",
+        "AUTO-QR-HAPPINESS-CARE",
+        "AUTO-QR-IMPROVEMENT-INNOVATION",
+    }
+)
+
+PLACEHOLDER_REFERENCE_FIELDS = (
+    "generic_rule_mapping",
+    "course_rule_mapping",
+    "study_meeting_course_reference",
+    "completion_fact",
+    "ledger_reference",
+)
 
 
 def _aliases(value: Any) -> list[str]:
@@ -56,6 +73,49 @@ def _production_rule(row: dict[str, Any]) -> dict[str, Any]:
         "source": str(row.get("source") or "").strip(),
         "aliases": _aliases(row.get("aliases", row.get("aliases_json", []))),
     }
+
+
+def _before_image(row: dict[str, Any]) -> dict[str, Any]:
+    """Keep the complete deletion evidence when the export contains it."""
+
+    image = _production_rule(row)
+    for field in ("created_at", "updated_at"):
+        if field in row:
+            image[field] = row[field]
+    return image
+
+
+def _placeholder_block_reason(
+    *,
+    version: dict[str, Any],
+    rule: dict[str, Any],
+    reference_counts: dict[str, Any] | None,
+) -> str | None:
+    """Return a reason when a named placeholder is not safe to remove."""
+
+    if rule["course_key"] not in UNUSED_PLACEHOLDER_KEYS:
+        return "NOT_ALLOWLISTED_PLACEHOLDER"
+    version_status = str(version.get("status", version.get("version_status")) or "").strip()
+    if version_status != "DRAFT":
+        return "RULE_VERSION_NOT_DRAFT"
+    if rule["status"] != "PENDING":
+        return "RULE_STATUS_NOT_PENDING"
+    if rule["credit_points"] != 0:
+        return "RULE_POINTS_NOT_ZERO"
+    evidence = (reference_counts or {}).get(rule["course_key"])
+    if not isinstance(evidence, dict):
+        return "REFERENCE_EVIDENCE_MISSING"
+    if "all_reference_count" not in evidence:
+        return "REFERENCE_TOTAL_MISSING"
+    try:
+        if int(evidence["all_reference_count"]) != 0:
+            return "REFERENCE_TOTAL_NOT_ZERO"
+        for field in PLACEHOLDER_REFERENCE_FIELDS:
+            if field not in evidence or int(evidence[field]) != 0:
+                return f"REFERENCE_{field.upper()}_NOT_ZERO_OR_MISSING"
+    except (TypeError, ValueError):
+        return "REFERENCE_COUNT_INVALID"
+    return None
 
 
 def production_fingerprint(
@@ -100,10 +160,15 @@ def reconcile_course_rules(
     version: dict[str, Any],
     production_rules: list[dict[str, Any]],
     policy: dict[str, Any] | None = None,
+    reference_counts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     canonical = policy or load_canonical_policy()
     expected_rules = [expected_persisted_rule(rule) for rule in canonical["rules"]]
     normalized_production = [_production_rule(rule) for rule in production_rules]
+    before_images = {
+        (rule["course_key"], str(rule.get("id") or "")): _before_image(raw)
+        for raw, rule in zip(production_rules, normalized_production)
+    }
     production_by_key: dict[str, list[dict[str, Any]]] = {}
     for rule in normalized_production:
         production_by_key.setdefault(rule["course_key"], []).append(rule)
@@ -171,18 +236,40 @@ def reconcile_course_rules(
 
     canonical_keys = {rule["course_key"] for rule in expected_rules}
     extra_count = 0
+    placeholder_removal_count = 0
     for actual in normalized_production:
         key = actual["course_key"]
         if key not in canonical_keys:
+            before = before_images.get((key, str(actual.get("id") or "")), actual)
+            placeholder_reason = _placeholder_block_reason(
+                version=version, rule=actual, reference_counts=reference_counts
+            )
+            if key in UNUSED_PLACEHOLDER_KEYS and placeholder_reason is None:
+                placeholder_removal_count += 1
+                plan.append(
+                    {
+                        "course_key": key,
+                        "action": "REMOVE_UNUSED_PLACEHOLDER",
+                        "difference_types": ["UNUSED_PLACEHOLDER"],
+                        "before": before,
+                        "after": None,
+                        "reason": "REMOVE_UNUSED_PLACEHOLDER_BEFORE_CANONICAL_FREEZE",
+                    }
+                )
+                continue
             extra_count += 1
             plan.append(
                 {
                     "course_key": key or None,
                     "action": "BLOCK",
                     "difference_types": ["EXTRA_IN_PRODUCTION"],
-                    "before": actual,
+                    "before": before,
                     "after": None,
-                    "reason": "未知生产规则不得自动删除；需单独业务确认",
+                    "reason": (
+                        "未知生产规则不得自动删除；需单独业务确认"
+                        if key not in UNUSED_PLACEHOLDER_KEYS
+                        else f"占位规则删除前置条件不满足：{placeholder_reason}"
+                    ),
                 }
             )
 
@@ -203,6 +290,7 @@ def reconcile_course_rules(
         "missing_count": missing_count,
         "different_count": different_count,
         "extra_count": extra_count,
+        "placeholder_removal_count": placeholder_removal_count,
         "conflict_count": len(conflicts),
         "production_fingerprint": production_fp,
         "canonical_fingerprint": canonical_fp,
@@ -239,7 +327,7 @@ def guarded_apply(
     timestamp = datetime.now(timezone.utc).isoformat()
     audited_plan = []
     for item in reconciliation["plan"]:
-        if item["action"] not in {"ADD", "UPDATE"}:
+        if item["action"] not in {"ADD", "UPDATE", "REMOVE_UNUSED_PLACEHOLDER"}:
             continue
         audited_plan.append(
             {
