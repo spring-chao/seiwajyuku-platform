@@ -23,7 +23,6 @@ apps/platform-api/data/*.sqlite*
 backups/
 artifacts/
 .codex-tmp/
-apps/platform-api/app/build-info.json
 third_party/
 *.log
 *.pem
