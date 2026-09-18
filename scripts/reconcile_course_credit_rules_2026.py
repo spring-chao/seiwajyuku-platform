@@ -65,7 +65,12 @@ def main() -> int:
     rules = payload.get("rules")
     if not isinstance(version, dict) or not isinstance(rules, list):
         raise SystemExit("production JSON 必须包含 version 对象和 rules 数组")
-    result = reconcile_course_rules(version=version, production_rules=rules)
+    reference_counts = payload.get("reference_counts", payload.get("references"))
+    result = reconcile_course_rules(
+        version=version,
+        production_rules=rules,
+        reference_counts=reference_counts if isinstance(reference_counts, dict) else None,
+    )
     rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     if args.output:
         args.output.write_text(rendered, encoding="utf-8")
