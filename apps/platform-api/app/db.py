@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import parse_qs, unquote, urlparse
@@ -11,6 +13,15 @@ from app.core.settings import get_settings
 
 settings = get_settings()
 settings.assert_safe_startup()
+
+
+@dataclass
+class _AtomicState:
+    connection: Any
+    rollback_only: bool = False
+
+
+_atomic_state: ContextVar[_AtomicState | None] = ContextVar("db_atomic_state", default=None)
 
 
 def _sqlite_path(url: str) -> str:
@@ -70,6 +81,14 @@ def execute(connection, statement: str, params: tuple[Any, ...] = ()):
 
 @contextmanager
 def transaction() -> Iterator[Any]:
+    state = _atomic_state.get()
+    if state is not None:
+        try:
+            yield state.connection
+        except Exception:
+            state.rollback_only = True
+            raise
+        return
     connection = connect()
     try:
         yield connection
@@ -81,18 +100,43 @@ def transaction() -> Iterator[Any]:
         connection.close()
 
 
-def fetch_one(statement: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
+@contextmanager
+def atomic_transaction() -> Iterator[Any]:
+    """Opt-in unit of work for existing services; nested writes commit together."""
+    if _atomic_state.get() is not None:
+        with transaction() as connection:
+            yield connection
+        return
+    with transaction() as connection:
+        state = _AtomicState(connection)
+        token = _atomic_state.set(state)
+        try:
+            yield connection
+            if state.rollback_only:
+                raise RuntimeError("事务中的操作失败，已取消本次保存")
+        finally:
+            _atomic_state.reset(token)
+
+
+@contextmanager
+def _read_connection() -> Iterator[Any]:
+    state = _atomic_state.get()
+    if state is not None:
+        yield state.connection
+        return
     connection = connect()
     try:
-        row = execute(connection, statement, params).fetchone()
-        return dict(row) if row else None
+        yield connection
     finally:
         connection.close()
+
+
+def fetch_one(statement: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
+    with _read_connection() as connection:
+        row = execute(connection, statement, params).fetchone()
+        return dict(row) if row else None
 
 
 def fetch_all(statement: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
-    connection = connect()
-    try:
+    with _read_connection() as connection:
         return [dict(row) for row in execute(connection, statement, params).fetchall()]
-    finally:
-        connection.close()

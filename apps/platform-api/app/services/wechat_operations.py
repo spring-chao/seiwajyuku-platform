@@ -9,9 +9,13 @@ matching IAM2 permission scope.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+import hashlib
+import json
 from typing import Any, Iterable
 
 from app.core.settings import get_settings
+from app.db import atomic_transaction, execute
+from app.services.audit import write_audit
 from app.services.followups import add_followup_record, create_task, list_tasks
 from app.services.iam import mobile_iam_context, resolve_employee_mobile_principal
 from app.services.member_care_actions import (
@@ -668,7 +672,13 @@ def record_care(
     situation: str,
     next_action: str | None,
     next_followup_at: str | None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    if idempotency_key:
+        values = dict(member_id=member_id, channel=channel, situation=situation,
+                      next_action=next_action, next_followup_at=next_followup_at)
+        return _record_once(session, "followups:manage", "care", idempotency_key, values,
+                            lambda: record_care(session, **values))
     principal = _principal(session)
     _require_permission(principal, "followups:manage")
     task_id, created_task = _get_or_create_care_task(
@@ -709,7 +719,14 @@ def record_renewal_care(
     situation: str,
     next_action: str | None,
     next_followup_at: str | None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    if idempotency_key:
+        values = dict(member_id=member_id, renewal_cycle_id=renewal_cycle_id,
+                      channel=channel, situation=situation, next_action=next_action,
+                      next_followup_at=next_followup_at)
+        return _record_once(session, "renewals:manage", "renewal", idempotency_key, values,
+                            lambda: record_renewal_care(session, **values))
     principal = _principal(session)
     _require_permission(principal, "renewals:manage")
     scoped_principal = _source_principal(principal, "renewals:manage")
@@ -742,6 +759,41 @@ def record_renewal_care(
         "renewal_cycle_id": int(renewal_cycle_id),
         "today_actions": _today_actions_for_principal(principal),
     }
+
+
+def _record_once(session, permission, kind, key, values, save):
+    """Serialize by member and commit the receipt with the existing facts.
+
+    The audit contains a payload digest and record IDs only, never care text.
+    Identity and organization authorization are rechecked even on a replay.
+    """
+    principal = _principal(session)
+    scoped = _source_principal(principal, permission)
+    member_id = int(values["member_id"])
+    actor_id = int(principal["user_id"])
+    with mobile_iam_context(scoped, permission):
+        get_member_access_context(member_id, actor_id)
+    digest = hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    action = f"wechat.mobile.{kind}.receipt"
+    with atomic_transaction() as connection:
+        # Existing member row is the cross-process lock on MySQL and SQLite.
+        # No member fields, timestamps or schema are changed.
+        execute(connection, "UPDATE members SET id=id WHERE id=?", (member_id,))
+        row = execute(connection,
+            "SELECT after_json FROM audit_logs WHERE actor_user_id=? AND action=? "
+            "AND resource_id=? AND request_id=? ORDER BY id DESC LIMIT 1",
+            (actor_id, action, str(member_id), key)).fetchone()
+        if row:
+            receipt = json.loads(dict(row)["after_json"])
+            if receipt["payload_sha256"] != digest:
+                raise ValueError("本次提交内容已变化，请重新打开记录页面后提交")
+            return {**receipt["result"], "replayed": True}
+        result = save()
+        minimal = {k: v for k, v in result.items() if k != "today_actions"}
+        write_audit(connection, actor_user_id=actor_id, action=action,
+                    resource_type="member", resource_id=str(member_id), request_id=key,
+                    after={"payload_sha256": digest, "result": minimal})
+        return result
 
 
 def complete_mobile_birthday_care(

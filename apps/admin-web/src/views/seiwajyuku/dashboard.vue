@@ -37,6 +37,7 @@ import {
   type OperationsSnapshot
 } from "@/api/seiwajyuku";
 import { useUserStoreHook } from "@/store/modules/user";
+import { createSectionLoader } from "@/utils/section-loader";
 import MemberDetailDrawer from "@/components/seiwajyuku/MemberDetailDrawer.vue";
 
 defineOptions({ name: "MpDashboard" });
@@ -52,7 +53,15 @@ type ManagementExceptionFilter =
   | "no_schedule"
   | "birthday_missed";
 
-const loading = ref(false);
+const props = withDefaults(defineProps<{ mode?: "actions" | "data" }>(), {
+  mode: "actions"
+});
+const isDataView = computed(() => props.mode === "data");
+const sectionLoader = createSectionLoader();
+const memberCareLoading = ref(false);
+const operationsError = ref(false);
+const rhythmError = ref(false);
+const mpError = ref(false);
 const router = useRouter();
 const plans = ref<AnnualPlan[]>([]);
 const planId = ref<number>();
@@ -143,6 +152,9 @@ const classSaving = ref(false);
 const classDetail = ref<ClassOperationsDetail>();
 const canManageClassOperations = computed(() =>
   useUserStoreHook().permissions.includes("plans:period_write")
+);
+const canViewDataOverview = computed(() =>
+  useUserStoreHook().permissions.includes("plans:read")
 );
 const canManageRhythm = canManageClassOperations;
 const canCompleteBirthdayCare = computed(() => {
@@ -1129,116 +1141,139 @@ const renewalStageLabel = (analytics: RenewalAnnualAnalytics, stage: string) =>
   stage;
 
 async function load() {
-  loading.value = true;
+  const run = sectionLoader.begin();
+  const selectedYear = year.value;
+  const selectedMonth = month.value;
+  const selectedBirthdayMonth =
+    birthdayMonth.value === "ALL" ? 0 : Number(birthdayMonth.value);
+  memberCare.value = undefined;
   memberCareError.value = false;
+  memberCareLoading.value = !isDataView.value;
+  operations.value = undefined;
+  rhythm.value = undefined;
+  items.value = [];
+  variances.value = [];
+  operationsError.value = false;
+  rhythmError.value = false;
+  mpError.value = false;
+  memberCareManagement.value = undefined;
+  renewalAnnualAnalytics.value = undefined;
   memberCareManagementError.value = false;
   renewalAnnualAnalyticsError.value = false;
-  try {
-    const [
-      snapshot,
-      dashboard,
-      variance,
-      rhythmSnapshot,
-      careActions,
-      careManagement,
-      renewalAnalytics
-    ] = await Promise.allSettled([
-      getOperationsSnapshot({
-        year: year.value,
-        month: month.value,
-        birthday_month:
-          birthdayMonth.value === "ALL" ? 0 : Number(birthdayMonth.value)
-      }),
-      planId.value
-        ? getMpDashboard({ plan_id: planId.value, month: month.value })
-        : Promise.resolve(null),
-      planId.value ? getTargetVariances(planId.value) : Promise.resolve(null),
-      getOperationRhythmSnapshot({ year: year.value, month: month.value }),
-      getMemberCareActionsToday(),
-      getMemberCareManagementOverview(),
-      getRenewalAnnualAnalytics(year.value)
-    ]);
 
-    if (snapshot.status === "fulfilled") {
-      operations.value = snapshot.value.data;
-      if (
-        birthdayCenterId.value &&
-        !snapshot.value.data.birthday_members.some(
-          item => item.org_unit_id === birthdayCenterId.value
-        )
-      ) {
-        birthdayCenterId.value = "";
+  if (!isDataView.value) {
+    await run(
+      () => getMemberCareActionsToday(),
+      response => {
+        memberCare.value = response.data;
+      },
+      () => {
+        memberCareError.value = true;
+      },
+      () => {
+        memberCareLoading.value = false;
       }
-      if (
-        birthdayClassOrgUnitId.value &&
-        !snapshot.value.data.birthday_members.some(
-          item =>
-            item.class_org_unit_id === birthdayClassOrgUnitId.value &&
-            (!birthdayCenterId.value ||
-              item.org_unit_id === birthdayCenterId.value)
-        )
-      ) {
-        birthdayClassOrgUnitId.value = "";
-      }
-    } else {
-      ElMessage.error("本月学员与生日数据加载失败，请稍后重试");
-    }
-
-    if (rhythmSnapshot.status === "fulfilled") {
-      rhythm.value = rhythmSnapshot.value.data;
-    } else {
-      ElMessage.warning("运营节奏暂时加载失败，生日和学员数据仍可查看");
-    }
-
-    if (dashboard.status === "fulfilled") {
-      items.value = dashboard.value?.data.items || [];
-      if (
-        !items.value.some(item => item.metric_key === selectedMetricKey.value)
-      ) {
-        selectedMetricKey.value = items.value[0]?.metric_key ?? "";
-      }
-    } else if (planId.value) {
-      ElMessage.warning("年度 MP 数据暂时加载失败，其他运营数据仍可查看");
-    }
-
-    if (variance.status === "fulfilled") {
-      variances.value = variance.value?.data || [];
-    }
-
-    if (careActions.status === "fulfilled") {
-      memberCare.value = careActions.value.data;
-    } else {
-      memberCare.value = undefined;
-      memberCareError.value = true;
-    }
-
-    if (careManagement.status === "fulfilled") {
-      memberCareManagement.value = careManagement.value.data;
-    } else {
-      memberCareManagement.value = undefined;
-      memberCareManagementError.value = true;
-    }
-    if (renewalAnalytics.status === "fulfilled") {
-      renewalAnnualAnalytics.value = renewalAnalytics.value.data;
-    } else {
-      renewalAnnualAnalytics.value = undefined;
-      renewalAnnualAnalyticsError.value = true;
-    }
-  } finally {
-    loading.value = false;
+    );
+    return;
   }
+
+  await Promise.all([
+    run(
+      () =>
+        getOperationsSnapshot({
+          year: selectedYear,
+          month: selectedMonth,
+          birthday_month: selectedBirthdayMonth
+        }),
+      response => {
+        operations.value = response.data;
+        if (
+          birthdayCenterId.value &&
+          !response.data.birthday_members.some(
+            item => item.org_unit_id === birthdayCenterId.value
+          )
+        )
+          birthdayCenterId.value = "";
+        if (
+          birthdayClassOrgUnitId.value &&
+          !response.data.birthday_members.some(
+            item =>
+              item.class_org_unit_id === birthdayClassOrgUnitId.value &&
+              (!birthdayCenterId.value ||
+                item.org_unit_id === birthdayCenterId.value)
+          )
+        )
+          birthdayClassOrgUnitId.value = "";
+      },
+      () => {
+        operationsError.value = true;
+      }
+    ),
+    run(
+      () =>
+        getOperationRhythmSnapshot({
+          year: selectedYear,
+          month: selectedMonth
+        }),
+      response => {
+        rhythm.value = response.data;
+      },
+      () => {
+        rhythmError.value = true;
+      }
+    ),
+    run(
+      async () => {
+        const available = plans.value.length
+          ? plans.value
+          : (await getAnnualPlans()).data;
+        const selected = planId.value ?? available[0]?.id;
+        const [dashboard, variance] = selected
+          ? await Promise.all([
+              getMpDashboard({ plan_id: selected, month: selectedMonth }),
+              getTargetVariances(selected)
+            ])
+          : [null, null];
+        return { available, selected, dashboard, variance };
+      },
+      result => {
+        plans.value = result.available;
+        planId.value = result.selected;
+        items.value = result.dashboard?.data.items || [];
+        variances.value = result.variance?.data || [];
+        if (
+          !items.value.some(item => item.metric_key === selectedMetricKey.value)
+        )
+          selectedMetricKey.value = items.value[0]?.metric_key ?? "";
+      },
+      () => {
+        mpError.value = true;
+      }
+    ),
+    run(
+      () => getMemberCareManagementOverview(),
+      response => {
+        memberCareManagement.value = response.data;
+      },
+      () => {
+        memberCareManagementError.value = true;
+      }
+    ),
+    run(
+      () => getRenewalAnnualAnalytics(selectedYear),
+      response => {
+        renewalAnnualAnalytics.value = response.data;
+      },
+      () => {
+        renewalAnnualAnalyticsError.value = true;
+      }
+    )
+  ]);
 }
 
 let dashboardInitialized = false;
 
 onMounted(async () => {
-  try {
-    const response = await getAnnualPlans();
-    plans.value = response.data;
-    planId.value = plans.value[0]?.id;
-  } catch {
-    ElMessage.warning("年度方案暂时加载失败，本月运营数据仍可查看");
-  }
   await load();
   dashboardInitialized = true;
 });
@@ -1253,17 +1288,22 @@ function changePlan() {
 </script>
 
 <template>
-  <div v-loading="loading" class="page-shell">
+  <div class="page-shell">
     <section class="hero">
       <div>
-        <p class="eyebrow">月度实况 · 组织盘面 · 服务节奏</p>
-        <h1>今日行动</h1>
+        <p class="eyebrow">
+          {{ isDataView ? "月度实况 · 组织盘面" : "续费 · 关爱 · 生日" }}
+        </p>
+        <h1>{{ isDataView ? "数据概览" : "今日行动" }}</h1>
         <p class="subtitle">
-          先看当月续费、新增、在册、生日与活动排期，再下钻年度 MP
-          目标差距；所有数字来自统一平台数据库。
+          {{
+            isDataView
+              ? "查看月度实况、班级运营和年度目标；缺失数据会明确提示。"
+              : "找到今天需要联系的学长，记录行动后查看完成结果。"
+          }}
         </p>
       </div>
-      <div class="filters">
+      <div v-if="isDataView" class="filters">
         <el-select v-model="year" aria-label="运营年份" @change="load">
           <el-option
             v-for="option in yearOptions"
@@ -1287,7 +1327,21 @@ function changePlan() {
       </div>
     </section>
 
-    <section class="content-card care-center-card">
+    <div v-if="canViewDataOverview" class="section-heading">
+      <el-button
+        @click="
+          router.push(
+            isDataView ? '/operations/dashboard' : '/operations/data-overview'
+          )
+        "
+        >{{ isDataView ? "返回今日行动" : "查看数据概览" }}</el-button
+      >
+    </div>
+    <section
+      v-if="!isDataView"
+      v-loading="memberCareLoading"
+      class="content-card care-center-card"
+    >
       <div class="section-title care-center-heading">
         <div>
           <p class="eyebrow dark">MEMBER CARE CENTER</p>
@@ -1545,743 +1599,685 @@ function changePlan() {
       </template>
     </section>
 
-    <section class="content-card management-card">
-      <div class="section-title management-heading">
-        <div>
-          <p class="eyebrow dark">CARE OPERATIONS HEALTH</p>
-          <h2>关爱运营健康</h2>
-          <p>
-            只看逾期、未闭环、责任人和下一时间等确定性支持需求，不做员工或分中心排名。
-          </p>
-        </div>
-        <el-button link type="primary" @click="load">刷新健康看板</el-button>
-      </div>
+    <template v-if="isDataView">
       <el-alert
-        v-if="memberCareManagementError"
-        title="关爱运营健康暂时不可用"
-        description="当前账号没有可见的关爱来源，或管理聚合接口暂时不可用；不会把未授权来源显示为 0。"
-        type="info"
+        v-if="operationsError"
+        title="所选月份运营数据加载失败，未展示其他月份的数据"
+        type="error"
         :closable="false"
         show-icon
-        class="care-center-alert"
       />
-      <template v-else-if="memberCareManagement">
+      <el-alert
+        v-if="rhythmError"
+        title="所选月份运营节奏加载失败，请重试"
+        type="error"
+        :closable="false"
+        show-icon
+      />
+      <el-alert
+        v-if="mpError"
+        title="年度 MP 数据加载失败，请重试"
+        type="error"
+        :closable="false"
+        show-icon
+      />
+      <section class="content-card management-card">
+        <div class="section-title management-heading">
+          <div>
+            <p class="eyebrow dark">CARE OPERATIONS HEALTH</p>
+            <h2>关爱运营健康</h2>
+            <p>
+              只看逾期、未闭环、责任人和下一时间等确定性支持需求，不做员工或分中心排名。
+            </p>
+          </div>
+          <el-button link type="primary" @click="load">刷新健康看板</el-button>
+        </div>
         <el-alert
-          v-if="managementCarePartialWarning"
-          :title="managementCarePartialWarning"
-          type="warning"
+          v-if="memberCareManagementError"
+          title="关爱运营健康暂时不可用"
+          description="当前账号没有可见的关爱来源，或管理聚合接口暂时不可用；不会把未授权来源显示为 0。"
+          type="info"
           :closable="false"
           show-icon
           class="care-center-alert"
         />
-        <div class="management-summary-grid">
-          <button
-            type="button"
-            class="management-summary-card"
-            :class="{ active: managementFilter === 'all' }"
-            :aria-pressed="managementFilter === 'all'"
-            @click="managementFilter = 'all'"
-          >
-            <span>今日关爱人数</span>
-            <strong>{{
-              memberCareManagement.summary.today_care_people_count
-            }}</strong>
-          </button>
-          <button
-            type="button"
-            class="management-summary-card danger"
-            :class="{ active: managementFilter === 'overdue' }"
-            :aria-pressed="managementFilter === 'overdue'"
-            @click="managementFilter = 'overdue'"
-          >
-            <span>逾期未处理人数</span>
-            <strong>{{
-              memberCareManagement.summary.overdue_people_count
-            }}</strong>
-            <small
-              >最早逾期
-              {{ memberCareManagement.summary.oldest_overdue_days }} 天</small
+        <template v-else-if="memberCareManagement">
+          <el-alert
+            v-if="managementCarePartialWarning"
+            :title="managementCarePartialWarning"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="care-center-alert"
+          />
+          <div class="management-summary-grid">
+            <button
+              type="button"
+              class="management-summary-card"
+              :class="{ active: managementFilter === 'all' }"
+              :aria-pressed="managementFilter === 'all'"
+              @click="managementFilter = 'all'"
             >
-          </button>
-          <button
-            type="button"
-            class="management-summary-card warning"
-            :class="{ active: managementFilter === 'support' }"
-            :aria-pressed="managementFilter === 'support'"
-            @click="managementFilter = 'support'"
-          >
-            <span>需要协助</span>
-            <strong>{{
-              managementCountLabel(
-                memberCareManagement.summary.renewal_support_needed_count
-              )
-            }}</strong>
-          </button>
-          <button
-            type="button"
-            class="management-summary-card"
-            :class="{ active: managementFilter === 'recovery' }"
-            :aria-pressed="managementFilter === 'recovery'"
-            @click="managementFilter = 'recovery'"
-          >
-            <span>续费挽回未闭环</span>
-            <strong>{{
-              managementCountLabel(
-                memberCareManagement.summary.renewal_recovery_open_count
-              )
-            }}</strong>
-          </button>
-          <button
-            type="button"
-            class="management-summary-card"
-            :class="{ active: managementFilter === 'unassigned' }"
-            :aria-pressed="managementFilter === 'unassigned'"
-            @click="managementFilter = 'unassigned'"
-          >
-            <span>责任人待分配</span>
-            <strong>{{
-              managementCountLabel(
-                memberCareManagement.summary.renewal_unassigned_count
-              )
-            }}</strong>
-          </button>
-          <button
-            type="button"
-            class="management-summary-card"
-            :class="{ active: managementFilter === 'no_schedule' }"
-            :aria-pressed="managementFilter === 'no_schedule'"
-            @click="managementFilter = 'no_schedule'"
-          >
-            <span>无下一时间</span>
-            <strong>{{
-              managementCountLabel(
-                memberCareManagement.summary.followup_no_schedule_count
-              )
-            }}</strong>
-          </button>
-        </div>
-        <div class="management-coverage">
-          <span>当前数据覆盖：</span>
-          <el-tag
-            :type="
-              !memberCareManagement.source_coverage.renewal.accessible
-                ? 'info'
-                : memberCareManagement.source_coverage.renewal.available
-                  ? 'success'
-                  : 'warning'
-            "
-            effect="plain"
-          >
-            {{
-              !memberCareManagement.source_coverage.renewal.accessible
-                ? "— 续费关爱（无权限）"
-                : memberCareManagement.source_coverage.renewal.available
-                  ? "✓ 续费关爱"
-                  : "! 续费关爱（暂不可用）"
-            }}
-          </el-tag>
-          <el-tag
-            :type="
-              !memberCareManagement.source_coverage.birthday.accessible
-                ? 'info'
-                : memberCareManagement.source_coverage.birthday.available
-                  ? 'success'
-                  : 'warning'
-            "
-            effect="plain"
-          >
-            {{
-              !memberCareManagement.source_coverage.birthday.accessible
-                ? "— 生日关怀（无权限）"
-                : memberCareManagement.source_coverage.birthday.available
-                  ? "✓ 生日关怀"
-                  : "! 生日关怀（暂不可用）"
-            }}
-          </el-tag>
-          <el-tag
-            :type="
-              !memberCareManagement.source_coverage.followup.accessible
-                ? 'info'
-                : memberCareManagement.source_coverage.followup.available
-                  ? 'success'
-                  : 'warning'
-            "
-            effect="plain"
-          >
-            {{
-              !memberCareManagement.source_coverage.followup.accessible
-                ? "— 普通关怀/走访（无权限）"
-                : memberCareManagement.source_coverage.followup.available
-                  ? "✓ 普通关怀/走访"
-                  : "! 普通关怀/走访（暂不可用）"
-            }}
-          </el-tag>
-        </div>
-
-        <h3 class="management-subheading">各分中心当前需要支持的事项</h3>
-        <el-table
-          :data="memberCareManagement.organizations"
-          stripe
-          empty-text="当前覆盖范围内暂无管理异常"
-          class="management-org-table"
-        >
-          <el-table-column prop="org_name" label="分中心" min-width="150" />
-          <el-table-column
-            prop="today_care_people_count"
-            label="今日关爱"
-            width="95"
-          />
-          <el-table-column
-            prop="overdue_people_count"
-            label="已逾期"
-            width="85"
-          />
-          <el-table-column label="最早逾期" width="100">
-            <template #default="{ row }">
-              {{
-                row.oldest_overdue_days ? `${row.oldest_overdue_days}天` : "—"
-              }}
-            </template>
-          </el-table-column>
-          <el-table-column label="需要协助" width="100">
-            <template #default="{ row }">{{
-              managementCountLabel(row.renewal_support_needed_count)
-            }}</template>
-          </el-table-column>
-          <el-table-column label="阶段未触达" width="105">
-            <template #default="{ row }">{{
-              managementCountLabel(row.renewal_stage_untouched_count)
-            }}</template>
-          </el-table-column>
-          <el-table-column label="续费挽回" width="100">
-            <template #default="{ row }">{{
-              managementCountLabel(row.renewal_recovery_open_count)
-            }}</template>
-          </el-table-column>
-          <el-table-column label="待分责任人" width="110">
-            <template #default="{ row }">{{
-              managementCountLabel(row.renewal_unassigned_count)
-            }}</template>
-          </el-table-column>
-          <el-table-column label="无下一时间" width="110">
-            <template #default="{ row }">{{
-              managementCountLabel(row.followup_no_schedule_count)
-            }}</template>
-          </el-table-column>
-          <el-table-column label="逾期来源" min-width="270">
-            <template #default="{ row }">
-              <span class="management-breakdown">
-                续费 {{ managementCountLabel(row.renewal_overdue_count) }} ·
-                关怀 {{ managementCountLabel(row.followup_overdue_count) }} ·
-                走访
-                {{ managementCountLabel(row.enterprise_visit_overdue_count) }}
-              </span>
-            </template>
-          </el-table-column>
-        </el-table>
-
-        <h3 class="management-subheading">需要管理支持的事项</h3>
-        <div class="management-exception-filters" aria-label="管理事项筛选">
-          <button
-            v-for="option in managementFilterOptions"
-            :key="option.value"
-            type="button"
-            class="management-exception-filter"
-            :class="{ active: managementFilter === option.value }"
-            :aria-pressed="managementFilter === option.value"
-            @click="managementFilter = option.value"
-          >
-            {{ option.label }} <b>{{ option.count }}</b>
-          </button>
-        </div>
-        <el-table
-          :data="filteredManagementExceptions"
-          max-height="420"
-          stripe
-          :empty-text="
-            managementFilter === 'all'
-              ? '当前没有确定性管理异常'
-              : `当前筛选「${managementFilterLabel(managementFilter)}」暂无事项`
-          "
-          class="management-exception-table"
-        >
-          <el-table-column label="异常" min-width="170">
-            <template #default="{ row }">
-              <el-tag :type="managementExceptionType(row.exception_type)">
-                {{ managementExceptionLabel(row.exception_type) }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="org_name" label="分中心" min-width="140" />
-          <el-table-column label="学长" min-width="120">
-            <template #default="{ row }">
-              <el-button
-                v-if="row.member_id"
-                link
-                type="primary"
-                @click="openMemberProfile(row.member_id)"
+              <span>今日关爱人数</span>
+              <strong>{{
+                memberCareManagement.summary.today_care_people_count
+              }}</strong>
+            </button>
+            <button
+              type="button"
+              class="management-summary-card danger"
+              :class="{ active: managementFilter === 'overdue' }"
+              :aria-pressed="managementFilter === 'overdue'"
+              @click="managementFilter = 'overdue'"
+            >
+              <span>逾期未处理人数</span>
+              <strong>{{
+                memberCareManagement.summary.overdue_people_count
+              }}</strong>
+              <small
+                >最早逾期
+                {{ memberCareManagement.summary.oldest_overdue_days }} 天</small
               >
-                {{ row.member_name || "—" }}
-              </el-button>
-              <span v-else>—</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="来源" width="105">
-            <template #default="{ row }">{{
-              managementSourceLabel(row.source)
-            }}</template>
-          </el-table-column>
-          <el-table-column prop="reason" label="事实依据" min-width="300" />
-          <el-table-column label="逾期" width="80">
-            <template #default="{ row }">
-              {{ row.days_overdue ? `${row.days_overdue}天` : "—" }}
-            </template>
-          </el-table-column>
-          <el-table-column label="责任人" width="120">
-            <template #default="{ row }">{{
-              row.assigned_user_name || "待分配"
-            }}</template>
-          </el-table-column>
-          <el-table-column label="操作" width="120" fixed="right">
-            <template #default="{ row }">
-              <el-button
-                link
-                type="primary"
-                @click="navigateManagementException(row)"
-              >
-                {{
-                  row.exception_type === "BIRTHDAY_CARE_MISSED"
-                    ? "查看 / 转日常关爱"
-                    : "去处理"
-                }}
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        <div class="dashboard-table-footer management-exception-footer">
-          <span>
-            当前显示 {{ filteredManagementExceptions.length }} /
-            {{ memberCareManagement.exceptions.length }} 项，已按优先级排序
-          </span>
-          <el-button
-            link
-            type="primary"
-            @click="managementAllDialogVisible = true"
-          >
-            查看全部 {{ memberCareManagement.exceptions.length }} 项 →
-          </el-button>
-        </div>
-      </template>
-    </section>
-
-    <section class="content-card annual-renewal-card">
-      <div class="section-title management-heading">
-        <div>
-          <p class="eyebrow dark">ANNUAL RENEWAL INSIGHT</p>
-          <h2>年度续费洞察</h2>
-          <p>
-            年度结果反映当前记录状态；续费节奏只使用可证明完成时点的样本，不做阶段漏斗或分中心排名。
-          </p>
-        </div>
-        <el-button link type="primary" @click="load">刷新年度洞察</el-button>
-      </div>
-      <el-alert
-        v-if="renewalAnnualAnalyticsError"
-        title="年度续费洞察暂时不可用"
-        description="当前账号没有续费读取权限，或年度分析接口暂时不可用。"
-        type="info"
-        :closable="false"
-        show-icon
-      />
-      <template v-else-if="renewalAnnualAnalytics">
-        <div class="annual-renewal-summary-grid">
-          <article>
-            <span>年度周期</span>
-            <strong>{{ renewalAnnualAnalytics.total_cycles }}</strong>
-          </article>
-          <article class="success">
-            <span>已续费</span>
-            <strong>{{ renewalAnnualAnalytics.renewed_count }}</strong>
-          </article>
-          <article>
-            <span>明确不续</span>
-            <strong>{{ renewalAnnualAnalytics.not_renewing_count }}</strong>
-          </article>
-          <article>
-            <span>已退出</span>
-            <strong>{{ renewalAnnualAnalytics.exited_count }}</strong>
-          </article>
-          <article class="warning">
-            <span>延期</span>
-            <strong>{{ renewalAnnualAnalytics.deferred_count }}</strong>
-          </article>
-          <article>
-            <span>推进中</span>
-            <strong>{{ renewalAnnualAnalytics.open_count }}</strong>
-          </article>
-        </div>
-
-        <div class="annual-renewal-quality">
-          <div>
-            <h3>数据可信度</h3>
-            <p>
-              已续费
-              {{ renewalAnnualAnalytics.completion_quality.renewed_count }} 人；
-              有可信完成时点
-              {{
-                renewalAnnualAnalytics.completion_quality
-                  .reliable_completion_count
-              }}
-              人； 历史/导入时点不可用于节奏分析
-              {{
-                renewalAnnualAnalytics.completion_quality
-                  .unreliable_completion_count
-              }}
-              人。
-            </p>
-            <p class="muted-inline">
-              续费节奏分析仅基于具有可信完成时点的已续费周期。
-            </p>
+            </button>
+            <button
+              type="button"
+              class="management-summary-card warning"
+              :class="{ active: managementFilter === 'support' }"
+              :aria-pressed="managementFilter === 'support'"
+              @click="managementFilter = 'support'"
+            >
+              <span>需要协助</span>
+              <strong>{{
+                managementCountLabel(
+                  memberCareManagement.summary.renewal_support_needed_count
+                )
+              }}</strong>
+            </button>
+            <button
+              type="button"
+              class="management-summary-card"
+              :class="{ active: managementFilter === 'recovery' }"
+              :aria-pressed="managementFilter === 'recovery'"
+              @click="managementFilter = 'recovery'"
+            >
+              <span>续费挽回未闭环</span>
+              <strong>{{
+                managementCountLabel(
+                  memberCareManagement.summary.renewal_recovery_open_count
+                )
+              }}</strong>
+            </button>
+            <button
+              type="button"
+              class="management-summary-card"
+              :class="{ active: managementFilter === 'unassigned' }"
+              :aria-pressed="managementFilter === 'unassigned'"
+              @click="managementFilter = 'unassigned'"
+            >
+              <span>责任人待分配</span>
+              <strong>{{
+                managementCountLabel(
+                  memberCareManagement.summary.renewal_unassigned_count
+                )
+              }}</strong>
+            </button>
+            <button
+              type="button"
+              class="management-summary-card"
+              :class="{ active: managementFilter === 'no_schedule' }"
+              :aria-pressed="managementFilter === 'no_schedule'"
+              @click="managementFilter = 'no_schedule'"
+            >
+              <span>无下一时间</span>
+              <strong>{{
+                managementCountLabel(
+                  memberCareManagement.summary.followup_no_schedule_count
+                )
+              }}</strong>
+            </button>
           </div>
-          <div class="annual-renewal-evidence-tags">
+          <div class="management-coverage">
+            <span>当前数据覆盖：</span>
             <el-tag
-              v-for="evidence in Object.keys(renewalEvidenceLabels)"
-              :key="evidence"
+              :type="
+                !memberCareManagement.source_coverage.renewal.accessible
+                  ? 'info'
+                  : memberCareManagement.source_coverage.renewal.available
+                    ? 'success'
+                    : 'warning'
+              "
               effect="plain"
             >
-              {{ renewalEvidenceLabels[evidence] }}
               {{
-                renewalAnnualAnalytics.completion_quality.evidence_counts[
-                  evidence
-                ] || 0
+                !memberCareManagement.source_coverage.renewal.accessible
+                  ? "— 续费关爱（无权限）"
+                  : memberCareManagement.source_coverage.renewal.available
+                    ? "✓ 续费关爱"
+                    : "! 续费关爱（暂不可用）"
+              }}
+            </el-tag>
+            <el-tag
+              :type="
+                !memberCareManagement.source_coverage.birthday.accessible
+                  ? 'info'
+                  : memberCareManagement.source_coverage.birthday.available
+                    ? 'success'
+                    : 'warning'
+              "
+              effect="plain"
+            >
+              {{
+                !memberCareManagement.source_coverage.birthday.accessible
+                  ? "— 生日关怀（无权限）"
+                  : memberCareManagement.source_coverage.birthday.available
+                    ? "✓ 生日关怀"
+                    : "! 生日关怀（暂不可用）"
+              }}
+            </el-tag>
+            <el-tag
+              :type="
+                !memberCareManagement.source_coverage.followup.accessible
+                  ? 'info'
+                  : memberCareManagement.source_coverage.followup.available
+                    ? 'success'
+                    : 'warning'
+              "
+              effect="plain"
+            >
+              {{
+                !memberCareManagement.source_coverage.followup.accessible
+                  ? "— 普通关怀/走访（无权限）"
+                  : memberCareManagement.source_coverage.followup.available
+                    ? "✓ 普通关怀/走访"
+                    : "! 普通关怀/走访（暂不可用）"
               }}
             </el-tag>
           </div>
-        </div>
 
-        <div class="annual-renewal-timing">
-          <div class="annual-renewal-timing-heading">
-            <div>
-              <h3>可信样本的续费节奏</h3>
-              <p>
-                以下续费节奏仅统计具有可信完成时点的已续费周期，不代表全部已续费学长。
-              </p>
-            </div>
-            <el-tag type="success" effect="plain">
-              到期前完成比例
-              {{
-                renewalRateLabel(
-                  renewalAnnualAnalytics.before_due_rate_among_reliable_renewals
-                )
-              }}
-            </el-tag>
+          <h3 class="management-subheading">各分中心当前需要支持的事项</h3>
+          <el-table
+            :data="memberCareManagement.organizations"
+            stripe
+            empty-text="当前覆盖范围内暂无管理异常"
+            class="management-org-table"
+          >
+            <el-table-column prop="org_name" label="分中心" min-width="150" />
+            <el-table-column
+              prop="today_care_people_count"
+              label="今日关爱"
+              width="95"
+            />
+            <el-table-column
+              prop="overdue_people_count"
+              label="已逾期"
+              width="85"
+            />
+            <el-table-column label="最早逾期" width="100">
+              <template #default="{ row }">
+                {{
+                  row.oldest_overdue_days ? `${row.oldest_overdue_days}天` : "—"
+                }}
+              </template>
+            </el-table-column>
+            <el-table-column label="需要协助" width="100">
+              <template #default="{ row }">{{
+                managementCountLabel(row.renewal_support_needed_count)
+              }}</template>
+            </el-table-column>
+            <el-table-column label="阶段未触达" width="105">
+              <template #default="{ row }">{{
+                managementCountLabel(row.renewal_stage_untouched_count)
+              }}</template>
+            </el-table-column>
+            <el-table-column label="续费挽回" width="100">
+              <template #default="{ row }">{{
+                managementCountLabel(row.renewal_recovery_open_count)
+              }}</template>
+            </el-table-column>
+            <el-table-column label="待分责任人" width="110">
+              <template #default="{ row }">{{
+                managementCountLabel(row.renewal_unassigned_count)
+              }}</template>
+            </el-table-column>
+            <el-table-column label="无下一时间" width="110">
+              <template #default="{ row }">{{
+                managementCountLabel(row.followup_no_schedule_count)
+              }}</template>
+            </el-table-column>
+            <el-table-column label="逾期来源" min-width="270">
+              <template #default="{ row }">
+                <span class="management-breakdown">
+                  续费 {{ managementCountLabel(row.renewal_overdue_count) }} ·
+                  关怀 {{ managementCountLabel(row.followup_overdue_count) }} ·
+                  走访
+                  {{ managementCountLabel(row.enterprise_visit_overdue_count) }}
+                </span>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <h3 class="management-subheading">需要管理支持的事项</h3>
+          <div class="management-exception-filters" aria-label="管理事项筛选">
+            <button
+              v-for="option in managementFilterOptions"
+              :key="option.value"
+              type="button"
+              class="management-exception-filter"
+              :class="{ active: managementFilter === option.value }"
+              :aria-pressed="managementFilter === option.value"
+              @click="managementFilter = option.value"
+            >
+              {{ option.label }} <b>{{ option.count }}</b>
+            </button>
           </div>
-          <div class="annual-renewal-stage-grid">
-            <article v-for="stage in renewalTimingStages" :key="stage">
-              <span>{{
-                renewalStageLabel(renewalAnnualAnalytics, stage)
-              }}</span>
-              <strong>{{
-                renewalAnnualAnalytics.stage_counts[stage] || 0
-              }}</strong>
+          <el-table
+            :data="filteredManagementExceptions"
+            max-height="420"
+            stripe
+            :empty-text="
+              managementFilter === 'all'
+                ? '当前没有确定性管理异常'
+                : `当前筛选「${managementFilterLabel(managementFilter)}」暂无事项`
+            "
+            class="management-exception-table"
+          >
+            <el-table-column label="异常" min-width="170">
+              <template #default="{ row }">
+                <el-tag :type="managementExceptionType(row.exception_type)">
+                  {{ managementExceptionLabel(row.exception_type) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="org_name" label="分中心" min-width="140" />
+            <el-table-column label="学长" min-width="120">
+              <template #default="{ row }">
+                <el-button
+                  v-if="row.member_id"
+                  link
+                  type="primary"
+                  @click="openMemberProfile(row.member_id)"
+                >
+                  {{ row.member_name || "—" }}
+                </el-button>
+                <span v-else>—</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="来源" width="105">
+              <template #default="{ row }">{{
+                managementSourceLabel(row.source)
+              }}</template>
+            </el-table-column>
+            <el-table-column prop="reason" label="事实依据" min-width="300" />
+            <el-table-column label="逾期" width="80">
+              <template #default="{ row }">
+                {{ row.days_overdue ? `${row.days_overdue}天` : "—" }}
+              </template>
+            </el-table-column>
+            <el-table-column label="责任人" width="120">
+              <template #default="{ row }">{{
+                row.assigned_user_name || "待分配"
+              }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button
+                  link
+                  type="primary"
+                  @click="navigateManagementException(row)"
+                >
+                  {{
+                    row.exception_type === "BIRTHDAY_CARE_MISSED"
+                      ? "查看 / 转日常关爱"
+                      : "去处理"
+                  }}
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div class="dashboard-table-footer management-exception-footer">
+            <span>
+              当前显示 {{ filteredManagementExceptions.length }} /
+              {{ memberCareManagement.exceptions.length }} 项，已按优先级排序
+            </span>
+            <el-button
+              link
+              type="primary"
+              @click="managementAllDialogVisible = true"
+            >
+              查看全部 {{ memberCareManagement.exceptions.length }} 项 →
+            </el-button>
+          </div>
+        </template>
+      </section>
+
+      <section class="content-card annual-renewal-card">
+        <div class="section-title management-heading">
+          <div>
+            <p class="eyebrow dark">ANNUAL RENEWAL INSIGHT</p>
+            <h2>年度续费洞察</h2>
+            <p>
+              年度结果反映当前记录状态；续费节奏只使用可证明完成时点的样本，不做阶段漏斗或分中心排名。
+            </p>
+          </div>
+          <el-button link type="primary" @click="load">刷新年度洞察</el-button>
+        </div>
+        <el-alert
+          v-if="renewalAnnualAnalyticsError"
+          title="年度续费洞察暂时不可用"
+          description="当前账号没有续费读取权限，或年度分析接口暂时不可用。"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+        <template v-else-if="renewalAnnualAnalytics">
+          <div class="annual-renewal-summary-grid">
+            <article>
+              <span>年度周期</span>
+              <strong>{{ renewalAnnualAnalytics.total_cycles }}</strong>
+            </article>
+            <article class="success">
+              <span>已续费</span>
+              <strong>{{ renewalAnnualAnalytics.renewed_count }}</strong>
+            </article>
+            <article>
+              <span>明确不续</span>
+              <strong>{{ renewalAnnualAnalytics.not_renewing_count }}</strong>
+            </article>
+            <article>
+              <span>已退出</span>
+              <strong>{{ renewalAnnualAnalytics.exited_count }}</strong>
+            </article>
+            <article class="warning">
+              <span>延期</span>
+              <strong>{{ renewalAnnualAnalytics.deferred_count }}</strong>
+            </article>
+            <article>
+              <span>推进中</span>
+              <strong>{{ renewalAnnualAnalytics.open_count }}</strong>
             </article>
           </div>
-          <p class="muted-inline">
-            到期前 {{ renewalAnnualAnalytics.before_due_count }} 人 · 到期月
-            {{ renewalAnnualAnalytics.due_month_count }} 人 · 到期后
-            {{ renewalAnnualAnalytics.after_due_count }} 人
-          </p>
-        </div>
 
-        <h3 class="management-subheading">各分中心续费结果与数据覆盖</h3>
-        <el-table
-          :data="renewalAnnualAnalytics.organizations"
-          stripe
-          empty-text="当前覆盖范围内暂无年度续费周期"
-          class="annual-renewal-org-table"
-        >
-          <el-table-column prop="org_name" label="分中心" min-width="150" />
-          <el-table-column prop="total_cycles" label="年度周期" width="90" />
-          <el-table-column prop="renewed_count" label="已续费" width="85" />
-          <el-table-column
-            prop="not_renewing_count"
-            label="明确不续"
-            width="100"
-          />
-          <el-table-column prop="exited_count" label="已退出" width="85" />
-          <el-table-column prop="deferred_count" label="延期" width="75" />
-          <el-table-column prop="open_count" label="推进中" width="85" />
-          <el-table-column label="可信/不可用" width="120">
-            <template #default="{ row }">
-              {{ row.reliable_completion_count }} /
-              {{ row.unreliable_completion_count }}
-            </template>
-          </el-table-column>
-          <el-table-column label="到期前/当月/到期后" min-width="160">
-            <template #default="{ row }">
-              {{ row.before_due_count }} / {{ row.due_month_count }} /
-              {{ row.after_due_count }}
-            </template>
-          </el-table-column>
-          <el-table-column label="可信样本到期前比例" min-width="145">
-            <template #default="{ row }">
-              {{
-                renewalRateLabel(row.before_due_rate_among_reliable_renewals)
-              }}
-            </template>
-          </el-table-column>
-        </el-table>
-      </template>
-    </section>
+          <div class="annual-renewal-quality">
+            <div>
+              <h3>数据可信度</h3>
+              <p>
+                已续费
+                {{
+                  renewalAnnualAnalytics.completion_quality.renewed_count
+                }}
+                人； 有可信完成时点
+                {{
+                  renewalAnnualAnalytics.completion_quality
+                    .reliable_completion_count
+                }}
+                人； 历史/导入时点不可用于节奏分析
+                {{
+                  renewalAnnualAnalytics.completion_quality
+                    .unreliable_completion_count
+                }}
+                人。
+              </p>
+              <p class="muted-inline">
+                续费节奏分析仅基于具有可信完成时点的已续费周期。
+              </p>
+            </div>
+            <div class="annual-renewal-evidence-tags">
+              <el-tag
+                v-for="evidence in Object.keys(renewalEvidenceLabels)"
+                :key="evidence"
+                effect="plain"
+              >
+                {{ renewalEvidenceLabels[evidence] }}
+                {{
+                  renewalAnnualAnalytics.completion_quality.evidence_counts[
+                    evidence
+                  ] || 0
+                }}
+              </el-tag>
+            </div>
+          </div>
 
-    <section class="section-heading">
-      <div>
-        <p class="eyebrow dark">MONTHLY OPERATIONS</p>
-        <h2>{{ year }} 年 {{ month }} 月运营实况</h2>
-      </div>
-      <span>在册为当前快照；新增、续费和排期按所选月份统计</span>
-    </section>
+          <div class="annual-renewal-timing">
+            <div class="annual-renewal-timing-heading">
+              <div>
+                <h3>可信样本的续费节奏</h3>
+                <p>
+                  以下续费节奏仅统计具有可信完成时点的已续费周期，不代表全部已续费学长。
+                </p>
+              </div>
+              <el-tag type="success" effect="plain">
+                到期前完成比例
+                {{
+                  renewalRateLabel(
+                    renewalAnnualAnalytics.before_due_rate_among_reliable_renewals
+                  )
+                }}
+              </el-tag>
+            </div>
+            <div class="annual-renewal-stage-grid">
+              <article v-for="stage in renewalTimingStages" :key="stage">
+                <span>{{
+                  renewalStageLabel(renewalAnnualAnalytics, stage)
+                }}</span>
+                <strong>{{
+                  renewalAnnualAnalytics.stage_counts[stage] || 0
+                }}</strong>
+              </article>
+            </div>
+            <p class="muted-inline">
+              到期前 {{ renewalAnnualAnalytics.before_due_count }} 人 · 到期月
+              {{ renewalAnnualAnalytics.due_month_count }} 人 · 到期后
+              {{ renewalAnnualAnalytics.after_due_count }} 人
+            </p>
+          </div>
 
-    <section class="operations-grid">
-      <article
-        v-for="card in operationsCards"
-        :key="card.label"
-        class="operations-card"
-        :class="{ unavailable: card.value === null }"
-      >
-        <span>{{ card.label }}</span>
-        <strong v-if="card.value !== null"
-          >{{ card.value }}<small>{{ card.unit }}</small></strong
-        >
-        <strong v-else class="not-ready">未接入</strong>
-        <p>{{ card.note }}</p>
-      </article>
-    </section>
+          <h3 class="management-subheading">各分中心续费结果与数据覆盖</h3>
+          <el-table
+            :data="renewalAnnualAnalytics.organizations"
+            stripe
+            empty-text="当前覆盖范围内暂无年度续费周期"
+            class="annual-renewal-org-table"
+          >
+            <el-table-column prop="org_name" label="分中心" min-width="150" />
+            <el-table-column prop="total_cycles" label="年度周期" width="90" />
+            <el-table-column prop="renewed_count" label="已续费" width="85" />
+            <el-table-column
+              prop="not_renewing_count"
+              label="明确不续"
+              width="100"
+            />
+            <el-table-column prop="exited_count" label="已退出" width="85" />
+            <el-table-column prop="deferred_count" label="延期" width="75" />
+            <el-table-column prop="open_count" label="推进中" width="85" />
+            <el-table-column label="可信/不可用" width="120">
+              <template #default="{ row }">
+                {{ row.reliable_completion_count }} /
+                {{ row.unreliable_completion_count }}
+              </template>
+            </el-table-column>
+            <el-table-column label="到期前/当月/到期后" min-width="160">
+              <template #default="{ row }">
+                {{ row.before_due_count }} / {{ row.due_month_count }} /
+                {{ row.after_due_count }}
+              </template>
+            </el-table-column>
+            <el-table-column label="可信样本到期前比例" min-width="145">
+              <template #default="{ row }">
+                {{
+                  renewalRateLabel(row.before_due_rate_among_reliable_renewals)
+                }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </template>
+      </section>
 
-    <el-alert
-      v-if="operations?.data_quality.missing_join_date_count"
-      :title="`${operations.data_quality.missing_join_date_count} 位在册学长缺少入塾日期，未计入本月新增`"
-      type="warning"
-      :closable="false"
-      show-icon
-      class="data-alert"
-    />
-
-    <el-alert
-      v-if="operations?.data_quality.unscheduled_class_count"
-      :title="`${operations.data_quality.unscheduled_class_count} 个班级本月尚未接入班会排期`"
-      description="驾驶舱会保留这些班级并显示“待排期”，不会把缺少排期误报为已召开 0 次。"
-      type="info"
-      :closable="false"
-      show-icon
-      class="data-alert"
-    />
-
-    <el-alert
-      v-if="operations?.data_quality.unlinked_class_meeting_count"
-      :title="`${operations.data_quality.unlinked_class_meeting_count} 场班会尚未关联正式班级`"
-      description="这些班会计入本月总次数并保留在日历中，但不会据活动名称自动猜测班级。"
-      type="warning"
-      :closable="false"
-      show-icon
-      class="data-alert"
-    />
-
-    <el-alert
-      v-if="operations?.data_quality.duplicate_class_node_count"
-      :title="`${operations.data_quality.duplicate_class_node_count} 个历史班级重复节点已按名称合并展示`"
-      description="不会重复计入班会或待排期；系统已阻止继续创建同名班级，历史节点仅在完成受控归并后才会停用。"
-      type="warning"
-      :closable="false"
-      show-icon
-      class="data-alert"
-    />
-
-    <el-alert
-      v-if="operations?.data_quality.invalid_direct_root_class_count"
-      :title="`${operations.data_quality.invalid_direct_root_class_count} 个历史班级节点不符合苏州塾直属四班规则，已从驾驶舱排除`"
-      description="苏州塾直属仅保留先锋班、神仙班、黄埔一班和黄埔二班；其他班级按各自分中心的正式节点运营。"
-      type="warning"
-      :closable="false"
-      show-icon
-      class="data-alert"
-    />
-
-    <section class="content-card rhythm-card">
-      <div class="section-title rhythm-heading">
+      <section class="section-heading">
         <div>
-          <p class="eyebrow dark">OPERATION RHYTHM</p>
-          <h2>本月运营节奏</h2>
-          <p>
-            由核心运营人员维护；微信群、电话和线下沟通继续保留，班主任无需登录。
-          </p>
+          <p class="eyebrow dark">MONTHLY OPERATIONS</p>
+          <h2>{{ year }} 年 {{ month }} 月运营实况</h2>
         </div>
-        <el-button
-          v-if="canManageRhythm"
-          type="primary"
-          :loading="rhythmGenerating"
-          @click="generateRhythm"
+        <span>在册为当前快照；新增、续费和排期按所选月份统计</span>
+      </section>
+
+      <section class="operations-grid">
+        <article
+          v-for="card in operationsCards"
+          :key="card.label"
+          class="operations-card"
+          :class="{ unavailable: card.value === null }"
         >
-          生成/刷新本月事项
-        </el-button>
-      </div>
+          <span>{{ card.label }}</span>
+          <strong v-if="card.value !== null"
+            >{{ card.value }}<small>{{ card.unit }}</small></strong
+          >
+          <strong v-else class="not-ready">未接入</strong>
+          <p>{{ card.note }}</p>
+        </article>
+      </section>
 
       <el-alert
-        v-for="note in rhythm?.data_quality.notes || []"
-        :key="note"
-        :title="note"
+        v-if="operations?.data_quality.missing_join_date_count"
+        :title="`${operations.data_quality.missing_join_date_count} 位在册学长缺少入塾日期，未计入本月新增`"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="data-alert"
+      />
+
+      <el-alert
+        v-if="operations?.data_quality.unscheduled_class_count"
+        :title="`${operations.data_quality.unscheduled_class_count} 个班级本月尚未接入班会排期`"
+        description="驾驶舱会保留这些班级并显示“待排期”，不会把缺少排期误报为已召开 0 次。"
         type="info"
         :closable="false"
         show-icon
         class="data-alert"
       />
 
-      <div class="rhythm-summary">
-        <article>
-          <span>本月事项</span><strong>{{ rhythm?.summary.total || 0 }}</strong>
-        </article>
-        <article>
-          <span>今日运营</span
-          ><strong>{{ rhythm?.summary.today_count || 0 }}</strong>
-        </article>
-        <article>
-          <span>未来 7 天</span
-          ><strong>{{ rhythm?.summary.next_7_days_count || 0 }}</strong>
-        </article>
-        <article class="attention">
-          <span>需关注</span
-          ><strong>{{ rhythm?.summary.attention_count || 0 }}</strong>
-        </article>
-      </div>
+      <el-alert
+        v-if="operations?.data_quality.unlinked_class_meeting_count"
+        :title="`${operations.data_quality.unlinked_class_meeting_count} 场班会尚未关联正式班级`"
+        description="这些班会计入本月总次数并保留在日历中，但不会据活动名称自动猜测班级。"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="data-alert"
+      />
 
-      <div class="rhythm-toolbar">
-        <el-radio-group v-model="rhythmView" size="small">
-          <el-radio-button label="today">今日运营</el-radio-button>
-          <el-radio-button label="next_7_days">未来 7 天</el-radio-button>
-          <el-radio-button label="month">本月运营</el-radio-button>
-          <el-radio-button label="attention">异常中心</el-radio-button>
-        </el-radio-group>
-        <div class="rhythm-filters">
-          <el-select
-            v-model="rhythmOrganizationId"
-            clearable
-            filterable
-            size="small"
-            placeholder="全部组织"
-            aria-label="运营节奏组织筛选"
-            @change="changeRhythmOrganization"
+      <el-alert
+        v-if="operations?.data_quality.duplicate_class_node_count"
+        :title="`${operations.data_quality.duplicate_class_node_count} 个历史班级重复节点已按名称合并展示`"
+        description="不会重复计入班会或待排期；系统已阻止继续创建同名班级，历史节点仅在完成受控归并后才会停用。"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="data-alert"
+      />
+
+      <el-alert
+        v-if="operations?.data_quality.invalid_direct_root_class_count"
+        :title="`${operations.data_quality.invalid_direct_root_class_count} 个历史班级节点不符合苏州塾直属四班规则，已从驾驶舱排除`"
+        description="苏州塾直属仅保留先锋班、神仙班、黄埔一班和黄埔二班；其他班级按各自分中心的正式节点运营。"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="data-alert"
+      />
+
+      <section class="content-card rhythm-card">
+        <div class="section-title rhythm-heading">
+          <div>
+            <p class="eyebrow dark">OPERATION RHYTHM</p>
+            <h2>本月运营节奏</h2>
+            <p>
+              由核心运营人员维护；微信群、电话和线下沟通继续保留，班主任无需登录。
+            </p>
+          </div>
+          <el-button
+            v-if="canManageRhythm"
+            type="primary"
+            :loading="rhythmGenerating"
+            @click="generateRhythm"
           >
-            <el-option
-              v-for="option in rhythmOrganizationOptions"
-              :key="option.id"
-              :label="option.name"
-              :value="option.id"
-            />
-          </el-select>
-          <el-select
-            v-model="rhythmClassOrgUnitId"
-            clearable
-            filterable
-            size="small"
-            placeholder="全部班级"
-            aria-label="运营节奏班级筛选"
-          >
-            <el-option
-              v-for="option in rhythmClassOptions"
-              :key="option.id"
-              :label="option.name"
-              :value="option.id"
-            />
-          </el-select>
-          <el-select
-            v-model="rhythmStatus"
-            clearable
-            size="small"
-            placeholder="全部状态"
-            aria-label="运营节奏状态筛选"
-          >
-            <el-option label="待确认" value="PENDING" />
-            <el-option label="已计划" value="PLANNED" />
-            <el-option label="推进中" value="IN_PROGRESS" />
-            <el-option label="等待外部反馈" value="WAITING_EXTERNAL" />
-            <el-option label="已圆满" value="COMPLETED" />
-            <el-option label="需关注" value="ATTENTION" />
-            <el-option label="已取消" value="CANCELLED" />
-          </el-select>
+            生成/刷新本月事项
+          </el-button>
         </div>
-      </div>
 
-      <el-table
-        :data="rhythmItems"
-        stripe
-        size="small"
-        empty-text="当前视图暂无运营事项"
-      >
-        <el-table-column label="日期" width="130">
-          <template #default="{ row }">
-            {{ row.due_date || "待确认" }}
-            <small
-              v-if="row.item_key === 'CLASS_MEETING'"
-              class="rhythm-source-note"
-            >
-              来自班级服务日历
-            </small>
-          </template>
-        </el-table-column>
-        <el-table-column label="事项" min-width="230">
-          <template #default="{ row }">
-            <el-button
-              v-if="row.business_type === 'BIRTHDAY_CARE'"
-              link
-              type="primary"
-              @click="openRhythmBusinessItem(row)"
-            >
-              {{ row.title }}
-            </el-button>
-            <span v-else>{{ row.title }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="org_name" label="组织" min-width="140" />
-        <el-table-column prop="category" label="类型" width="120" />
-        <el-table-column label="责任角色" min-width="150">
-          <template #default="{ row }">
-            {{ row.responsibility_role || "待确认" }}
-            <small
-              v-if="row.external_responsibility_role"
-              class="rhythm-external-role"
-            >
-              外部：{{ row.external_responsibility_role }}
-            </small>
-          </template>
-        </el-table-column>
-        <el-table-column label="维护" width="82" fixed="right">
-          <template #default="{ row }">
-            <el-button
-              v-if="canManageRhythm && row.item_key !== 'CLASS_MEETING'"
-              link
-              type="primary"
-              @click="openRhythmEdit(row)"
-            >
-              编辑
-            </el-button>
-            <span
-              v-else-if="row.item_key === 'CLASS_MEETING'"
-              class="rhythm-source-note"
-            >
-              日历维护
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="160">
-          <template #default="{ row }">
+        <el-alert
+          v-for="note in rhythm?.data_quality.notes || []"
+          :key="note"
+          :title="note"
+          type="info"
+          :closable="false"
+          show-icon
+          class="data-alert"
+        />
+
+        <div class="rhythm-summary">
+          <article>
+            <span>本月事项</span
+            ><strong>{{ rhythm?.summary.total || 0 }}</strong>
+          </article>
+          <article>
+            <span>今日运营</span
+            ><strong>{{ rhythm?.summary.today_count || 0 }}</strong>
+          </article>
+          <article>
+            <span>未来 7 天</span
+            ><strong>{{ rhythm?.summary.next_7_days_count || 0 }}</strong>
+          </article>
+          <article class="attention">
+            <span>需关注</span
+            ><strong>{{ rhythm?.summary.attention_count || 0 }}</strong>
+          </article>
+        </div>
+
+        <div class="rhythm-toolbar">
+          <el-radio-group v-model="rhythmView" size="small">
+            <el-radio-button label="today">今日运营</el-radio-button>
+            <el-radio-button label="next_7_days">未来 7 天</el-radio-button>
+            <el-radio-button label="month">本月运营</el-radio-button>
+            <el-radio-button label="attention">异常中心</el-radio-button>
+          </el-radio-group>
+          <div class="rhythm-filters">
             <el-select
-              v-if="canManageRhythm"
-              :model-value="row.status"
+              v-model="rhythmOrganizationId"
+              clearable
+              filterable
               size="small"
-              :loading="rhythmItemSaving === row.id"
-              @update:model-value="
-                (value: OperationRhythmStatus) => saveRhythmStatus(row, value)
-              "
+              placeholder="全部组织"
+              aria-label="运营节奏组织筛选"
+              @change="changeRhythmOrganization"
+            >
+              <el-option
+                v-for="option in rhythmOrganizationOptions"
+                :key="option.id"
+                :label="option.name"
+                :value="option.id"
+              />
+            </el-select>
+            <el-select
+              v-model="rhythmClassOrgUnitId"
+              clearable
+              filterable
+              size="small"
+              placeholder="全部班级"
+              aria-label="运营节奏班级筛选"
+            >
+              <el-option
+                v-for="option in rhythmClassOptions"
+                :key="option.id"
+                :label="option.name"
+                :value="option.id"
+              />
+            </el-select>
+            <el-select
+              v-model="rhythmStatus"
+              clearable
+              size="small"
+              placeholder="全部状态"
+              aria-label="运营节奏状态筛选"
             >
               <el-option label="待确认" value="PENDING" />
               <el-option label="已计划" value="PLANNED" />
@@ -2291,240 +2287,335 @@ function changePlan() {
               <el-option label="需关注" value="ATTENTION" />
               <el-option label="已取消" value="CANCELLED" />
             </el-select>
-            <el-tag v-else :type="rhythmStatusType(row.status)">
-              {{ rhythmStatusLabel(row.status) }}
-            </el-tag>
+          </div>
+        </div>
+
+        <el-table
+          :data="rhythmItems"
+          stripe
+          size="small"
+          empty-text="当前视图暂无运营事项"
+        >
+          <el-table-column label="日期" width="130">
+            <template #default="{ row }">
+              {{ row.due_date || "待确认" }}
+              <small
+                v-if="row.item_key === 'CLASS_MEETING'"
+                class="rhythm-source-note"
+              >
+                来自班级服务日历
+              </small>
+            </template>
+          </el-table-column>
+          <el-table-column label="事项" min-width="230">
+            <template #default="{ row }">
+              <el-button
+                v-if="row.business_type === 'BIRTHDAY_CARE'"
+                link
+                type="primary"
+                @click="openRhythmBusinessItem(row)"
+              >
+                {{ row.title }}
+              </el-button>
+              <span v-else>{{ row.title }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="org_name" label="组织" min-width="140" />
+          <el-table-column prop="category" label="类型" width="120" />
+          <el-table-column label="责任角色" min-width="150">
+            <template #default="{ row }">
+              {{ row.responsibility_role || "待确认" }}
+              <small
+                v-if="row.external_responsibility_role"
+                class="rhythm-external-role"
+              >
+                外部：{{ row.external_responsibility_role }}
+              </small>
+            </template>
+          </el-table-column>
+          <el-table-column label="维护" width="82" fixed="right">
+            <template #default="{ row }">
+              <el-button
+                v-if="canManageRhythm && row.item_key !== 'CLASS_MEETING'"
+                link
+                type="primary"
+                @click="openRhythmEdit(row)"
+              >
+                编辑
+              </el-button>
+              <span
+                v-else-if="row.item_key === 'CLASS_MEETING'"
+                class="rhythm-source-note"
+              >
+                日历维护
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="160">
+            <template #default="{ row }">
+              <el-select
+                v-if="canManageRhythm"
+                :model-value="row.status"
+                size="small"
+                :loading="rhythmItemSaving === row.id"
+                @update:model-value="
+                  (value: OperationRhythmStatus) => saveRhythmStatus(row, value)
+                "
+              >
+                <el-option label="待确认" value="PENDING" />
+                <el-option label="已计划" value="PLANNED" />
+                <el-option label="推进中" value="IN_PROGRESS" />
+                <el-option label="等待外部反馈" value="WAITING_EXTERNAL" />
+                <el-option label="已圆满" value="COMPLETED" />
+                <el-option label="需关注" value="ATTENTION" />
+                <el-option label="已取消" value="CANCELLED" />
+              </el-select>
+              <el-tag v-else :type="rhythmStatusType(row.status)">
+                {{ rhythmStatusLabel(row.status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-dialog
+          v-model="rhythmEditVisible"
+          title="维护运营事项"
+          width="520px"
+          destroy-on-close
+        >
+          <el-form label-width="88px" @submit.prevent>
+            <el-form-item label="事项名称" required>
+              <el-input
+                v-model="rhythmEditForm.title"
+                maxlength="255"
+                show-word-limit
+              />
+            </el-form-item>
+            <el-form-item label="开始日期">
+              <el-date-picker
+                v-model="rhythmEditForm.start_date"
+                type="date"
+                value-format="YYYY-MM-DD"
+                placeholder="可不填"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item label="截止日期">
+              <el-date-picker
+                v-model="rhythmEditForm.due_date"
+                type="date"
+                value-format="YYYY-MM-DD"
+                placeholder="可不填"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item label="完成备注">
+              <el-input
+                v-model="rhythmEditForm.note"
+                type="textarea"
+                :rows="3"
+                maxlength="2000"
+                show-word-limit
+                placeholder="可记录关怀方式、核对结果或后续说明"
+              />
+            </el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="rhythmEditVisible = false">取消</el-button>
+            <el-button
+              type="primary"
+              :loading="rhythmEditSaving"
+              @click="saveRhythmEdit"
+            >
+              保存维护
+            </el-button>
           </template>
-        </el-table-column>
-      </el-table>
+        </el-dialog>
+      </section>
 
-      <el-dialog
-        v-model="rhythmEditVisible"
-        title="维护运营事项"
-        width="520px"
-        destroy-on-close
-      >
-        <el-form label-width="88px" @submit.prevent>
-          <el-form-item label="事项名称" required>
-            <el-input
-              v-model="rhythmEditForm.title"
-              maxlength="255"
-              show-word-limit
-            />
-          </el-form-item>
-          <el-form-item label="开始日期">
-            <el-date-picker
-              v-model="rhythmEditForm.start_date"
-              type="date"
-              value-format="YYYY-MM-DD"
-              placeholder="可不填"
-              style="width: 100%"
-            />
-          </el-form-item>
-          <el-form-item label="截止日期">
-            <el-date-picker
-              v-model="rhythmEditForm.due_date"
-              type="date"
-              value-format="YYYY-MM-DD"
-              placeholder="可不填"
-              style="width: 100%"
-            />
-          </el-form-item>
-          <el-form-item label="完成备注">
-            <el-input
-              v-model="rhythmEditForm.note"
-              type="textarea"
-              :rows="3"
-              maxlength="2000"
-              show-word-limit
-              placeholder="可记录关怀方式、核对结果或后续说明"
-            />
-          </el-form-item>
-        </el-form>
-        <template #footer>
-          <el-button @click="rhythmEditVisible = false">取消</el-button>
-          <el-button
-            type="primary"
-            :loading="rhythmEditSaving"
-            @click="saveRhythmEdit"
+      <section class="operations-panels">
+        <article class="content-card">
+          <div class="section-title birthday-title">
+            <h2>各分中心当前在册</h2>
+            <p>
+              按学员管理主档所属分中心统计；直属学习班保留独立口径，不并入六个分中心。
+            </p>
+          </div>
+          <div class="center-list">
+            <div v-for="center in operations?.centers || []" :key="center.id">
+              <span>{{ center.name }}</span>
+              <strong>{{ center.active_member_count }} 人</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="content-card">
+          <div class="section-title">
+            <div>
+              <h2>本月生日关怀</h2>
+              <p>仅展示生日月日，不展示出生年份及其他敏感资料。</p>
+            </div>
+            <div class="birthday-filters">
+              <el-select
+                v-model="birthdayCenterId"
+                clearable
+                aria-label="生日关怀分中心"
+                placeholder="全部分中心"
+                @change="changeBirthdayCenter"
+              >
+                <el-option
+                  v-for="option in birthdayCenterOptions"
+                  :key="option.id"
+                  :label="option.name"
+                  :value="option.id"
+                />
+              </el-select>
+              <el-select
+                v-model="birthdayMonth"
+                aria-label="生日关怀月份"
+                placeholder="生日月份"
+                class="birthday-month-filter"
+                @change="load"
+              >
+                <el-option
+                  v-for="option in birthdayMonthOptions"
+                  :key="option.id"
+                  :label="option.name"
+                  :value="option.id"
+                />
+              </el-select>
+              <el-select
+                v-model="birthdayClassOrgUnitId"
+                clearable
+                aria-label="生日关怀班级"
+                placeholder="全部班级"
+              >
+                <el-option
+                  v-for="option in birthdayClassOptions"
+                  :key="option.id"
+                  :label="option.name"
+                  :value="option.id"
+                />
+              </el-select>
+            </div>
+          </div>
+          <el-table
+            :data="filteredBirthdayMembers"
+            size="small"
+            max-height="300"
+            empty-text="本月暂无在册学长生日"
           >
-            保存维护
-          </el-button>
-        </template>
-      </el-dialog>
-    </section>
+            <el-table-column prop="birthday" label="日期" width="86" />
+            <el-table-column label="学长" min-width="100">
+              <template #default="{ row }">
+                <el-button
+                  link
+                  type="primary"
+                  @click="openBirthdayGreeting(row)"
+                >
+                  {{ row.name }}
+                </el-button>
+              </template>
+            </el-table-column>
+            <el-table-column prop="org_name" label="分中心" min-width="130" />
+            <el-table-column label="班级" min-width="120">
+              <template #default="{ row }">{{
+                row.class_name || "未分班"
+              }}</template>
+            </el-table-column>
+          </el-table>
+        </article>
+      </section>
 
-    <section class="operations-panels">
-      <article class="content-card">
-        <div class="section-title birthday-title">
-          <h2>各分中心当前在册</h2>
+      <section class="content-card schedule-card">
+        <div class="section-title">
+          <h2>班级运营与本月服务日历</h2>
           <p>
-            按学员管理主档所属分中心统计；直属学习班保留独立口径，不并入六个分中心。
+            按班级组织自身的运营归属列出正式班级；不会根据班内学长的发展分中心改变班级归属。
           </p>
         </div>
-        <div class="center-list">
-          <div v-for="center in operations?.centers || []" :key="center.id">
-            <span>{{ center.name }}</span>
-            <strong>{{ center.active_member_count }} 人</strong>
-          </div>
-        </div>
-      </article>
-
-      <article class="content-card">
-        <div class="section-title">
-          <div>
-            <h2>本月生日关怀</h2>
-            <p>仅展示生日月日，不展示出生年份及其他敏感资料。</p>
-          </div>
-          <div class="birthday-filters">
-            <el-select
-              v-model="birthdayCenterId"
-              clearable
-              aria-label="生日关怀分中心"
-              placeholder="全部分中心"
-              @change="changeBirthdayCenter"
-            >
-              <el-option
-                v-for="option in birthdayCenterOptions"
-                :key="option.id"
-                :label="option.name"
-                :value="option.id"
-              />
-            </el-select>
-            <el-select
-              v-model="birthdayMonth"
-              aria-label="生日关怀月份"
-              placeholder="生日月份"
-              class="birthday-month-filter"
-              @change="load"
-            >
-              <el-option
-                v-for="option in birthdayMonthOptions"
-                :key="option.id"
-                :label="option.name"
-                :value="option.id"
-              />
-            </el-select>
-            <el-select
-              v-model="birthdayClassOrgUnitId"
-              clearable
-              aria-label="生日关怀班级"
-              placeholder="全部班级"
-            >
-              <el-option
-                v-for="option in birthdayClassOptions"
-                :key="option.id"
-                :label="option.name"
-                :value="option.id"
-              />
-            </el-select>
-          </div>
-        </div>
         <el-table
-          :data="filteredBirthdayMembers"
-          size="small"
-          max-height="300"
-          empty-text="本月暂无在册学长生日"
+          :data="classRows"
+          stripe
+          empty-text="当前授权范围暂无正式班级"
         >
-          <el-table-column prop="birthday" label="日期" width="86" />
-          <el-table-column label="学长" min-width="100">
+          <el-table-column label="班级" min-width="150">
             <template #default="{ row }">
-              <el-button link type="primary" @click="openBirthdayGreeting(row)">
-                {{ row.name }}
+              <el-button link type="primary" @click="openClassOperations(row)">
+                {{ row.class_name }}
               </el-button>
             </template>
           </el-table-column>
-          <el-table-column prop="org_name" label="分中心" min-width="130" />
-          <el-table-column label="班级" min-width="120">
-            <template #default="{ row }">{{
-              row.class_name || "未分班"
-            }}</template>
-          </el-table-column>
-        </el-table>
-      </article>
-    </section>
-
-    <section class="content-card schedule-card">
-      <div class="section-title">
-        <h2>班级运营与本月服务日历</h2>
-        <p>
-          按班级组织自身的运营归属列出正式班级；不会根据班内学长的发展分中心改变班级归属。
-        </p>
-      </div>
-      <el-table :data="classRows" stripe empty-text="当前授权范围暂无正式班级">
-        <el-table-column label="班级" min-width="150">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="openClassOperations(row)">
-              {{ row.class_name }}
-            </el-button>
-          </template>
-        </el-table-column>
-        <el-table-column prop="org_name" label="班级运营归属" min-width="150" />
-        <el-table-column label="本月班会" width="130">
-          <template #default="{ row }">
-            {{
-              row.class_meeting_at
-                ? dayjs(row.class_meeting_at).format("MM 月 DD 日")
-                : "待排期"
-            }}
-          </template>
-        </el-table-column>
-        <el-table-column label="班会次序" width="130">
-          <template #default="{ row }">
-            {{
-              row.year_sequence
-                ? `本年第 ${row.year_sequence} 次`
-                : row.status === "PLANNED"
-                  ? "待正式记录"
-                  : "待维护"
-            }}
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="110">
-          <template #default="{ row }">
-            <el-tag
-              :type="
-                row.status === 'SCHEDULED'
-                  ? 'success'
-                  : row.status === 'PLANNED'
-                    ? 'warning'
-                    : 'info'
-              "
-            >
+          <el-table-column
+            prop="org_name"
+            label="班级运营归属"
+            min-width="150"
+          />
+          <el-table-column label="本月班会" width="130">
+            <template #default="{ row }">
               {{
-                row.status === "SCHEDULED"
-                  ? "已接入事实"
-                  : row.status === "PLANNED"
-                    ? "已维护排期"
-                    : "待排期"
+                row.class_meeting_at
+                  ? dayjs(row.class_meeting_at).format("MM 月 DD 日")
+                  : "待排期"
               }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="运营分析" width="120">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="openClassOperations(row)"
-              >查看分析</el-button
-            >
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <template v-if="otherScheduleRows.length">
-        <el-divider content-position="left">本月课程与其他活动</el-divider>
-        <el-table :data="otherScheduleRows" stripe>
-          <el-table-column label="日期" width="120">
-            <template #default="{ row }">{{
-              dayjs(row.event_date).format("MM 月 DD 日")
-            }}</template>
+            </template>
           </el-table-column>
-          <el-table-column prop="category" label="类型" width="90" />
-          <el-table-column prop="org_name" label="组织" min-width="150" />
-          <el-table-column prop="title" label="事项" min-width="240" />
+          <el-table-column label="班会次序" width="130">
+            <template #default="{ row }">
+              {{
+                row.year_sequence
+                  ? `本年第 ${row.year_sequence} 次`
+                  : row.status === "PLANNED"
+                    ? "待正式记录"
+                    : "待维护"
+              }}
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="110">
+            <template #default="{ row }">
+              <el-tag
+                :type="
+                  row.status === 'SCHEDULED'
+                    ? 'success'
+                    : row.status === 'PLANNED'
+                      ? 'warning'
+                      : 'info'
+                "
+              >
+                {{
+                  row.status === "SCHEDULED"
+                    ? "已接入事实"
+                    : row.status === "PLANNED"
+                      ? "已维护排期"
+                      : "待排期"
+                }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="运营分析" width="120">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openClassOperations(row)"
+                >查看分析</el-button
+              >
+            </template>
+          </el-table-column>
         </el-table>
-      </template>
-    </section>
 
+        <template v-if="otherScheduleRows.length">
+          <el-divider content-position="left">本月课程与其他活动</el-divider>
+          <el-table :data="otherScheduleRows" stripe>
+            <el-table-column label="日期" width="120">
+              <template #default="{ row }">{{
+                dayjs(row.event_date).format("MM 月 DD 日")
+              }}</template>
+            </el-table-column>
+            <el-table-column prop="category" label="类型" width="90" />
+            <el-table-column prop="org_name" label="组织" min-width="150" />
+            <el-table-column prop="title" label="事项" min-width="240" />
+          </el-table>
+        </template>
+      </section>
+    </template>
     <el-dialog
       v-model="careAllDialogVisible"
       title="今日关爱 · 全部学长"
@@ -2820,7 +2911,9 @@ function changePlan() {
           </section>
 
           <section
-            v-if="!birthdayCareMissed && birthdayDueDate && canCompleteBirthdayCare"
+            v-if="
+              !birthdayCareMissed && birthdayDueDate && canCompleteBirthdayCare
+            "
             class="birthday-completion-section"
           >
             <div class="birthday-drawer-heading">
@@ -3046,156 +3139,160 @@ function changePlan() {
       </div>
     </el-drawer>
 
-    <section class="section-heading mp-heading">
-      <div>
-        <p class="eyebrow dark">ANNUAL MP</p>
-        <h2>年度 MP 目标追踪</h2>
-      </div>
-      <div class="mp-filters">
-        <el-select
-          v-model="planId"
-          aria-label="年度方案"
-          placeholder="选择年度方案"
-          @change="changePlan"
+    <template v-if="isDataView">
+      <section class="section-heading mp-heading">
+        <div>
+          <p class="eyebrow dark">ANNUAL MP</p>
+          <h2>年度 MP 目标追踪</h2>
+        </div>
+        <div class="mp-filters">
+          <el-select
+            v-model="planId"
+            aria-label="年度方案"
+            placeholder="选择年度方案"
+            @change="changePlan"
+          >
+            <el-option
+              v-for="plan in plans"
+              :key="plan.id"
+              :label="`${plan.year}年度 · V${plan.version}`"
+              :value="plan.id"
+            />
+          </el-select>
+          <el-select
+            v-model="selectedMetricKey"
+            aria-label="指标"
+            placeholder="选择指标"
+          >
+            <el-option
+              v-for="metric in metrics"
+              :key="metric.key"
+              :label="metric.name"
+              :value="metric.key"
+            />
+          </el-select>
+        </div>
+      </section>
+
+      <el-alert
+        v-if="currentPlan && !currentPlan.write_enabled"
+        title="当前为只读核对阶段"
+        description="年度方案尚未取得业务批准，所有导入值可查看、可核对，但不能写入。"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
+
+      <section class="summary-grid">
+        <article class="summary-card">
+          <span>当前查看指标</span>
+          <strong class="metric-name">{{
+            selectedMetric?.name ?? "请选择指标"
+          }}</strong>
+          <small
+            >{{ unitLabel(selectedMetric?.unit) }}口径，六分中心横向比较</small
+          >
+        </article>
+        <article class="summary-card">
+          <span>已填实绩中心</span>
+          <strong>{{ actualCount }} / {{ centers.length }}</strong>
+          <small>本月已有实绩的分中心数量</small>
+        </article>
+        <article class="summary-card">
+          <span>平均预定达成</span>
+          <strong>{{
+            averageAchievement === null
+              ? "—"
+              : `${(averageAchievement * 100).toFixed(1)}%`
+          }}</strong>
+          <small>仅计算当前指标：实绩 ÷ 预定</small>
+        </article>
+        <article class="summary-card accent">
+          <span>达到或超过预定</span>
+          <strong>{{ reachedForecastCount }} 个</strong>
+          <small>当前指标达成率不低于 100%</small>
+        </article>
+      </section>
+
+      <el-alert
+        v-if="selectedVariance && selectedVariance.difference !== 0"
+        :title="`${selectedMetric?.name ?? '当前指标'}存在年度目标分解差额`"
+        :description="`苏州塾总目标与六分中心${selectedVariance.aggregation === 'SUM' ? '合计' : '平均'}相差 ${formatValue(selectedVariance.difference, selectedMetric?.unit)}，该差额已保留，待业务说明。`"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="variance-alert"
+      />
+
+      <section class="content-card">
+        <div class="section-title">
+          <h2>六分中心 · {{ selectedMetric?.name ?? "指标明细" }}</h2>
+          <p>
+            年目标是全年方向；月MP是本月基准；预定是本月预计完成值；实绩是实际完成值。
+          </p>
+        </div>
+        <div class="metric-guide">
+          <span><b>月MP</b>：月度目标基准</span>
+          <span><b>预定</b>：预计本月完成</span>
+          <span><b>实绩</b>：本月实际完成</span>
+          <span><b>预定达成率</b>：实绩 ÷ 预定</span>
+          <span><b>年度目标达成率</b>：当月实绩 ÷ 年度目标</span>
+        </div>
+        <el-table
+          :data="selectedItems"
+          stripe
+          empty-text="当前月份暂无该指标数据"
         >
-          <el-option
-            v-for="plan in plans"
-            :key="plan.id"
-            :label="`${plan.year}年度 · V${plan.version}`"
-            :value="plan.id"
-          />
-        </el-select>
-        <el-select
-          v-model="selectedMetricKey"
-          aria-label="指标"
-          placeholder="选择指标"
-        >
-          <el-option
-            v-for="metric in metrics"
-            :key="metric.key"
-            :label="metric.name"
-            :value="metric.key"
-          />
-        </el-select>
-      </div>
-    </section>
-
-    <el-alert
-      v-if="currentPlan && !currentPlan.write_enabled"
-      title="当前为只读核对阶段"
-      description="年度方案尚未取得业务批准，所有导入值可查看、可核对，但不能写入。"
-      type="warning"
-      :closable="false"
-      show-icon
-    />
-
-    <section class="summary-grid">
-      <article class="summary-card">
-        <span>当前查看指标</span>
-        <strong class="metric-name">{{
-          selectedMetric?.name ?? "请选择指标"
-        }}</strong>
-        <small
-          >{{ unitLabel(selectedMetric?.unit) }}口径，六分中心横向比较</small
-        >
-      </article>
-      <article class="summary-card">
-        <span>已填实绩中心</span>
-        <strong>{{ actualCount }} / {{ centers.length }}</strong>
-        <small>本月已有实绩的分中心数量</small>
-      </article>
-      <article class="summary-card">
-        <span>平均预定达成</span>
-        <strong>{{
-          averageAchievement === null
-            ? "—"
-            : `${(averageAchievement * 100).toFixed(1)}%`
-        }}</strong>
-        <small>仅计算当前指标：实绩 ÷ 预定</small>
-      </article>
-      <article class="summary-card accent">
-        <span>达到或超过预定</span>
-        <strong>{{ reachedForecastCount }} 个</strong>
-        <small>当前指标达成率不低于 100%</small>
-      </article>
-    </section>
-
-    <el-alert
-      v-if="selectedVariance && selectedVariance.difference !== 0"
-      :title="`${selectedMetric?.name ?? '当前指标'}存在年度目标分解差额`"
-      :description="`苏州塾总目标与六分中心${selectedVariance.aggregation === 'SUM' ? '合计' : '平均'}相差 ${formatValue(selectedVariance.difference, selectedMetric?.unit)}，该差额已保留，待业务说明。`"
-      type="warning"
-      :closable="false"
-      show-icon
-      class="variance-alert"
-    />
-
-    <section class="content-card">
-      <div class="section-title">
-        <h2>六分中心 · {{ selectedMetric?.name ?? "指标明细" }}</h2>
-        <p>
-          年目标是全年方向；月MP是本月基准；预定是本月预计完成值；实绩是实际完成值。
-        </p>
-      </div>
-      <div class="metric-guide">
-        <span><b>月MP</b>：月度目标基准</span>
-        <span><b>预定</b>：预计本月完成</span>
-        <span><b>实绩</b>：本月实际完成</span>
-        <span><b>预定达成率</b>：实绩 ÷ 预定</span>
-        <span><b>年度目标达成率</b>：当月实绩 ÷ 年度目标</span>
-      </div>
-      <el-table
-        :data="selectedItems"
-        stripe
-        empty-text="当前月份暂无该指标数据"
-      >
-        <el-table-column prop="org_name" label="区域分中心" min-width="150" />
-        <el-table-column label="年度目标" min-width="125" align="right">
-          <template #default="{ row }">
-            {{ formatValue(row.annual_target, row.unit) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="月MP" min-width="115" align="right">
-          <template #default="{ row }">
-            {{ formatValue(row.mp?.value, row.unit) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="预定" min-width="115" align="right">
-          <template #default="{ row }">
-            {{ formatValue(row.forecast?.value, row.unit) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="实绩" min-width="115" align="right">
-          <template #default="{ row }">
-            {{ formatValue(row.actual?.value, row.unit) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="预定达成率" min-width="135" align="right">
-          <template #default="{ row }">
-            <el-tag
-              v-if="toNumber(row.forecast_achievement) !== null"
-              :type="
-                toNumber(row.forecast_achievement)! >= 1 ? 'success' : 'warning'
-              "
-            >
-              {{ formatAchievement(row.forecast_achievement) }}
-            </el-tag>
-            <span v-else>—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="年度目标达成率" min-width="155" align="right">
-          <template #default="{ row }">
-            <el-tag
-              v-if="annualAchievement(row) !== null"
-              :type="annualAchievement(row)! >= 1 ? 'success' : 'info'"
-            >
-              {{ formatAchievement(annualAchievement(row)) }}
-            </el-tag>
-            <span v-else>—</span>
-          </template>
-        </el-table-column>
-      </el-table>
-    </section>
+          <el-table-column prop="org_name" label="区域分中心" min-width="150" />
+          <el-table-column label="年度目标" min-width="125" align="right">
+            <template #default="{ row }">
+              {{ formatValue(row.annual_target, row.unit) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="月MP" min-width="115" align="right">
+            <template #default="{ row }">
+              {{ formatValue(row.mp?.value, row.unit) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="预定" min-width="115" align="right">
+            <template #default="{ row }">
+              {{ formatValue(row.forecast?.value, row.unit) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="实绩" min-width="115" align="right">
+            <template #default="{ row }">
+              {{ formatValue(row.actual?.value, row.unit) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="预定达成率" min-width="135" align="right">
+            <template #default="{ row }">
+              <el-tag
+                v-if="toNumber(row.forecast_achievement) !== null"
+                :type="
+                  toNumber(row.forecast_achievement)! >= 1
+                    ? 'success'
+                    : 'warning'
+                "
+              >
+                {{ formatAchievement(row.forecast_achievement) }}
+              </el-tag>
+              <span v-else>—</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="年度目标达成率" min-width="155" align="right">
+            <template #default="{ row }">
+              <el-tag
+                v-if="annualAchievement(row) !== null"
+                :type="annualAchievement(row)! >= 1 ? 'success' : 'info'"
+              >
+                {{ formatAchievement(annualAchievement(row)) }}
+              </el-tag>
+              <span v-else>—</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </section>
+    </template>
   </div>
 </template>
 

@@ -28,25 +28,35 @@ Page({
     });
   },
   onShow() {
+    this._visible = true;
     if (this.data.memberId) this.load();
   },
-  onHide() { this.clearContact(); },
-  onUnload() { this.clearContact(); },
+  onHide() { this.invalidatePage(); },
+  onUnload() { this.invalidatePage(); },
+  invalidatePage() {
+    this._visible = false;
+    this._loadVersion = (this._loadVersion || 0) + 1;
+    this.clearContact();
+  },
   clearContact() {
+    this._contactVersion = (this._contactVersion || 0) + 1;
     if (this.data.contactPhone) this.setData({ contactPhone: "" });
   },
   async load() {
-    this.setData({ loading: true, errorMessage: "" });
+    const version = this._loadVersion = (this._loadVersion || 0) + 1;
+    const current = () => this._visible !== false && version === this._loadVersion;
+    this.clearContact();
+    this.setData({ loading: true, errorMessage: "", detail: null });
     try {
       const response = await request(
         `/api/v1/wechat/operations/members/${encodeURIComponent(this.data.memberId)}`,
         { auth: true }
       );
-      this.setData({ detail: response.data || null });
+      if (current()) this.setData({ detail: response.data || null });
     } catch (error) {
-      this.setData({ errorMessage: error.message || "学长资料暂时无法加载" });
+      if (current()) this.setData({ errorMessage: error.message || "学长资料暂时无法加载" });
     } finally {
-      this.setData({ loading: false });
+      if (current()) this.setData({ loading: false });
     }
   },
   recordCare() {
@@ -75,21 +85,24 @@ Page({
   },
   revealContact() {
     if (!((this.data.detail || {}).actions || {}).can_reveal_contact) return;
+    const memberId = this.data.memberId;
+    const version = this._contactVersion = (this._contactVersion || 0) + 1;
+    const current = () => this._visible !== false && version === this._contactVersion && memberId === this.data.memberId;
     wx.showModal({
       title: "查看联系方式",
       content: "仅用于本次关爱联系。系统会实时校验权限并记录查看行为。",
       confirmText: "确认查看",
       success: async result => {
-        if (!result.confirm) return;
+        if (!result.confirm || !current()) return;
         try {
           const response = await request(
-            `/api/v1/wechat/operations/members/${encodeURIComponent(this.data.memberId)}/contact-access`,
+            `/api/v1/wechat/operations/members/${encodeURIComponent(memberId)}/contact-access`,
             { method: "POST", auth: true, data: { purpose: "移动端关爱联系" } }
           );
           const data = response.data || {};
-          this.setData({ contactPhone: data.phone || "" });
+          if (current()) this.setData({ contactPhone: data.phone || "" });
         } catch (error) {
-          wx.showToast({ title: error.message || "当前无法查看联系方式", icon: "none" });
+          if (current()) wx.showToast({ title: error.message || "当前无法查看联系方式", icon: "none" });
         }
       }
     });

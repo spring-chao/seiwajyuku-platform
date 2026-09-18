@@ -108,38 +108,6 @@ export default [
           icon: "ep/notebook",
           auths: ["plans:read"]
         }
-      },
-      {
-        path: "/operations/class-learning-plans",
-        name: "ClassLearningPlanManagement",
-        component: () =>
-          import("@/views/seiwajyuku/class-learning-plan-management.vue"),
-        meta: {
-          title: "班级学习计划",
-          icon: "ep/setting",
-          auths: ["plans:period_write"]
-        }
-      },
-      {
-        path: "/operations/learning-plan-review",
-        name: "LearningPlanReview",
-        component: () => import("@/views/seiwajyuku/learning-plan-review.vue"),
-        meta: {
-          title: "学习计划审核",
-          icon: "ep/list-check",
-          auths: ["plans:read"]
-        }
-      },
-      {
-        path: "/operations/learning-plan-group-meetings",
-        name: "LearningPlanGroupMeetings",
-        component: () =>
-          import("@/views/seiwajyuku/learning-plan-group-meetings.vue"),
-        meta: {
-          title: "学习计划配置",
-          icon: "ep/reading",
-          auths: ["plans:credit_rules_manage"]
-        }
       }
     ]
   },
@@ -147,13 +115,23 @@ export default [
     path: "/data-management",
     name: "DataManagement",
     component: Layout,
-    redirect: "/operations/mp-entry",
+    redirect: "/operations/data-overview",
     meta: {
       icon: "ep/pie-chart",
       title: "数据",
       rank: 4
     },
     children: [
+      {
+        path: "/operations/data-overview",
+        name: "OperationsDataOverview",
+        component: () => import("@/views/seiwajyuku/data-overview.vue"),
+        meta: {
+          title: "数据概览",
+          icon: "ep/data-analysis",
+          auths: ["plans:read"]
+        }
+      },
       {
         path: "/operations/mp-entry",
         name: "MpEntry",
@@ -178,6 +156,39 @@ export default [
       rank: 5
     },
     children: [
+      {
+        path: "/operations/class-learning-plans",
+        name: "ClassLearningPlanManagement",
+        component: () =>
+          import("@/views/seiwajyuku/class-learning-plan-management.vue"),
+        meta: {
+          title: "班级学习计划",
+          icon: "ep/setting",
+          auths: ["plans:period_write"]
+        }
+      },
+      {
+        path: "/operations/learning-plan-review",
+        name: "LearningPlanReview",
+        component: () => import("@/views/seiwajyuku/learning-plan-review.vue"),
+        meta: {
+          title: "学习计划审核",
+          icon: "ep/list-check",
+          auths: ["plans:credit_rules_manage"]
+        }
+      },
+      {
+        path: "/operations/learning-plan-group-meetings",
+        name: "LearningPlanGroupMeetings",
+        component: () =>
+          import("@/views/seiwajyuku/learning-plan-group-meetings.vue"),
+        meta: {
+          title: "学习计划配置",
+          icon: "ep/reading",
+          auths: ["plans:credit_rules_manage"]
+        }
+      },
+
       {
         path: "/operations/staff-management",
         name: "StaffManagement",

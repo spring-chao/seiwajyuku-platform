@@ -85,6 +85,16 @@ class SystemApiTests(unittest.TestCase):
         self.assertEqual(canonical.json(), json_alias.json())
         self.assertEqual(canonical.json(), version_alias.json())
 
+    def test_source_stamp_survives_unknown_or_stale_runtime_metadata(self) -> None:
+        from app.core.build_info import get_build_info
+        with patch("app.core.build_info._baked_build_info", return_value={
+            "commit_sha": "d" * 40, "version": "source-release",
+            "build_id": "source-ci", "build_time_utc": "2026-09-14T00:00:00Z"
+        }), patch.dict(os.environ, {"APP_GIT_SHA": "unknown", "APP_VERSION": "old-release"}):
+            result = get_build_info()
+        self.assertEqual(result["commit_sha"], "d" * 40)
+        self.assertEqual(result["version"], "source-release")
+
     def test_legacy_merge_preview_is_read_only_but_apply_is_not(self) -> None:
         self.assertTrue(
             read_only_request_allowed("POST", "/api/v1/legacy-operations/preview")

@@ -7,19 +7,32 @@ Page({
   chooseStage(event) {
     const activeStage = event.currentTarget.dataset.stage;
     const group = this.data.groups.find(item => item.key === activeStage);
-    this.setData({ activeStage, items: group ? group.items : [] });
+    this.setData({ activeStage, items: this.focusItems(group ? group.items : []) });
+  },
+  focusItems(items) {
+    return this.data.focusMemberId
+      ? items.filter(item => Number(item.member_id) === this.data.focusMemberId)
+      : items;
+  },
+  showAll() {
+    this.setData({ focusMemberId: null });
+    const group = this.data.groups.find(item => item.key === this.data.activeStage);
+    this.setData({ items: group ? group.items : [] });
   },
   async load() {
-    this.setData({ loading: true, errorMessage: "" });
+    const version = this._loadVersion = (this._loadVersion || 0) + 1;
+    this.setData({ loading: true, errorMessage: "", groups: [], items: [] });
     try {
       const response = await request("/api/v1/wechat/operations/renewal-watch", { auth: true });
       const groups = (response.data && response.data.groups) || [];
-      const selected = groups.find(group => group.key === this.data.activeStage) || groups[0] || { key: "OBSERVE_3", items: [] };
-      this.setData({ groups, activeStage: selected.key, items: selected.items || [] });
+      if (version !== this._loadVersion) return;
+      const focused = this.data.focusMemberId && groups.find(group => (group.items || []).some(item => Number(item.member_id) === this.data.focusMemberId));
+      const selected = focused || groups.find(group => group.key === this.data.activeStage) || groups[0] || { key: "OBSERVE_3", items: [] };
+      this.setData({ groups, activeStage: selected.key, items: this.focusItems(selected.items || []) });
     } catch (error) {
-      this.setData({ errorMessage: error.message || "续费关注暂时无法加载" });
+      if (version === this._loadVersion) this.setData({ errorMessage: error.message || "续费关注暂时无法加载" });
     } finally {
-      this.setData({ loading: false });
+      if (version === this._loadVersion) this.setData({ loading: false });
     }
   },
   openMember(event) {

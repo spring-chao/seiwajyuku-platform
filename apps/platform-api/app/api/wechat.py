@@ -73,6 +73,7 @@ class MobileCareRecordPayload(BaseModel):
     situation: str = Field(min_length=1, max_length=2000)
     next_action: str | None = Field(default=None, max_length=2000)
     next_followup_at: str | None = Field(default=None, max_length=64)
+    idempotency_key: str | None = Field(default=None, min_length=16, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 class MobileRenewalCareRecordPayload(MobileCareRecordPayload):

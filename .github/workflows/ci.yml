@@ -166,6 +166,7 @@ jobs:
           apps/platform-api/tests/test_v12_mvp.py
           apps/platform-api/tests/test_volunteer_position_model.py
           apps/platform-api/tests/test_study_meeting_attendees.py
+          apps/platform-api/tests/test_mobile_record_idempotency.py
           -q --junitxml=b21-mysql.xml
       - name: Verify 0042 guarded rollback on disposable test data
         run: |

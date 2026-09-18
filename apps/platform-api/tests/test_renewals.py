@@ -615,7 +615,10 @@ def test_list_cycles_defaults_to_remaining_unrenewed_and_supports_filters() -> N
                 (member, year, org_unit, due_month, status, now, now),
             )
 
-    default_rows = list_cycles(admin["id"], year)
+    # Other test modules can create legitimate future cycles in the shared
+    # session database. Scope this fixture before asserting the default
+    # remaining-month behavior.
+    default_rows = list_cycles(admin["id"], year, org_unit_id=org_id)
     assert [row["due_month"] for row in default_rows] == [9]
     assert default_rows[0]["member_name"] == "续费筛选李四"
 

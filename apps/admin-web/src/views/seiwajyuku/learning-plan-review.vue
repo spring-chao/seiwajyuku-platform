@@ -58,18 +58,21 @@ const selectedCheckpoint = computed(() =>
 
 const currentStatus = computed<"PENDING" | "CONFIRMED">(() => {
   const checkpoints = effectiveCheckpoints.value;
-  return checkpoints.length === 36 && checkpoints.every(
-    checkpoint =>
-      checkpoint.status === "CONFIRMED" &&
-      Boolean(checkpoint.reviewed_by?.trim()) &&
-      Boolean(checkpoint.reviewed_at?.trim())
-  )
+  return checkpoints.length === 36 &&
+    checkpoints.every(
+      checkpoint =>
+        checkpoint.status === "CONFIRMED" &&
+        Boolean(checkpoint.reviewed_by?.trim()) &&
+        Boolean(checkpoint.reviewed_at?.trim())
+    )
     ? "CONFIRMED"
     : "PENDING";
 });
 
 const confirmedCount = computed(
-  () => effectiveCheckpoints.value.filter(item => item.status === "CONFIRMED").length
+  () =>
+    effectiveCheckpoints.value.filter(item => item.status === "CONFIRMED")
+      .length
 );
 
 const progress = computed(() => Math.round((confirmedCount.value / 36) * 100));
@@ -115,7 +118,10 @@ const loadLocalDraft = () => {
 const saveLocalDraft = () => {
   localStorage.setItem(
     STORAGE_KEY,
-    JSON.stringify({ fingerprint: fingerprint.value, reviews: localReviews.value })
+    JSON.stringify({
+      fingerprint: fingerprint.value,
+      reviews: localReviews.value
+    })
   );
 };
 
@@ -182,22 +188,27 @@ const exportReview = () => {
       Boolean(checkpoint.reviewed_by?.trim()) &&
       Boolean(checkpoint.reviewed_at?.trim())
   );
-  const reviewers = [...new Set(
+  const reviewers = [
+    ...new Set(
+      checkpoints
+        .map(checkpoint => checkpoint.reviewed_by?.trim())
+        .filter((value): value is string => Boolean(value))
+    )
+  ].sort();
+  const reviewedAt =
     checkpoints
-      .map(checkpoint => checkpoint.reviewed_by?.trim())
+      .map(checkpoint => checkpoint.reviewed_at)
       .filter((value): value is string => Boolean(value))
-  )].sort();
-  const reviewedAt = checkpoints
-    .map(checkpoint => checkpoint.reviewed_at)
-    .filter((value): value is string => Boolean(value))
-    .sort()
-    .at(-1) ?? null;
+      .sort()
+      .at(-1) ?? null;
   const payload = {
     ...review.value,
     status: allConfirmed ? "CONFIRMED" : "PENDING",
     confirmed_by: allConfirmed ? reviewers.join(",") : null,
     confirmed_at: allConfirmed ? reviewedAt : null,
-    checkpoints: checkpoints.map(({ tasks: _tasks, ...checkpoint }) => checkpoint)
+    checkpoints: checkpoints.map(
+      ({ tasks: _tasks, ...checkpoint }) => checkpoint
+    )
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
     type: "application/json;charset=utf-8"
@@ -226,8 +237,12 @@ onMounted(loadReview);
             </div>
           </div>
           <div class="review-actions">
-            <el-button :loading="loading" @click="loadReview">刷新清单</el-button>
-            <el-button @click="router.push('/operations/learning-plan-group-meetings')">
+            <el-button :loading="loading" @click="loadReview"
+              >刷新清单</el-button
+            >
+            <el-button
+              @click="router.push('/operations/learning-plan-group-meetings')"
+            >
               小组学习会配置
             </el-button>
             <el-button type="primary" :disabled="!review" @click="exportReview">
@@ -248,7 +263,7 @@ onMounted(loadReview);
       <template v-if="review">
         <el-alert
           class="review-notice"
-          title="当前为审核草稿模式：逐项确认暂存在本浏览器，不会写入学习计划数据库；全部确认后请导出清单进入受控 B2 流程。"
+          title="当前为审核草稿模式：逐项确认暂存在本浏览器，不会写入学习计划数据库；全部确认后请导出清单交给负责人复核并发布。"
           type="warning"
           :closable="false"
           show-icon
@@ -257,8 +272,12 @@ onMounted(loadReview);
         <div class="review-summary">
           <div class="summary-item">
             <span>当前状态</span>
-            <el-tag :type="currentStatus === 'CONFIRMED' ? 'success' : 'warning'">
-              {{ currentStatus === "CONFIRMED" ? "已完成业务确认" : "待业务确认" }}
+            <el-tag
+              :type="currentStatus === 'CONFIRMED' ? 'success' : 'warning'"
+            >
+              {{
+                currentStatus === "CONFIRMED" ? "已完成业务确认" : "待业务确认"
+              }}
             </el-tag>
           </div>
           <div class="summary-item">
@@ -271,24 +290,31 @@ onMounted(loadReview);
           </div>
         </div>
 
-        <el-descriptions :column="2" border class="fingerprints">
-          <el-descriptions-item label="固定提交">
-            <span class="fingerprint">{{ review.source_commit }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="标准 JSON SHA-256">
-            <span class="fingerprint">{{ review.source_json_sha256 }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item
-            v-for="year in workbookYears"
-            :key="year"
-            :label="`第${year}年 Excel SHA-256`"
-          >
-            <span>
-              <span>{{ review.source_workbooks[year]?.file }}</span><br />
-              <span class="fingerprint">{{ review.source_workbooks[year]?.sha256 }}</span>
-            </span>
-          </el-descriptions-item>
-        </el-descriptions>
+        <el-collapse
+          ><el-collapse-item title="查看来源与核验信息" name="source">
+            <el-descriptions :column="2" border class="fingerprints">
+              <el-descriptions-item label="固定提交">
+                <span class="fingerprint">{{ review.source_commit }}</span>
+              </el-descriptions-item>
+              <el-descriptions-item label="标准 JSON SHA-256">
+                <span class="fingerprint">{{ review.source_json_sha256 }}</span>
+              </el-descriptions-item>
+              <el-descriptions-item
+                v-for="year in workbookYears"
+                :key="year"
+                :label="`第${year}年 Excel SHA-256`"
+              >
+                <span>
+                  <span>{{ review.source_workbooks[year]?.file }}</span
+                  ><br />
+                  <span class="fingerprint">{{
+                    review.source_workbooks[year]?.sha256
+                  }}</span>
+                </span>
+              </el-descriptions-item>
+            </el-descriptions>
+          </el-collapse-item></el-collapse
+        >
 
         <el-tabs v-model="activeCohort" class="review-tabs">
           <el-tab-pane
@@ -311,7 +337,9 @@ onMounted(loadReview);
               </el-table-column>
               <el-table-column label="状态" width="110">
                 <template #default="{ row }">
-                  <el-tag :type="row.status === 'CONFIRMED' ? 'success' : 'warning'">
+                  <el-tag
+                    :type="row.status === 'CONFIRMED' ? 'success' : 'warning'"
+                  >
                     {{ row.status === "CONFIRMED" ? "已确认" : "待确认" }}
                   </el-tag>
                 </template>
@@ -319,27 +347,39 @@ onMounted(loadReview);
               <el-table-column prop="task_count" label="任务数" width="90" />
               <el-table-column label="任务拆分" min-width="280">
                 <template #default="{ row }">
-                  <span class="task-summary">{{ taskTypeSummary(row.task_type_counts) }}</span>
+                  <span class="task-summary">{{
+                    taskTypeSummary(row.task_type_counts)
+                  }}</span>
                 </template>
               </el-table-column>
               <el-table-column label="已确认学分" width="120">
                 <template #default="{ row }">
-                  {{ row.confirmed_credits.length
-                    ? row.confirmed_credits.map(item => `${item.credit_points}分`).join("、")
-                    : "—" }}
+                  {{
+                    row.confirmed_credits.length
+                      ? row.confirmed_credits
+                          .map(item => `${item.credit_points}分`)
+                          .join("、")
+                      : "—"
+                  }}
                 </template>
               </el-table-column>
               <el-table-column label="审核记录" min-width="160">
                 <template #default="{ row }">
                   <span v-if="row.reviewed_by">
-                    {{ row.reviewed_by }}<br />{{ formatReviewedAt(row.reviewed_at) }}
+                    {{ row.reviewed_by }}<br />{{
+                      formatReviewedAt(row.reviewed_at)
+                    }}
                   </span>
                   <span v-else class="muted">尚未填写</span>
                 </template>
               </el-table-column>
               <el-table-column label="操作" width="120" fixed="right">
                 <template #default="{ row }">
-                  <el-button link type="primary" @click="openCheckpoint(row.checkpoint_id)">
+                  <el-button
+                    link
+                    type="primary"
+                    @click="openCheckpoint(row.checkpoint_id)"
+                  >
                     查看并审核
                   </el-button>
                 </template>
@@ -352,7 +392,11 @@ onMounted(loadReview);
 
     <el-drawer
       v-model="drawerVisible"
-      :title="selectedCheckpoint ? `审核 ${selectedCheckpoint.checkpoint_id}（第${selectedCheckpoint.cycle_index}周期）` : '审核周期'"
+      :title="
+        selectedCheckpoint
+          ? `审核 ${selectedCheckpoint.checkpoint_id}（第${selectedCheckpoint.cycle_index}周期）`
+          : '审核周期'
+      "
       size="68%"
     >
       <template v-if="selectedCheckpoint">
@@ -370,28 +414,47 @@ onMounted(loadReview);
             {{ selectedCheckpoint.nominal_calendar_month ?? "—" }} 月
           </el-descriptions-item>
           <el-descriptions-item label="源单元格" :span="2">
-            {{ selectedCheckpoint.source_refs.map(item => `${item.source_sheet}!${item.source_cell}`).join("、") || "—" }}
+            {{
+              selectedCheckpoint.source_refs
+                .map(item => `${item.source_sheet}!${item.source_cell}`)
+                .join("、") || "—"
+            }}
           </el-descriptions-item>
         </el-descriptions>
 
-        <el-table :data="selectedCheckpoint.tasks" border stripe class="task-table">
+        <el-table
+          :data="selectedCheckpoint.tasks"
+          border
+          stripe
+          class="task-table"
+        >
           <el-table-column prop="task_type" label="类型" width="150" />
           <el-table-column prop="title" label="任务名称" min-width="280" />
           <el-table-column prop="description" label="说明" min-width="220" />
           <el-table-column label="源内容" min-width="240">
-            <template #default="{ row }">{{ sourceText(row.metadata) }}</template>
+            <template #default="{ row }">{{
+              sourceText(row.metadata)
+            }}</template>
           </el-table-column>
           <el-table-column label="学分" width="80">
-            <template #default="{ row }">{{ row.credit_points ?? "—" }}</template>
+            <template #default="{ row }">{{
+              row.credit_points ?? "—"
+            }}</template>
           </el-table-column>
         </el-table>
 
         <el-form label-position="top" class="review-form">
           <el-form-item label="审核人" required>
-            <el-input v-model="form.reviewed_by" placeholder="填写真实姓名或运营账号" />
+            <el-input
+              v-model="form.reviewed_by"
+              placeholder="填写真实姓名或运营账号"
+            />
           </el-form-item>
           <el-form-item label="审核时间" required>
-            <el-input v-model="form.reviewed_at" placeholder="例如 2026-08-25T09:30:00+08:00" />
+            <el-input
+              v-model="form.reviewed_at"
+              placeholder="例如 2026-08-25T09:30:00+08:00"
+            />
           </el-form-item>
           <el-form-item label="审核备注">
             <el-input
@@ -403,7 +466,9 @@ onMounted(loadReview);
           </el-form-item>
           <div class="drawer-actions">
             <el-button @click="drawerVisible = false">取消</el-button>
-            <el-button type="primary" @click="saveCheckpoint">暂存此项确认</el-button>
+            <el-button type="primary" @click="saveCheckpoint"
+              >暂存此项确认</el-button
+            >
           </div>
         </el-form>
       </template>

@@ -30,7 +30,7 @@ Page({
   input(event) { this.setData({ [event.currentTarget.dataset.field]: event.detail.value }); },
   chooseNextDate(event) { this.setData({ nextFollowupAt: event.detail.value }); },
   async submit() {
-    if (!this.data.memberId) return;
+    if (!this.data.memberId || this.data.saving || this._submitted) return;
     const isBirthday = Boolean(this.data.birthdayDueDate);
     const situation = (this.data.situation || "").trim();
     if (!isBirthday && !situation) {
@@ -52,9 +52,20 @@ Page({
       path = `/api/v1/wechat/operations/members/${encodeURIComponent(this.data.memberId)}/renewal-care-records`;
       data.renewal_cycle_id = this.data.renewalCycleId;
     }
+    // Retain the same key after an uncertain network response. An edited form
+    // is a new action; the payload fingerprint stays in page memory only.
+    const fingerprint = JSON.stringify({ path, data });
+    if (!this._submission || this._submission.fingerprint !== fingerprint) {
+      this._submission = {
+        fingerprint,
+        key: `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+      };
+    }
+    if (!isBirthday) data.idempotency_key = this._submission.key;
     this.setData({ saving: true });
     try {
       await request(path, { method: "POST", auth: true, data });
+      this._submitted = true;
       wx.showToast({ title: "关爱已记录", icon: "success" });
       wx.navigateBack();
     } catch (error) {
