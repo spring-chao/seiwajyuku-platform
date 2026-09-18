@@ -32,6 +32,13 @@ from app.services.hq_reading_import import (
     import_hq_reading_workbook,
     record_manual_verified_excellent_share,
 )
+from app.services.historical_credit_import import (
+    dry_run_historical_credit_import,
+    get_historical_credit_import_batch,
+    get_historical_credit_import_row,
+    list_historical_credit_import_anomalies,
+    register_suzhou_credit_workbook,
+)
 
 
 router = APIRouter(prefix="/api/v1/learning-credits", tags=["learning-credits"])
@@ -110,6 +117,81 @@ def _read_hq_workbook_name(workbook: UploadFile) -> str:
     if not (workbook.filename or "").lower().endswith(".xlsx"):
         raise HTTPException(400, "总部每日读书导入只接受 .xlsx 工作簿")
     return workbook.filename or "hq-reading-export.xlsx"
+
+
+def _read_historical_workbook_name(workbook: UploadFile) -> str:
+    if not (workbook.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(400, "历史学分导入只接受 .xlsx 工作簿")
+    return workbook.filename or "historical-credit-import.xlsx"
+
+
+@router.post("/historical-imports")
+async def register_historical_credit_import(
+    workbook: UploadFile = File(...),
+    source_year: int = Form(default=2026, ge=2000, le=2100),
+    source_name: str = Form(default="苏州分中心2026年学分", min_length=1, max_length=255),
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    filename = _read_historical_workbook_name(workbook)
+    content = await workbook.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(400, "历史学分工作簿超过20MB限制")
+    try:
+        data = register_suzhou_credit_workbook(
+            content=content,
+            original_filename=filename,
+            actor_user_id=user["id"],
+            source_year=source_year,
+            source_name=source_name,
+        )
+        return {"success": True, "data": data}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/historical-imports/{batch_id}")
+def historical_credit_import_batch(
+    batch_id: int,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {"success": True, "data": get_historical_credit_import_batch(batch_id)}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/historical-imports/{batch_id}/anomalies")
+def historical_credit_import_anomalies(
+    batch_id: int,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {"success": True, "data": list_historical_credit_import_anomalies(batch_id)}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/historical-imports/{batch_id}/rows/{row_id}")
+def historical_credit_import_row(
+    batch_id: int,
+    row_id: int,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {"success": True, "data": get_historical_credit_import_row(batch_id, row_id)}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-imports/{batch_id}/dry-run")
+def dry_run_historical_credit_import_endpoint(
+    batch_id: int,
+    user: dict = Depends(require_permission("plans:credit_settlement_preview")),
+) -> dict:
+    try:
+        return {"success": True, "data": dry_run_historical_credit_import(batch_id)}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
 
 
 @router.post("/hq-reading/import")

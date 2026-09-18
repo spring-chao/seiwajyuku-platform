@@ -332,7 +332,12 @@ def test_0048_backfills_existing_exact_plan_binding_without_repricing() -> None:
     connection.execute("PRAGMA foreign_keys=ON")
     try:
         for path in sorted(migration_root.glob("*.sql")):
-            if path.name == "0048_learning_plan_credit_rule_mapping.sql":
+            if path.name in {
+                "0048_learning_plan_credit_rule_mapping.sql",
+                # 0064 deliberately depends on the 0048 mapping schema; this
+                # test is an isolated regression test for the old migration.
+                "0064_fix_credit_rule_mapping_and_binding_freeze.sql",
+            }:
                 continue
             connection.executescript(path.read_text(encoding="utf-8"))
         now = _now()

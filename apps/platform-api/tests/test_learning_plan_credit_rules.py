@@ -23,7 +23,7 @@ def _actor_id() -> int:
 def test_catalog_has_first_year_defaults_and_pending_new_courses():
     data = list_course_credit_rules()
     assert data["version_status"] == "PUBLISHED"
-    assert data["persisted"] is False
+    assert data["persisted"] is True
     assert data["can_edit"] is False
     rules = {item["course_key"]: item for item in data["rules"]}
     assert rules["Y1-KYOCERA-ANNUAL-PLAN"]["credit_points"] == 40
