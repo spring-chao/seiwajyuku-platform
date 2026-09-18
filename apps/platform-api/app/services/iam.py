@@ -31,6 +31,7 @@ PERMISSIONS = {
     "plans:credit_activity_fact_manage": ("维护每日读书与优秀分享事实", "SENSITIVE"),
     "plans:hq_reading_import_manage": ("导入总部每日读书并进行身份核验", "SENSITIVE"),
     "plans:historical_credit_import_manage": ("管理历史学分导入预览", "SENSITIVE"),
+    "plans:production_rule_reconciliation_apply": ("执行生产课程规则原子收口", "SENSITIVE"),
     "study_meetings:courses_edit": ("修正已提交学习会课程", "SENSITIVE"),
     "study_meetings:attendees_edit": ("修正已提交学习会参加人员", "SENSITIVE"),
     "plans:period_write": ("维护本区域年度MP", "SENSITIVE"),
@@ -724,6 +725,16 @@ def user_context(user_id: int) -> dict | None:
                 tuple(roles),
             )
         ]
+        # This one-shot production operation must be usable before migration
+        # 0064, so it cannot depend on a later permission migration. Clean
+        # databases persist it through seed_iam(); an existing production
+        # system_admin receives the same code-defined capability without a
+        # bootstrap write. The endpoint and service still re-check the role.
+        if "system_admin" in roles:
+            user["permissions"] = sorted(
+                set(user["permissions"])
+                | {"plans:production_rule_reconciliation_apply"}
+            )
     else:
         user["permissions"] = []
     direct_scopes = fetch_all(

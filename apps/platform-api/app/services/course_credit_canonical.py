@@ -127,4 +127,8 @@ def expected_persisted_rule(rule: dict[str, Any]) -> dict[str, Any]:
     return {
         **rule,
         "status": "CONFIGURED" if rule["status"] == "CONFIRMED" else rule["status"],
+        # The persisted schema intentionally has a bounded source enum. The
+        # canonical document remains the business source; BASELINE is its
+        # storage projection and is also what migration 0064 requires.
+        "source": "BASELINE",
     }

@@ -239,6 +239,8 @@ jobs:
       RUN_BOOTSTRAP_ON_STARTUP: "false"
       ALLOW_PRODUCTION_MUTATIONS: "false"
       LEARNING_CREDIT_SETTLEMENT_ENABLED: "false"
+      G5_4_PRODUCTION_RULE_APPLY_ENABLED: "true"
+      G5_4_PRODUCTION_APPLY_MYSQL: "1"
       BOOTSTRAP_ADMIN_USERNAME: admin
       BOOTSTRAP_ADMIN_PASSWORD: c7-ci-admin-password
       PYTHONPATH: apps/platform-api
@@ -255,6 +257,7 @@ jobs:
           python -m pytest
           apps/platform-api/tests/test_c7_1_2_mysql_reconciliation.py
           apps/platform-api/tests/test_c7_1_1_mysql_reconciliation.py
+          apps/platform-api/tests/test_g5_4_c3_2_production_apply.py
           -q --junitxml=c7-1-2-mysql.xml
       - uses: actions/upload-artifact@v7
         if: always()
