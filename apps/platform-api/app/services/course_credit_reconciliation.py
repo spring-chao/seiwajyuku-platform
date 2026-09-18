@@ -79,7 +79,13 @@ def _before_image(row: dict[str, Any]) -> dict[str, Any]:
     """Keep the complete deletion evidence when the export contains it."""
 
     image = _production_rule(row)
-    for field in ("created_at", "updated_at"):
+    for field in (
+        "aliases_json",
+        "created_by",
+        "updated_by",
+        "created_at",
+        "updated_at",
+    ):
         if field in row:
             image[field] = row[field]
     return image

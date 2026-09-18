@@ -64,6 +64,7 @@ class Settings:
     # returned by an API or written to audit payloads.
     study_evidence_cleanup_token: str = field(default="", repr=False)
     learning_credit_settlement_enabled: bool = False
+    g5_4_production_rule_apply_enabled: bool = False
     agent_client_id: str = ""
     agent_client_secret: str = ""
     agent_allowed_channels: tuple[str, ...] = ("api", "wecom", "wechat")
@@ -231,6 +232,9 @@ def get_settings() -> Settings:
         ).strip(),
         learning_credit_settlement_enabled=_bool(
             "LEARNING_CREDIT_SETTLEMENT_ENABLED"
+        ),
+        g5_4_production_rule_apply_enabled=_bool(
+            "G5_4_PRODUCTION_RULE_APPLY_ENABLED"
         ),
         agent_client_id=os.getenv("AGENT_CLIENT_ID", "").strip(),
         agent_client_secret=os.getenv("AGENT_CLIENT_SECRET", "").strip(),
