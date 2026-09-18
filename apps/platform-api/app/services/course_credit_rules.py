@@ -8,6 +8,7 @@ from typing import Any
 
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
+from app.services.course_credit_canonical import canonical_path
 
 
 DEFAULT_PLAN_KEY = "STANDARD_3Y_2026"
@@ -25,11 +26,7 @@ def _catalog_path() -> Path:
 
 
 def _policy_path() -> Path:
-    for parent in Path(__file__).resolve().parents:
-        path = parent / "data" / "learning-plans" / "course-credit-rules-2026.json"
-        if path.is_file():
-            return path
-    raise FileNotFoundError("找不到课程积分政策配置")
+    return canonical_path()
 
 
 def get_group_meeting_credit_policy() -> dict[str, Any]:

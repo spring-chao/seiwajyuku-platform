@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from io import BytesIO
 
 from openpyxl import Workbook
@@ -14,6 +15,7 @@ from app.services.historical_credit_import import (
     list_historical_credit_import_anomalies,
     register_suzhou_credit_workbook,
 )
+from app.services.course_credit_canonical import expected_persisted_rule, load_canonical_policy
 
 
 def _small_workbook() -> bytes:
@@ -60,6 +62,33 @@ def test_c0_published_mapping_and_frozen_policy_are_present() -> None:
         "JOIN learning_plan_credit_rule_versions v ON v.id=r.rule_version_id "
         "WHERE v.plan_key='STANDARD_3Y_2026' AND v.version_label='2026.1'"
     )["count"] == 25
+
+
+def test_0064_persisted_course_rows_match_the_single_canonical_policy() -> None:
+    policy = load_canonical_policy()
+    actual = fetch_all(
+        "SELECT r.course_key, r.course_name, r.year_index, r.credit_points, r.status, r.aliases_json "
+        "FROM learning_plan_credit_rules r "
+        "JOIN learning_plan_credit_rule_versions v ON v.id=r.rule_version_id "
+        "WHERE v.plan_key='STANDARD_3Y_2026' AND v.version_label='2026.1'"
+    )
+    expected = {
+        rule["course_key"]: {
+            key: expected_persisted_rule(rule)[key]
+            for key in ("course_key", "course_name", "year_index", "credit_points", "status")
+        }
+        | {"aliases": list(expected_persisted_rule(rule)["aliases"])}
+        for rule in policy["rules"]
+    }
+    actual_normalized = {
+        row["course_key"]: {
+            key: row[key]
+            for key in ("course_key", "course_name", "year_index", "credit_points", "status")
+        }
+        | {"aliases": json.loads(row["aliases_json"] or "[]")}
+        for row in actual
+    }
+    assert actual_normalized == expected
 
 
 def test_c1_workbook_import_is_idempotent_and_keeps_ledger_empty() -> None:

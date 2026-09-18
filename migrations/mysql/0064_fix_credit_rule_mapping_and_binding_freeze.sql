@@ -4,6 +4,8 @@
 -- audited course-policy identity as DRAFT when the identity already existed.
 -- A partial or edited course directory is not repaired by this migration:
 -- it must be reconciled by an explicit policy operation first.
+-- canonical_source: data/learning-plans/course-credit-rules-2026.json
+-- canonical_source_sha256: D4CFF89F03614D8300407BA67470EED6488DD68FF7FB6CCF060E2129CEF40886
 
 START TRANSACTION;
 
@@ -11,34 +13,35 @@ CREATE TEMPORARY TABLE g5_4_c0_expected_course_rules (
     course_key VARCHAR(128) PRIMARY KEY,
     course_name VARCHAR(255) NOT NULL,
     year_index INT NULL,
-    credit_points INT NOT NULL
+    credit_points INT NOT NULL,
+    aliases_json TEXT NOT NULL
 );
-INSERT INTO g5_4_c0_expected_course_rules(course_key, course_name, year_index, credit_points) VALUES
-    ('Y1-HAPPINESS-ASSESSMENT', '幸福测评表讲解', 1, 20),
-    ('Y1-CLASS-SPEECH-DRAFT', '班级学习会发表稿编写讲解', 1, 20),
-    ('Y1-SIX-DILIGENCES', '六项精进实践', 1, 20),
-    ('Y1-TWELVE-MANAGEMENT', '经营十二条实践', 1, 20),
-    ('Y1-INTEGRATED-ACCOUNTING', '整体核算表编制', 1, 40),
-    ('Y1-ACCOUNTING-ANALYSIS-TASK', '核算表分析与任务单制作', 1, 40),
-    ('Y1-SEVEN-ACCOUNTING-PRINCIPLES', '会计七原则实践', 1, 20),
-    ('Y1-KYOCERA-ANNUAL-PLAN', '京瓷如何制定年度计划', 1, 40),
-    ('Y1-ANNUAL-MONTHLY-MGMT', '年度计划与月度核算管理', 1, 11),
-    ('GM-LEARNING-PRACTICE-COMMITTEE', '学习践行委培训', NULL, 34),
-    ('GM-HAPPINESS-CARE-COMMITTEE', '幸福关爱委培训', NULL, 34),
-    ('GM-IMPROVEMENT-INNOVATION-TRAINING', '改善创新委培训 + 如何改善创新', NULL, 34),
-    ('GM-OPERATING-ANALYSIS-BASIC', '如何召开经营分析会（基础版）', NULL, 40),
-    ('GM-OPERATING-ANALYSIS-ADVANCED', '如何召开经营分析会（进阶版）', NULL, 30),
-    ('AUTO-QR-AMOEBA-INTRODUCTION', '阿米巴经营之概论', 2, 20),
-    ('GM-AMOEBA-DEPARTMENT-ACCOUNTING', '阿米巴经营之如何制作分部门核算表', NULL, 20),
-    ('GM-INNOVATION-CASE-SHARING', '创新案例分享（塾内优秀企业家）', NULL, 20),
-    ('GM-PHILOSOPHY-MANUAL-1', '哲学手册编制 1', NULL, 30),
-    ('GM-PHILOSOPHY-MANUAL-2', '哲学手册编制 2', NULL, 30),
-    ('GM-HUMAN-FINANCE-SYSTEM-1', '人财培养体系 1', NULL, 35),
-    ('GM-HUMAN-FINANCE-SYSTEM-2', '人财培养体系 2', NULL, 35),
-    ('GM-HUMAN-FINANCE-SYSTEM-3', '人财培养体系 3', NULL, 35),
-    ('AUTO-QR-HUNDRED-DAY-CAMPAIGN', '如何开展百日奋战', 3, 20),
-    ('GM-VOLUNTEER-TRAINING-1', '志愿者学长培训视频1（预备班工作开展、正式班开班典礼、日常读书）', NULL, 25),
-    ('GM-VOLUNTEER-TRAINING-2', '志愿者学长培训视频2（班级学习会、小组学习会、学员走访、学分、幸福测评）', NULL, 24);
+INSERT INTO g5_4_c0_expected_course_rules(course_key, course_name, year_index, credit_points, aliases_json) VALUES
+    ('Y1-HAPPINESS-ASSESSMENT', '幸福测评表讲解', 1, 20, '["幸福测评","幸福测评表"]'),
+    ('Y1-CLASS-SPEECH-DRAFT', '班级学习会发表稿编写讲解', 1, 20, '["班级学习会发表稿","发表稿编写"]'),
+    ('Y1-SIX-DILIGENCES', '六项精进实践', 1, 20, '["六项精进"]'),
+    ('Y1-TWELVE-MANAGEMENT', '经营十二条实践', 1, 20, '["经营十二条"]'),
+    ('Y1-INTEGRATED-ACCOUNTING', '整体核算表编制', 1, 40, '["整体核算表"]'),
+    ('Y1-ACCOUNTING-ANALYSIS-TASK', '核算表分析与任务单制作', 1, 40, '["核算表分析","任务单制作"]'),
+    ('Y1-SEVEN-ACCOUNTING-PRINCIPLES', '会计七原则实践', 1, 20, '["会计七原则"]'),
+    ('Y1-KYOCERA-ANNUAL-PLAN', '京瓷如何制定年度计划', 1, 40, '["京瓷如何制定年度计划"]'),
+    ('Y1-ANNUAL-MONTHLY-MGMT', '年度计划与月度核算管理', 1, 11, '["年度计划与月度核算管理"]'),
+    ('GM-LEARNING-PRACTICE-COMMITTEE', '学习践行委培训', NULL, 34, '["学习践行委培训"]'),
+    ('GM-HAPPINESS-CARE-COMMITTEE', '幸福关爱委培训', NULL, 34, '["幸福关爱委培训"]'),
+    ('GM-IMPROVEMENT-INNOVATION-TRAINING', '改善创新委培训 + 如何改善创新', NULL, 34, '["改善创新委培训 + 如何改善创新","改善创新委培训","如何改善创新"]'),
+    ('GM-OPERATING-ANALYSIS-BASIC', '如何召开经营分析会（基础版）', NULL, 40, '["如何召开经营分析会（基础版）"]'),
+    ('GM-OPERATING-ANALYSIS-ADVANCED', '如何召开经营分析会（进阶版）', NULL, 30, '["如何召开经营分析会（进阶版）"]'),
+    ('AUTO-QR-AMOEBA-INTRODUCTION', '阿米巴经营之概论', 2, 20, '["阿米巴经营之概论"]'),
+    ('GM-AMOEBA-DEPARTMENT-ACCOUNTING', '阿米巴经营之如何制作分部门核算表', NULL, 20, '["阿米巴经营之如何制作分部门核算表"]'),
+    ('GM-INNOVATION-CASE-SHARING', '创新案例分享（塾内优秀企业家）', NULL, 20, '["创新案例分享（塾内优秀企业家）"]'),
+    ('GM-PHILOSOPHY-MANUAL-1', '哲学手册编制 1', NULL, 30, '["哲学手册编制1","哲学手册编制 1"]'),
+    ('GM-PHILOSOPHY-MANUAL-2', '哲学手册编制 2', NULL, 30, '["哲学手册编制2","哲学手册编制 2"]'),
+    ('GM-HUMAN-FINANCE-SYSTEM-1', '人财培养体系 1', NULL, 35, '["人财培养体系1","人财培养体系 1"]'),
+    ('GM-HUMAN-FINANCE-SYSTEM-2', '人财培养体系 2', NULL, 35, '["人财培养体系2","人财培养体系 2"]'),
+    ('GM-HUMAN-FINANCE-SYSTEM-3', '人财培养体系 3', NULL, 35, '["人财培养体系3","人财培养体系 3"]'),
+    ('AUTO-QR-HUNDRED-DAY-CAMPAIGN', '如何开展百日奋战', 3, 20, '["如何开展百日奋战","百日奋战"]'),
+    ('GM-VOLUNTEER-TRAINING-1', '志愿者学长培训视频1（预备班工作开展、正式班开班典礼、日常读书）', NULL, 25, '["志愿者学长培训视频1"]'),
+    ('GM-VOLUNTEER-TRAINING-2', '志愿者学长培训视频2（班级学习会、小组学习会、学员走访、学分、幸福测评）', NULL, 24, '["志愿者学长培训视频2"]');
 
 -- A clean installation has the 0048-created target version but no persisted
 -- course rows.  Seed only that exact empty state from the frozen definition;
@@ -47,7 +50,7 @@ INSERT INTO learning_plan_credit_rules
     (rule_version_id, course_key, course_name, year_index, credit_points,
      status, source, aliases_json, created_at, updated_at)
 SELECT v.id, e.course_key, e.course_name, e.year_index, e.credit_points,
-       'CONFIGURED', 'BASELINE', '[]', UTC_TIMESTAMP(), UTC_TIMESTAMP()
+       'CONFIGURED', 'BASELINE', e.aliases_json, UTC_TIMESTAMP(), UTC_TIMESTAMP()
 FROM learning_plan_credit_rule_versions v
 CROSS JOIN g5_4_c0_expected_course_rules e
 WHERE v.plan_key='STANDARD_3Y_2026'
@@ -99,6 +102,7 @@ WHERE v.id IS NULL
    OR r.course_name<>e.course_name
    OR (r.year_index<>e.year_index OR (r.year_index IS NULL)<>(e.year_index IS NULL))
    OR r.credit_points<>e.credit_points
+   OR r.aliases_json<>e.aliases_json
    OR r.status<>'CONFIGURED';
 INSERT INTO g5_4_c0_guard
 SELECT COUNT(*)

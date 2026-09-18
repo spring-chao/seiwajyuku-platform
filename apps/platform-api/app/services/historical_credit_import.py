@@ -34,6 +34,11 @@ VALIDATION_DETAIL_MISSING = "DETAIL_MISSING"
 VALIDATION_MISMATCH = "MISMATCH"
 VALIDATION_ZERO = "ZERO"
 
+PERIOD_RESOLVED = "PERIOD_RESOLVED"
+YEAR_ONLY_CONFIRMED = "YEAR_ONLY_CONFIRMED"
+PERIOD_REVIEW_REQUIRED = "PERIOD_REVIEW_REQUIRED"
+PERIOD_CONFLICT = "CONFLICT"
+
 LEGACY_TYPES = {
     "每日读书": ("STANDARD_LEARNING", "LEGACY_READING_AND_SHARE"),
     "班级学习日": ("STANDARD_LEARNING", "LEGACY_CLASS_MEETING"),
@@ -167,6 +172,69 @@ def _period_track(month: int | None) -> str:
     return "FUTURE_OR_UNCLASSIFIED"
 
 
+def classify_period(*, month: int | None, source_year: int) -> dict[str, Any]:
+    """Classify the evidence without manufacturing a calendar date.
+
+    A workbook with a trusted source year proves the year for an unlabelled
+    item, but it does not prove a month.  Such items remain blocked for any
+    ledger operation that requires ``occurred_on``.
+    """
+
+    if month is not None:
+        return {
+            "period_resolution_status": PERIOD_RESOLVED,
+            "period_review_status": "READY",
+            "source_year": source_year,
+        }
+    return {
+        "period_resolution_status": YEAR_ONLY_CONFIRMED,
+        "period_review_status": PERIOD_REVIEW_REQUIRED,
+        "source_year": source_year,
+    }
+
+
+def summarize_period_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate every parsed item for a reviewable period report."""
+
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for item in items:
+        metadata = item.get("metadata") or {}
+        if metadata.get("period_track") != "UNCLASSIFIED_PERIOD_REVIEW":
+            continue
+        key = (
+            str(item.get("legacy_credit_type") or ""),
+            str(item.get("source_sheet") or ""),
+            str(item.get("source_column_name") or ""),
+        )
+        current = grouped.setdefault(
+            key,
+            {
+                "legacy_credit_type": key[0],
+                "source_sheet": key[1],
+                "source_column_name": key[2],
+                "count": 0,
+                "points_total": 0,
+                "period_resolution_statuses": set(),
+                "period_review_statuses": set(),
+            },
+        )
+        current["count"] += 1
+        current["points_total"] += float(item.get("points") or 0)
+        current["period_resolution_statuses"].add(
+            metadata.get("period_resolution_status", YEAR_ONLY_CONFIRMED)
+        )
+        current["period_review_statuses"].add(
+            metadata.get("period_review_status", PERIOD_REVIEW_REQUIRED)
+        )
+    result = []
+    for value in grouped.values():
+        value["points_total"] = _clean_points(value["points_total"])
+        value["period_resolution_statuses"] = sorted(value["period_resolution_statuses"])
+        value["period_review_statuses"] = sorted(value["period_review_statuses"])
+        result.append(value)
+    return sorted(result, key=lambda item: (item["legacy_credit_type"], item["source_sheet"], item["source_column_name"]))
+
+
 def _parse_sheet(ws: Any, data_ws: Any, *, source_year: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     name_column = _header_column(ws, "姓名")
     if name_column is None:
@@ -243,6 +311,7 @@ def _parse_sheet(ws: Any, data_ws: Any, *, source_year: int) -> tuple[list[dict[
                         "source_cell": f"{get_column_letter(column)}{row_number}",
                         "formula": formula_value if isinstance(formula_value, str) and formula_value.startswith("=") else None,
                         "period_track": _period_track(month),
+                        **classify_period(month=month, source_year=source_year),
                     },
                 }
             )
@@ -323,6 +392,17 @@ def parse_suzhou_credit_workbook(
             track: sum(item["metadata"].get("period_track") == track for item in items)
             for track in ("HISTORICAL_BASELINE", "DUAL_TRACK_PENDING", "FUTURE_OR_UNCLASSIFIED", "UNCLASSIFIED_PERIOD_REVIEW")
         },
+        "period_resolution_counts": {
+            status: sum(
+                item["metadata"].get("period_resolution_status") == status
+                for item in items
+            )
+            for status in (PERIOD_RESOLVED, YEAR_ONLY_CONFIRMED, PERIOD_CONFLICT)
+        },
+        "period_review_required_count": sum(
+            item["metadata"].get("period_review_status") == PERIOD_REVIEW_REQUIRED
+            for item in items
+        ),
         "status": "NEEDS_REVIEW",
         "ledger_entries_delta": 0,
     }
