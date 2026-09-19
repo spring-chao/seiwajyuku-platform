@@ -1,6 +1,6 @@
 # 腾讯云 CloudBase 部署与验证基线
 
-更新时间：2026-07-27
+更新时间：2026-09-19
 环境 ID：`shengheshu-d2g2zyyl99f6c6fc2`
 
 ## 当前结论
@@ -44,16 +44,19 @@
 
 ## 发布流程
 
+> 历史路径说明（2026-09-19）：下面的裸 `tcb cloudrun deploy` 命令记录的是早期可行性验证方法，不再是生产 API 的现行完整发布步骤。G5.4-C3.3-R2A 已证明该路径创建的新 revision 可能不继承稳定 revision 的版本级 `VpcConf`。现行生产 API 发布必须使用 [`scripts/deploy_cloudrun_api.py`](../../scripts/deploy_cloudrun_api.py) 受控 wrapper，完成稳定版本发现、版本级 VPC 继承、候选回读断言、定向健康和构建来源门禁。历史命令保留用于追溯，不构成继续裸发的授权。
+
 1. 确认工作区只包含本次发布内容，并记录当前 Git 提交号。
 2. 运行后端测试、前端类型检查和预发布构建。
-3. 从仓库根目录发布 CloudRun 服务：
+3. （历史，已替代）从仓库根目录裸发布 CloudRun 服务：
 
    ```powershell
    tcb cloudrun deploy --serviceName seiwajyuku-platform-api --port 8000 --source . --force --env-id shengheshu-d2g2zyyl99f6c6fc2
    ```
 
 4. 使用预发布环境变量构建前端，并将构建产物发布到 `ops-platform/`。
-5. 发布完成后依次验证健康检查、登录、关键页面及本次新增 API。
+5. 现行流程先对 wrapper 执行 `--dry-run`，生产执行时由 wrapper 通过官方 SDK 的 `UpdateCloudRunServer` 显式携带稳定 revision 的 `VpcConf`，并在任何正常流量前核验 candidate 四个网络字段、构建提交、liveness 与数据库健康 20/20；通过后才按批准范围灰度或全量。
+6. 发布完成后依次验证健康检查、登录、关键页面及本次新增 API。
 
 发布命令不得包含真实数据库密码、令牌或管理员密码；敏感配置只通过 CloudRun 环境变量管理。
 

@@ -1,0 +1,11 @@
+{
+  "Name": "seiwajyuku-platform-api-253",
+  "Status": "normal",
+  "EnvParams": "{\"DATABASE_URL\":\"fixture-sensitive-value\",\"LEARNING_CREDIT_SETTLEMENT_ENABLED\":\"false\",\"RUN_BOOTSTRAP_ON_STARTUP\":\"false\"}",
+  "VpcConf": {
+    "VpcId": "vpc-5l5vzkr2",
+    "VpcCIDR": "172.17.0.0/16",
+    "SubnetId": "subnet-1xw5yqjh",
+    "SubnetCIDR": "172.17.0.0/20"
+  }
+}
