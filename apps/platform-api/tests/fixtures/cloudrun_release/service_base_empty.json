@@ -1,0 +1,23 @@
+{
+  "BaseInfo": {
+    "ServerName": "seiwajyuku-platform-api",
+    "DefaultDomainName": "api.example.test",
+    "Status": "normal",
+    "TrafficType": "FLOW"
+  },
+  "ServerConfig": {
+    "VpcConf": {
+      "VpcId": "",
+      "VpcCIDR": "",
+      "SubnetId": "",
+      "SubnetCIDR": ""
+    }
+  },
+  "OnlineVersionInfos": [
+    {
+      "VersionName": "seiwajyuku-platform-api-253",
+      "ImageUrl": "registry.example.test/seiwajyuku-platform-api:stable",
+      "FlowRatio": "100"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "Name": "seiwajyuku-platform-api-257",
+  "Status": "normal",
+  "VpcConf": {
+    "VpcId": "vpc-5l5vzkr2",
+    "VpcCIDR": "172.17.0.0/16",
+    "SubnetId": "subnet-1xw5yqjh",
+    "SubnetCIDR": "172.17.0.0/20"
+  }
+}
