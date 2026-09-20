@@ -90,6 +90,23 @@ SENSITIVE_ENV_MARKERS = (
     "SECRET",
     "TOKEN",
 )
+TENCENT_API_ENDPOINT = "https://tcbr.tencentcloudapi.com"
+MAX_REDACTED_TENCENT_MESSAGE_LENGTH = 1000
+_SENSITIVE_MESSAGE_ASSIGNMENT_RE = re.compile(
+    r"(?i)(secret[_ -]?(?:id|key)|session[_ -]?token|token|authorization|signature|"
+    r"database[_ -]?url|password)\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^,;\s&]+)"
+)
+_SENSITIVE_URL_QUERY_RE = re.compile(
+    r"(?i)([?&](?:secretid|secretkey|sessiontoken|token|authorization|signature|"
+    r"password|database_url)=)[^&#\s]+"
+)
+_AUTH_ERROR_CODES = frozenset(
+    {
+        "UnauthorizedOperation",
+        "InvalidCredential",
+        "SignatureFailure",
+    }
+)
 
 
 class ReleaseState(str, Enum):
@@ -123,11 +140,113 @@ class ReleaseFailure(RuntimeError):
         message: str,
         *,
         terminal_state: ReleaseState = ReleaseState.BLOCKED,
+        evidence: Mapping[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.terminal_state = terminal_state
-        self.evidence: dict[str, Any] = {}
+        self.evidence: dict[str, Any] = dict(evidence or {})
+
+
+@dataclass(frozen=True)
+class TencentApiFailureEvidence:
+    """Safe metadata captured from a Tencent Cloud SDK failure.
+
+    Request payloads, headers, signatures and credentials are intentionally
+    excluded.  ``request_id`` is the only evidence used to classify whether
+    Tencent Cloud receipt is proven; an absent ID remains unknown rather than
+    being treated as proof that the request was not sent.
+    """
+
+    action: str
+    error_code: str
+    request_id_present: bool
+    request_id: str | None
+    message_redacted: str
+    endpoint: str
+    reached_service: bool
+    classification: str
+    credential_mode: str
+    token_present: bool
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "action": self.action,
+            "tencent_error_code": self.error_code,
+            "request_id_present": self.request_id_present,
+            "request_id": self.request_id,
+            "message_redacted": self.message_redacted,
+            "endpoint": self.endpoint,
+            "request_reached_service": self.reached_service,
+            "diagnostic_classification": self.classification,
+            "credential_mode": self.credential_mode,
+            "token_present": self.token_present,
+        }
+
+
+def _redact_tencent_message(value: Any) -> str:
+    """Keep useful SDK error semantics without exposing secrets or payloads."""
+
+    text = str(value or "")
+    # Authorization values commonly use a two-token ``Bearer <value>`` form;
+    # redact both tokens before the generic assignment pass can split them.
+    text = re.sub(
+        r"(?i)(authorization\s*:\s*)(?:bearer\s+)?[^\r\n,;\s]+(?:\s+[^\r\n,;\s]+)?",
+        r"\1<REDACTED>",
+        text,
+    )
+    text = _SENSITIVE_MESSAGE_ASSIGNMENT_RE.sub(
+        lambda match: f"{match.group(1)}=<REDACTED>", text
+    )
+    text = _SENSITIVE_URL_QUERY_RE.sub(r"\1<REDACTED>", text)
+    if len(text) > MAX_REDACTED_TENCENT_MESSAGE_LENGTH:
+        text = text[: MAX_REDACTED_TENCENT_MESSAGE_LENGTH - 3] + "..."
+    return text
+
+
+def _sdk_exception_value(exc: BaseException, getter: str, attribute: str) -> str:
+    try:
+        value = getattr(exc, getter)()
+    except Exception:  # noqa: BLE001 - diagnostic extraction must not mask the SDK error
+        value = getattr(exc, attribute, "")
+    return str(value or "").strip()
+
+
+def _tencent_error_classification(
+    *, action: str, error_code: str, request_id_present: bool
+) -> str:
+    if not request_id_present:
+        return "REQUEST_NOT_PROVEN_REACHED_SERVICE"
+    if action == "ReleaseGray":
+        if error_code.endswith("InvalidParameter"):
+            return "RELEASE_GRAY_PARAMETER_REJECTED"
+        if error_code.endswith("ResourceUnavailable"):
+            return "RELEASE_GRAY_RESOURCE_UNAVAILABLE"
+        if error_code.endswith("InternalError"):
+            return "RELEASE_GRAY_TENCENT_INTERNAL_ERROR"
+    if error_code.startswith("AuthFailure") or error_code in _AUTH_ERROR_CODES:
+        return "TENCENT_AUTH_OR_PERMISSION_ERROR"
+    if error_code == "RequestLimitExceeded":
+        return "TENCENT_RATE_LIMITED"
+    return "REQUEST_REACHED_TENCENT_SERVICE"
+
+
+def _redacted_targeted_release_payload(request: Any) -> dict[str, Any]:
+    """Serialize a ReleaseGray request for offline review only.
+
+    The one-time URL parameter value is always replaced.  This helper never
+    sends the request and is used by R2F fixtures/tests to inspect SDK shape.
+    """
+
+    payload = json.loads(request.to_json_string())
+    for item in payload.get("VersionFlowItems") or []:
+        if (
+            isinstance(item, dict)
+            and isinstance(item.get("UrlParam"), dict)
+            and "Value" in item["UrlParam"]
+        ):
+            item["UrlParam"]["Value"] = "<REDACTED_RUNTIME_TOKEN>"
+    return payload
 
 
 @dataclass(frozen=True)
@@ -680,9 +799,49 @@ class TencentCloudSdkApi:
         self._credential = credential
         self._tcbr = TcbrClient(credential, REGION, client_profile)
         self._tcb = None
+        self._credential_mode = "TEMPORARY" if token else "LONG_TERM"
+        self._token_present = bool(token)
 
     def _tcbr_request(self, name: str, request: Any) -> dict[str, Any]:
-        return _sdk_response_dict(getattr(self._tcbr, name)(request))
+        from tencentcloud.common.exception.tencent_cloud_sdk_exception import (
+            TencentCloudSDKException,
+        )
+
+        try:
+            return _sdk_response_dict(getattr(self._tcbr, name)(request))
+        except TencentCloudSDKException as exc:
+            error_code = _sdk_exception_value(exc, "get_code", "code")
+            request_id = _sdk_exception_value(exc, "get_request_id", "requestId")
+            message_redacted = _redact_tencent_message(
+                _sdk_exception_value(exc, "get_message", "message")
+            )
+            evidence = TencentApiFailureEvidence(
+                action=name,
+                error_code=error_code or "UNKNOWN_TENCENT_ERROR",
+                request_id_present=bool(request_id),
+                request_id=request_id or None,
+                message_redacted=message_redacted,
+                endpoint=TENCENT_API_ENDPOINT,
+                reached_service=bool(request_id),
+                classification=_tencent_error_classification(
+                    action=name,
+                    error_code=error_code,
+                    request_id_present=bool(request_id),
+                ),
+                credential_mode=getattr(self, "_credential_mode", "UNKNOWN"),
+                token_present=bool(getattr(self, "_token_present", False)),
+            )
+            terminal_state = (
+                ReleaseState.FAILED
+                if name in {"ReleaseGray", "UpdateCloudRunServer", "SubmitServerConfigChangeDiff"}
+                else ReleaseState.BLOCKED
+            )
+            raise ReleaseFailure(
+                "TENCENT_API_ERROR",
+                f"Tencent Cloud {name} failed ({evidence.classification})",
+                terminal_state=terminal_state,
+                evidence=evidence.as_dict(),
+            ) from exc
 
     def describe_service(self) -> Mapping[str, Any]:
         from tencentcloud.tcbr.v20220217 import models
@@ -2063,7 +2222,11 @@ class CloudRunReleaseController:
                 "history": [state.value for state in self.history],
             }
         except ReleaseFailure as exc:
-            exc.evidence = failure_evidence()
+            cleanup_evidence = failure_evidence()
+            # Preserve Tencent SDK metadata while adding the independent
+            # cleanup/closure evidence.  The prior implementation replaced
+            # the original evidence and made the root cause unrecoverable.
+            exc.evidence = {**exc.evidence, **cleanup_evidence}
             self._transition(exc.terminal_state)
             raise
         except Exception as exc:
@@ -2462,16 +2625,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except ReleaseFailure as exc:
+        output = {
+            "state": exc.terminal_state.value,
+            "error": exc.code,
+            "message": str(exc),
+            "evidence": exc.evidence,
+        }
+        # Keep the common diagnostic fields easy to consume while retaining
+        # the complete sanitized evidence object for audit/reporting.
+        for key in (
+            "action",
+            "tencent_error_code",
+            "request_id_present",
+            "request_id",
+            "message_redacted",
+            "endpoint",
+            "request_reached_service",
+            "diagnostic_classification",
+            "credential_mode",
+            "token_present",
+        ):
+            if key in exc.evidence:
+                output[key] = exc.evidence[key]
         print(
-            json.dumps(
-                {
-                    "state": exc.terminal_state.value,
-                    "error": exc.code,
-                    "message": str(exc),
-                    "evidence": exc.evidence,
-                },
-                ensure_ascii=False,
-            ),
+            json.dumps(output, ensure_ascii=False),
             file=sys.stderr,
         )
         return 2
