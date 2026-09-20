@@ -1,0 +1,28 @@
+{
+  "Action": "ReleaseGray",
+  "EnvId": "shengheshu-d2g2zyyl99f6c6fc2",
+  "ServerName": "seiwajyuku-platform-api",
+  "GrayType": "gray",
+  "TrafficType": "URL_PARAMS",
+  "VersionFlowItems": [
+    {
+      "VersionName": "seiwajyuku-platform-api-253",
+      "IsDefaultPriority": true,
+      "FlowRatio": 100,
+      "UrlParam": null,
+      "Priority": 1
+    },
+    {
+      "VersionName": "seiwajyuku-platform-api-257",
+      "IsDefaultPriority": false,
+      "FlowRatio": 0,
+      "UrlParam": {
+        "Key": "sj_canary",
+        "Value": "<REDACTED_RUNTIME_TOKEN>"
+      },
+      "Priority": 2
+    }
+  ],
+  "OperatorRemark": "controlled candidate health route",
+  "GrayFlowRatio": 0
+}
