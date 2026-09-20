@@ -1,0 +1,24 @@
+{
+  "TrafficType": "URL_PARAMS",
+  "GrayFlowRatio": 0,
+  "CurrentVersion": {
+    "VersionName": "seiwajyuku-platform-api-253",
+    "FlowRatio": 100,
+    "Priority": 1,
+    "IsDefaultPriority": true,
+    "UrlParam": {"Key": "", "Value": ""}
+  },
+  "ReleaseVersion": {
+    "VersionName": "seiwajyuku-platform-api-257",
+    "FlowRatio": 0,
+    "Priority": 2,
+    "IsDefaultPriority": false,
+    "UrlParam": {"Key": "sj_canary", "Value": "<runtime-token>"}
+  },
+  "TrafficTypeValues": [
+    {"Key": "sj_canary", "Value": "<runtime-token>"}
+  ],
+  "IsReleasing": true,
+  "GrayStatus": "success",
+  "ReleaseStatus": "gray"
+}
