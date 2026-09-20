@@ -837,6 +837,7 @@ def test_real_controller_provenance_gate(monkeypatch, fault) -> None:
 
     def gh(args, **kwargs):
         assert args[:2] == ["gh", "api"]
+        assert kwargs["encoding"] == "utf-8"
         payload = (
             {"total_count": len(jobs), "jobs": jobs} if "/jobs?" in args[2] else run
         )
