@@ -42,6 +42,19 @@ class FakeApi:
         self.flow_calls: list[int] = []
         self.full_active = False
         self.candidate_name = str(self.candidate["Name"])
+        self.release_order = {
+            "TrafficType": "FLOW",
+            "IsReleasing": False,
+        }
+        self.route_polls = 0
+        self.pods: list[dict] = [{"Status": "Running", "PodId": "fixture-pod"}]
+        self.pod_sequences: list[list[dict]] = []
+        self.log_rows: list[dict] | None = None
+        self.log_sequences: list[list[dict]] = []
+        self.route_delay_polls = 0
+        self.route_never_active = False
+        self.route_token_override: str | None = None
+        self.restore_service_bad = False
 
     def describe_service(self) -> dict:
         self.events.append("describe_service")
@@ -67,6 +80,35 @@ class FakeApi:
             "VersionName": self.candidate_name,
         }
 
+    def describe_release_order(self) -> dict:
+        self.events.append("describe_release_order")
+        if self.release_order.get("TrafficType") == "URL_PARAMS":
+            if self.route_never_active:
+                return {"TrafficType": "FLOW", "IsReleasing": True}
+            if self.route_delay_polls > 0:
+                self.route_delay_polls -= 1
+                return {"TrafficType": "FLOW", "IsReleasing": True}
+        return deepcopy(self.release_order)
+
+    def describe_candidate_pods(self, version_name: str) -> list[dict]:
+        self.events.append(f"describe_pods:{version_name}")
+        if self.pod_sequences:
+            return deepcopy(self.pod_sequences.pop(0))
+        return deepcopy(self.pods)
+
+    def search_cls_logs(self, query: str, start_time: str, end_time: str) -> dict:
+        self.events.append("search_cls_logs")
+        if self.log_sequences:
+            return {"Results": deepcopy(self.log_sequences.pop(0))}
+        if self.log_rows is not None:
+            return {"Results": deepcopy(self.log_rows)}
+        return {
+            "Results": [
+                {"Content": {"__TAG__": {"container_name": self.candidate_name}}}
+                for _ in range(23)
+            ]
+        }
+
     def create_candidate(self, spec: release.UpdateRequestSpec) -> int:
         self.events.append("create_candidate")
         self.update_specs.append(spec)
@@ -77,6 +119,33 @@ class FakeApi:
     ) -> None:
         self.events.append("release_targeted")
         self.targeted_calls.append((stable_revision, candidate_revision, token))
+        route_value = self.route_token_override or token
+        self.release_order = {
+            "TrafficType": "URL_PARAMS",
+            "CurrentVersion": {
+                "VersionName": stable_revision,
+                "FlowRatio": 100,
+                "Priority": 1,
+                "IsDefaultPriority": True,
+                "UrlParam": {"Key": "", "Value": ""},
+            },
+            "ReleaseVersion": {
+                "VersionName": candidate_revision,
+                "FlowRatio": 0,
+                "Priority": 2,
+                "IsDefaultPriority": False,
+                "UrlParam": {
+                    "Key": release.CANARY_QUERY_KEY,
+                    "Value": route_value,
+                },
+            },
+            "TrafficTypeValues": [
+                {"Key": release.CANARY_QUERY_KEY, "Value": route_value}
+            ],
+            "IsReleasing": True,
+            "GrayStatus": "success",
+            "ReleaseStatus": "gray",
+        }
 
     def release_flow(
         self, stable_revision: str, candidate_revision: str, candidate_percent: int
@@ -84,6 +153,16 @@ class FakeApi:
         self.events.append(f"release_flow:{candidate_percent}")
         self.flow_calls.append(candidate_percent)
         self.full_active = candidate_percent == 100
+        if candidate_percent == 0:
+            self.release_order = {
+                "TrafficType": "FLOW",
+                "TrafficTypeValues": [],
+                "IsReleasing": False,
+            }
+            if self.restore_service_bad:
+                self.service["OnlineVersionInfos"] = [
+                    {"VersionName": self.candidate_name, "FlowRatio": "100"}
+                ]
 
 
 class FakeProbe:
@@ -341,14 +420,17 @@ def test_candidate_exact_vpc_match_allows_targeted_health() -> None:
 
     result = controller.execute(plan)
 
-    assert result["state"] == release.ReleaseState.READY_FOR_RELEASE.value
+    assert result["state"] == release.ReleaseState.TRAFFIC_RESTORED.value
     assert result["targeted_database_health"] == "20/20"
     assert len(api.targeted_calls) == 1
     assert api.flow_calls == [0]
     assert probe.db_calls == 20
     routed_calls = [query for _, query in probe.calls if query]
     assert routed_calls
-    assert all(set(query) == {release.CANARY_QUERY_KEY} for query in routed_calls)
+    assert all(
+        set(query) == {release.CANARY_QUERY_KEY, release.PROBE_QUERY_KEY}
+        for query in routed_calls
+    )
 
 
 def test_zero_task_id_cannot_reuse_an_old_finished_revision() -> None:
@@ -546,9 +628,164 @@ def test_full_promotion_cannot_skip_ready_and_gray_states() -> None:
         release.ReleaseState.CREATE_CANDIDATE,
         release.ReleaseState.VERIFY_CANDIDATE_CONFIG,
         release.ReleaseState.TARGETED_HEALTH,
+        release.ReleaseState.TARGETED_ROUTE_ACTIVE,
+        release.ReleaseState.CANDIDATE_INSTANCE_READY,
+        release.ReleaseState.CANDIDATE_IDENTITY_VERIFIED,
         release.ReleaseState.READY_FOR_RELEASE,
         release.ReleaseState.GRAY,
         release.ReleaseState.FULL,
         release.ReleaseState.VERIFIED,
     ]
     assert controller.history == expected
+
+
+def _log_rows_for(api: FakeApi, *, candidate: int, stable: int = 0) -> list[dict]:
+    rows = []
+    for _ in range(candidate):
+        rows.append({"Content": {"__TAG__": {"container_name": api.candidate_name}}})
+    for _ in range(stable):
+        rows.append(
+            {"Content": {"__TAG__": {"container_name": "seiwajyuku-platform-api-253"}}}
+        )
+    return rows
+
+
+def test_release_order_fixture_matches_url_params_route_contract() -> None:
+    order = fixture("release_gray_url_params_console.json")
+    assert release.CloudRunReleaseController._targeted_route_matches(
+        order,
+        "seiwajyuku-platform-api-253",
+        "seiwajyuku-platform-api-257",
+        "<runtime-token>",
+    )
+    request = release.build_targeted_release_request(
+        "seiwajyuku-platform-api-253",
+        "seiwajyuku-platform-api-257",
+        "one-time-token",
+    )
+    payload = request._serialize()
+    assert payload["TrafficType"] == order["TrafficType"]
+    assert payload["GrayFlowRatio"] == order["GrayFlowRatio"]
+    assert (
+        payload["VersionFlowItems"][0]["FlowRatio"]
+        == order["CurrentVersion"]["FlowRatio"]
+    )
+    assert (
+        payload["VersionFlowItems"][1]["FlowRatio"]
+        == order["ReleaseVersion"]["FlowRatio"]
+    )
+
+
+def test_targeted_route_activation_is_polled_before_probe() -> None:
+    controller, api, probe, _ = make_controller()
+    api.route_delay_polls = 2
+    plan = controller.build_plan(source_input())
+
+    controller.execute(plan)
+
+    route = api.events.index("release_targeted")
+    active = api.events.index("describe_release_order", route + 1)
+    first_probe = next(
+        index
+        for index, event in enumerate(api.events)
+        if event == "probe:/api/v1/system/build-info" and index > route
+    )
+    assert api.events[active + 1] == "describe_service"
+    assert first_probe > active
+    assert probe.db_calls == 20
+
+
+def test_route_never_active_fails_without_probe_requests() -> None:
+    controller, api, probe, _ = make_controller()
+    api.route_never_active = True
+    plan = controller.build_plan(source_input())
+
+    with pytest.raises(release.ReleaseFailure) as error:
+        controller.execute(plan)
+
+    assert error.value.code == "CANDIDATE_ROUTE_NOT_ACTIVE"
+    assert not any(query for _, query in probe.calls)
+    assert api.flow_calls == [0]
+
+
+def test_route_token_mismatch_fails_before_probe() -> None:
+    controller, api, probe, _ = make_controller()
+    api.route_token_override = "token-B"
+    plan = controller.build_plan(source_input())
+
+    with pytest.raises(release.ReleaseFailure) as error:
+        controller.execute(plan)
+
+    assert error.value.code == "CANDIDATE_ROUTE_NOT_ACTIVE"
+    assert not any(query for _, query in probe.calls)
+
+
+def test_candidate_pod_readiness_is_required_before_probe() -> None:
+    controller, api, probe, _ = make_controller()
+    api.pods = []
+    plan = controller.build_plan(source_input())
+
+    with pytest.raises(release.ReleaseFailure) as error:
+        controller.execute(plan)
+
+    assert error.value.code == "CANDIDATE_INSTANCE_NOT_READY"
+    assert not any(query for _, query in probe.calls)
+    assert api.flow_calls == [0]
+
+
+def test_stable_cls_hit_blocks_even_when_http_health_succeeds() -> None:
+    controller, api, probe, _ = make_controller()
+    api.log_rows = _log_rows_for(api, candidate=0, stable=23)
+    plan = controller.build_plan(source_input())
+
+    with pytest.raises(release.ReleaseFailure) as error:
+        controller.execute(plan)
+
+    assert error.value.code == "CANDIDATE_IDENTITY_MISMATCH"
+    assert probe.db_calls == 20
+    assert api.flow_calls == [0]
+
+
+def test_mixed_cls_hits_fail_identity_gate() -> None:
+    controller, api, _, _ = make_controller()
+    api.log_rows = _log_rows_for(api, candidate=20, stable=3)
+    plan = controller.build_plan(source_input())
+
+    with pytest.raises(release.ReleaseFailure) as error:
+        controller.execute(plan)
+
+    assert error.value.code == "CANDIDATE_IDENTITY_MISMATCH"
+
+
+def test_cls_evidence_may_arrive_after_a_poll() -> None:
+    controller, api, _, _ = make_controller()
+    api.log_sequences = [[], _log_rows_for(api, candidate=23)]
+    plan = controller.build_plan(source_input())
+
+    result = controller.execute(plan)
+
+    assert result["candidate_identity"] == "verified"
+    assert api.events.count("search_cls_logs") == 2
+
+
+def test_active_release_order_blocks_new_candidate() -> None:
+    controller, api, _, _ = make_controller()
+    api.release_order = {"IsReleasing": True, "Id": 2680075}
+
+    with pytest.raises(release.ReleaseFailure) as error:
+        controller.build_plan(source_input())
+
+    assert error.value.code == "ACTIVE_RELEASE_ORDER_EXISTS"
+    assert api.update_specs == []
+
+
+def test_restore_requires_control_plane_traffic_confirmation() -> None:
+    controller, api, _, _ = make_controller()
+    api.restore_service_bad = True
+    plan = controller.build_plan(source_input())
+
+    with pytest.raises(release.ReleaseFailure) as error:
+        controller.execute(plan)
+
+    assert error.value.code == "TRAFFIC_RESTORE_NOT_CONFIRMED"
+    assert api.flow_calls == [0, 0]

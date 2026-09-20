@@ -1,0 +1,10 @@
+{
+  "expected_probe_count": 23,
+  "stable_revision": "seiwajyuku-platform-api-253",
+  "candidate_revision": "seiwajyuku-platform-api-257",
+  "http_200_count": 23,
+  "candidate_hits": 0,
+  "stable_hits": 23,
+  "unknown_hits": 0,
+  "expected_error": "CANDIDATE_IDENTITY_MISMATCH"
+}

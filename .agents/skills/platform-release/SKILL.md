@@ -9,4 +9,6 @@ description: 准备、执行或核验盛和塾运营平台现有服务的普通�
 - 普通发布不隐含生产数据迁移、IAM 写入、密钥或资源变更；遇到这些依赖只暂停相应动作。
 - 生产 `seiwajyuku-platform-api` 的 CloudRun 新版本必须经 `scripts/deploy_cloudrun_api.py`：从唯一 100% 稳定 revision 的 `DescribeVersionDetail` 继承完整 `VpcConf`，在 `UpdateCloudRunServer.Items` 显式提交，并在任何 candidate 路由前逐字段回读断言。服务级空 `VpcConf` 和裸 `tcb cloudrun deploy` 都不能作为继承或完成证明。
 - 候选网络断言通过后，使用一次性 `URL_PARAMS` 定向路由核验目标提交、liveness 和数据库健康 20/20；稳定版本保持默认。失败候选不得获得普通流量。普通应用发布不得接受调用者覆写 VPC/subnet；网络迁移需要独立授权流程。
+- `ReleaseGray` 返回成功只表示请求被接受。必须轮询 `DescribeReleaseOrder` 与服务详情，确认 `TrafficType=URL_PARAMS`、stable/candidate 版本和 token 均匹配，再检查 candidate Pod 就绪；随后还要用 `SearchClsLog` 证明 23/23 个带 token 的探针请求全部来自 candidate、stable 命中为 0。HTTP 200、相同 runtime commit 或 `253=100% / 257=0%` 不能单独证明 candidate 身份或发布单已结束。
+- 稳定流量恢复与发布单结束是两个状态。`TRAFFIC_RESTORED` 只确认 stable 100% 默认、candidate 0% 普通流量；`OperateServerManage` 的 `cancel`、`go_back`、`done` 必须先取得 API Inspector 的实际语义和独立授权，发布器不得猜测调用。
 - 发布必须区分提交成功、启动成功、流量生效与业务验收。报告目标提交、实际检查、发布结果及未完成项。

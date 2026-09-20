@@ -25,7 +25,7 @@ import time
 import zipfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any, Protocol
@@ -36,6 +36,7 @@ ENV_ID = "shengheshu-d2g2zyyl99f6c6fc2"
 SERVICE_NAME = "seiwajyuku-platform-api"
 REGION = "ap-shanghai"
 CANARY_QUERY_KEY = "sj_canary"
+PROBE_QUERY_KEY = "sj_probe"
 SDK_API_PATH = "UpdateCloudRunServer"
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -69,7 +70,11 @@ class ReleaseState(str, Enum):
     CREATE_CANDIDATE = "CREATE_CANDIDATE"
     VERIFY_CANDIDATE_CONFIG = "VERIFY_CANDIDATE_CONFIG"
     TARGETED_HEALTH = "TARGETED_HEALTH"
+    TARGETED_ROUTE_ACTIVE = "TARGETED_ROUTE_ACTIVE"
+    CANDIDATE_INSTANCE_READY = "CANDIDATE_INSTANCE_READY"
+    CANDIDATE_IDENTITY_VERIFIED = "CANDIDATE_IDENTITY_VERIFIED"
     READY_FOR_RELEASE = "READY_FOR_RELEASE"
+    TRAFFIC_RESTORED = "TRAFFIC_RESTORED"
     GRAY = "GRAY"
     FULL = "FULL"
     VERIFIED = "VERIFIED"
@@ -238,7 +243,9 @@ class ReleasePlan:
             "desired_env_changes": list(self.env_change_summary),
             "release_strategy": {
                 "create": "UpdateCloudRunServer with ReleaseType=GRAY",
-                "candidate_route": "URL_PARAMS one-time token",
+                "candidate_route": "URL_PARAMS one-time token; wait for DescribeReleaseOrder",
+                "candidate_instance": "DescribeCloudRunPodList ready instance",
+                "candidate_identity": "SearchClsLog 23/23 candidate, 0 stable",
                 "stable_default": True,
                 "database_health_samples": 20,
                 "network_change": "DISALLOWED; inherit stable revision",
@@ -267,6 +274,16 @@ class CloudRunApi(Protocol):
     def describe_deploy_records(self) -> Sequence[Mapping[str, Any]]: ...
 
     def describe_manage_task(self, task_id: int) -> Mapping[str, Any] | None: ...
+
+    def describe_release_order(self) -> Mapping[str, Any] | None: ...
+
+    def describe_candidate_pods(
+        self, version_name: str
+    ) -> Sequence[Mapping[str, Any]]: ...
+
+    def search_cls_logs(
+        self, query: str, start_time: str, end_time: str
+    ) -> Mapping[str, Any]: ...
 
     def create_candidate(self, spec: UpdateRequestSpec) -> int: ...
 
@@ -592,6 +609,45 @@ class TencentCloudSdkApi:
         task = response.get("Task")
         return task if isinstance(task, Mapping) else None
 
+    def describe_release_order(self) -> Mapping[str, Any] | None:
+        from tencentcloud.tcbr.v20220217 import models
+
+        request = models.DescribeReleaseOrderRequest()
+        request.EnvId = ENV_ID
+        request.ServerName = SERVICE_NAME
+        response = self._tcbr_request("DescribeReleaseOrder", request)
+        order = response.get("ReleaseOrderInfo")
+        return order if isinstance(order, Mapping) else None
+
+    def describe_candidate_pods(self, version_name: str) -> Sequence[Mapping[str, Any]]:
+        from tencentcloud.tcbr.v20220217 import models
+
+        request = models.DescribeCloudRunPodListRequest()
+        request.EnvId = ENV_ID
+        request.ServerName = SERVICE_NAME
+        request.VersionName = version_name
+        request.PageSize = 50
+        request.PageNum = 1
+        response = self._tcbr_request("DescribeCloudRunPodList", request)
+        pods = response.get("PodList") or []
+        return [pod for pod in pods if isinstance(pod, Mapping)]
+
+    def search_cls_logs(
+        self, query: str, start_time: str, end_time: str
+    ) -> Mapping[str, Any]:
+        from tencentcloud.tcbr.v20220217 import models
+
+        request = models.SearchClsLogRequest()
+        request.EnvId = ENV_ID
+        request.StartTime = start_time
+        request.EndTime = end_time
+        request.QueryString = query
+        request.Limit = 100
+        request.Sort = "asc"
+        response = self._tcbr_request("SearchClsLog", request)
+        results = response.get("LogResults")
+        return results if isinstance(results, Mapping) else {}
+
     def create_candidate(self, spec: UpdateRequestSpec) -> int:
         response = self._tcbr_request(
             "UpdateCloudRunServer", build_update_request(spec)
@@ -783,6 +839,12 @@ class CloudRunReleaseController:
     def _discover_stable(
         self, service: Mapping[str, Any], records: Sequence[Mapping[str, Any]]
     ) -> tuple[str, str | None, str]:
+        release_order = self.api.describe_release_order()
+        if bool(_value(release_order, "IsReleasing", False)):
+            raise ReleaseFailure(
+                "ACTIVE_RELEASE_ORDER_EXISTS",
+                "a CloudRun release order is still active",
+            )
         base_info = _value(service, "BaseInfo")
         if str(_value(base_info, "Status") or "").lower() != "normal":
             raise ReleaseFailure(
@@ -830,6 +892,165 @@ class CloudRunReleaseController:
         image_url = str(_value(positive[0], "ImageUrl") or "").strip() or None
         domain = str(_value(base_info, "DefaultDomainName") or "")
         return stable_name, image_url, _normalise_base_url(domain)
+
+    @staticmethod
+    def _flow_version(order: Mapping[str, Any] | None, key: str) -> Mapping[str, Any]:
+        value = _value(order, key)
+        return value if isinstance(value, Mapping) else {}
+
+    @staticmethod
+    def _flow_param(version: Mapping[str, Any]) -> tuple[str, str]:
+        param = _value(version, "UrlParam")
+        if isinstance(param, Mapping):
+            return str(_value(param, "Key") or ""), str(_value(param, "Value") or "")
+        return "", ""
+
+    @classmethod
+    def _targeted_route_matches(
+        cls,
+        order: Mapping[str, Any] | None,
+        stable_revision: str,
+        candidate_revision: str,
+        token: str,
+    ) -> bool:
+        if not order:
+            return False
+        if str(_value(order, "TrafficType") or "").upper() != "URL_PARAMS":
+            return False
+        current = cls._flow_version(order, "CurrentVersion")
+        candidate = cls._flow_version(order, "ReleaseVersion")
+        current_name = str(_value(current, "VersionName") or "")
+        candidate_name = str(_value(candidate, "VersionName") or "")
+        if current_name != stable_revision or candidate_name != candidate_revision:
+            return False
+        if not bool(_value(current, "IsDefaultPriority", False)):
+            return False
+        if bool(_value(candidate, "IsDefaultPriority", True)):
+            return False
+        candidate_key, candidate_value = cls._flow_param(candidate)
+        if candidate_key == CANARY_QUERY_KEY and candidate_value == token:
+            return True
+        values = _value(order, "TrafficTypeValues") or []
+        for item in (
+            values
+            if isinstance(values, Sequence) and not isinstance(values, str)
+            else []
+        ):
+            if isinstance(item, Mapping):
+                key = str(_value(item, "Key") or _value(item, "Name") or "")
+                value = str(_value(item, "Value") or "")
+                if key == CANARY_QUERY_KEY and value == token:
+                    return True
+        return False
+
+    def _wait_for_targeted_route(
+        self, stable_revision: str, candidate_revision: str, token: str
+    ) -> None:
+        for _ in range(self.max_polls):
+            order = self.api.describe_release_order()
+            # Read service detail as a second control-plane observation.  The
+            # release order carries URL_PARAMS identity; service detail catches
+            # an obviously stale or unrelated service response.
+            service = self.api.describe_service()
+            returned_service = str(
+                _value(_value(service, "BaseInfo"), "ServerName") or ""
+            )
+            if returned_service and returned_service != SERVICE_NAME:
+                raise ReleaseFailure(
+                    "CANDIDATE_ROUTE_NOT_ACTIVE",
+                    "targeted route service identity is not controlled",
+                    terminal_state=ReleaseState.FAILED,
+                )
+            if self._targeted_route_matches(
+                order, stable_revision, candidate_revision, token
+            ):
+                self._transition(ReleaseState.TARGETED_ROUTE_ACTIVE)
+                return
+            self.sleep(self.poll_seconds)
+        raise ReleaseFailure(
+            "CANDIDATE_ROUTE_NOT_ACTIVE",
+            "URL_PARAMS route did not become active before timeout",
+            terminal_state=ReleaseState.FAILED,
+        )
+
+    def _wait_for_candidate_instance(self, candidate_revision: str) -> None:
+        for _ in range(self.max_polls):
+            pods = self.api.describe_candidate_pods(candidate_revision)
+            ready = []
+            for pod in pods:
+                status = str(_value(pod, "Status") or "").lower()
+                if status in {"running", "ready"}:
+                    ready.append(pod)
+            if ready:
+                self._transition(ReleaseState.CANDIDATE_INSTANCE_READY)
+                return
+            self.sleep(self.poll_seconds)
+        raise ReleaseFailure(
+            "CANDIDATE_INSTANCE_NOT_READY",
+            "candidate has no running instance before timeout",
+            terminal_state=ReleaseState.FAILED,
+        )
+
+    @staticmethod
+    def _log_identity(value: Any, stable_revision: str, candidate_revision: str) -> str:
+        rendered = json.dumps(value, ensure_ascii=False, default=str)
+        candidate_hit = candidate_revision in rendered
+        stable_hit = stable_revision in rendered
+        if candidate_hit and not stable_hit:
+            return "candidate"
+        if stable_hit and not candidate_hit:
+            return "stable"
+        return "unknown"
+
+    def _wait_for_probe_log_evidence(
+        self,
+        *,
+        stable_revision: str,
+        candidate_revision: str,
+        token: str,
+        batch_id: str,
+        start_time: str,
+        end_time: str,
+        expected_count: int = 23,
+    ) -> None:
+        query = f'"{token}" OR "{batch_id}"'
+        for _ in range(self.max_polls):
+            result = self.api.search_cls_logs(query, start_time, end_time)
+            rows = _value(result, "Results") or []
+            if not isinstance(rows, Sequence) or isinstance(rows, str):
+                rows = []
+            identities = [
+                self._log_identity(row, stable_revision, candidate_revision)
+                for row in rows
+            ]
+            stable_hits = identities.count("stable")
+            candidate_hits = identities.count("candidate")
+            unknown_hits = identities.count("unknown")
+            if stable_hits:
+                raise ReleaseFailure(
+                    "CANDIDATE_IDENTITY_MISMATCH",
+                    "targeted probe logs include stable revision responses",
+                    terminal_state=ReleaseState.FAILED,
+                )
+            if (
+                len(rows) == expected_count
+                and candidate_hits == expected_count
+                and unknown_hits == 0
+            ):
+                self._transition(ReleaseState.CANDIDATE_IDENTITY_VERIFIED)
+                return
+            if len(rows) > expected_count:
+                raise ReleaseFailure(
+                    "CANDIDATE_IDENTITY_MISMATCH",
+                    "targeted probe log count exceeds the expected batch",
+                    terminal_state=ReleaseState.FAILED,
+                )
+            self.sleep(self.poll_seconds)
+        raise ReleaseFailure(
+            "CANDIDATE_IDENTITY_NOT_PROVEN",
+            "targeted probe logs did not prove candidate identity",
+            terminal_state=ReleaseState.FAILED,
+        )
 
     def _read_stable_commit(self, base_url: str) -> str:
         try:
@@ -1045,8 +1266,10 @@ class CloudRunReleaseController:
         plan: ReleasePlan,
         candidate_revision: str,
         token: str,
+        batch_id: str,
     ) -> None:
-        query = {CANARY_QUERY_KEY: token}
+        query = {CANARY_QUERY_KEY: token, PROBE_QUERY_KEY: batch_id}
+        probe_start = datetime.now(UTC) - timedelta(seconds=5)
         try:
             build = self.probe.get_json(
                 plan.base_url, "/api/v1/system/build-info", query=query
@@ -1111,11 +1334,56 @@ class CloudRunReleaseController:
                 "candidate identity changed during targeted health",
                 terminal_state=ReleaseState.FAILED,
             )
+        probe_end = datetime.now(UTC) + timedelta(seconds=5)
+        self._wait_for_probe_log_evidence(
+            stable_revision=plan.stable_revision,
+            candidate_revision=candidate_revision,
+            token=token,
+            batch_id=batch_id,
+            start_time=probe_start.strftime("%Y-%m-%d %H:%M:%S"),
+            end_time=probe_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
 
     def _restore_stable_route(self) -> None:
         if self._routing_changed and self._stable_revision and self._candidate_revision:
             self.api.release_flow(self._stable_revision, self._candidate_revision, 0)
+            self._assert_traffic_restored(
+                self._stable_revision, self._candidate_revision
+            )
             self._routing_changed = False
+            self._transition(ReleaseState.TRAFFIC_RESTORED)
+
+    def _assert_traffic_restored(
+        self, stable_revision: str, candidate_revision: str
+    ) -> None:
+        service = self.api.describe_service()
+        base_info = _value(service, "BaseInfo")
+        if str(_value(base_info, "TrafficType") or "FLOW").upper() != "FLOW":
+            raise ReleaseFailure(
+                "TRAFFIC_RESTORE_NOT_CONFIRMED",
+                "service traffic type is not FLOW after route restore",
+                terminal_state=ReleaseState.FAILED,
+            )
+        online = list(_value(service, "OnlineVersionInfos") or [])
+        ratios = [_ratio(_value(item, "FlowRatio")) for item in online]
+        stable_rows = [
+            item
+            for item, ratio in zip(online, ratios, strict=True)
+            if str(_value(item, "VersionName") or "") == stable_revision
+            and ratio == 100
+        ]
+        candidate_rows = [
+            item
+            for item, ratio in zip(online, ratios, strict=True)
+            if str(_value(item, "VersionName") or "") == candidate_revision
+            and ratio > 0
+        ]
+        if len(stable_rows) != 1 or candidate_rows:
+            raise ReleaseFailure(
+                "TRAFFIC_RESTORE_NOT_CONFIRMED",
+                "stable 100% and candidate 0% were not confirmed",
+                terminal_state=ReleaseState.FAILED,
+            )
 
     def _best_effort_restore_stable_route(self) -> bool:
         try:
@@ -1220,12 +1488,15 @@ class CloudRunReleaseController:
 
             self._transition(ReleaseState.TARGETED_HEALTH)
             token = secrets.token_urlsafe(32)
+            batch_id = secrets.token_urlsafe(16)
             # Treat an uncertain API response as potentially applied.  A
             # cleanup attempt is safe even when the targeted route was not
             # committed, while omitting cleanup could leave a test route live.
             self._routing_changed = True
             self.api.release_targeted(plan.stable_revision, candidate_name, token)
-            self._assert_candidate_health(plan, candidate_name, token)
+            self._wait_for_targeted_route(plan.stable_revision, candidate_name, token)
+            self._wait_for_candidate_instance(candidate_name)
+            self._assert_candidate_health(plan, candidate_name, token, batch_id)
 
             self._transition(ReleaseState.READY_FOR_RELEASE)
             if promotion == "ready":
@@ -1265,6 +1536,8 @@ class CloudRunReleaseController:
                 "candidate_vpc_fingerprint": plan.desired_vpc_conf.fingerprint,
                 "targeted_database_health": "20/20",
                 "promotion": promotion,
+                "candidate_identity": "verified",
+                "traffic_restored": not self._routing_changed,
                 "history": [state.value for state in self.history],
             }
         except ReleaseFailure as exc:
