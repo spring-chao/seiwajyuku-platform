@@ -1,0 +1,84 @@
+{
+  "captured_at_utc": "2026-09-20T14:50:35.949478+00:00",
+  "action": "DescribeCloudRunServerDetail",
+  "request_scope": {
+    "EnvId": "shengheshu-d2g2zyyl99f6c6fc2",
+    "ServerName": "seiwajyuku-platform-api"
+  },
+  "response": {
+    "BaseInfo": {
+      "ServerName": "seiwajyuku-platform-api",
+      "DefaultDomainName": "https://seiwajyuku-platform-api-287369-8-1453587887.sh.run.tcloudbase.com",
+      "CustomDomainName": "",
+      "Status": "normal",
+      "UpdateTime": "2026-09-20 07:14:00",
+      "AccessTypes": [
+        "OA",
+        "PUBLIC",
+        "MINIAPP"
+      ],
+      "CustomDomainNames": [],
+      "ServerType": "container",
+      "TrafficType": "FLOW",
+      "CreateTime": ""
+    },
+    "ServerConfig": {
+      "EnvId": "shengheshu-d2g2zyyl99f6c6fc2",
+      "ServerName": "seiwajyuku-platform-api",
+      "OpenAccessTypes": [
+        "OA",
+        "PUBLIC",
+        "MINIAPP"
+      ],
+      "Cpu": 1,
+      "Mem": 2,
+      "MinNum": 1,
+      "MaxNum": 5,
+      "PolicyDetails": [
+        {
+          "PolicyType": "cpu",
+          "PolicyThreshold": 60
+        }
+      ],
+      "CustomLogs": "stdout",
+      "EnvParams": "<REDACTED>",
+      "InitialDelaySeconds": 2,
+      "CreateTime": "2026-07-26 18:12:50",
+      "Port": 8000,
+      "HasDockerfile": true,
+      "Dockerfile": "Dockerfile",
+      "BuildDir": ".",
+      "LogType": "",
+      "LogSetId": "",
+      "LogTopicId": "",
+      "LogParseType": "",
+      "Tag": "",
+      "InternalAccess": "close",
+      "InternalDomain": "",
+      "OperationMode": "alwaysScale",
+      "TimerScale": [],
+      "EntryPoint": [],
+      "Cmd": [],
+      "SessionAffinity": "",
+      "VpcConf": {
+        "VpcId": "vpc-5l5vzkr2",
+        "VpcCIDR": "172.17.0.0/16",
+        "SubnetId": "subnet-1xw5yqjh",
+        "SubnetCIDR": "172.17.0.0/20"
+      },
+      "VolumesConf": [],
+      "LinkImageRegistry": "",
+      "PublicNetConf": {
+        "PublicNetStatus": "ENABLE"
+      }
+    },
+    "OnlineVersionInfos": [
+      {
+        "VersionName": "seiwajyuku-platform-api-253",
+        "ImageUrl": "ccr.ccs.tencentyun.com/tcb-100050666336-puns/ca-tcluygqu_seiwajyuku-platform-api:seiwajyuku-platform-api-253-20260919095727",
+        "FlowRatio": "100"
+      }
+    ],
+    "RequestId": "baccbe5d-7890-46f1-be50-9759e0bdc8f3"
+  }
+}

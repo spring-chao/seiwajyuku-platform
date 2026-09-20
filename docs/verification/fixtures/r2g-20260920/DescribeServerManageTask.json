@@ -1,0 +1,63 @@
+{
+  "captured_at_utc": "2026-09-20T14:50:35.949478+00:00",
+  "action": "DescribeServerManageTask",
+  "request_scope": {
+    "EnvId": "shengheshu-d2g2zyyl99f6c6fc2",
+    "ServerName": "seiwajyuku-platform-api"
+  },
+  "response": {
+    "IsExist": true,
+    "Task": {
+      "Id": 2190170,
+      "EnvId": "shengheshu-d2g2zyyl99f6c6fc2",
+      "ServerName": "seiwajyuku-platform-api",
+      "CreateTime": "2026-09-20 07:13:59",
+      "ChangeType": "CODE",
+      "ReleaseType": "GRAY",
+      "DeployType": "image",
+      "PreVersionName": "seiwajyuku-platform-api-253",
+      "VersionName": "seiwajyuku-platform-api-257",
+      "PipelineId": 0,
+      "PipelineTaskId": 0,
+      "ReleaseId": 2680075,
+      "Status": "stopped",
+      "Steps": [
+        {
+          "Name": "CreateVersion",
+          "Status": "finished",
+          "StartTime": "2026-09-20 07:13:59",
+          "EndTime": "2026-09-20 07:15:20",
+          "CostTime": 81,
+          "FailReason": ""
+        },
+        {
+          "Name": "RunPipeline",
+          "Status": "notInvolve",
+          "StartTime": "",
+          "EndTime": "",
+          "CostTime": 0,
+          "FailReason": ""
+        },
+        {
+          "Name": "GrayRelease",
+          "Status": "stopped",
+          "StartTime": "2026-09-20 07:15:23",
+          "EndTime": "",
+          "CostTime": 0,
+          "FailReason": ""
+        },
+        {
+          "Name": "ReleaseVersion",
+          "Status": "notInvolve",
+          "StartTime": "",
+          "EndTime": "",
+          "CostTime": 0,
+          "FailReason": ""
+        }
+      ],
+      "FailReason": "",
+      "OperatorRemark": ""
+    },
+    "RequestId": "41ca933a-cbd2-4ffa-b632-1dc0271fe86b"
+  }
+}

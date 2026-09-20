@@ -1,0 +1,143 @@
+{
+  "captured_at_utc": "2026-09-20T14:50:35.949478+00:00",
+  "action": "DescribeCloudRunDeployRecord",
+  "request_scope": {
+    "EnvId": "shengheshu-d2g2zyyl99f6c6fc2",
+    "ServerName": "seiwajyuku-platform-api"
+  },
+  "response": {
+    "DeployRecords": [
+      {
+        "DeployId": "248",
+        "DeployTime": "2026-09-12 10:25:58",
+        "Status": "normal",
+        "RunId": "multi_tenant_1x5DRG1QMRGHnY",
+        "BuildId": 2602595300,
+        "FlowRatio": 0,
+        "ImageUrl": "ccr.ccs.tencentyun.com/tcb-100050666336-puns/ca-tcluygqu_seiwajyuku-platform-api:seiwajyuku-platform-api-248-20260912102602",
+        "ScaleStatus": "zero",
+        "HasTraffic": false,
+        "TrafficType": "FLOW",
+        "IsReleasing": false
+      },
+      {
+        "DeployId": "249",
+        "DeployTime": "2026-09-12 10:32:52",
+        "Status": "normal",
+        "RunId": "multi_tenant_1x5DXvE5LMLBDk",
+        "BuildId": 0,
+        "FlowRatio": 0,
+        "ImageUrl": "ccr.ccs.tencentyun.com/tcb-100050666336-puns/ca-tcluygqu_seiwajyuku-platform-api:seiwajyuku-platform-api-247-20260912095302",
+        "ScaleStatus": "zero",
+        "HasTraffic": false,
+        "TrafficType": "FLOW",
+        "IsReleasing": false
+      },
+      {
+        "DeployId": "250",
+        "DeployTime": "2026-09-18 12:04:30",
+        "Status": "normal",
+        "RunId": "multi_tenant_1x7Ppu8PWxOJii",
+        "BuildId": 2605703491,
+        "FlowRatio": 0,
+        "ImageUrl": "ccr.ccs.tencentyun.com/tcb-100050666336-puns/ca-tcluygqu_seiwajyuku-platform-api:seiwajyuku-platform-api-250-20260918120432",
+        "ScaleStatus": "zero",
+        "HasTraffic": false,
+        "TrafficType": "FLOW",
+        "IsReleasing": false
+      },
+      {
+        "DeployId": "251",
+        "DeployTime": "2026-09-18 12:22:08",
+        "Status": "normal",
+        "RunId": "multi_tenant_1x7Q6yRgwPv9kE",
+        "BuildId": 2605703605,
+        "FlowRatio": 0,
+        "ImageUrl": "ccr.ccs.tencentyun.com/tcb-100050666336-puns/ca-tcluygqu_seiwajyuku-platform-api:seiwajyuku-platform-api-251-20260918122214",
+        "ScaleStatus": "zero",
+        "HasTraffic": false,
+        "TrafficType": "FLOW",
+        "IsReleasing": false
+      },
+      {
+        "DeployId": "252",
+        "DeployTime": "2026-09-18 12:37:04",
+        "Status": "normal",
+        "RunId": "multi_tenant_1x7QLQjatlbrdo",
+        "BuildId": 2605704329,
+        "FlowRatio": 0,
+        "ImageUrl": "ccr.ccs.tencentyun.com/tcb-100050666336-puns/ca-tcluygqu_seiwajyuku-platform-api:seiwajyuku-platform-api-252-20260918123712",
+        "ScaleStatus": "zero",
+        "HasTraffic": false,
+        "TrafficType": "FLOW",
+        "IsReleasing": false
+      },
+      {
+        "DeployId": "253",
+        "DeployTime": "2026-09-19 09:57:22",
+        "Status": "normal",
+        "RunId": "multi_tenant_1x7kKQJDNYzwj9",
+        "BuildId": 2605725204,
+        "FlowRatio": 100,
+        "ImageUrl": "ccr.ccs.tencentyun.com/tcb-100050666336-puns/ca-tcluygqu_seiwajyuku-platform-api:seiwajyuku-platform-api-253-20260919095727",
+        "ScaleStatus": "",
+        "HasTraffic": true,
+        "TrafficType": "FLOW",
+        "IsReleasing": false
+      },
+      {
+        "DeployId": "254",
+        "DeployTime": "2026-09-19 18:22:04",
+        "Status": "normal",
+        "RunId": "multi_tenant_1x7sCqq7qVBakm",
+        "BuildId": 0,
+        "FlowRatio": 0,
+        "ImageUrl": "ccr.ccs.tencentyun.com/tcb-100050666336-puns/ca-tcluygqu_seiwajyuku-platform-api:seiwajyuku-platform-api-253-20260919095727",
+        "ScaleStatus": "zero",
+        "HasTraffic": false,
+        "TrafficType": "FLOW",
+        "IsReleasing": false
+      },
+      {
+        "DeployId": "255",
+        "DeployTime": "2026-09-19 18:32:46",
+        "Status": "normal",
+        "RunId": "multi_tenant_1x7sNChrpCDGk3",
+        "BuildId": 2605719091,
+        "FlowRatio": 0,
+        "ImageUrl": "ccr.ccs.tencentyun.com/tcb-100050666336-puns/ca-tcluygqu_seiwajyuku-platform-api:seiwajyuku-platform-api-255-20260919183250",
+        "ScaleStatus": "zero",
+        "HasTraffic": false,
+        "TrafficType": "FLOW",
+        "IsReleasing": false
+      },
+      {
+        "DeployId": "256",
+        "DeployTime": "2026-09-19 19:21:32",
+        "Status": "normal",
+        "RunId": "multi_tenant_1x7t8OGzu1bIXK",
+        "BuildId": 2605729087,
+        "FlowRatio": 0,
+        "ImageUrl": "ccr.ccs.tencentyun.com/tcb-100050666336-puns/ca-tcluygqu_seiwajyuku-platform-api:seiwajyuku-platform-api-256-20260919192139",
+        "ScaleStatus": "zero",
+        "HasTraffic": false,
+        "TrafficType": "FLOW",
+        "IsReleasing": false
+      },
+      {
+        "DeployId": "257",
+        "DeployTime": "2026-09-20 07:14:00",
+        "Status": "normal",
+        "RunId": "multi_tenant_1x84FreRxIFPig",
+        "BuildId": 0,
+        "FlowRatio": 0,
+        "ImageUrl": "ccr.ccs.tencentyun.com/tcb-100050666336-puns/ca-tcluygqu_seiwajyuku-platform-api:seiwajyuku-platform-api-253-20260919095727",
+        "ScaleStatus": "zero",
+        "HasTraffic": false,
+        "TrafficType": "FLOW",
+        "IsReleasing": false
+      }
+    ],
+    "RequestId": "6bb0aae1-7b08-4b94-8d48-6552b9165f10"
+  }
+}

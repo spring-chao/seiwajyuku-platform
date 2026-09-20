@@ -1,0 +1,70 @@
+{
+  "captured_at_utc": "2026-09-20T14:50:35.949478+00:00",
+  "action": "DescribeReleaseOrder",
+  "request_scope": {
+    "EnvId": "shengheshu-d2g2zyyl99f6c6fc2",
+    "ServerName": "seiwajyuku-platform-api"
+  },
+  "response": {
+    "IsExist": true,
+    "ReleaseOrderInfo": {
+      "Id": 2680075,
+      "ServerName": "seiwajyuku-platform-api",
+      "CurrentVersion": {
+        "VersionName": "seiwajyuku-platform-api-253",
+        "FlowRatio": 0,
+        "Status": "normal",
+        "CreatedTime": "2026-09-19 09:57:22",
+        "UpdatedTime": "2026-09-19 10:00:11",
+        "BuildId": 2605725204,
+        "UploadType": "package",
+        "Remark": "",
+        "UrlParam": {
+          "Key": "",
+          "Value": ""
+        },
+        "Priority": 0,
+        "IsDefaultPriority": false,
+        "FlowParams": [],
+        "MinReplicas": 1,
+        "MaxReplicas": 5,
+        "RunId": "multi_tenant_1x7kKQJDNYzwj9",
+        "Percent": 0,
+        "CurrentReplicas": 0,
+        "Architecture": ""
+      },
+      "ReleaseVersion": {
+        "VersionName": "seiwajyuku-platform-api-257",
+        "FlowRatio": 0,
+        "Status": "normal",
+        "CreatedTime": "2026-09-20 07:14:00",
+        "UpdatedTime": "2026-09-20 07:45:17",
+        "BuildId": 0,
+        "UploadType": "image",
+        "Remark": "",
+        "UrlParam": {
+          "Key": "",
+          "Value": ""
+        },
+        "Priority": 0,
+        "IsDefaultPriority": false,
+        "FlowParams": [],
+        "MinReplicas": 1,
+        "MaxReplicas": 5,
+        "RunId": "multi_tenant_1x84FreRxIFPig",
+        "Percent": 0,
+        "CurrentReplicas": 0,
+        "Architecture": ""
+      },
+      "GrayStatus": "success",
+      "ReleaseStatus": "fail",
+      "TrafficTypeValues": [],
+      "TrafficType": "FLOW",
+      "FlowRatio": 0,
+      "CreateTime": "2026-09-20 07:15:23",
+      "IsReleasing": false
+    },
+    "LastReleasedSuccessTime": "2026-09-19 19:39:03",
+    "RequestId": "7e99d274-28a1-46c8-b0b7-24d9767bcaeb"
+  }
+}

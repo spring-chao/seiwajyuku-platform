@@ -1,0 +1,13 @@
+{
+  "captured_at_utc": "2026-09-20T14:50:35.949478+00:00",
+  "action": "DescribeCloudRunPodList",
+  "request_scope": {
+    "EnvId": "shengheshu-d2g2zyyl99f6c6fc2",
+    "ServerName": "seiwajyuku-platform-api"
+  },
+  "response": {
+    "PodList": [],
+    "TotalCount": 0,
+    "RequestId": "0185d472-3f66-4fdf-a12b-7800a2a07c49"
+  }
+}

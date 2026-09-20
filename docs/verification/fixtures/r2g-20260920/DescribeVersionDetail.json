@@ -1,0 +1,40 @@
+{
+  "captured_at_utc": "2026-09-20T14:50:35.949478+00:00",
+  "action": "DescribeVersionDetail",
+  "request_scope": {
+    "EnvId": "shengheshu-d2g2zyyl99f6c6fc2",
+    "ServerName": "seiwajyuku-platform-api"
+  },
+  "response": {
+    "Name": "seiwajyuku-platform-api-257",
+    "Port": 8000,
+    "Cpu": 1,
+    "Mem": 2,
+    "MinNum": 1,
+    "MaxNum": 5,
+    "PolicyDetails": [
+      {
+        "PolicyType": "cpu",
+        "PolicyThreshold": 60
+      }
+    ],
+    "Dockerfile": "Dockerfile",
+    "BuildDir": "",
+    "EnvParams": "<REDACTED>",
+    "Status": "normal",
+    "CreatedTime": "2026-09-20 07:14:00",
+    "UpdatedTime": "2026-09-20 07:45:17",
+    "LogPath": "stdout",
+    "EntryPoint": "[]",
+    "Cmd": "[]",
+    "VpcConf": {
+      "VpcId": "vpc-5l5vzkr2",
+      "VpcCIDR": "172.17.0.0/16",
+      "SubnetId": "subnet-1xw5yqjh",
+      "SubnetCIDR": "172.17.0.0/20"
+    },
+    "VolumesConf": [],
+    "BuildPacks": null,
+    "RequestId": "e704a642-5071-434d-8c8e-415f4ed3f4d8"
+  }
+}
