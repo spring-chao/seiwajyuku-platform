@@ -881,6 +881,7 @@ def verify_controller_provenance(commit: str, manifest_path: Path | None) -> Non
                 ["gh", "api", f"repos/spring-chao/seiwajyuku-platform/{path}"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 check=True,
                 timeout=30,
             )
