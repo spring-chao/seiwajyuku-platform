@@ -1193,9 +1193,18 @@ export type AttendanceRecord = {
 };
 
 export type AttendanceSyncStatus = {
-  state: "NO_RUNS" | "RUNNING" | "HEALTHY" | "WARNING" | "CRITICAL";
+  state:
+    | "NO_RUNS"
+    | "RUNNING"
+    | "HEALTHY"
+    | "WARNING"
+    | "CRITICAL"
+    | "STALE";
   alert_threshold: number;
   consecutive_failure_count: number;
+  expected_run_at: string;
+  schedule_timezone: string;
+  grace_period_hours: number;
   last_run: {
     status: string;
     started_at: string;

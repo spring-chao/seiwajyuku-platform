@@ -13,8 +13,9 @@ from __future__ import annotations
 import hmac
 import re
 from io import BytesIO
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from typing import Literal
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
@@ -38,6 +39,9 @@ from app.services.iam import accessible_org_ids
 
 router = APIRouter(prefix="/api/v1/attendance", tags=["attendance"])
 
+ATTENDANCE_SYNC_TIMEZONE = ZoneInfo("Asia/Shanghai")
+ATTENDANCE_SYNC_GRACE_HOURS = 6
+
 CURRENT_CLASS_NAME_SQL = (
     "COALESCE((SELECT ou.name FROM member_org_relations mor "
     "JOIN org_units ou ON ou.id=mor.org_unit_id "
@@ -53,7 +57,41 @@ class AdjudicationPayload(BaseModel):
     member_id: int | None = None
 
 
-def _attendance_sync_health() -> dict:
+def _as_utc_datetime(value: object) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _latest_expected_attendance_sync(now: datetime) -> datetime:
+    local_now = now.astimezone(ATTENDANCE_SYNC_TIMEZONE)
+    expected_date = local_now.date()
+    if (
+        local_now.weekday() < 5
+        and local_now.time() < time(hour=ATTENDANCE_SYNC_GRACE_HOURS)
+    ):
+        expected_date -= timedelta(days=1)
+    while expected_date.weekday() >= 5:
+        expected_date -= timedelta(days=1)
+    return datetime.combine(
+        expected_date,
+        time.min,
+        tzinfo=ATTENDANCE_SYNC_TIMEZONE,
+    ).astimezone(UTC)
+
+
+def _attendance_sync_health(*, now: datetime | None = None) -> dict:
+    now_utc = _as_utc_datetime(now or datetime.now(UTC)) or datetime.now(UTC)
+    expected_run_at = _latest_expected_attendance_sync(now_utc)
     rows = fetch_all(
         "SELECT id, status, started_at, finished_at, received_sessions, "
         "received_records, error_count, error_summary "
@@ -66,6 +104,9 @@ def _attendance_sync_health() -> dict:
             "state": "NO_RUNS",
             "alert_threshold": 3,
             "consecutive_failure_count": 0,
+            "expected_run_at": expected_run_at.isoformat(),
+            "schedule_timezone": str(ATTENDANCE_SYNC_TIMEZONE),
+            "grace_period_hours": ATTENDANCE_SYNC_GRACE_HOURS,
             "last_run": None,
         }
 
@@ -81,18 +122,25 @@ def _attendance_sync_health() -> dict:
             consecutive_failures += 1
 
     latest_status = str(latest["status"]).upper()
+    latest_started_at = _as_utc_datetime(latest["started_at"])
+    is_stale = latest_started_at is None or latest_started_at < expected_run_at
     if consecutive_failures >= 3:
         state = "CRITICAL"
     elif consecutive_failures:
         state = "WARNING"
-    elif latest_status == "RUNNING":
+    elif latest_status == "RUNNING" and not is_stale:
         state = "RUNNING"
+    elif is_stale:
+        state = "STALE"
     else:
         state = "HEALTHY"
     return {
         "state": state,
         "alert_threshold": 3,
         "consecutive_failure_count": consecutive_failures,
+        "expected_run_at": expected_run_at.isoformat(),
+        "schedule_timezone": str(ATTENDANCE_SYNC_TIMEZONE),
+        "grace_period_hours": ATTENDANCE_SYNC_GRACE_HOURS,
         "last_run": {
             "status": latest_status,
             "started_at": latest["started_at"],

@@ -141,6 +141,15 @@ const syncAlert = computed(() => {
   if (!status || status.state === "NO_RUNS") {
     return { type: "info" as const, title: "签到自动同步尚无运行记录" };
   }
+  if (status.state === "STALE") {
+    const finishedAt = status.last_run?.finished_at
+      ? dayjs(status.last_run.finished_at).format("YYYY-MM-DD HH:mm")
+      : "未知时间";
+    return {
+      type: "error" as const,
+      title: `签到自动同步已中断，最近完成于 ${finishedAt}，请技术管理员检查`
+    };
+  }
   if (status.state === "CRITICAL") {
     return {
       type: "error" as const,
