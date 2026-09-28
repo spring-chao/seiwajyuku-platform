@@ -9,6 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
 import r3_cloud_read as cloud
+import r3_collect_readonly as collector
 import r3_db_read as db
 import r3_read_evidence as evidence
 from r3_collect_readonly import main
@@ -448,6 +449,7 @@ def test_cli_no_production_options_and_missing_credentials(
     monkeypatch, tmp_path, capsys
 ):
     monkeypatch.delenv("TENCENTCLOUD_SECRET_ID", raising=False)
+    monkeypatch.setattr(collector, "_load_verifier_key", lambda *args: KEY)
     args = [
         "--collect-readonly-evidence",
         "--baseline-revision",
@@ -635,6 +637,148 @@ def test_redaction_before_hash(issuer):
         RID,
     )
     assert "NOPE" not in json.dumps(asdict(record))
+
+
+def test_live_key_required_before_network(tmp_path, capsys):
+    args = [
+        "--collect-readonly-evidence",
+        "--baseline-revision",
+        REV,
+        "--runtime-commit",
+        COMMIT,
+        "--manage-task-id",
+        "456",
+        "--output",
+        str(tmp_path / "bundle.json"),
+    ]
+    assert main(args) == 2
+    assert "VERIFIER_KEY_REQUIRED" in capsys.readouterr().out
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("case", ["missing", "short", "same", "sibling", "nested"])
+def test_untrusted_key_rejected(tmp_path, monkeypatch, case):
+    monkeypatch.setattr(collector, "_trusted_key_permissions", lambda path: None)
+    output = tmp_path / "output" / "bundle.json"
+    key = tmp_path / "trusted" / "key"
+    if case == "same":
+        key = output
+    elif case == "sibling":
+        key = output.with_suffix(".key")
+    elif case == "nested":
+        key = output.parent / "subdir" / "key"
+    key.parent.mkdir(parents=True, exist_ok=True)
+    if case != "missing":
+        key.write_bytes(b"short" if case == "short" else KEY)
+    with pytest.raises(evidence.ReadFailure):
+        collector._load_verifier_key(key, output)
+
+
+def test_key_readonly_and_not_exported(tmp_path, monkeypatch, capsys):
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+    key_path = trusted / "key"
+    key_path.write_bytes(KEY)
+    before = key_path.stat()
+    output = tmp_path / "output" / "bundle.json"
+    monkeypatch.setattr(collector, "_trusted_key_permissions", lambda path: None)
+    monkeypatch.setenv("TENCENTCLOUD_SECRET_ID", "fixture-id")
+    monkeypatch.setenv("TENCENTCLOUD_SECRET_KEY", "fixture-secret")
+    monkeypatch.setattr(
+        collector.TencentCloudReadAdapter, "authenticated", lambda *args: object()
+    )
+
+    def collect(_cloud, issuer, revision, task, commit):
+        # Synthetic smoke response, never contacts Tencent.
+        started = issuer.clock()
+        record = issuer._issue(
+            "ServiceEvidence",
+            "tencent:DescribeCloudRunServerDetail",
+            cloud.SCOPE,
+            {},
+            {"status": "normal"},
+            started,
+        )
+        return issuer.bundle(cloud.SCOPE, revision, [record], started)
+
+    monkeypatch.setattr(collector, "collect_cloud_runtime", collect)
+    args = [
+        "--collect-readonly-evidence",
+        "--baseline-revision",
+        REV,
+        "--runtime-commit",
+        COMMIT,
+        "--manage-task-id",
+        "456",
+        "--verifier-key-file",
+        str(key_path),
+        "--output",
+        str(output),
+    ]
+    assert main(args) == 0
+    assert key_path.read_bytes() == KEY
+    assert key_path.stat().st_mtime_ns == before.st_mtime_ns
+    assert (
+        KEY.decode() not in output.read_text(encoding="utf-8") + capsys.readouterr().out
+    )
+    assert list(output.parent.iterdir()) == [output]
+    original = output.read_bytes()
+    assert main(args) == 2
+    assert "BUNDLE_ALREADY_EXISTS" in capsys.readouterr().out
+    assert output.read_bytes() == original and key_path.read_bytes() == KEY
+
+
+@pytest.mark.parametrize("case", ["broad", "inherited", "owner", "unavailable"])
+def test_windows_acl_fail_closed(tmp_path, monkeypatch, case):
+    class Result:
+        stdout = ""
+
+    def run(*args, **kwargs):
+        if case == "unavailable":
+            raise OSError("ACL inspection unavailable")
+        record = {
+            "owner": "trusted",
+            "protected": case != "inherited",
+            "rules": [
+                {"sid": "Everyone" if case == "broad" else "trusted", "allow": True}
+            ],
+        }
+        if case == "owner":
+            record["owner"] = "other"
+        result = Result()
+        result.stdout = json.dumps({"identity": "trusted", "records": [record, record]})
+        return result
+
+    monkeypatch.setattr(collector.subprocess, "run", run)
+    with pytest.raises((evidence.ReadFailure, OSError)):
+        collector._windows_trusted_acl(tmp_path / "key")
+
+
+def test_windows_acl_accepts_preconfigured_trusted_directory(tmp_path, monkeypatch):
+    class Result:
+        stdout = json.dumps(
+            {
+                "identity": "trusted",
+                "records": [
+                    {
+                        "owner": "trusted",
+                        "protected": False,
+                        "rules": [{"sid": "trusted", "allow": True}],
+                    },
+                    {
+                        "owner": "trusted",
+                        "protected": True,
+                        "rules": [
+                            {"sid": "trusted", "allow": True},
+                            {"sid": "S-1-5-18", "allow": True},
+                        ],
+                    },
+                ],
+            }
+        )
+
+    monkeypatch.setattr(collector.subprocess, "run", lambda *args, **kwargs: Result())
+    collector._windows_trusted_acl(tmp_path / "key")
 
 
 def test_db_state_changes_reject_entire_snapshot(issuer, db_rows):
