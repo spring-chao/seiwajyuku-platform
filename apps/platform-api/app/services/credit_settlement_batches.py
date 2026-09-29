@@ -97,10 +97,18 @@ def _assert_current_preview(
     connection: Any, row: Any, *, posted_keys: set[str] | None = None
 ) -> None:
     source_snapshot = json.loads(row["source_snapshot_json"])
-    preview = credits._build_study_meeting_preview(
-        connection, int(source_snapshot["session_id"])
-    )
-    live_source, live_rules = _preview_snapshots(preview)
+    if row["source_type"] == "STUDY_MEETING":
+        preview = credits._build_study_meeting_preview(
+            connection, int(source_snapshot["session_id"])
+        )
+        live_source, live_rules = _preview_snapshots(preview)
+    elif row["source_type"] == "CLASS_MEETING":
+        preview = class_credits._build_preview(
+            connection, int(source_snapshot["event_group_id"])
+        )
+        live_source, live_rules = _class_preview_snapshots(preview)
+    else:
+        raise credits.LearningCreditError("不支持的结算批次来源")
     posted_keys = posted_keys or set()
     active = [item for item in preview["entries"] if item.get("idempotency_key") not in posted_keys]
     if (
@@ -391,7 +399,7 @@ def dry_run_class_meeting_batch(*, actor_user_id: int, event_group_id: int) -> d
         return _batch_summary(connection, batch_id, idempotent=False)
 
 
-def submit_study_meeting_batch_for_approval(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+def _submit_batch_for_approval(*, actor_user_id: int, batch_id: int, source_type: str) -> dict[str, Any]:
     """Freeze an unblocked DRY-RUN for independent approval; no ledger POST."""
 
     if not credits.get_settings().learning_credit_batch_dry_run_enabled:
@@ -406,7 +414,7 @@ def submit_study_meeting_batch_for_approval(*, actor_user_id: int, batch_id: int
             "SELECT * FROM learning_credit_settlement_batches WHERE id=?",
             (batch_id,),
         ).fetchone()
-        if not row or row["source_type"] != "STUDY_MEETING" or row["batch_type"] != "REGULAR":
+        if not row or row["source_type"] != source_type or row["batch_type"] != "REGULAR":
             raise credits.LearningCreditError("结算批次不存在或来源不匹配")
         if not credits._scope_allows(actor_user_id, row["class_org_unit_id"]):
             raise PermissionError("结算批次不在当前组织授权范围内")
@@ -433,13 +441,21 @@ def submit_study_meeting_batch_for_approval(*, actor_user_id: int, batch_id: int
             connection, actor_user_id=actor_user_id,
             action="learning_credit.batch.submit_approval", resource_type="learning_credit_settlement_batch",
             resource_id=str(batch_id), org_unit_id=row["class_org_unit_id"],
-            purpose="提交冻结的学习会学分提案审批，不入账",
+            purpose="提交冻结的学分提案审批，不入账",
             after={"status": "PENDING_APPROVAL", "source_fingerprint": row["source_fingerprint"]},
         )
         return _batch_summary(connection, batch_id, idempotent=False)
 
 
-def approve_study_meeting_batch(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+def submit_study_meeting_batch_for_approval(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+    return _submit_batch_for_approval(actor_user_id=actor_user_id, batch_id=batch_id, source_type="STUDY_MEETING")
+
+
+def submit_class_meeting_batch_for_approval(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+    return _submit_batch_for_approval(actor_user_id=actor_user_id, batch_id=batch_id, source_type="CLASS_MEETING")
+
+
+def _approve_batch(*, actor_user_id: int, batch_id: int, source_type: str) -> dict[str, Any]:
     """Approve an unchanged, unblocked batch; no ledger POST is possible here."""
 
     if not credits.get_settings().learning_credit_batch_approval_enabled:
@@ -454,7 +470,7 @@ def approve_study_meeting_batch(*, actor_user_id: int, batch_id: int) -> dict[st
             "SELECT * FROM learning_credit_settlement_batches WHERE id=?",
             (batch_id,),
         ).fetchone()
-        if not row or row["source_type"] != "STUDY_MEETING" or row["batch_type"] != "REGULAR":
+        if not row or row["source_type"] != source_type or row["batch_type"] != "REGULAR":
             raise credits.LearningCreditError("结算批次不存在或来源不匹配")
         if not credits._scope_allows(actor_user_id, row["class_org_unit_id"]):
             raise PermissionError("结算批次不在当前组织授权范围内")
@@ -491,10 +507,18 @@ def approve_study_meeting_batch(*, actor_user_id: int, batch_id: int) -> dict[st
             connection, actor_user_id=actor_user_id,
             action="learning_credit.batch.approve", resource_type="learning_credit_settlement_batch",
             resource_id=str(batch_id), org_unit_id=row["class_org_unit_id"],
-            purpose="审批冻结的学习会学分提案，不入账",
+            purpose="审批冻结的学分提案，不入账",
             after={"approval_fingerprint": approval_fp, "proposed_entry_count": len(items)},
         )
         return _batch_summary(connection, batch_id, idempotent=False)
+
+
+def approve_study_meeting_batch(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+    return _approve_batch(actor_user_id=actor_user_id, batch_id=batch_id, source_type="STUDY_MEETING")
+
+
+def approve_class_meeting_batch(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+    return _approve_batch(actor_user_id=actor_user_id, batch_id=batch_id, source_type="CLASS_MEETING")
 
 
 def _reconcile_posted_items(connection: Any, row: Any) -> tuple[int, Decimal]:
@@ -541,8 +565,8 @@ def _reconcile_posted_items(connection: Any, row: Any) -> tuple[int, Decimal]:
     return count, points
 
 
-def post_study_meeting_batch(
-    *, actor_user_id: int, batch_id: int, resume_partial_failure: bool = False
+def _post_batch(
+    *, actor_user_id: int, batch_id: int, source_type: str, resume_partial_failure: bool = False
 ) -> dict[str, Any]:
     """POST frozen items once, with per-item transactions and reconciliation.
 
@@ -563,7 +587,7 @@ def post_study_meeting_batch(
             connection, "SELECT * FROM learning_credit_settlement_batches WHERE id=?",
             (batch_id,),
         ).fetchone()
-        if not row or row["source_type"] != "STUDY_MEETING" or row["batch_type"] != "REGULAR":
+        if not row or row["source_type"] != source_type or row["batch_type"] != "REGULAR":
             raise credits.LearningCreditError("结算批次不存在或来源不匹配")
         if not credits._scope_allows(actor_user_id, row["class_org_unit_id"]):
             raise PermissionError("结算批次不在当前组织授权范围内")
@@ -695,3 +719,21 @@ def post_study_meeting_batch(
             after={"status": final_status, "posted_entry_count": count, "posted_points": str(points)},
         )
         return _batch_summary(connection, batch_id, idempotent=False)
+
+
+def post_study_meeting_batch(
+    *, actor_user_id: int, batch_id: int, resume_partial_failure: bool = False
+) -> dict[str, Any]:
+    return _post_batch(
+        actor_user_id=actor_user_id, batch_id=batch_id,
+        source_type="STUDY_MEETING", resume_partial_failure=resume_partial_failure,
+    )
+
+
+def post_class_meeting_batch(
+    *, actor_user_id: int, batch_id: int, resume_partial_failure: bool = False
+) -> dict[str, Any]:
+    return _post_batch(
+        actor_user_id=actor_user_id, batch_id=batch_id,
+        source_type="CLASS_MEETING", resume_partial_failure=resume_partial_failure,
+    )

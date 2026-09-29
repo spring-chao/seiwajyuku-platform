@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -15,7 +16,12 @@ from app.services.class_meeting_credits import (
     dry_run_class_meeting_settlement,
     dry_run_class_meetings,
 )
-from app.services.credit_settlement_batches import dry_run_class_meeting_batch
+from app.services.credit_settlement_batches import (
+    approve_class_meeting_batch,
+    dry_run_class_meeting_batch,
+    post_class_meeting_batch,
+    submit_class_meeting_batch_for_approval,
+)
 from test_v12_mvp import _seed_group_leader_fixture
 
 
@@ -279,6 +285,40 @@ def test_class_meeting_batch_freezes_score_facts_without_ledger_post(
         (batch["id"],),
     )["n"] == 2
     assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before
+
+
+def test_class_meeting_batch_approves_posts_and_replays_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _seed_group_leader_fixture()
+    group_id = _create_class_meeting(fixture)
+    actor = _admin_id()
+    before = int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"])
+    monkeypatch.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+    monkeypatch.setenv("LEARNING_CREDIT_BATCH_APPROVAL_ENABLED", "true")
+    batch = dry_run_class_meeting_batch(actor_user_id=actor, event_group_id=group_id)
+    submitted = submit_class_meeting_batch_for_approval(actor_user_id=actor, batch_id=batch["id"])
+    assert submitted["status"] == "PENDING_APPROVAL"
+    with patch(
+        "app.services.learning_credits.user_context",
+        return_value={"permissions": ["plans:credit_settlement_approve"]},
+    ):
+        approved = approve_class_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+    assert approved["status"] == "APPROVED"
+    assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before
+    monkeypatch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+    monkeypatch.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
+    with patch(
+        "app.services.learning_credits.user_context",
+        return_value={"permissions": ["plans:credit_settlement_manage", "plans:credit_settlement_post"]},
+    ):
+        posted = post_class_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+        repeated = post_class_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+    assert posted["status"] == "POSTED"
+    assert posted["posted_entry_count"] == 2
+    assert posted["posted_points"] == "35.00"
+    assert repeated["idempotent"] is True
+    assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before + 2
 
 
 def test_class_meeting_projection_is_idempotent_and_skips_existing_ledger_entry() -> None:
