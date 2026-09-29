@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import os
+from unittest.mock import patch
 
 import pytest
 
 from app.db import fetch_one
 from app.services.credit_settlement_batches import (
+    approve_daily_reading_batch,
+    approve_excellent_share_batch,
     dry_run_daily_reading_batch,
     dry_run_excellent_share_batch,
+    post_daily_reading_batch,
+    post_excellent_share_batch,
+    submit_daily_reading_batch_for_approval,
+    submit_excellent_share_batch_for_approval,
 )
 from app.services.learning_activity_credits import DAILY_READING, EXCELLENT_SHARE
 from test_learning_activity_credits import _admin_id, _calendar, _fact, _fixture
@@ -23,6 +30,7 @@ pytestmark = pytest.mark.skipif(
 
 def test_activity_batches_mysql_freeze_without_ledger_write(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+    monkeypatch.setenv("LEARNING_CREDIT_BATCH_APPROVAL_ENABLED", "true")
     monkeypatch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "false")
     fixture = _fixture()
     _calendar(fixture, year=2029, day_types={"2029-05-01": "NORMAL_WORKDAY"})
@@ -44,3 +52,25 @@ def test_activity_batches_mysql_freeze_without_ledger_write(monkeypatch: pytest.
     assert shares["proposed_entry_count"] == 5
     assert repeated["idempotent"] is True
     assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before
+    submit_daily_reading_batch_for_approval(actor_user_id=_admin_id(), batch_id=daily["id"])
+    submit_excellent_share_batch_for_approval(actor_user_id=_admin_id(), batch_id=shares["id"])
+    with patch(
+        "app.services.learning_credits.user_context",
+        return_value={"permissions": ["plans:credit_settlement_approve"]},
+    ):
+        approve_daily_reading_batch(actor_user_id=_admin_id(), batch_id=daily["id"])
+        approve_excellent_share_batch(actor_user_id=_admin_id(), batch_id=shares["id"])
+    monkeypatch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+    monkeypatch.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
+    with patch(
+        "app.services.learning_credits.user_context",
+        return_value={"permissions": ["plans:credit_settlement_manage", "plans:credit_settlement_post"]},
+    ):
+        daily_posted = post_daily_reading_batch(actor_user_id=_admin_id(), batch_id=daily["id"])
+        shares_posted = post_excellent_share_batch(actor_user_id=_admin_id(), batch_id=shares["id"])
+        replay = post_excellent_share_batch(actor_user_id=_admin_id(), batch_id=shares["id"])
+    assert daily_posted["status"] == shares_posted["status"] == "POSTED"
+    assert daily_posted["posted_entry_count"] == 1
+    assert shares_posted["posted_entry_count"] == 5
+    assert replay["idempotent"] is True
+    assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before + 6

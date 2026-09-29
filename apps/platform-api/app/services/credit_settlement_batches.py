@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -95,7 +96,7 @@ def _batch_summary(connection: Any, batch_id: int, *, idempotent: bool) -> dict[
 
 
 def _assert_current_preview(
-    connection: Any, row: Any, *, posted_keys: set[str] | None = None
+    connection: Any, row: Any, *, actor_user_id: int, posted_keys: set[str] | None = None
 ) -> None:
     source_snapshot = json.loads(row["source_snapshot_json"])
     if row["source_type"] == "STUDY_MEETING":
@@ -108,18 +109,36 @@ def _assert_current_preview(
             connection, int(source_snapshot["event_group_id"])
         )
         live_source, live_rules = _class_preview_snapshots(preview)
+    elif row["source_type"] in {activity_credits.DAILY_READING, activity_credits.EXCELLENT_SHARE}:
+        preview, live_source, live_rules = _activity_preview(
+            connection, actor_user_id=actor_user_id, activity_type=row["source_type"],
+            class_org_unit_id=source_snapshot["class_org_unit_id"],
+            occurred_from=source_snapshot["occurred_from"],
+            occurred_to=source_snapshot["occurred_to"],
+        )
     else:
         raise credits.LearningCreditError("不支持的结算批次来源")
     posted_keys = posted_keys or set()
     active = [item for item in preview["entries"] if item.get("idempotency_key") not in posted_keys]
+    posted_rows = execute(
+        connection,
+        "SELECT idempotency_key,points FROM learning_credit_settlement_batch_items "
+        "WHERE batch_id=? AND status='POSTED'",
+        (row["id"],),
+    ).fetchall()
+    posted_points = {
+        item["idempotency_key"]: _points(item["points"]) for item in posted_rows
+    }
     if (
         _fingerprint(live_source) != row["source_fingerprint"]
         or _fingerprint(live_rules) != row["rule_fingerprint"]
         or preview["totals"]["blocked_entry_count"] != 0
         or any(i["status"] == "SKIPPED_DUPLICATE" for i in active)
         or any(i["status"] != "SKIPPED_DUPLICATE" for i in preview["entries"] if i.get("idempotency_key") in posted_keys)
+        or set(posted_points) != posted_keys
         or sum(i["postable"] for i in active) + len(posted_keys) != int(row["proposed_entry_count"])
-        or sum((_points(i["points"]) for i in preview["entries"] if i["postable"] or i.get("idempotency_key") in posted_keys), Decimal("0")) != Decimal(str(row["proposed_points"]))
+        or sum((_points(i["points"]) for i in active if i["postable"]), Decimal("0"))
+        + sum(posted_points.values(), Decimal("0")) != Decimal(str(row["proposed_points"]))
     ):
         raise credits.LearningCreditError("结算事实或规则已变化，必须重新DRY-RUN")
 
@@ -337,25 +356,12 @@ def _activity_preview(
         }
         for fact in facts
     ]
-    proposal_snapshot = [
-        {
-            "member_id": int(item["member_id"]),
-            "idempotency_key": item["idempotency_key"],
-            "fact_ids": item["fact_ids"],
-            "status": "READY" if item["status"] == "SKIPPED_DUPLICATE" else item["status"],
-            "points": item["points"],
-            "reasons": item["reasons"],
-        }
-        for item in entries
-    ]
-    proposal_snapshot.sort(key=lambda item: item["idempotency_key"])
     source_snapshot = {
         "activity_type": activity_type,
         "class_org_unit_id": class_org_unit_id,
         "occurred_from": start,
         "occurred_to": end,
         "facts": facts_snapshot,
-        "proposals": proposal_snapshot,
     }
     rules = [
         {"idempotency_key": item["idempotency_key"], "rule_snapshot": item["rule_snapshot"]}
@@ -438,6 +444,9 @@ def _dry_run_activity_batch(
         for item in postable + blocked:
             item_status = "PROPOSED" if item["status"] == "READY" else "BLOCKED"
             occurred = date.fromisoformat(str(item["occurred_on"])[:10])
+            # Activity facts have civil-date precision, not an observed instant.
+            # Keep that business date in the ledger; the preview's UTC
+            # midnight conversion can fall on the preceding calendar day.
             source_item = {
                 "fact_ids": item["fact_ids"],
                 "activity_type": activity_type,
@@ -627,7 +636,7 @@ def _submit_batch_for_approval(*, actor_user_id: int, batch_id: int, source_type
             raise credits.LearningCreditError("只有DRY_RUN批次可以提交审批")
         if int(row["blocked_count"]) or not int(row["proposed_entry_count"]):
             raise credits.LearningCreditError("存在阻塞项或没有待入账提案，不能提交审批")
-        _assert_current_preview(connection, row)
+        _assert_current_preview(connection, row, actor_user_id=actor_user_id)
         _approved_items(connection, row)
         before = int(execute(connection, "SELECT COUNT(*) AS n FROM learning_credit_entries").fetchone()["n"])
         now = credits._db_timestamp(connection)
@@ -660,6 +669,18 @@ def submit_class_meeting_batch_for_approval(*, actor_user_id: int, batch_id: int
     return _submit_batch_for_approval(actor_user_id=actor_user_id, batch_id=batch_id, source_type="CLASS_MEETING")
 
 
+def submit_daily_reading_batch_for_approval(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+    return _submit_batch_for_approval(
+        actor_user_id=actor_user_id, batch_id=batch_id, source_type=activity_credits.DAILY_READING,
+    )
+
+
+def submit_excellent_share_batch_for_approval(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+    return _submit_batch_for_approval(
+        actor_user_id=actor_user_id, batch_id=batch_id, source_type=activity_credits.EXCELLENT_SHARE,
+    )
+
+
 def _approve_batch(*, actor_user_id: int, batch_id: int, source_type: str) -> dict[str, Any]:
     """Approve an unchanged, unblocked batch; no ledger POST is possible here."""
 
@@ -683,7 +704,7 @@ def _approve_batch(*, actor_user_id: int, batch_id: int, source_type: str) -> di
             raise credits.LearningCreditError("只有待审批批次可以批准")
         if int(row["blocked_count"]) or not int(row["proposed_entry_count"]):
             raise credits.LearningCreditError("存在阻塞项或没有待入账提案，不能审批")
-        _assert_current_preview(connection, row)
+        _assert_current_preview(connection, row, actor_user_id=actor_user_id)
         items = _approved_items(connection, row)
         before = int(execute(connection, "SELECT COUNT(*) AS n FROM learning_credit_entries").fetchone()["n"])
         approval_fp = _approval_fingerprint(row, items)
@@ -724,6 +745,18 @@ def approve_study_meeting_batch(*, actor_user_id: int, batch_id: int) -> dict[st
 
 def approve_class_meeting_batch(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
     return _approve_batch(actor_user_id=actor_user_id, batch_id=batch_id, source_type="CLASS_MEETING")
+
+
+def approve_daily_reading_batch(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+    return _approve_batch(
+        actor_user_id=actor_user_id, batch_id=batch_id, source_type=activity_credits.DAILY_READING,
+    )
+
+
+def approve_excellent_share_batch(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+    return _approve_batch(
+        actor_user_id=actor_user_id, batch_id=batch_id, source_type=activity_credits.EXCELLENT_SHARE,
+    )
 
 
 def _reconcile_posted_items(connection: Any, row: Any) -> tuple[int, Decimal]:
@@ -816,7 +849,7 @@ def _post_batch(
         if _approval_fingerprint(row, items) != row["approval_fingerprint"]:
             raise credits.LearningCreditError("批次审批指纹不匹配")
         posted_keys = {item["idempotency_key"] for item in items if item["status"] == "POSTED"}
-        _assert_current_preview(connection, row, posted_keys=posted_keys)
+        _assert_current_preview(connection, row, actor_user_id=actor_user_id, posted_keys=posted_keys)
         _reconcile_posted_items(connection, row)
         prior_status = row["status"]
         changed = execute(
@@ -832,6 +865,19 @@ def _post_batch(
     for item_id in pending_ids:
         try:
             with atomic_transaction() as connection:
+                # A locking read must be the first MySQL read in this transaction.
+                # Serializing by member lets the monthly-cap preview see a
+                # concurrent batch's committed ledger rows before posting.
+                lock_clause = " FOR UPDATE" if not isinstance(connection, sqlite3.Connection) else ""
+                locked_item = execute(
+                    connection,
+                    "SELECT i.member_id FROM learning_credit_settlement_batch_items i "
+                    "JOIN members m ON m.id=i.member_id WHERE i.id=? AND i.batch_id=?"
+                    + lock_clause,
+                    (item_id, batch_id),
+                ).fetchone()
+                if not locked_item:
+                    raise credits.LearningCreditError("待入账条目或学员不存在")
                 active_batch = execute(
                     connection,
                     "SELECT * FROM learning_credit_settlement_batches WHERE id=?",
@@ -847,6 +893,7 @@ def _post_batch(
                 ).fetchall()
                 _assert_current_preview(
                     connection, active_batch,
+                    actor_user_id=actor_user_id,
                     posted_keys={entry["idempotency_key"] for entry in posted_rows},
                 )
                 item = execute(
@@ -941,4 +988,24 @@ def post_class_meeting_batch(
     return _post_batch(
         actor_user_id=actor_user_id, batch_id=batch_id,
         source_type="CLASS_MEETING", resume_partial_failure=resume_partial_failure,
+    )
+
+
+def post_daily_reading_batch(
+    *, actor_user_id: int, batch_id: int, resume_partial_failure: bool = False
+) -> dict[str, Any]:
+    return _post_batch(
+        actor_user_id=actor_user_id, batch_id=batch_id,
+        source_type=activity_credits.DAILY_READING,
+        resume_partial_failure=resume_partial_failure,
+    )
+
+
+def post_excellent_share_batch(
+    *, actor_user_id: int, batch_id: int, resume_partial_failure: bool = False
+) -> dict[str, Any]:
+    return _post_batch(
+        actor_user_id=actor_user_id, batch_id=batch_id,
+        source_type=activity_credits.EXCELLENT_SHARE,
+        resume_partial_failure=resume_partial_failure,
     )
