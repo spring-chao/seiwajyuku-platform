@@ -67,6 +67,7 @@ class Settings:
     learning_credit_batch_dry_run_enabled: bool = False
     learning_credit_batch_approval_enabled: bool = False
     learning_credit_batch_post_enabled: bool = False
+    learning_credit_historical_post_enabled: bool = False
     g5_4_production_rule_apply_enabled: bool = False
     agent_client_id: str = ""
     agent_client_secret: str = ""
@@ -244,6 +245,9 @@ def get_settings() -> Settings:
         ),
         learning_credit_batch_post_enabled=_bool(
             "LEARNING_CREDIT_BATCH_POST_ENABLED"
+        ),
+        learning_credit_historical_post_enabled=_bool(
+            "LEARNING_CREDIT_HISTORICAL_POST_ENABLED"
         ),
         g5_4_production_rule_apply_enabled=_bool(
             "G5_4_PRODUCTION_RULE_APPLY_ENABLED"

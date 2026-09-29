@@ -88,3 +88,9 @@ CREATE TABLE IF NOT EXISTS learning_credit_settlement_batch_items (
     INDEX idx_credit_settlement_item_status (batch_id, status, id),
     INDEX idx_credit_settlement_item_source (source_type, source_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Catalog only: reviewers and posters are not granted to any role here.
+INSERT IGNORE INTO permissions(permission_key, permission_name, sensitive_level, created_at)
+VALUES ('plans:credit_settlement_approve', '审批学分结算批次', 'SENSITIVE', UTC_TIMESTAMP());
+INSERT IGNORE INTO permissions(permission_key, permission_name, sensitive_level, created_at)
+VALUES ('plans:credit_settlement_post', '按已审批批次正式入账学分', 'SENSITIVE', UTC_TIMESTAMP());

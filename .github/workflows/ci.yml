@@ -172,6 +172,7 @@ jobs:
           apps/platform-api/tests/test_credit_settlement_batch_mysql.py
           apps/platform-api/tests/test_class_meeting_batch_mysql.py
           apps/platform-api/tests/test_credit_activity_batch_mysql.py
+          apps/platform-api/tests/test_historical_credit_batch_mysql.py
           -q --junitxml=b21-mysql.xml
       - name: Verify 0042 guarded rollback on disposable test data
         run: |
@@ -317,6 +318,9 @@ jobs:
           set -euo pipefail
           container="${{ job.services.mysql.id }}"
           db="seiwajyuku_staging"
+          # The migration runner already applied 0067; replay the script once
+          # to verify the DDL/catalog registration is idempotent on MySQL.
+          docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/mysql/0067_learning_credit_settlement_batches.sql
           table_count="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('learning_credit_settlement_batches','learning_credit_settlement_batch_items');")"
           test "$table_count" = "2"
           ledger_before="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT COUNT(*) FROM learning_credit_entries;")"
@@ -326,6 +330,12 @@ jobs:
             exit 1
           fi
           docker exec "$container" mysql -uroot -pci-root-password "$db" -e "DELETE FROM learning_credit_settlement_batches WHERE batch_no='CI-0067-GUARD';"
+          docker exec "$container" mysql -uroot -pci-root-password "$db" -e "INSERT INTO role_permissions(role_key,permission_key) VALUES ('read_only','plans:credit_settlement_post');"
+          if docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/rollback/mysql/0067_learning_credit_settlement_batches.down.sql; then
+            echo "ERROR: 0067 rollback must refuse a granted approval/post permission"
+            exit 1
+          fi
+          docker exec "$container" mysql -uroot -pci-root-password "$db" -e "DELETE FROM role_permissions WHERE role_key='read_only' AND permission_key='plans:credit_settlement_post';"
           docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/rollback/mysql/0067_learning_credit_settlement_batches.down.sql
           dropped="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('learning_credit_settlement_batches','learning_credit_settlement_batch_items');")"
           test "$dropped" = "0"

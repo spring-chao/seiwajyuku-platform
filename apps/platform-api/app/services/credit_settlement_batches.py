@@ -14,6 +14,12 @@ from app.services.audit import write_audit
 from app.services import learning_credits as credits
 from app.services import class_meeting_credits as class_credits
 from app.services import learning_activity_credits as activity_credits
+from app.services import historical_credit_import as historical_credits
+
+
+HISTORICAL_BATCH_TYPE = "HISTORICAL_IMPORT"
+HISTORICAL_SOURCE_TYPE = historical_credits.HISTORICAL_SOURCE_RULE_VERSION
+_CONFIRMED_CLASS_MAPPING_STATUSES = {"EXACT", "AUTO_RESOLVED", "CONFIRMED_ALIAS"}
 
 
 def _canonical(value: Any) -> str:
@@ -95,11 +101,246 @@ def _batch_summary(connection: Any, batch_id: int, *, idempotent: bool) -> dict[
     }
 
 
+def _historical_source_groups(
+    connection: Any,
+    *,
+    actor_user_id: int,
+    import_batch_id: int,
+    allow_existing_ledger_keys: set[str] | None = None,
+) -> tuple[dict[tuple[str, str, int, int | None], dict[str, Any]], dict[str, int], dict[str, Any]]:
+    """Build immutable legacy proposals partitioned by confirmed class and period."""
+
+    dry_run = historical_credits.dry_run_historical_credit_import(
+        import_batch_id, allow_existing_ledger_keys=allow_existing_ledger_keys,
+    )
+    source_batch = dry_run["batch"]
+    if (
+        source_batch.get("import_type") != historical_credits.HISTORICAL_IMPORT_TYPE
+        or source_batch.get("source_rule_version") != HISTORICAL_SOURCE_TYPE
+    ):
+        raise credits.LearningCreditError("历史来源类型或固定来源规则版本不匹配")
+
+    mappings = execute(
+        connection,
+        "SELECT id,source_sheet,raw_class_name,confirmed_org_unit_id,mapping_status "
+        "FROM learning_credit_import_class_mappings WHERE batch_id=?",
+        (import_batch_id,),
+    ).fetchall()
+    mapping_by_key: dict[tuple[str, str | None], Any] = {}
+    ambiguous_mapping_keys: set[tuple[str, str | None]] = set()
+    for mapping in mappings:
+        key = (str(mapping["source_sheet"]), mapping["raw_class_name"])
+        if key in mapping_by_key:
+            ambiguous_mapping_keys.add(key)
+        mapping_by_key[key] = mapping
+
+    groups: dict[tuple[str, str, int, int | None], dict[str, Any]] = {}
+    extra_blockers: dict[str, int] = {}
+    org_units: dict[str, Any | None] = {}
+    members: dict[int, Any | None] = {}
+    ready_ids = {int(item["id"]) for item in dry_run["details"]}
+    source_items = [*dry_run["details"], *dry_run["blocked_details"]]
+
+    def block(reason: str) -> None:
+        extra_blockers[reason] = extra_blockers.get(reason, 0) + 1
+
+    for item in source_items:
+        mapping_key = (str(item["source_sheet"]), item.get("raw_class_name"))
+        mapping = mapping_by_key.get(mapping_key)
+        if mapping_key in ambiguous_mapping_keys or not mapping:
+            block("CLASS_MAPPING_REQUIRED")
+            continue
+        class_id = mapping["confirmed_org_unit_id"]
+        if (
+            mapping["mapping_status"] not in _CONFIRMED_CLASS_MAPPING_STATUSES
+            or not class_id
+        ):
+            block("CLASS_MAPPING_REQUIRED")
+            continue
+        class_id = str(class_id)
+        if class_id not in org_units:
+            org_units[class_id] = execute(
+                connection,
+                "SELECT id,unit_type FROM org_units WHERE id=?",
+                (class_id,),
+            ).fetchone()
+        unit = org_units[class_id]
+        if not unit or unit["unit_type"] not in {"CLASS", "SPECIAL_COHORT"}:
+            block("CLASS_MAPPING_TARGET_INVALID")
+            continue
+        if not credits._scope_allows(actor_user_id, class_id):
+            block("OUT_OF_SCOPE")
+            continue
+
+        precision = str(item.get("occurred_precision") or "")
+        year = int(item["occurred_year"]) if item.get("occurred_year") is not None else None
+        month = int(item["occurred_month"]) if item.get("occurred_month") is not None else None
+        if precision not in {"MONTH", "YEAR"} or year is None or (
+            (precision == "MONTH" and month is None)
+            or (precision == "YEAR" and month is not None)
+        ):
+            block("PERIOD_PRECISION_INVALID")
+            continue
+
+        member_id = int(item["matched_member_id"]) if item.get("matched_member_id") is not None else None
+        extra_reason = None
+        if member_id is not None:
+            if member_id not in members:
+                members[member_id] = execute(
+                    connection, "SELECT id,status FROM members WHERE id=?", (member_id,)
+                ).fetchone()
+            if not members[member_id] or str(members[member_id]["status"]).upper() != "ACTIVE":
+                extra_reason = "MEMBER_NOT_ACTIVE"
+
+        idempotency_key = historical_credits.historical_credit_idempotency_key(
+            file_sha256=str(source_batch["file_sha256"]),
+            source_sheet=str(item["source_sheet"]),
+            source_row_number=int(item["source_row_number"]),
+            source_column_index=int(item["source_column_index"]),
+        )
+        ready = int(item["id"]) in ready_ids and extra_reason is None
+        reason = extra_reason or item.get("blocked_reason")
+        source_snapshot = {
+            "import_batch_id": int(import_batch_id),
+            "source_item_id": int(item["id"]),
+            "source_row_id": int(item["source_row_id"]),
+            "source_file_sha256": str(source_batch["file_sha256"]),
+            "source_rule_version": HISTORICAL_SOURCE_TYPE,
+            "source_sheet": str(item["source_sheet"]),
+            "source_row_number": int(item["source_row_number"]),
+            "source_column_index": int(item["source_column_index"]),
+            "source_column_name": str(item["source_column_name"]),
+            "raw_class_name": item.get("raw_class_name"),
+            "class_mapping_id": int(mapping["id"]),
+            "class_mapping_status": str(mapping["mapping_status"]),
+            "class_org_unit_id": class_id,
+            "member_id": member_id,
+            "legacy_credit_type": str(item["legacy_credit_type"]),
+            "original_points": format(_points(item["points"]), ".2f"),
+            "occurred_precision": precision,
+            "occurred_year": year,
+            "occurred_month": month,
+        }
+        rule_snapshot = {
+            "source_rule_version": HISTORICAL_SOURCE_TYPE,
+            "legacy_credit_type": str(item["legacy_credit_type"]),
+            "original_points": format(_points(item["points"]), ".2f"),
+            "calculation": "PRESERVE_SOURCE_VALUE_NO_RECALCULATION",
+            "source_file_sha256": str(source_batch["file_sha256"]),
+        }
+        group_key = (class_id, precision, year, month)
+        group = groups.setdefault(
+            group_key,
+            {"class_org_unit_id": class_id, "period_precision": precision,
+             "period_year": year, "period_month": month, "items": []},
+        )
+        group["items"].append(
+            {
+                **source_snapshot,
+                "source_id": f"{HISTORICAL_SOURCE_TYPE}:{idempotency_key.removeprefix('LC-HIST:')}",
+                "idempotency_key": idempotency_key,
+                "member_id": member_id,
+                "credit_category": str(item["credit_category"]),
+                "credit_type": str(item["legacy_credit_type"]),
+                "rule_key": HISTORICAL_SOURCE_TYPE,
+                "rule_version": HISTORICAL_SOURCE_TYPE,
+                "rule_version_id": None,
+                "points": _points(item["points"]),
+                "rule_snapshot": rule_snapshot,
+                "status": "READY" if ready else "BLOCKED",
+                "blocked_reason": None if ready else (reason or "HISTORICAL_REVIEW_REQUIRED"),
+            }
+        )
+
+    for group in groups.values():
+        group["items"].sort(key=lambda item: item["idempotency_key"])
+        facts = [
+            {
+                "source_item_id": item["source_item_id"],
+                "source_id": item["source_id"],
+                "idempotency_key": item["idempotency_key"],
+                "member_id": item["member_id"],
+                "class_mapping_id": item["class_mapping_id"],
+                "class_mapping_status": item["class_mapping_status"],
+                "credit_category": item["credit_category"],
+                "credit_type": item["credit_type"],
+                "original_points": item["original_points"],
+                "status": item["status"],
+                "blocked_reason": item["blocked_reason"],
+                "source_sheet": item["source_sheet"],
+                "source_row_number": item["source_row_number"],
+                "source_column_index": item["source_column_index"],
+            }
+            for item in group["items"]
+        ]
+        rules = [
+            {"idempotency_key": item["idempotency_key"], "rule_snapshot": item["rule_snapshot"]}
+            for item in group["items"]
+        ]
+        group["source_snapshot"] = {
+            "import_batch_id": int(import_batch_id),
+            "source_file_sha256": str(source_batch["file_sha256"]),
+            "source_rule_version": HISTORICAL_SOURCE_TYPE,
+            "class_org_unit_id": group["class_org_unit_id"],
+            "period_precision": group["period_precision"],
+            "period_year": group["period_year"],
+            "period_month": group["period_month"],
+            "facts": facts,
+        }
+        group["rule_snapshot"] = {"rules": rules}
+        group["source_fingerprint"] = _fingerprint(group["source_snapshot"])
+        group["rule_fingerprint"] = _fingerprint(group["rule_snapshot"])
+        group["preview"] = {
+            "entries": [
+                {
+                    "member_id": item["member_id"],
+                    "idempotency_key": item["idempotency_key"],
+                    "points": item["points"],
+                    "status": item["status"],
+                    "postable": item["status"] == "READY",
+                }
+                for item in group["items"]
+            ],
+            "totals": {
+                "blocked_entry_count": sum(item["status"] == "BLOCKED" for item in group["items"]),
+            },
+        }
+    return groups, extra_blockers, dry_run
+
+
 def _assert_current_preview(
     connection: Any, row: Any, *, actor_user_id: int, posted_keys: set[str] | None = None
 ) -> None:
     source_snapshot = json.loads(row["source_snapshot_json"])
-    if row["source_type"] == "STUDY_MEETING":
+    posted_keys = posted_keys or set()
+    if row["batch_type"] == HISTORICAL_BATCH_TYPE:
+        if row["source_type"] != HISTORICAL_SOURCE_TYPE:
+            raise credits.LearningCreditError("历史结算批次来源不匹配")
+        groups, _, _ = _historical_source_groups(
+            connection,
+            actor_user_id=actor_user_id,
+            import_batch_id=int(source_snapshot["import_batch_id"]),
+            allow_existing_ledger_keys=posted_keys,
+        )
+        group_key = (
+            str(source_snapshot["class_org_unit_id"]),
+            str(source_snapshot["period_precision"]),
+            int(source_snapshot["period_year"]),
+            int(source_snapshot["period_month"]) if source_snapshot.get("period_month") is not None else None,
+        )
+        group = groups.get(group_key)
+        if not group:
+            raise credits.LearningCreditError("历史来源分组已不存在，必须重新DRY-RUN")
+        preview = group["preview"]
+        for item in preview["entries"]:
+            if item.get("idempotency_key") in posted_keys:
+                item["status"] = "SKIPPED_DUPLICATE"
+                item["postable"] = False
+        live_source, live_rules = group["source_snapshot"], group["rule_snapshot"]
+        preview["totals"]["blocked_entry_count"] = sum(
+            item["status"] == "BLOCKED" for item in preview["entries"]
+        )
+    elif row["source_type"] == "STUDY_MEETING":
         preview = credits._build_study_meeting_preview(
             connection, int(source_snapshot["session_id"])
         )
@@ -118,7 +359,6 @@ def _assert_current_preview(
         )
     else:
         raise credits.LearningCreditError("不支持的结算批次来源")
-    posted_keys = posted_keys or set()
     active = [item for item in preview["entries"] if item.get("idempotency_key") not in posted_keys]
     posted_rows = execute(
         connection,
@@ -141,6 +381,203 @@ def _assert_current_preview(
         + sum(posted_points.values(), Decimal("0")) != Decimal(str(row["proposed_points"]))
     ):
         raise credits.LearningCreditError("结算事实或规则已变化，必须重新DRY-RUN")
+
+
+def dry_run_historical_credit_batches(
+    *, actor_user_id: int, import_batch_id: int,
+) -> dict[str, Any]:
+    """Freeze eligible legacy source cells into class/period settlement batches."""
+
+    settings = credits.get_settings()
+    if not settings.learning_credit_batch_dry_run_enabled:
+        raise credits.LearningCreditFeatureDisabled("学分结算批次DRY-RUN写入尚未开启")
+    credits._write_allowed()
+    user = credits.user_context(actor_user_id) or {}
+    permissions = set(user.get("permissions", []))
+    if not {
+        "plans:credit_settlement_manage",
+        "plans:historical_credit_import_manage",
+    }.issubset(permissions):
+        raise PermissionError("无权创建历史学分结算批次")
+
+    with transaction() as connection:
+        before = int(execute(
+            connection, "SELECT COUNT(*) AS n FROM learning_credit_entries"
+        ).fetchone()["n"])
+        existing_historical = execute(
+            connection,
+            "SELECT id,status,source_snapshot_json FROM learning_credit_settlement_batches "
+            "WHERE source_type=? AND batch_type=? AND status IN ('POSTING','PARTIAL_FAILED')",
+            (HISTORICAL_SOURCE_TYPE, HISTORICAL_BATCH_TYPE),
+        ).fetchall()
+        unresolved = []
+        for row in existing_historical:
+            snapshot = json.loads(row["source_snapshot_json"] or "{}")
+            if int(snapshot.get("import_batch_id", 0)) == int(import_batch_id):
+                unresolved.append(row)
+        if unresolved:
+            return {
+                "mode": "DRY_RUN",
+                "source_batch_id": int(import_batch_id),
+                "source_rule_version": HISTORICAL_SOURCE_TYPE,
+                "settlement_batch_count": 0,
+                "settlement_batches": [
+                    _batch_summary(connection, int(row["id"]), idempotent=True)
+                    for row in unresolved
+                ],
+                "blocking_reason": "EXISTING_HISTORICAL_BATCH_REQUIRES_RECONCILIATION",
+                "ledger_write": False,
+                "staging_write": False,
+            }
+        groups, extra_blockers, dry_run = _historical_source_groups(
+            connection, actor_user_id=actor_user_id, import_batch_id=import_batch_id,
+        )
+        created_batches = []
+        total_ready = 0
+        total_ready_points = Decimal("0")
+        total_group_blocked = 0
+        for group in sorted(
+            groups.values(),
+            key=lambda value: (
+                value["class_org_unit_id"], value["period_year"],
+                value["period_precision"], value["period_month"] or 0,
+            ),
+        ):
+            ready_items = [item for item in group["items"] if item["status"] == "READY"]
+            blocked_items = [item for item in group["items"] if item["status"] == "BLOCKED"]
+            proposed_points = sum((_points(item["points"]) for item in ready_items), Decimal("0"))
+            total_ready += len(ready_items)
+            total_ready_points += proposed_points
+            total_group_blocked += len(blocked_items)
+            existing = execute(
+                connection,
+                "SELECT id,rule_fingerprint FROM learning_credit_settlement_batches "
+                "WHERE source_type=? AND source_fingerprint=? AND batch_type=? LIMIT 1",
+                (HISTORICAL_SOURCE_TYPE, group["source_fingerprint"], HISTORICAL_BATCH_TYPE),
+            ).fetchone()
+            if existing:
+                if existing["rule_fingerprint"] != group["rule_fingerprint"]:
+                    raise credits.LearningCreditError("历史来源对应的冻结原值快照已变化")
+                created_batches.append(
+                    _batch_summary(connection, int(existing["id"]), idempotent=True)
+                )
+                continue
+
+            class_id = str(group["class_org_unit_id"])
+            period_label = (
+                f"{group['period_year']:04d}{group['period_month']:02d}"
+                if group["period_precision"] == "MONTH"
+                else f"{group['period_year']:04d}Y"
+            )
+            batch_no = (
+                f"LC-HIST-{hashlib.sha256(class_id.encode()).hexdigest()[:8]}-"
+                f"{period_label}-{group['source_fingerprint'][:12]}"
+            )
+            now = credits._db_timestamp(connection)
+            result_snapshot = {
+                "source_item_count": len(group["items"]),
+                "proposed_entry_count": len(ready_items),
+                "blocked_count": len(blocked_items),
+                "original_points_preserved": True,
+                "source_rule_version": HISTORICAL_SOURCE_TYPE,
+                "source_file_sha256": group["source_snapshot"]["source_file_sha256"],
+            }
+            cursor = execute(
+                connection,
+                "INSERT INTO learning_credit_settlement_batches "
+                "(batch_no,batch_type,source_type,class_org_unit_id,period_precision,period_year,period_month,"
+                "status,proposed_entry_count,proposed_points,blocked_count,source_snapshot_json,rule_snapshot_json,"
+                "result_snapshot_json,source_fingerprint,rule_fingerprint,created_by,created_at,updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    batch_no, HISTORICAL_BATCH_TYPE, HISTORICAL_SOURCE_TYPE, class_id,
+                    group["period_precision"], group["period_year"], group["period_month"],
+                    len(ready_items), str(proposed_points), len(blocked_items),
+                    _canonical(group["source_snapshot"]), _canonical(group["rule_snapshot"]),
+                    _canonical(result_snapshot), group["source_fingerprint"],
+                    group["rule_fingerprint"], actor_user_id, now, now,
+                ),
+            )
+            batch_id = int(cursor.lastrowid)
+            for item in group["items"]:
+                item_status = "PROPOSED" if item["status"] == "READY" else "BLOCKED"
+                execute(
+                    connection,
+                    "INSERT INTO learning_credit_settlement_batch_items "
+                    "(batch_id,member_id,source_type,source_id,source_snapshot_json,rule_key,rule_version,"
+                    "rule_version_id,rule_snapshot_json,credit_category,credit_type,points,occurred_at,"
+                    "occurred_precision,occurred_year,occurred_month,idempotency_key,status,blocking_reason,"
+                    "created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,?,?)",
+                    (
+                        batch_id, item["member_id"], HISTORICAL_SOURCE_TYPE, item["source_id"],
+                        _canonical({key: item[key] for key in (
+                            "import_batch_id", "source_item_id", "source_row_id", "source_file_sha256",
+                            "source_rule_version", "source_sheet", "source_row_number",
+                            "source_column_index", "source_column_name", "raw_class_name",
+                            "class_mapping_id", "class_mapping_status", "class_org_unit_id",
+                            "member_id", "legacy_credit_type", "original_points", "occurred_precision",
+                            "occurred_year", "occurred_month",
+                        )}),
+                        item["rule_key"], item["rule_version"], item["rule_version_id"],
+                        _canonical(item["rule_snapshot"]), item["credit_category"], item["credit_type"],
+                        str(_points(item["points"])) if item_status == "PROPOSED" else None,
+                        item["occurred_precision"], item["occurred_year"], item["occurred_month"],
+                        item["idempotency_key"], item_status, item["blocked_reason"], now, now,
+                    ),
+                )
+            execute(
+                connection,
+                "UPDATE learning_credit_settlement_batches SET status='DRY_RUN',updated_at=? "
+                "WHERE id=? AND status='DRAFT'",
+                (now, batch_id),
+            )
+            write_audit(
+                connection,
+                actor_user_id=actor_user_id,
+                action="learning_credit.batch.historical_dry_run",
+                resource_type="learning_credit_settlement_batch",
+                resource_id=str(batch_id),
+                org_unit_id=class_id,
+                purpose="冻结已审核历史原值提案；保留来源期间精度，不重算且不入账",
+                after={
+                    "source_fingerprint": group["source_fingerprint"],
+                    "proposed_entry_count": len(ready_items),
+                    "blocked_count": len(blocked_items),
+                    "period_precision": group["period_precision"],
+                },
+            )
+            created_batches.append(_batch_summary(connection, batch_id, idempotent=False))
+
+        after = int(execute(
+            connection, "SELECT COUNT(*) AS n FROM learning_credit_entries"
+        ).fetchone()["n"])
+        if after != before:
+            raise credits.LearningCreditError("历史批次DRY-RUN不得写入正式学分账本")
+
+        blockers = dict(dry_run["blocked_reason_counts"])
+        for reason, count in extra_blockers.items():
+            current = blockers.setdefault(reason, {"count": 0, "points": 0})
+            current["count"] += count
+        return {
+            "mode": "DRY_RUN",
+            "source_batch_id": int(import_batch_id),
+            "source_rule_version": HISTORICAL_SOURCE_TYPE,
+            "batch_type": HISTORICAL_BATCH_TYPE,
+            "settlement_batch_count": len(created_batches),
+            "settlement_batches": created_batches,
+            "ready_item_count": total_ready,
+            "ready_points": format(total_ready_points, ".2f"),
+            "group_blocked_item_count": total_group_blocked,
+            "source_blocked_item_count": int(dry_run["blocked_item_count"]),
+            "already_posted_item_count": int(dry_run["already_posted_item_count"]),
+            "blocked_reason_counts": blockers,
+            "track_counts": dry_run["track_counts"],
+            "september_dual_track_items": dry_run["september_dual_track_items"],
+            "september_dual_track_points": dry_run["september_dual_track_points"],
+            "learning_credit_entries_delta": after - before,
+            "ledger_write": False,
+            "staging_write": False,
+        }
 
 
 def _approved_items(connection: Any, row: Any) -> list[Any]:
@@ -613,7 +1050,10 @@ def dry_run_class_meeting_batch(*, actor_user_id: int, event_group_id: int) -> d
         return _batch_summary(connection, batch_id, idempotent=False)
 
 
-def _submit_batch_for_approval(*, actor_user_id: int, batch_id: int, source_type: str) -> dict[str, Any]:
+def _submit_batch_for_approval(
+    *, actor_user_id: int, batch_id: int, source_type: str,
+    batch_type: str = "REGULAR",
+) -> dict[str, Any]:
     """Freeze an unblocked DRY-RUN for independent approval; no ledger POST."""
 
     if not credits.get_settings().learning_credit_batch_dry_run_enabled:
@@ -622,13 +1062,15 @@ def _submit_batch_for_approval(*, actor_user_id: int, batch_id: int, source_type
     user = credits.user_context(actor_user_id) or {}
     if "plans:credit_settlement_manage" not in user.get("permissions", []):
         raise PermissionError("无权提交学分结算批次")
+    if batch_type == HISTORICAL_BATCH_TYPE and "plans:historical_credit_import_manage" not in user.get("permissions", []):
+        raise PermissionError("无权提交历史学分结算批次")
     with transaction() as connection:
         row = execute(
             connection,
             "SELECT * FROM learning_credit_settlement_batches WHERE id=?",
             (batch_id,),
         ).fetchone()
-        if not row or row["source_type"] != source_type or row["batch_type"] != "REGULAR":
+        if not row or row["source_type"] != source_type or row["batch_type"] != batch_type:
             raise credits.LearningCreditError("结算批次不存在或来源不匹配")
         if not credits._scope_allows(actor_user_id, row["class_org_unit_id"]):
             raise PermissionError("结算批次不在当前组织授权范围内")
@@ -681,7 +1123,17 @@ def submit_excellent_share_batch_for_approval(*, actor_user_id: int, batch_id: i
     )
 
 
-def _approve_batch(*, actor_user_id: int, batch_id: int, source_type: str) -> dict[str, Any]:
+def submit_historical_credit_batch_for_approval(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+    return _submit_batch_for_approval(
+        actor_user_id=actor_user_id, batch_id=batch_id,
+        source_type=HISTORICAL_SOURCE_TYPE, batch_type=HISTORICAL_BATCH_TYPE,
+    )
+
+
+def _approve_batch(
+    *, actor_user_id: int, batch_id: int, source_type: str,
+    batch_type: str = "REGULAR",
+) -> dict[str, Any]:
     """Approve an unchanged, unblocked batch; no ledger POST is possible here."""
 
     if not credits.get_settings().learning_credit_batch_approval_enabled:
@@ -690,13 +1142,15 @@ def _approve_batch(*, actor_user_id: int, batch_id: int, source_type: str) -> di
     user = credits.user_context(actor_user_id) or {}
     if "plans:credit_settlement_approve" not in user.get("permissions", []):
         raise PermissionError("无权审批学分结算批次")
+    if batch_type == HISTORICAL_BATCH_TYPE and "plans:historical_credit_import_manage" not in user.get("permissions", []):
+        raise PermissionError("无权审批历史学分结算批次")
     with transaction() as connection:
         row = execute(
             connection,
             "SELECT * FROM learning_credit_settlement_batches WHERE id=?",
             (batch_id,),
         ).fetchone()
-        if not row or row["source_type"] != source_type or row["batch_type"] != "REGULAR":
+        if not row or row["source_type"] != source_type or row["batch_type"] != batch_type:
             raise credits.LearningCreditError("结算批次不存在或来源不匹配")
         if not credits._scope_allows(actor_user_id, row["class_org_unit_id"]):
             raise PermissionError("结算批次不在当前组织授权范围内")
@@ -759,6 +1213,13 @@ def approve_excellent_share_batch(*, actor_user_id: int, batch_id: int) -> dict[
     )
 
 
+def approve_historical_credit_batch(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+    return _approve_batch(
+        actor_user_id=actor_user_id, batch_id=batch_id,
+        source_type=HISTORICAL_SOURCE_TYPE, batch_type=HISTORICAL_BATCH_TYPE,
+    )
+
+
 def _reconcile_posted_items(connection: Any, row: Any) -> tuple[int, Decimal]:
     items = execute(
         connection,
@@ -803,8 +1264,113 @@ def _reconcile_posted_items(connection: Any, row: Any) -> tuple[int, Decimal]:
     return count, points
 
 
+def _validate_historical_source_item(
+    connection: Any, *, batch_row: Any, batch_item: Any, source_item: dict[str, Any],
+) -> None:
+    source_batch_id = int(source_item.get("import_batch_id") or 0)
+    source_item_id = int(source_item.get("source_item_id") or 0)
+    lock_clause = " FOR UPDATE" if not isinstance(connection, sqlite3.Connection) else ""
+    row = execute(
+        connection,
+        "SELECT i.id,i.batch_id,i.import_row_id,i.matched_member_id,i.source_sheet,i.source_row_number,"
+        "i.source_column_index,i.source_column_name,i.credit_category,i.legacy_credit_type,i.points,"
+        "i.source_rule_version,i.status,i.occurred_precision,i.occurred_year,i.occurred_month,"
+        "i.period_review_status,r.raw_class_name,r.match_status,r.matched_member_id AS row_member_id,"
+        "r.validation_status,r.credit_review_status,b.file_sha256,b.source_rule_version AS batch_rule_version "
+        "FROM learning_credit_import_items i "
+        "JOIN learning_credit_import_rows r ON r.id=i.import_row_id "
+        "JOIN learning_credit_import_batches b ON b.id=i.batch_id "
+        "WHERE i.id=? AND i.batch_id=?" + lock_clause,
+        (source_item_id, source_batch_id),
+    ).fetchone()
+    if not row:
+        raise credits.LearningCreditError("历史来源staging条目不存在")
+    mapping_sql = (
+        "SELECT id,confirmed_org_unit_id,mapping_status FROM learning_credit_import_class_mappings "
+        "WHERE id=? AND batch_id=? AND source_sheet=? AND raw_class_name IS NULL"
+        if row["raw_class_name"] is None
+        else "SELECT id,confirmed_org_unit_id,mapping_status FROM learning_credit_import_class_mappings "
+        "WHERE id=? AND batch_id=? AND source_sheet=? AND raw_class_name=?"
+    )
+    mapping_sql += lock_clause
+    mapping_params = (
+        (source_item["class_mapping_id"], source_batch_id, row["source_sheet"])
+        if row["raw_class_name"] is None
+        else (source_item["class_mapping_id"], source_batch_id, row["source_sheet"], row["raw_class_name"])
+    )
+    mapping = execute(connection, mapping_sql, mapping_params).fetchone()
+    class_id = str(source_item.get("class_org_unit_id") or "")
+    class_unit = execute(
+        connection, "SELECT id,unit_type FROM org_units WHERE id=?" + lock_clause, (class_id,)
+    ).fetchone()
+    member_id = int(batch_item["member_id"]) if batch_item["member_id"] is not None else None
+    member = execute(
+        connection, "SELECT id,status FROM members WHERE id=?" + lock_clause, (member_id,)
+    ).fetchone() if member_id is not None else None
+    idempotency_key = historical_credits.historical_credit_idempotency_key(
+        file_sha256=str(row["file_sha256"]),
+        source_sheet=str(row["source_sheet"]),
+        source_row_number=int(row["source_row_number"]),
+        source_column_index=int(row["source_column_index"]),
+    )
+    expected_source_id = f"{HISTORICAL_SOURCE_TYPE}:{idempotency_key.removeprefix('LC-HIST:')}"
+    row_is_reviewed = (
+        row["validation_status"] == "PASS"
+        or (
+            row["validation_status"] == "TOTAL_MISSING"
+            and row["credit_review_status"] == "APPROVED"
+        )
+    )
+    period_is_reviewed = (
+        row["occurred_precision"] == "MONTH"
+        and row["period_review_status"] in {"READY", "MONTH_CONFIRMED"}
+        or row["occurred_precision"] == "YEAR"
+        and row["period_review_status"] == "YEAR_ACCEPTED"
+    )
+    if (
+        batch_row["batch_type"] != HISTORICAL_BATCH_TYPE
+        or batch_row["source_type"] != HISTORICAL_SOURCE_TYPE
+        or source_item.get("source_rule_version") != HISTORICAL_SOURCE_TYPE
+        or row["batch_rule_version"] != HISTORICAL_SOURCE_TYPE
+        or row["source_rule_version"] != HISTORICAL_SOURCE_TYPE
+        or mapping is None
+        or mapping["mapping_status"] not in _CONFIRMED_CLASS_MAPPING_STATUSES
+        or str(mapping["confirmed_org_unit_id"]) != class_id
+        or not class_unit
+        or class_unit["unit_type"] not in {"CLASS", "SPECIAL_COHORT"}
+        or member is None
+        or str(member["status"]).upper() != "ACTIVE"
+        or row["status"] not in {"PENDING_REVIEW", "READY"}
+        or row["source_sheet"] != source_item["source_sheet"]
+        or int(row["source_row_number"]) != int(source_item["source_row_number"])
+        or int(row["source_column_index"]) != int(source_item["source_column_index"])
+        or row["source_column_name"] != source_item["source_column_name"]
+        or str(row["file_sha256"]) != source_item["source_file_sha256"]
+        or int(row["import_row_id"]) != int(source_item["source_row_id"])
+        or int(row["matched_member_id"]) != member_id
+        or int(row["row_member_id"]) != member_id
+        or row["match_status"] not in {"AUTO_MATCHED", "CONFIRMED"}
+        or not row_is_reviewed
+        or row["credit_review_status"] in {"REJECTED", "NEEDS_SOURCE_CORRECTION"}
+        or not period_is_reviewed
+        or int(row["occurred_year"]) != int(batch_item["occurred_year"])
+        or row["occurred_precision"] != batch_item["occurred_precision"]
+        or (int(row["occurred_month"]) if row["occurred_month"] is not None else None)
+        != (int(batch_item["occurred_month"]) if batch_item["occurred_month"] is not None else None)
+        or int(batch_item["member_id"]) != int(row["matched_member_id"])
+        or row["credit_category"] != batch_item["credit_category"]
+        or row["legacy_credit_type"] != batch_item["credit_type"]
+        or Decimal(str(row["points"])) != Decimal(str(batch_item["points"]))
+        or idempotency_key != batch_item["idempotency_key"]
+        or expected_source_id != batch_item["source_id"]
+        or class_id != str(batch_row["class_org_unit_id"])
+    ):
+        raise credits.LearningCreditError("历史来源、审核、映射或原始分值已变化，拒绝入账")
+
+
 def _post_batch(
-    *, actor_user_id: int, batch_id: int, source_type: str, resume_partial_failure: bool = False
+    *, actor_user_id: int, batch_id: int, source_type: str, resume_partial_failure: bool = False,
+    batch_type: str = "REGULAR",
 ) -> dict[str, Any]:
     """POST frozen items once, with per-item transactions and reconciliation.
 
@@ -815,17 +1381,21 @@ def _post_batch(
     if not credits.get_settings().learning_credit_batch_post_enabled:
         raise credits.LearningCreditFeatureDisabled("学分结算批次正式入账尚未开启")
     credits._settlement_enabled()
+    if batch_type == HISTORICAL_BATCH_TYPE and not credits.get_settings().learning_credit_historical_post_enabled:
+        raise credits.LearningCreditFeatureDisabled("历史学分批次正式入账尚未开启")
     user = credits.user_context(actor_user_id) or {}
     if not {"plans:credit_settlement_post", "plans:credit_settlement_manage"}.issubset(
         user.get("permissions", [])
     ):
         raise PermissionError("无权正式入账结算批次")
+    if batch_type == HISTORICAL_BATCH_TYPE and "plans:historical_credit_import_manage" not in user.get("permissions", []):
+        raise PermissionError("无权正式入账历史学分批次")
     with transaction() as connection:
         row = execute(
             connection, "SELECT * FROM learning_credit_settlement_batches WHERE id=?",
             (batch_id,),
         ).fetchone()
-        if not row or row["source_type"] != source_type or row["batch_type"] != "REGULAR":
+        if not row or row["source_type"] != source_type or row["batch_type"] != batch_type:
             raise credits.LearningCreditError("结算批次不存在或来源不匹配")
         if not credits._scope_allows(actor_user_id, row["class_org_unit_id"]):
             raise PermissionError("结算批次不在当前组织授权范围内")
@@ -904,9 +1474,7 @@ def _post_batch(
                 if not item or item["status"] not in {"APPROVED", "FAILED"} or item["ledger_entry_id"] is not None:
                     raise credits.LearningCreditError("批次条目状态已变化")
                 source = json.loads(item["source_snapshot_json"])
-                entry = credits.post_credit_entry(
-                    actor_user_id=actor_user_id,
-                    item={
+                entry_item = {
                         "member_id": int(item["member_id"]),
                         "credit_category": item["credit_category"],
                         "credit_type": item["credit_type"],
@@ -924,8 +1492,16 @@ def _post_batch(
                         "occurred_year": item["occurred_year"],
                         "occurred_month": item["occurred_month"],
                         "idempotency_key": item["idempotency_key"],
-                    },
-                )
+                    }
+                if batch_type == HISTORICAL_BATCH_TYPE:
+                    _validate_historical_source_item(
+                        connection, batch_row=active_batch, batch_item=item, source_item=source,
+                    )
+                    entry = credits._insert_entry(
+                        connection, entry_item, status="POSTED", actor_user_id=actor_user_id,
+                    )
+                else:
+                    entry = credits.post_credit_entry(actor_user_id=actor_user_id, item=entry_item)
                 if entry["idempotency_key"] != item["idempotency_key"] or Decimal(str(entry["points"])) != Decimal(str(item["points"])):
                     raise credits.LearningCreditError("正式账本结果与冻结条目不一致")
                 changed = execute(
@@ -936,6 +1512,18 @@ def _post_batch(
                 )
                 if changed.rowcount != 1:
                     raise credits.LearningCreditError("批次条目被并发修改")
+                if batch_type == HISTORICAL_BATCH_TYPE:
+                    stage_changed = execute(
+                        connection,
+                        "UPDATE learning_credit_import_items SET status='POSTED',updated_at=? "
+                        "WHERE id=? AND batch_id=? AND status IN ('PENDING_REVIEW','READY')",
+                        (
+                            credits._db_timestamp(connection), int(source["source_item_id"]),
+                            int(source["import_batch_id"]),
+                        ),
+                    )
+                    if stage_changed.rowcount != 1:
+                        raise credits.LearningCreditError("历史来源staging状态无法与账本同事务收口")
         except Exception as exc:  # noqa: BLE001 - persist only safe error category
             with transaction() as connection:
                 execute(
@@ -1007,5 +1595,17 @@ def post_excellent_share_batch(
     return _post_batch(
         actor_user_id=actor_user_id, batch_id=batch_id,
         source_type=activity_credits.EXCELLENT_SHARE,
+        resume_partial_failure=resume_partial_failure,
+    )
+
+
+def post_historical_credit_batch(
+    *, actor_user_id: int, batch_id: int, resume_partial_failure: bool = False,
+) -> dict[str, Any]:
+    return _post_batch(
+        actor_user_id=actor_user_id,
+        batch_id=batch_id,
+        source_type=HISTORICAL_SOURCE_TYPE,
+        batch_type=HISTORICAL_BATCH_TYPE,
         resume_partial_failure=resume_partial_failure,
     )

@@ -22,11 +22,16 @@ def database():
     connection.execute("PRAGMA foreign_keys=ON")
     connection.executescript(
         "CREATE TABLE schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL);"
+        "CREATE TABLE permissions (permission_key TEXT PRIMARY KEY, permission_name TEXT, sensitive_level TEXT, created_at TEXT);"
+        "CREATE TABLE role_permissions (role_key TEXT, permission_key TEXT);"
         "CREATE TABLE org_units (id TEXT PRIMARY KEY);"
         "CREATE TABLE app_users (id INTEGER PRIMARY KEY);"
         "CREATE TABLE members (id INTEGER PRIMARY KEY);"
         "CREATE TABLE learning_credit_entries (id INTEGER PRIMARY KEY);"
     )
+    connection.executescript(FORWARD.read_text(encoding="utf-8"))
+    # DDL and catalog registration remain safe if a deployment retries the
+    # migration before its schema_migrations marker is committed.
     connection.executescript(FORWARD.read_text(encoding="utf-8"))
     connection.execute(
         "INSERT INTO schema_migrations VALUES (?, ?)",
@@ -69,6 +74,11 @@ def test_year_batch_keeps_unknown_month_and_tables_start_empty(database):
     with pytest.raises(sqlite3.IntegrityError):
         _insert_year_batch(database, number="LC-TEST-DUPLICATE-SOURCE")
     assert database.execute("SELECT COUNT(*) FROM learning_credit_entries").fetchone()[0] == 0
+    assert database.execute(
+        "SELECT COUNT(*) FROM role_permissions WHERE permission_key IN "
+        "('plans:credit_settlement_approve','plans:credit_settlement_post')"
+    ).fetchone()[0] == 0
+    assert database.execute("SELECT COUNT(*) FROM permissions").fetchone()[0] == 2
 
 
 def test_year_batch_cannot_fabricate_exact_date(database):
@@ -108,7 +118,27 @@ def test_rollback_refuses_facts_then_succeeds_when_empty(database):
     assert database.execute(
         "SELECT COUNT(*) FROM learning_credit_settlement_batches"
     ).fetchone()[0] == 1
+    assert database.execute(
+        "SELECT COUNT(*) FROM permissions WHERE permission_key='plans:credit_settlement_post'"
+    ).fetchone()[0] == 1
     database.execute("DELETE FROM learning_credit_settlement_batches")
+    database.execute(
+        "INSERT INTO role_permissions(role_key,permission_key) VALUES (?,?)",
+        ("ops_admin", "plans:credit_settlement_post"),
+    )
+    database.commit()
+    with pytest.raises(sqlite3.IntegrityError):
+        database.executescript(ROLLBACK.read_text(encoding="utf-8"))
+    database.rollback()
+    assert database.execute(
+        "SELECT COUNT(*) FROM learning_credit_settlement_batches"
+    ).fetchone()[0] == 0
+    assert database.execute(
+        "SELECT COUNT(*) FROM permissions WHERE permission_key='plans:credit_settlement_post'"
+    ).fetchone()[0] == 1
+    database.execute(
+        "DELETE FROM role_permissions WHERE permission_key='plans:credit_settlement_post'"
+    )
     database.commit()
     database.executescript(ROLLBACK.read_text(encoding="utf-8"))
     assert database.execute(

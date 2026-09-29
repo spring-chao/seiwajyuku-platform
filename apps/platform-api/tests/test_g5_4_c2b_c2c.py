@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from datetime import UTC, datetime
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -20,7 +21,13 @@ from app.services.historical_credit_review import (
     get_historical_credit_review_workbench,
     upsert_class_mapping_candidates,
 )
-from app.services.learning_credits import _insert_entry
+from app.services.credit_settlement_batches import (
+    approve_historical_credit_batch,
+    dry_run_historical_credit_batches,
+    post_historical_credit_batch,
+    submit_historical_credit_batch_for_approval,
+)
+from app.services.learning_credits import LearningCreditError, _insert_entry
 
 
 def _admin_id() -> int:
@@ -317,3 +324,280 @@ def test_class_mapping_candidates_are_persisted_without_auto_confirming_aliases(
         assert workbench["class_mappings"][0]["confirmed_org_unit_id"] is None
     finally:
         _cleanup(batch_id)
+
+
+def _prepare_ready_historical_settlement_source(*, filename: str) -> tuple[int, int, bool, str]:
+    result = register_suzhou_credit_workbook(
+        content=_year_only_workbook(), original_filename=filename,
+    )
+    import_batch_id = int(result["batch"]["id"])
+    member_id, created_member = _ensure_member()
+    class_unit = fetch_one(
+        "SELECT id FROM org_units WHERE unit_type IN ('CLASS','SPECIAL_COHORT') ORDER BY id LIMIT 1"
+    )
+    assert class_unit
+    class_id = str(class_unit["id"])
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE learning_credit_import_rows SET matched_member_id=?,match_status='AUTO_MATCHED',"
+            "match_snapshot_id='settlement-test-snapshot',"
+            "match_snapshot_fingerprint='settlement-test-fingerprint',"
+            "match_algorithm_version='settlement-test-v1' WHERE batch_id=?",
+            (member_id, import_batch_id),
+        )
+        execute(
+            connection,
+            "UPDATE learning_credit_import_items SET matched_member_id=? WHERE batch_id=?",
+            (member_id, import_batch_id),
+        )
+    upsert_class_mapping_candidates(
+        batch_id=import_batch_id,
+        mappings=[{
+            "source_sheet": "测试班", "raw_class_name": "测试班",
+            "org_unit_id": class_id, "mapping_status": "EXACT",
+            "mapping_reason": "CENTER_SCOPED_EXACT_CLASS_NAME",
+            "candidate_org_unit_ids": [class_id],
+        }],
+        snapshot_id="settlement-test-snapshot",
+        snapshot_fingerprint="settlement-test-fingerprint",
+        actor_user_id=_admin_id(),
+    )
+    accepted = accept_year_only_period(
+        batch_id=import_batch_id, expected_count=1, actor_user_id=_admin_id(),
+        reason="Test source contains year but no month; preserve YEAR precision",
+    )
+    assert accepted["accepted_count"] == 1
+    return import_batch_id, member_id, created_member, class_id
+
+
+def _cleanup_historical_settlement_batches(import_batch_id: int) -> None:
+    rows = fetch_all(
+        "SELECT id FROM learning_credit_settlement_batches WHERE source_type=? "
+        "AND source_snapshot_json LIKE ?",
+        ("LEGACY_SUZHOU_2026_V1", f'%"import_batch_id":{import_batch_id}%'),
+    )
+    batch_ids = [int(row["id"]) for row in rows]
+    if not batch_ids:
+        return
+    placeholders = ",".join("?" for _ in batch_ids)
+    ledger_rows = fetch_all(
+        f"SELECT DISTINCT ledger_entry_id FROM learning_credit_settlement_batch_items "
+        f"WHERE batch_id IN ({placeholders}) AND ledger_entry_id IS NOT NULL",
+        tuple(batch_ids),
+    )
+    ledger_ids = [int(row["ledger_entry_id"]) for row in ledger_rows]
+    with transaction() as connection:
+        execute(
+            connection,
+            f"DELETE FROM learning_credit_settlement_batch_items WHERE batch_id IN ({placeholders})",
+            tuple(batch_ids),
+        )
+        execute(
+            connection,
+            f"DELETE FROM learning_credit_settlement_batches WHERE id IN ({placeholders})",
+            tuple(batch_ids),
+        )
+        if ledger_ids:
+            ledger_placeholders = ",".join("?" for _ in ledger_ids)
+            execute(
+                connection,
+                f"DELETE FROM learning_credit_entries WHERE id IN ({ledger_placeholders})",
+                tuple(ledger_ids),
+            )
+
+
+def test_historical_settlement_batches_partition_and_preserve_original_points() -> None:
+    import_batch_id, member_id, created_member, class_id = _prepare_ready_historical_settlement_source(
+        filename="historical-settlement-periods.xlsx",
+    )
+    before = int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"])
+    try:
+        with pytest.MonkeyPatch.context() as patch_env:
+            patch_env.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+            patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "false")
+            result = dry_run_historical_credit_batches(
+                actor_user_id=_admin_id(), import_batch_id=import_batch_id,
+            )
+            repeated = dry_run_historical_credit_batches(
+                actor_user_id=_admin_id(), import_batch_id=import_batch_id,
+            )
+        assert result["source_rule_version"] == "LEGACY_SUZHOU_2026_V1"
+        assert result["ready_item_count"] == 2
+        assert result["ready_points"] == "5.00"
+        assert result["learning_credit_entries_delta"] == 0
+        assert len(result["settlement_batches"]) == 2
+        assert all(batch["status"] == "DRY_RUN" for batch in result["settlement_batches"])
+        assert all(batch["idempotent"] is True for batch in repeated["settlement_batches"])
+        batch_ids = [batch["id"] for batch in result["settlement_batches"]]
+        periods = fetch_all(
+            "SELECT class_org_unit_id,period_precision,period_year,period_month,batch_type,source_type "
+            "FROM learning_credit_settlement_batches WHERE id IN (?,?) ORDER BY period_precision",
+            tuple(batch_ids),
+        )
+        assert periods == [
+            {"class_org_unit_id": class_id, "period_precision": "MONTH", "period_year": 2026,
+             "period_month": 1, "batch_type": "HISTORICAL_IMPORT", "source_type": "LEGACY_SUZHOU_2026_V1"},
+            {"class_org_unit_id": class_id, "period_precision": "YEAR", "period_year": 2026,
+             "period_month": None, "batch_type": "HISTORICAL_IMPORT", "source_type": "LEGACY_SUZHOU_2026_V1"},
+        ]
+        items = fetch_all(
+            "SELECT i.member_id,i.credit_type,i.points,i.rule_version,i.rule_version_id,"
+            "i.occurred_precision,i.occurred_year,i.occurred_month,i.idempotency_key "
+            "FROM learning_credit_settlement_batch_items i WHERE i.batch_id IN (?,?) ORDER BY i.credit_type",
+            tuple(batch_ids),
+        )
+        assert len(items) == 2
+        assert all(item["member_id"] == member_id for item in items)
+        assert all(item["rule_version"] == "LEGACY_SUZHOU_2026_V1" for item in items)
+        assert all(item["rule_version_id"] is None for item in items)
+        assert all(item["idempotency_key"].startswith("LC-HIST:") for item in items)
+        assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == before
+    finally:
+        _cleanup_historical_settlement_batches(import_batch_id)
+        _cleanup(import_batch_id)
+        if created_member:
+            with transaction() as connection:
+                execute(connection, "DELETE FROM members WHERE id=?", (member_id,))
+
+
+def test_historical_settlement_batch_blocks_unconfirmed_class_mapping() -> None:
+    result = register_suzhou_credit_workbook(
+        content=_year_only_workbook(), original_filename="historical-missing-class-map.xlsx",
+    )
+    import_batch_id = int(result["batch"]["id"])
+    member_id, created_member = _ensure_member()
+    before = int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_settlement_batches")["n"])
+    try:
+        with transaction() as connection:
+            execute(
+                connection,
+                "UPDATE learning_credit_import_rows SET matched_member_id=?,match_status='AUTO_MATCHED' WHERE batch_id=?",
+                (member_id, import_batch_id),
+            )
+            execute(
+                connection,
+                "UPDATE learning_credit_import_items SET matched_member_id=? WHERE batch_id=?",
+                (member_id, import_batch_id),
+            )
+        accept_year_only_period(
+            batch_id=import_batch_id, expected_count=1, actor_user_id=_admin_id(),
+            reason="Test source contains year but no month; preserve YEAR precision",
+        )
+        with pytest.MonkeyPatch.context() as patch_env:
+            patch_env.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+            result = dry_run_historical_credit_batches(
+                actor_user_id=_admin_id(), import_batch_id=import_batch_id,
+            )
+        assert result["settlement_batch_count"] == 0
+        assert result["blocked_reason_counts"]["CLASS_MAPPING_REQUIRED"]["count"] == 2
+        assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_settlement_batches")["n"] == before
+    finally:
+        _cleanup(import_batch_id)
+        if created_member:
+            with transaction() as connection:
+                execute(connection, "DELETE FROM members WHERE id=?", (member_id,))
+
+
+def test_historical_settlement_batch_approval_and_post_use_gated_append_only_path() -> None:
+    import_batch_id, member_id, created_member, _class_id = _prepare_ready_historical_settlement_source(
+        filename="historical-settlement-post.xlsx",
+    )
+    ledger_before = int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"])
+    try:
+        with pytest.MonkeyPatch.context() as patch_env:
+            patch_env.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+            patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "false")
+            dry_run = dry_run_historical_credit_batches(
+                actor_user_id=_admin_id(), import_batch_id=import_batch_id,
+            )
+            batch = next(
+                item for item in dry_run["settlement_batches"]
+                if fetch_one(
+                    "SELECT period_precision FROM learning_credit_settlement_batches WHERE id=?",
+                    (item["id"],),
+                )["period_precision"] == "MONTH"
+            )
+            item = fetch_one(
+                "SELECT id,points FROM learning_credit_import_items WHERE batch_id=? AND source_month=1",
+                (import_batch_id,),
+            )
+            assert item
+            with transaction() as connection:
+                execute(connection, "UPDATE learning_credit_import_items SET points=2 WHERE id=?", (item["id"],))
+            with pytest.raises(LearningCreditError, match="事实或规则已变化"):
+                submit_historical_credit_batch_for_approval(
+                    actor_user_id=_admin_id(), batch_id=batch["id"],
+                )
+            with transaction() as connection:
+                execute(connection, "UPDATE learning_credit_import_items SET points=? WHERE id=?", (item["points"], item["id"]))
+
+            submitted = submit_historical_credit_batch_for_approval(
+                actor_user_id=_admin_id(), batch_id=batch["id"],
+            )
+            assert submitted["status"] == "PENDING_APPROVAL"
+            patch_env.setenv("LEARNING_CREDIT_BATCH_APPROVAL_ENABLED", "true")
+            with pytest.raises(PermissionError, match="无权审批"):
+                approve_historical_credit_batch(actor_user_id=_admin_id(), batch_id=batch["id"])
+            with patch(
+                "app.services.learning_credits.user_context",
+                return_value={"permissions": [
+                    "plans:credit_settlement_approve", "plans:historical_credit_import_manage",
+                ]},
+            ):
+                approved = approve_historical_credit_batch(
+                    actor_user_id=_admin_id(), batch_id=batch["id"],
+                )
+            assert approved["status"] == "APPROVED"
+
+            with pytest.raises(LearningCreditError, match="批次正式入账尚未开启"):
+                post_historical_credit_batch(actor_user_id=_admin_id(), batch_id=batch["id"])
+            patch_env.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
+            patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+            patch_env.setenv("LEARNING_CREDIT_HISTORICAL_POST_ENABLED", "true")
+            with patch(
+                "app.services.learning_credits.user_context",
+                return_value={"permissions": [
+                    "plans:credit_settlement_manage", "plans:credit_settlement_post",
+                    "plans:historical_credit_import_manage",
+                ]},
+            ):
+                posted = post_historical_credit_batch(
+                    actor_user_id=_admin_id(), batch_id=batch["id"],
+                )
+                replay = post_historical_credit_batch(
+                    actor_user_id=_admin_id(), batch_id=batch["id"],
+                )
+            assert posted["status"] == "POSTED"
+            assert posted["posted_entry_count"] == 1
+            assert replay["idempotent"] is True
+
+        entry = fetch_one(
+            "SELECT member_id,points,source_type,rule_version,rule_version_id,occurred_at,"
+            "occurred_precision,occurred_year,occurred_month,status "
+            "FROM learning_credit_entries WHERE source_type='LEGACY_SUZHOU_2026_V1' "
+            "ORDER BY id DESC LIMIT 1"
+        )
+        assert entry == {
+            "member_id": member_id,
+            "points": 1,
+            "source_type": "LEGACY_SUZHOU_2026_V1",
+            "rule_version": "LEGACY_SUZHOU_2026_V1",
+            "rule_version_id": None,
+            "occurred_at": None,
+            "occurred_precision": "MONTH",
+            "occurred_year": 2026,
+            "occurred_month": 1,
+            "status": "POSTED",
+        }
+        assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == ledger_before + 1
+        assert fetch_one(
+            "SELECT status FROM learning_credit_import_items WHERE batch_id=? AND source_month=1",
+            (import_batch_id,),
+        )["status"] == "POSTED"
+    finally:
+        _cleanup_historical_settlement_batches(import_batch_id)
+        _cleanup(import_batch_id)
+        if created_member:
+            with transaction() as connection:
+                execute(connection, "DELETE FROM members WHERE id=?", (member_id,))

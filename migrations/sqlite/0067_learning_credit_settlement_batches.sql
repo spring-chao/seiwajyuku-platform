@@ -75,4 +75,10 @@ CREATE TABLE IF NOT EXISTS learning_credit_settlement_batch_items (
 CREATE INDEX IF NOT EXISTS idx_credit_settlement_item_status ON learning_credit_settlement_batch_items(batch_id, status, id);
 CREATE INDEX IF NOT EXISTS idx_credit_settlement_item_source ON learning_credit_settlement_batch_items(source_type, source_id);
 
+-- Catalog only: reviewers and posters are not granted to any role here.
+INSERT OR IGNORE INTO permissions(permission_key, permission_name, sensitive_level, created_at)
+VALUES ('plans:credit_settlement_approve', '审批学分结算批次', 'SENSITIVE', datetime('now'));
+INSERT OR IGNORE INTO permissions(permission_key, permission_name, sensitive_level, created_at)
+VALUES ('plans:credit_settlement_post', '按已审批批次正式入账学分', 'SENSITIVE', datetime('now'));
+
 COMMIT;
