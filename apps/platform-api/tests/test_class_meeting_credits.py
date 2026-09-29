@@ -441,7 +441,7 @@ def test_class_meeting_correction_is_append_only_after_future_post() -> None:
     assert fetch_one(
         "SELECT status, points FROM learning_credit_entries WHERE id=?",
         (original["id"],),
-    ) == {"status": "REVERSED", "points": 18.0}
+    ) == {"status": "POSTED", "points": 18.0}
     assert member_credit_summary(
         actor_user_id=_admin_id(), member_id=fixture["member_id"]
     )["total_points"] == 16

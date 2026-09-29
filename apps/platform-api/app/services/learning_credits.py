@@ -902,7 +902,9 @@ def reverse_credit_entry(*, actor_user_id: int, entry_id: int, reason: str) -> d
             "reversal_of_entry_id": entry_id,
         }
         reversal = _insert_entry(connection, item, status="POSTED", actor_user_id=actor_user_id)
-        execute(connection, "UPDATE learning_credit_entries SET status='REVERSED', updated_at=? WHERE id=?", (_db_timestamp(connection), entry_id))
+        # The original row is an immutable posted fact.  A reversal is a new
+        # negative entry linked by reversal_of_entry_id; changing the original
+        # status would make the ledger only partially append-only.
         write_audit(
             connection,
             actor_user_id=actor_user_id,
@@ -912,6 +914,6 @@ def reverse_credit_entry(*, actor_user_id: int, entry_id: int, reason: str) -> d
             org_unit_id=original["class_org_unit_id"],
             purpose=reason.strip(),
             before={"status": original["status"], "points": original["points"]},
-            after={"status": "REVERSED", "reversal_entry_id": reversal["id"], "points": reversal["points"]},
+            after={"status": original["status"], "reversal_entry_id": reversal["id"], "points": reversal["points"]},
         )
         return reversal
