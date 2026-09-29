@@ -1,8 +1,4 @@
-"""Unified learning-credit batch orchestration, initially DRY-RUN only.
-
-No public API calls this module yet. Production writes remain closed by the
-existing settlement and mutation flags; posting/approval are not implemented.
-"""
+"""Gated study-meeting credit batches; no public API calls this module yet."""
 
 from __future__ import annotations
 
@@ -12,7 +8,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from app.db import execute, transaction
+from app.db import atomic_transaction, execute, transaction
 from app.services.audit import write_audit
 from app.services import learning_credits as credits
 
@@ -44,6 +40,7 @@ def _preview_snapshots(preview: dict[str, Any]) -> tuple[dict[str, Any], dict[st
                 "entry_kind": item["entry_kind"],
                 "source_type": item.get("source_type"),
                 "source_id": item.get("source_id"),
+                "learning_cycle_id": item.get("learning_cycle_id"),
                 "idempotency_key": item.get("idempotency_key"),
                 "course_key": item.get("course_key"),
                 "completion_status": item.get("completion_status"),
@@ -92,24 +89,27 @@ def _batch_summary(connection: Any, batch_id: int, *, idempotent: bool) -> dict[
         "source_fingerprint": row["source_fingerprint"],
         "rule_fingerprint": row["rule_fingerprint"],
         "idempotent": idempotent,
-        "ledger_entries_delta": 0,
     }
 
 
-def _assert_current_preview(connection: Any, row: Any) -> None:
+def _assert_current_preview(
+    connection: Any, row: Any, *, posted_keys: set[str] | None = None
+) -> None:
     source_snapshot = json.loads(row["source_snapshot_json"])
     preview = credits._build_study_meeting_preview(
         connection, int(source_snapshot["session_id"])
     )
     live_source, live_rules = _preview_snapshots(preview)
+    posted_keys = posted_keys or set()
+    active = [item for item in preview["entries"] if item.get("idempotency_key") not in posted_keys]
     if (
         _fingerprint(live_source) != row["source_fingerprint"]
         or _fingerprint(live_rules) != row["rule_fingerprint"]
-        or preview["totals"]["proposed_entry_count"] != int(row["proposed_entry_count"])
         or preview["totals"]["blocked_entry_count"] != 0
-        or preview["totals"]["duplicate_entry_count"] != 0
-        or sum((_points(i["points"]) for i in preview["entries"] if i["postable"]), Decimal("0"))
-        != Decimal(str(row["proposed_points"]))
+        or any(i["status"] == "SKIPPED_DUPLICATE" for i in active)
+        or any(i["status"] != "SKIPPED_DUPLICATE" for i in preview["entries"] if i.get("idempotency_key") in posted_keys)
+        or sum(i["postable"] for i in active) + len(posted_keys) != int(row["proposed_entry_count"])
+        or sum((_points(i["points"]) for i in preview["entries"] if i["postable"] or i.get("idempotency_key") in posted_keys), Decimal("0")) != Decimal(str(row["proposed_points"]))
     ):
         raise credits.LearningCreditError("结算事实或规则已变化，必须重新DRY-RUN")
 
@@ -117,7 +117,7 @@ def _assert_current_preview(connection: Any, row: Any) -> None:
 def _approved_items(connection: Any, row: Any) -> list[Any]:
     items = execute(
         connection,
-        "SELECT id,idempotency_key,points FROM learning_credit_settlement_batch_items "
+        "SELECT * FROM learning_credit_settlement_batch_items "
         "WHERE batch_id=? AND status='PROPOSED' ORDER BY id",
         (row["id"],),
     ).fetchall()
@@ -126,6 +126,26 @@ def _approved_items(connection: Any, row: Any) -> list[Any]:
     ) != Decimal(str(row["proposed_points"])):
         raise credits.LearningCreditError("批次提案与冻结汇总不一致")
     return list(items)
+
+
+def _approval_fingerprint(row: Any, items: list[Any]) -> str:
+    return _fingerprint(
+        {
+            "batch_id": int(row["id"]),
+            "source_fingerprint": row["source_fingerprint"],
+            "rule_fingerprint": row["rule_fingerprint"],
+            "items": [
+                {key: item[key] for key in (
+                    "id", "member_id", "source_type", "source_id", "source_snapshot_json",
+                    "rule_key", "rule_version", "rule_version_id", "rule_snapshot_json",
+                    "credit_category", "credit_type", "points", "occurred_at",
+                    "occurred_precision", "occurred_year", "occurred_month", "idempotency_key",
+                )}
+                for item in items
+            ],
+            "proposed_points": format(Decimal(str(row["proposed_points"])), ".2f"),
+        }
+    )
 
 
 def dry_run_study_meeting_batch(*, actor_user_id: int, session_id: int) -> dict[str, Any]:
@@ -193,6 +213,7 @@ def dry_run_study_meeting_batch(*, actor_user_id: int, session_id: int) -> dict[
                 "member_id": int(item["member_id"]),
                 "source_type": item.get("source_type"),
                 "source_id": item.get("source_id"),
+                "learning_cycle_id": item.get("learning_cycle_id"),
             }
             execute(
                 connection,
@@ -305,16 +326,7 @@ def approve_study_meeting_batch(*, actor_user_id: int, batch_id: int) -> dict[st
         _assert_current_preview(connection, row)
         items = _approved_items(connection, row)
         before = int(execute(connection, "SELECT COUNT(*) AS n FROM learning_credit_entries").fetchone()["n"])
-        approval_fp = _fingerprint(
-            {
-                "batch_id": batch_id,
-                "source_fingerprint": row["source_fingerprint"],
-                "rule_fingerprint": row["rule_fingerprint"],
-                "item_ids": [int(item["id"]) for item in items],
-                "idempotency_keys": [item["idempotency_key"] for item in items],
-                "proposed_points": format(Decimal(str(row["proposed_points"])), ".2f"),
-            }
-        )
+        approval_fp = _approval_fingerprint(row, items)
         now = credits._db_timestamp(connection)
         changed = execute(
             connection,
@@ -342,5 +354,205 @@ def approve_study_meeting_batch(*, actor_user_id: int, batch_id: int) -> dict[st
             resource_id=str(batch_id), org_unit_id=row["class_org_unit_id"],
             purpose="审批冻结的学习会学分提案，不入账",
             after={"approval_fingerprint": approval_fp, "proposed_entry_count": len(items)},
+        )
+        return _batch_summary(connection, batch_id, idempotent=False)
+
+
+def _reconcile_posted_items(connection: Any, row: Any) -> tuple[int, Decimal]:
+    items = execute(
+        connection,
+        "SELECT i.status,i.idempotency_key,i.points,i.member_id,i.ledger_entry_id,"
+        "i.source_type,i.source_id,i.credit_category,i.credit_type,i.rule_key,i.rule_version_id,"
+        "i.rule_snapshot_json,"
+        "e.id AS entry_id,e.idempotency_key AS entry_key,e.member_id AS entry_member,"
+        "e.points AS entry_points,e.status AS entry_status,e.source_type AS entry_source_type,"
+        "e.source_id AS entry_source_id,e.credit_category AS entry_category,"
+        "e.credit_type AS entry_type,e.rule_key AS entry_rule_key,"
+        "e.rule_version_id AS entry_rule_version_id,e.rule_snapshot_json AS entry_rule_snapshot "
+        "FROM learning_credit_settlement_batch_items i "
+        "LEFT JOIN learning_credit_entries e ON e.id=i.ledger_entry_id "
+        "WHERE i.batch_id=? ORDER BY i.id",
+        (row["id"],),
+    ).fetchall()
+    if len(items) != int(row["proposed_entry_count"]):
+        raise credits.LearningCreditError("批次账本对账条数不一致")
+    count, points = 0, Decimal("0")
+    for item in items:
+        if item["status"] == "POSTED":
+            if (
+                item["entry_id"] is None
+                or item["entry_status"] != "POSTED"
+                or item["entry_key"] != item["idempotency_key"]
+                or int(item["entry_member"]) != int(item["member_id"])
+                or Decimal(str(item["entry_points"])) != Decimal(str(item["points"]))
+                or item["entry_source_type"] != item["source_type"]
+                or str(item["entry_source_id"]) != str(item["source_id"])
+                or item["entry_category"] != item["credit_category"]
+                or item["entry_type"] != item["credit_type"]
+                or item["entry_rule_key"] != item["rule_key"]
+                or str(item["entry_rule_version_id"]) != str(item["rule_version_id"])
+                or _canonical(json.loads(item["entry_rule_snapshot"]))
+                != _canonical(json.loads(item["rule_snapshot_json"]))
+            ):
+                raise credits.LearningCreditError("批次条目与正式账本不一致")
+            count += 1
+            points += Decimal(str(item["entry_points"]))
+        elif item["ledger_entry_id"] is not None or item["status"] not in {"APPROVED", "FAILED"}:
+            raise credits.LearningCreditError("批次条目状态与账本关联不一致")
+    return count, points
+
+
+def post_study_meeting_batch(
+    *, actor_user_id: int, batch_id: int, resume_partial_failure: bool = False
+) -> dict[str, Any]:
+    """POST frozen items once, with per-item transactions and reconciliation.
+
+    An interrupted POSTING state is deliberately not retried automatically.
+    Only an explicitly requested PARTIAL_FAILED resume processes failed items.
+    """
+
+    if not credits.get_settings().learning_credit_batch_post_enabled:
+        raise credits.LearningCreditFeatureDisabled("学分结算批次正式入账尚未开启")
+    credits._settlement_enabled()
+    user = credits.user_context(actor_user_id) or {}
+    if not {"plans:credit_settlement_post", "plans:credit_settlement_manage"}.issubset(
+        user.get("permissions", [])
+    ):
+        raise PermissionError("无权正式入账结算批次")
+    with transaction() as connection:
+        row = execute(
+            connection, "SELECT * FROM learning_credit_settlement_batches WHERE id=?",
+            (batch_id,),
+        ).fetchone()
+        if not row or row["source_type"] != "STUDY_MEETING" or row["batch_type"] != "REGULAR":
+            raise credits.LearningCreditError("结算批次不存在或来源不匹配")
+        if not credits._scope_allows(actor_user_id, row["class_org_unit_id"]):
+            raise PermissionError("结算批次不在当前组织授权范围内")
+        if row["status"] == "POSTED":
+            count, points = _reconcile_posted_items(connection, row)
+            if count != int(row["proposed_entry_count"]) or points != Decimal(str(row["proposed_points"])):
+                raise credits.LearningCreditError("已入账批次对账失败")
+            return _batch_summary(connection, batch_id, idempotent=True)
+        if row["status"] == "PARTIAL_FAILED" and not resume_partial_failure:
+            raise credits.LearningCreditError("部分失败批次必须明确请求续跑")
+        if row["status"] not in {"APPROVED", "PARTIAL_FAILED"}:
+            raise credits.LearningCreditError("只有已审批或部分失败批次可以入账")
+        if row["approved_by"] is None or not row["approval_fingerprint"] or int(row["blocked_count"]):
+            raise credits.LearningCreditError("批次审批或阻塞门禁不完整")
+        items = execute(
+            connection,
+            "SELECT * FROM learning_credit_settlement_batch_items "
+            "WHERE batch_id=? ORDER BY id",
+            (batch_id,),
+        ).fetchall()
+        if _approval_fingerprint(row, items) != row["approval_fingerprint"]:
+            raise credits.LearningCreditError("批次审批指纹不匹配")
+        posted_keys = {item["idempotency_key"] for item in items if item["status"] == "POSTED"}
+        _assert_current_preview(connection, row, posted_keys=posted_keys)
+        _reconcile_posted_items(connection, row)
+        prior_status = row["status"]
+        changed = execute(
+            connection,
+            "UPDATE learning_credit_settlement_batches SET status='POSTING',updated_at=? "
+            "WHERE id=? AND status=?",
+            (credits._db_timestamp(connection), batch_id, prior_status),
+        )
+        if changed.rowcount != 1:
+            raise credits.LearningCreditError("批次入账状态已被其他执行者占用")
+        pending_ids = [int(item["id"]) for item in items if item["status"] in {"APPROVED", "FAILED"}]
+
+    for item_id in pending_ids:
+        try:
+            with atomic_transaction() as connection:
+                active_batch = execute(
+                    connection,
+                    "SELECT * FROM learning_credit_settlement_batches WHERE id=?",
+                    (batch_id,),
+                ).fetchone()
+                if not active_batch or active_batch["status"] != "POSTING":
+                    raise credits.LearningCreditError("批次入账上下文已变化")
+                posted_rows = execute(
+                    connection,
+                    "SELECT idempotency_key FROM learning_credit_settlement_batch_items "
+                    "WHERE batch_id=? AND status='POSTED'",
+                    (batch_id,),
+                ).fetchall()
+                _assert_current_preview(
+                    connection, active_batch,
+                    posted_keys={entry["idempotency_key"] for entry in posted_rows},
+                )
+                item = execute(
+                    connection,
+                    "SELECT * FROM learning_credit_settlement_batch_items WHERE id=? AND batch_id=?",
+                    (item_id, batch_id),
+                ).fetchone()
+                if not item or item["status"] not in {"APPROVED", "FAILED"} or item["ledger_entry_id"] is not None:
+                    raise credits.LearningCreditError("批次条目状态已变化")
+                source = json.loads(item["source_snapshot_json"])
+                entry = credits.post_credit_entry(
+                    actor_user_id=actor_user_id,
+                    item={
+                        "member_id": int(item["member_id"]),
+                        "credit_category": item["credit_category"],
+                        "credit_type": item["credit_type"],
+                        "points": str(item["points"]),
+                        "source_type": item["source_type"],
+                        "source_id": item["source_id"],
+                        "class_org_unit_id": row["class_org_unit_id"],
+                        "learning_cycle_id": source.get("learning_cycle_id"),
+                        "rule_key": item["rule_key"],
+                        "rule_version": item["rule_version"],
+                        "rule_version_id": item["rule_version_id"],
+                        "rule_snapshot": json.loads(item["rule_snapshot_json"]),
+                        "occurred_at": item["occurred_at"],
+                        "occurred_precision": item["occurred_precision"],
+                        "occurred_year": item["occurred_year"],
+                        "occurred_month": item["occurred_month"],
+                        "idempotency_key": item["idempotency_key"],
+                    },
+                )
+                if entry["idempotency_key"] != item["idempotency_key"] or Decimal(str(entry["points"])) != Decimal(str(item["points"])):
+                    raise credits.LearningCreditError("正式账本结果与冻结条目不一致")
+                changed = execute(
+                    connection,
+                    "UPDATE learning_credit_settlement_batch_items SET status='POSTED',ledger_entry_id=?,"
+                    "error_code=NULL,updated_at=? WHERE id=? AND status IN ('APPROVED','FAILED')",
+                    (entry["id"], credits._db_timestamp(connection), item_id),
+                )
+                if changed.rowcount != 1:
+                    raise credits.LearningCreditError("批次条目被并发修改")
+        except Exception as exc:  # noqa: BLE001 - persist only safe error category
+            with transaction() as connection:
+                execute(
+                    connection,
+                    "UPDATE learning_credit_settlement_batch_items SET status='FAILED',error_code=?,"
+                    "updated_at=? WHERE id=? AND batch_id=? AND status IN ('APPROVED','FAILED')",
+                    (type(exc).__name__[:128], credits._db_timestamp(connection), item_id, batch_id),
+                )
+            break
+
+    with transaction() as connection:
+        current = execute(
+            connection, "SELECT * FROM learning_credit_settlement_batches WHERE id=?",
+            (batch_id,),
+        ).fetchone()
+        if current["status"] != "POSTING":
+            raise credits.LearningCreditError("批次入账终态未知，必须人工核验")
+        count, points = _reconcile_posted_items(connection, current)
+        final_status = "POSTED" if count == int(current["proposed_entry_count"]) and points == Decimal(str(current["proposed_points"])) else "PARTIAL_FAILED"
+        changed = execute(
+            connection,
+            "UPDATE learning_credit_settlement_batches SET status=?,posted_entry_count=?,"
+            "posted_points=?,updated_at=? WHERE id=? AND status='POSTING'",
+            (final_status, count, str(points), credits._db_timestamp(connection), batch_id),
+        )
+        if changed.rowcount != 1:
+            raise credits.LearningCreditError("批次入账终态已变化")
+        write_audit(
+            connection, actor_user_id=actor_user_id,
+            action="learning_credit.batch.post", resource_type="learning_credit_settlement_batch",
+            resource_id=str(batch_id), org_unit_id=current["class_org_unit_id"],
+            purpose="按已审批冻结条目正式入账；失败仅续跑未入账条目",
+            after={"status": final_status, "posted_entry_count": count, "posted_points": str(points)},
         )
         return _batch_summary(connection, batch_id, idempotent=False)
