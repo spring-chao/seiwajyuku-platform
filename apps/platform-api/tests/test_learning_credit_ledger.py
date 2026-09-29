@@ -19,6 +19,7 @@ from app.services.learning_credits import (
     reverse_credit_entry,
     settle_study_meeting,
 )
+from app.services.credit_settlement_batches import dry_run_study_meeting_batch
 from app.services.study_meetings import (
     confirm_study_meeting_course_completion,
 )
@@ -134,6 +135,46 @@ def test_group_meeting_dry_run_is_cycle_once_and_does_not_write() -> None:
         )
         assert repeated == preview
         assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == before
+
+
+def test_study_meeting_batch_freezes_preview_without_ledger_post() -> None:
+    f = _seed_group_leader_fixture()
+    _use_credit_plan(f)
+    session = create(f)
+    _submit_without_evidence(session)
+    actor = _admin_id()
+    ledger_before = fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]
+    batches_before = fetch_one("SELECT COUNT(*) AS n FROM learning_credit_settlement_batches")["n"]
+
+    with pytest.raises(LearningCreditError, match="学分正式结算尚未开启"):
+        dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        first = dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
+        repeated = dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
+        assert first["status"] == "DRY_RUN"
+        assert first["proposed_entry_count"] == 2
+        assert first["blocked_count"] == 0
+        assert first["idempotent"] is False
+        assert repeated["idempotent"] is True
+        assert repeated["id"] == first["id"]
+        assert fetch_one(
+            "SELECT COUNT(*) AS n FROM learning_credit_settlement_batch_items WHERE batch_id=?",
+            (first["id"],),
+        )["n"] == 2
+        with transaction() as connection:
+            execute(
+                connection,
+                "UPDATE learning_credit_rules SET points=5 WHERE rule_key='GROUP_MEETING_ATTENDANCE' "
+                "AND rule_version_id=(SELECT credit_rule_version_id FROM class_learning_bindings "
+                "WHERE class_org_unit_id=? ORDER BY id DESC LIMIT 1)",
+                (f["class_id"],),
+            )
+        with pytest.raises(LearningCreditError, match="冻结规则已变化"):
+            dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
+
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_settlement_batches")["n"] == batches_before + 1
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == ledger_before
 
 
 def test_dry_run_does_not_fallback_to_plans_read_permission() -> None:
