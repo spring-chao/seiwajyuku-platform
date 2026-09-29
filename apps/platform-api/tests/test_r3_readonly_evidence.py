@@ -1,6 +1,7 @@
 import ast
 import copy
 import json
+import re
 import sys
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -820,6 +821,21 @@ def test_mysql_port_only_sends_whitelisted_selects(db_rows):
         == db_rows[db.QueryId.LEDGER]
     )
     assert statements == [db.SQL[db.QueryId.LEDGER]]
+
+
+def test_every_production_baseline_query_is_fixed_select_only():
+    assert set(db.SQL) == set(db.QueryId)
+    assert len(db.SQL) == 12
+    forbidden = re.compile(
+        r"\b(?:INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|TRUNCATE|REPLACE|"
+        r"GRANT|REVOKE|CALL|SET|LOCK|UNLOCK|FOR\s+UPDATE|INTO\s+OUTFILE)\b",
+        re.IGNORECASE,
+    )
+    for query_id, sql in db.SQL.items():
+        assert type(query_id) is db.QueryId
+        assert re.match(r"^SELECT\s", sql, re.IGNORECASE)
+        assert ";" not in sql
+        assert forbidden.search(sql) is None
 
 
 def test_live_db_cannot_use_fixture_collection(db_rows):
