@@ -67,8 +67,8 @@ def _bind_class_meeting_rule(fixture: dict) -> None:
             version_cursor = execute(
                 connection,
                 "INSERT INTO learning_credit_rule_versions "
-                "(rule_set_key, version_label, status, created_at, updated_at) "
-                "VALUES (?, ?, 'PUBLISHED', ?, ?)",
+                "(rule_set_key, version_label, status, metadata_json, created_at, updated_at) "
+                "VALUES (?, ?, 'PUBLISHED', '{}', ?, ?)",
                 (binding["plan_key"], binding["version_label"], now, now),
             )
             version_id = int(version_cursor.lastrowid)
@@ -79,21 +79,27 @@ def _bind_class_meeting_rule(fixture: dict) -> None:
                 "UPDATE learning_credit_rule_versions SET status='PUBLISHED', updated_at=? WHERE id=?",
                 (now, version_id),
             )
-        execute(
+        existing_rule = execute(
             connection,
-            "INSERT OR IGNORE INTO learning_credit_rules "
-            "(rule_version_id, rule_key, credit_category, credit_type, settlement_model, "
-            "rule_snapshot_json, created_at, updated_at) "
-            "VALUES (?, ?, 'STANDARD_LEARNING', ?, 'EVENT_ONCE', ?, ?, ?)",
-            (
-                version_id,
-                CLASS_MEETING_SCORE,
-                CLASS_MEETING_SCORE,
-                '{"points":"FROM_ATTENDANCE_SCORE","source":"attendance_score_records"}',
-                now,
-                now,
-            ),
-        )
+            "SELECT id FROM learning_credit_rules WHERE rule_version_id=? AND rule_key=? LIMIT 1",
+            (version_id, CLASS_MEETING_SCORE),
+        ).fetchone()
+        if not existing_rule:
+            execute(
+                connection,
+                "INSERT INTO learning_credit_rules "
+                "(rule_version_id, rule_key, credit_category, credit_type, settlement_model, "
+                "rule_snapshot_json, created_at, updated_at) "
+                "VALUES (?, ?, 'STANDARD_LEARNING', ?, 'EVENT_ONCE', ?, ?, ?)",
+                (
+                    version_id,
+                    CLASS_MEETING_SCORE,
+                    CLASS_MEETING_SCORE,
+                    '{"points":"FROM_ATTENDANCE_SCORE","source":"attendance_score_records"}',
+                    now,
+                    now,
+                ),
+            )
         execute(
             connection,
             "UPDATE class_learning_bindings SET credit_rule_version_id=? WHERE id=?",
