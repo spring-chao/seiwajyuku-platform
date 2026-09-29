@@ -368,10 +368,20 @@ def test_ledger_reversal_is_append_only_and_idempotent() -> None:
         patch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
         original = post_credit_entry(actor_user_id=actor, item=item)
         assert member_credit_summary(actor_user_id=actor, member_id=f["member_id"])["total_points"] == 40
+        original_row = fetch_one(
+            "SELECT * FROM learning_credit_entries WHERE id=?", (original["id"],)
+        )
         reversal = reverse_credit_entry(actor_user_id=actor, entry_id=original["id"], reason="核对后冲销")
         repeated = reverse_credit_entry(actor_user_id=actor, entry_id=original["id"], reason="核对后冲销")
     assert reversal["points"] == -40
     assert repeated["id"] == reversal["id"]
-    assert fetch_one("SELECT status FROM learning_credit_entries WHERE id=?", (original["id"],))["status"] == "REVERSED"
+    assert fetch_one(
+        "SELECT * FROM learning_credit_entries WHERE id=?", (original["id"],)
+    ) == original_row
+    assert fetch_one("SELECT status FROM learning_credit_entries WHERE id=?", (original["id"],))["status"] == "POSTED"
+    assert fetch_one(
+        "SELECT reversal_of_entry_id, status FROM learning_credit_entries WHERE id=?",
+        (reversal["id"],),
+    ) == {"reversal_of_entry_id": original["id"], "status": "POSTED"}
     assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries WHERE idempotency_key=?", (f"REVERSAL:{original['id']}",))["n"] == 1
     assert member_credit_summary(actor_user_id=actor, member_id=f["member_id"])["total_points"] == 0
