@@ -57,8 +57,8 @@ def _use_credit_plan(f: dict, course_key: str | None = None) -> None:
         generic_cursor = execute(
             connection,
             "INSERT INTO learning_credit_rule_versions "
-            "(rule_set_key, version_label, status, created_at, updated_at) "
-            "VALUES (?, ?, 'PUBLISHED', ?, ?)",
+            "(rule_set_key, version_label, status, metadata_json, created_at, updated_at) "
+            "VALUES (?, ?, 'PUBLISHED', '{}', ?, ?)",
             (binding["plan_key"], binding["version_label"], "2026-09-06", "2026-09-06"),
         )
         generic_id = int(generic_cursor.lastrowid)
