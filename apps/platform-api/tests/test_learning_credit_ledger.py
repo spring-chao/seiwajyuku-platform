@@ -12,6 +12,7 @@ from app.core.security import create_token
 from app.db import execute, fetch_one, transaction
 from app.main import app
 from app.services.learning_credits import (
+    LearningCreditError,
     dry_run_study_meeting_settlement,
     member_credit_summary,
     post_credit_entry,
@@ -385,3 +386,47 @@ def test_ledger_reversal_is_append_only_and_idempotent() -> None:
     ) == {"reversal_of_entry_id": original["id"], "status": "POSTED"}
     assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries WHERE idempotency_key=?", (f"REVERSAL:{original['id']}",))["n"] == 1
     assert member_credit_summary(actor_user_id=actor, member_id=f["member_id"])["total_points"] == 0
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"points": 41},
+        {"source_id": "different-source"},
+        {"rule_snapshot": {"reason": "different-rule"}},
+        {"occurred_at": "2026-09-07"},
+    ],
+)
+def test_post_rejects_same_idempotency_key_for_different_fact(changed: dict) -> None:
+    f = _seed_group_leader_fixture()
+    actor = _admin_id()
+    version = fetch_one(
+        "SELECT id, version_label FROM learning_credit_rule_versions "
+        "WHERE rule_set_key='STANDARD_3Y_2026' AND version_label='2026.1'"
+    )
+    key = f"MANUAL:{uuid4().hex}"
+    item = {
+        "member_id": f["member_id"],
+        "credit_category": "STANDARD_LEARNING",
+        "credit_type": "MANUAL_ADJUSTMENT",
+        "points": 40,
+        "source_type": "MANUAL_ADJUSTMENT",
+        "source_id": key,
+        "class_org_unit_id": f["class_id"],
+        "rule_key": "MANUAL_ADJUSTMENT",
+        "rule_version": version["version_label"],
+        "rule_version_id": version["id"],
+        "rule_snapshot": {"reason": "original-rule"},
+        "occurred_at": "2026-09-06",
+        "idempotency_key": key,
+    }
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        original = post_credit_entry(actor_user_id=actor, item=item)
+        assert post_credit_entry(actor_user_id=actor, item=item)["id"] == original["id"]
+        with pytest.raises(LearningCreditError, match="幂等键已关联不同学分事实"):
+            post_credit_entry(actor_user_id=actor, item={**item, **changed})
+    assert fetch_one(
+        "SELECT COUNT(*) AS n FROM learning_credit_entries WHERE idempotency_key=?",
+        (key,),
+    )["n"] == 1

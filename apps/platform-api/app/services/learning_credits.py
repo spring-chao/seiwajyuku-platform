@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 from app.core.settings import get_settings
@@ -132,6 +133,15 @@ def _existing_entry(connection, idempotency_key: str) -> dict[str, Any] | None:
         (idempotency_key,),
     ).fetchone()
     return dict(row) if row else None
+
+
+def _normalized_entry_time(value: Any) -> str | None:
+    if value is None:
+        return None
+    # MySQL DATETIME(0) returns a datetime, while SQLite retains the source
+    # date string. Both represent a date-only fact as midnight.
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return parsed.replace(microsecond=0, tzinfo=None).isoformat()
 
 
 def _entry_payload(row: Any) -> dict[str, Any]:
@@ -734,6 +744,30 @@ def _insert_entry(connection, item: dict[str, Any], *, status: str, actor_user_i
         existing = _existing_entry(connection, item["idempotency_key"])
         if not existing:
             raise
+        expected_occurred = _occurrence_fields(item)
+        existing_occurred = (
+            _normalized_entry_time(existing["occurred_at"]),
+            existing.get("occurred_precision") or OCCURRED_EXACT_DATE,
+            int(existing["occurred_year"]) if existing.get("occurred_year") is not None else None,
+            int(existing["occurred_month"]) if existing.get("occurred_month") is not None else None,
+        )
+        expected_period = (
+            _normalized_entry_time(expected_occurred[0]),
+            expected_occurred[1], expected_occurred[2], expected_occurred[3],
+        )
+        fields = (
+            "member_id", "credit_category", "credit_type", "source_type", "source_id",
+            "class_org_unit_id", "learning_cycle_id", "rule_key", "rule_version",
+            "rule_version_id", "reversal_of_entry_id",
+        )
+        if (
+            any(str(existing.get(k)) != str(item.get(k)) for k in fields)
+            or Decimal(str(existing["points"])) != Decimal(str(item["points"]))
+            or _json(_decode(existing["rule_snapshot_json"])) != _json(item["rule_snapshot"])
+            or existing_occurred != expected_period
+            or existing["status"] not in {status, "REVERSED"}
+        ):
+            raise LearningCreditError("幂等键已关联不同学分事实") from None
         return _entry_payload(existing)
 
 
