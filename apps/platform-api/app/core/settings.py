@@ -64,6 +64,8 @@ class Settings:
     # returned by an API or written to audit payloads.
     study_evidence_cleanup_token: str = field(default="", repr=False)
     learning_credit_settlement_enabled: bool = False
+    learning_credit_batch_dry_run_enabled: bool = False
+    learning_credit_batch_approval_enabled: bool = False
     g5_4_production_rule_apply_enabled: bool = False
     agent_client_id: str = ""
     agent_client_secret: str = ""
@@ -232,6 +234,12 @@ def get_settings() -> Settings:
         ).strip(),
         learning_credit_settlement_enabled=_bool(
             "LEARNING_CREDIT_SETTLEMENT_ENABLED"
+        ),
+        learning_credit_batch_dry_run_enabled=_bool(
+            "LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED"
+        ),
+        learning_credit_batch_approval_enabled=_bool(
+            "LEARNING_CREDIT_BATCH_APPROVAL_ENABLED"
         ),
         g5_4_production_rule_apply_enabled=_bool(
             "G5_4_PRODUCTION_RULE_APPLY_ENABLED"

@@ -19,7 +19,11 @@ from app.services.learning_credits import (
     reverse_credit_entry,
     settle_study_meeting,
 )
-from app.services.credit_settlement_batches import dry_run_study_meeting_batch
+from app.services.credit_settlement_batches import (
+    approve_study_meeting_batch,
+    dry_run_study_meeting_batch,
+    submit_study_meeting_batch_for_approval,
+)
 from app.services.study_meetings import (
     confirm_study_meeting_course_completion,
 )
@@ -146,10 +150,11 @@ def test_study_meeting_batch_freezes_preview_without_ledger_post() -> None:
     ledger_before = fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]
     batches_before = fetch_one("SELECT COUNT(*) AS n FROM learning_credit_settlement_batches")["n"]
 
-    with pytest.raises(LearningCreditError, match="学分正式结算尚未开启"):
+    with pytest.raises(LearningCreditError, match="批次DRY-RUN写入尚未开启"):
         dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
     with pytest.MonkeyPatch.context() as patch_env:
-        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        patch_env.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "false")
         first = dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
         repeated = dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
         assert first["status"] == "DRY_RUN"
@@ -175,6 +180,37 @@ def test_study_meeting_batch_freezes_preview_without_ledger_post() -> None:
 
     assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_settlement_batches")["n"] == batches_before + 1
     assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == ledger_before
+
+
+def test_study_meeting_batch_requires_separate_approval_gate_and_permission() -> None:
+    f = _seed_group_leader_fixture()
+    _use_credit_plan(f)
+    session = create(f)
+    _submit_without_evidence(session)
+    actor = _admin_id()
+    before = fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+        batch = dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
+        submitted = submit_study_meeting_batch_for_approval(actor_user_id=actor, batch_id=batch["id"])
+        assert submitted["status"] == "PENDING_APPROVAL"
+        with pytest.raises(LearningCreditError, match="批次审批尚未开启"):
+            approve_study_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+        patch_env.setenv("LEARNING_CREDIT_BATCH_APPROVAL_ENABLED", "true")
+        with pytest.raises(PermissionError, match="无权审批"):
+            approve_study_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+        with patch(
+            "app.services.learning_credits.user_context",
+            return_value={"permissions": ["plans:credit_settlement_approve"]},
+        ):
+            approved = approve_study_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+        assert approved["status"] == "APPROVED"
+        assert fetch_one(
+            "SELECT COUNT(*) AS n FROM learning_credit_settlement_batch_items "
+            "WHERE batch_id=? AND status='APPROVED'",
+            (batch["id"],),
+        )["n"] == 2
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == before
 
 
 def test_dry_run_does_not_fallback_to_plans_read_permission() -> None:

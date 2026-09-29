@@ -96,10 +96,44 @@ def _batch_summary(connection: Any, batch_id: int, *, idempotent: bool) -> dict[
     }
 
 
+def _assert_current_preview(connection: Any, row: Any) -> None:
+    source_snapshot = json.loads(row["source_snapshot_json"])
+    preview = credits._build_study_meeting_preview(
+        connection, int(source_snapshot["session_id"])
+    )
+    live_source, live_rules = _preview_snapshots(preview)
+    if (
+        _fingerprint(live_source) != row["source_fingerprint"]
+        or _fingerprint(live_rules) != row["rule_fingerprint"]
+        or preview["totals"]["proposed_entry_count"] != int(row["proposed_entry_count"])
+        or preview["totals"]["blocked_entry_count"] != 0
+        or preview["totals"]["duplicate_entry_count"] != 0
+        or sum((_points(i["points"]) for i in preview["entries"] if i["postable"]), Decimal("0"))
+        != Decimal(str(row["proposed_points"]))
+    ):
+        raise credits.LearningCreditError("结算事实或规则已变化，必须重新DRY-RUN")
+
+
+def _approved_items(connection: Any, row: Any) -> list[Any]:
+    items = execute(
+        connection,
+        "SELECT id,idempotency_key,points FROM learning_credit_settlement_batch_items "
+        "WHERE batch_id=? AND status='PROPOSED' ORDER BY id",
+        (row["id"],),
+    ).fetchall()
+    if len(items) != int(row["proposed_entry_count"]) or sum(
+        (Decimal(str(item["points"])) for item in items), Decimal("0")
+    ) != Decimal(str(row["proposed_points"])):
+        raise credits.LearningCreditError("批次提案与冻结汇总不一致")
+    return list(items)
+
+
 def dry_run_study_meeting_batch(*, actor_user_id: int, session_id: int) -> dict[str, Any]:
     """Persist one frozen preview batch; never insert a ledger entry."""
 
-    credits._settlement_enabled()
+    if not credits.get_settings().learning_credit_batch_dry_run_enabled:
+        raise credits.LearningCreditFeatureDisabled("学分结算批次DRY-RUN写入尚未开启")
+    credits._write_allowed()
     user = credits.user_context(actor_user_id) or {}
     if "plans:credit_settlement_manage" not in user.get("permissions", []):
         raise PermissionError("无权创建学分结算批次")
@@ -193,5 +227,120 @@ def dry_run_study_meeting_batch(*, actor_user_id: int, session_id: int) -> dict[
             resource_id=str(batch_id), org_unit_id=session["class_org_unit_id"],
             purpose="冻结学习会学分结算提案，不入账",
             after={"proposed_entry_count": len(postable), "blocked_count": len(blocked), "source_fingerprint": source_fp},
+        )
+        return _batch_summary(connection, batch_id, idempotent=False)
+
+
+def submit_study_meeting_batch_for_approval(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+    """Freeze an unblocked DRY-RUN for independent approval; no ledger POST."""
+
+    if not credits.get_settings().learning_credit_batch_dry_run_enabled:
+        raise credits.LearningCreditFeatureDisabled("学分结算批次DRY-RUN写入尚未开启")
+    credits._write_allowed()
+    user = credits.user_context(actor_user_id) or {}
+    if "plans:credit_settlement_manage" not in user.get("permissions", []):
+        raise PermissionError("无权提交学分结算批次")
+    with transaction() as connection:
+        row = execute(
+            connection,
+            "SELECT * FROM learning_credit_settlement_batches WHERE id=?",
+            (batch_id,),
+        ).fetchone()
+        if not row or row["source_type"] != "STUDY_MEETING" or row["batch_type"] != "REGULAR":
+            raise credits.LearningCreditError("结算批次不存在或来源不匹配")
+        if not credits._scope_allows(actor_user_id, row["class_org_unit_id"]):
+            raise PermissionError("结算批次不在当前组织授权范围内")
+        if row["status"] != "DRY_RUN":
+            raise credits.LearningCreditError("只有DRY_RUN批次可以提交审批")
+        if int(row["blocked_count"]) or not int(row["proposed_entry_count"]):
+            raise credits.LearningCreditError("存在阻塞项或没有待入账提案，不能提交审批")
+        _assert_current_preview(connection, row)
+        _approved_items(connection, row)
+        before = int(execute(connection, "SELECT COUNT(*) AS n FROM learning_credit_entries").fetchone()["n"])
+        now = credits._db_timestamp(connection)
+        changed = execute(
+            connection,
+            "UPDATE learning_credit_settlement_batches SET status='PENDING_APPROVAL',updated_at=? "
+            "WHERE id=? AND status='DRY_RUN'",
+            (now, batch_id),
+        )
+        if changed.rowcount != 1:
+            raise credits.LearningCreditError("批次提交状态已变化")
+        after = int(execute(connection, "SELECT COUNT(*) AS n FROM learning_credit_entries").fetchone()["n"])
+        if after != before:
+            raise credits.LearningCreditError("提交审批不得写入正式学分账本")
+        write_audit(
+            connection, actor_user_id=actor_user_id,
+            action="learning_credit.batch.submit_approval", resource_type="learning_credit_settlement_batch",
+            resource_id=str(batch_id), org_unit_id=row["class_org_unit_id"],
+            purpose="提交冻结的学习会学分提案审批，不入账",
+            after={"status": "PENDING_APPROVAL", "source_fingerprint": row["source_fingerprint"]},
+        )
+        return _batch_summary(connection, batch_id, idempotent=False)
+
+
+def approve_study_meeting_batch(*, actor_user_id: int, batch_id: int) -> dict[str, Any]:
+    """Approve an unchanged, unblocked batch; no ledger POST is possible here."""
+
+    if not credits.get_settings().learning_credit_batch_approval_enabled:
+        raise credits.LearningCreditFeatureDisabled("学分结算批次审批尚未开启")
+    credits._write_allowed()
+    user = credits.user_context(actor_user_id) or {}
+    if "plans:credit_settlement_approve" not in user.get("permissions", []):
+        raise PermissionError("无权审批学分结算批次")
+    with transaction() as connection:
+        row = execute(
+            connection,
+            "SELECT * FROM learning_credit_settlement_batches WHERE id=?",
+            (batch_id,),
+        ).fetchone()
+        if not row or row["source_type"] != "STUDY_MEETING" or row["batch_type"] != "REGULAR":
+            raise credits.LearningCreditError("结算批次不存在或来源不匹配")
+        if not credits._scope_allows(actor_user_id, row["class_org_unit_id"]):
+            raise PermissionError("结算批次不在当前组织授权范围内")
+        if row["status"] != "PENDING_APPROVAL":
+            raise credits.LearningCreditError("只有待审批批次可以批准")
+        if int(row["blocked_count"]) or not int(row["proposed_entry_count"]):
+            raise credits.LearningCreditError("存在阻塞项或没有待入账提案，不能审批")
+        _assert_current_preview(connection, row)
+        items = _approved_items(connection, row)
+        before = int(execute(connection, "SELECT COUNT(*) AS n FROM learning_credit_entries").fetchone()["n"])
+        approval_fp = _fingerprint(
+            {
+                "batch_id": batch_id,
+                "source_fingerprint": row["source_fingerprint"],
+                "rule_fingerprint": row["rule_fingerprint"],
+                "item_ids": [int(item["id"]) for item in items],
+                "idempotency_keys": [item["idempotency_key"] for item in items],
+                "proposed_points": format(Decimal(str(row["proposed_points"])), ".2f"),
+            }
+        )
+        now = credits._db_timestamp(connection)
+        changed = execute(
+            connection,
+            "UPDATE learning_credit_settlement_batches SET status='APPROVED',approved_by=?,"
+            "approved_at=?,approval_fingerprint=?,updated_at=? "
+            "WHERE id=? AND status='PENDING_APPROVAL' AND approval_fingerprint IS NULL",
+            (actor_user_id, now, approval_fp, now, batch_id),
+        )
+        if changed.rowcount != 1:
+            raise credits.LearningCreditError("批次审批状态已变化")
+        item_update = execute(
+            connection,
+            "UPDATE learning_credit_settlement_batch_items SET status='APPROVED',updated_at=? "
+            "WHERE batch_id=? AND status='PROPOSED'",
+            (now, batch_id),
+        )
+        if item_update.rowcount != len(items):
+            raise credits.LearningCreditError("批次提案状态已变化")
+        after = int(execute(connection, "SELECT COUNT(*) AS n FROM learning_credit_entries").fetchone()["n"])
+        if after != before:
+            raise credits.LearningCreditError("审批不得写入正式学分账本")
+        write_audit(
+            connection, actor_user_id=actor_user_id,
+            action="learning_credit.batch.approve", resource_type="learning_credit_settlement_batch",
+            resource_id=str(batch_id), org_unit_id=row["class_org_unit_id"],
+            purpose="审批冻结的学习会学分提案，不入账",
+            after={"approval_fingerprint": approval_fp, "proposed_entry_count": len(items)},
         )
         return _batch_summary(connection, batch_id, idempotent=False)
