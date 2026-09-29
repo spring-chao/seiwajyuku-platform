@@ -15,6 +15,7 @@ from app.services.class_meeting_credits import (
     dry_run_class_meeting_settlement,
     dry_run_class_meetings,
 )
+from app.services.credit_settlement_batches import dry_run_class_meeting_batch
 from test_v12_mvp import _seed_group_leader_fixture
 
 
@@ -249,6 +250,29 @@ def test_class_meeting_projection_uses_backend_breakdown_and_is_zero_write() -> 
         "ledger_entries_delta": 0,
     }
     assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == before
+
+
+def test_class_meeting_batch_freezes_score_facts_without_ledger_post(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _seed_group_leader_fixture()
+    group_id = _create_class_meeting(fixture)
+    actor = _admin_id()
+    before = int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"])
+    monkeypatch.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+    batch = dry_run_class_meeting_batch(actor_user_id=actor, event_group_id=group_id)
+    repeat = dry_run_class_meeting_batch(actor_user_id=actor, event_group_id=group_id)
+    assert batch["status"] == "DRY_RUN"
+    assert batch["proposed_entry_count"] == 2
+    assert batch["proposed_points"] == "35.00"
+    assert batch["blocked_count"] == 0
+    assert repeat["idempotent"] is True
+    assert repeat["id"] == batch["id"]
+    assert fetch_one(
+        "SELECT COUNT(*) AS n FROM learning_credit_settlement_batch_items WHERE batch_id=?",
+        (batch["id"],),
+    )["n"] == 2
+    assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before
 
 
 def test_class_meeting_projection_is_idempotent_and_skips_existing_ledger_entry() -> None:

@@ -11,6 +11,7 @@ from typing import Any
 from app.db import atomic_transaction, execute, transaction
 from app.services.audit import write_audit
 from app.services import learning_credits as credits
+from app.services import class_meeting_credits as class_credits
 
 
 def _canonical(value: Any) -> str:
@@ -247,6 +248,144 @@ def dry_run_study_meeting_batch(*, actor_user_id: int, session_id: int) -> dict[
             action="learning_credit.batch.dry_run", resource_type="learning_credit_settlement_batch",
             resource_id=str(batch_id), org_unit_id=session["class_org_unit_id"],
             purpose="冻结学习会学分结算提案，不入账",
+            after={"proposed_entry_count": len(postable), "blocked_count": len(blocked), "source_fingerprint": source_fp},
+        )
+        return _batch_summary(connection, batch_id, idempotent=False)
+
+
+def _class_preview_snapshots(preview: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    meeting = preview["meeting"]
+    facts: list[dict[str, Any]] = []
+    rules: list[dict[str, Any]] = []
+    for item in preview["entries"]:
+        facts.append({
+            "member_id": int(item["member_id"]),
+            "source_type": item["source_type"],
+            "source_id": item["source_id"],
+            "idempotency_key": item["idempotency_key"],
+            "status": "READY" if item["status"] == "SKIPPED_DUPLICATE" else item["status"],
+            "points": item["points"],
+            "score_details": item["score_details"],
+            "blocking_reason": item["blocking_reason"],
+        })
+        rule = dict(item["rule_snapshot"])
+        rule.pop("score_records", None)
+        rules.append({"idempotency_key": item["idempotency_key"], "rule": rule})
+    facts.sort(key=lambda item: item["idempotency_key"])
+    rules.sort(key=lambda item: item["idempotency_key"])
+    return (
+        {
+            "event_group_id": int(meeting["id"]),
+            "class_org_unit_id": meeting["study_org_unit_id"],
+            "event_date": str(meeting["event_date"])[:10],
+            "meeting_status": meeting["status"],
+            "binding_id": meeting["binding_id"],
+            "sessions": meeting["sessions"],
+            "excluded_record_count": int(preview["excluded_record_count"]),
+            "facts": facts,
+        },
+        {"rules": rules},
+    )
+
+
+def dry_run_class_meeting_batch(*, actor_user_id: int, event_group_id: int) -> dict[str, Any]:
+    """Persist a class-meeting score proposal; never write the ledger."""
+
+    if not credits.get_settings().learning_credit_batch_dry_run_enabled:
+        raise credits.LearningCreditFeatureDisabled("学分结算批次DRY-RUN写入尚未开启")
+    credits._write_allowed()
+    user = credits.user_context(actor_user_id) or {}
+    if "plans:credit_settlement_manage" not in user.get("permissions", []):
+        raise PermissionError("无权创建学分结算批次")
+    with transaction() as connection:
+        meeting = class_credits._meeting_context(connection, event_group_id)
+        if not meeting:
+            raise credits.LearningCreditError("班会活动不存在")
+        if not class_credits._scope_allows_group(actor_user_id, meeting):
+            raise PermissionError("班会活动不在当前组织授权范围内")
+        before = int(execute(connection, "SELECT COUNT(*) AS n FROM learning_credit_entries").fetchone()["n"])
+        preview = class_credits._build_preview(connection, event_group_id)
+        source_snapshot, rule_snapshot = _class_preview_snapshots(preview)
+        source_fp, rule_fp = _fingerprint(source_snapshot), _fingerprint(rule_snapshot)
+        existing = execute(
+            connection,
+            "SELECT id,rule_fingerprint FROM learning_credit_settlement_batches "
+            "WHERE source_type='CLASS_MEETING' AND source_fingerprint=? "
+            "AND batch_type='REGULAR' LIMIT 1",
+            (source_fp,),
+        ).fetchone()
+        if existing:
+            if existing["rule_fingerprint"] != rule_fp:
+                raise credits.LearningCreditError("结算来源对应的冻结规则已变化")
+            return _batch_summary(connection, int(existing["id"]), idempotent=True)
+
+        postable = [item for item in preview["entries"] if item["status"] == "READY" and item["postable"]]
+        blocked = [item for item in preview["entries"] if item["status"] == "BLOCKED"]
+        proposed_points = sum((_points(item["points"]) for item in postable), Decimal("0"))
+        event_date = date.fromisoformat(source_snapshot["event_date"])
+        now = credits._db_timestamp(connection)
+        batch_no = f"LC-CLASS-{event_group_id}-{source_fp[:12]}"
+        result_snapshot = {
+            "blocking_reasons": preview["blocking_reasons"],
+            "duplicate_entry_count": preview["totals"]["duplicate_entry_count"],
+            "no_credit_entry_count": preview["totals"]["no_credit_entry_count"],
+            "excluded_record_count": preview["excluded_record_count"],
+        }
+        cursor = execute(
+            connection,
+            "INSERT INTO learning_credit_settlement_batches "
+            "(batch_no,batch_type,source_type,class_org_unit_id,period_precision,period_start,period_end,"
+            "status,proposed_entry_count,proposed_points,blocked_count,source_snapshot_json,rule_snapshot_json,"
+            "result_snapshot_json,source_fingerprint,rule_fingerprint,created_by,created_at,updated_at) "
+            "VALUES (?, 'REGULAR', 'CLASS_MEETING', ?, 'EXACT_DATE', ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                batch_no, source_snapshot["class_org_unit_id"], event_date.isoformat(), event_date.isoformat(),
+                len(postable), str(proposed_points), len(blocked), _canonical(source_snapshot),
+                _canonical(rule_snapshot), _canonical(result_snapshot), source_fp, rule_fp,
+                actor_user_id, now, now,
+            ),
+        )
+        batch_id = int(cursor.lastrowid)
+        for item in postable + blocked:
+            item_status = "PROPOSED" if item["status"] == "READY" else "BLOCKED"
+            source_item = {
+                "event_group_id": event_group_id,
+                "member_id": int(item["member_id"]),
+                "score_details": item["score_details"],
+                "learning_cycle_id": item["learning_cycle_id"],
+            }
+            execute(
+                connection,
+                "INSERT INTO learning_credit_settlement_batch_items "
+                "(batch_id,member_id,source_type,source_id,source_snapshot_json,rule_key,rule_version,"
+                "rule_version_id,rule_snapshot_json,credit_category,credit_type,points,occurred_at,"
+                "occurred_precision,occurred_year,occurred_month,idempotency_key,status,blocking_reason,"
+                "created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    batch_id, int(item["member_id"]), item["source_type"], str(item["source_id"]),
+                    _canonical(source_item), item.get("rule_key"), item.get("rule_version"),
+                    item.get("rule_version_id"), _canonical(item.get("rule_snapshot") or {}),
+                    item.get("credit_category"), item.get("credit_type"),
+                    str(_points(item["points"])) if item_status == "PROPOSED" else None,
+                    event_date.isoformat(), "EXACT_DATE", event_date.year, event_date.month,
+                    item.get("idempotency_key"), item_status,
+                    "PREVIEW_BLOCKED" if item_status == "BLOCKED" else None,
+                    now, now,
+                ),
+            )
+        execute(
+            connection,
+            "UPDATE learning_credit_settlement_batches SET status='DRY_RUN',updated_at=? WHERE id=? AND status='DRAFT'",
+            (now, batch_id),
+        )
+        after = int(execute(connection, "SELECT COUNT(*) AS n FROM learning_credit_entries").fetchone()["n"])
+        if after != before:
+            raise credits.LearningCreditError("DRY-RUN不得写入正式学分账本")
+        write_audit(
+            connection, actor_user_id=actor_user_id,
+            action="learning_credit.batch.dry_run", resource_type="learning_credit_settlement_batch",
+            resource_id=str(batch_id), org_unit_id=source_snapshot["class_org_unit_id"],
+            purpose="冻结班会评分结算提案，不入账",
             after={"proposed_entry_count": len(postable), "blocked_count": len(blocked), "source_fingerprint": source_fp},
         )
         return _batch_summary(connection, batch_id, idempotent=False)
