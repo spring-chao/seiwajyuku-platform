@@ -1,6 +1,6 @@
 # R3 生产数据库基线只读授权包（待签发，不可执行）
 
-状态（2026-09-29）：`PRODUCTION_DB_READ=NOT_AUTHORIZED`、`DB_EVIDENCE=NOT_COLLECTED`。`scripts/r3_db_read.py` 的真实 `DatabaseReadAdapter.collect()` 仍硬性拒绝；本文件不启用入口，不构成 DB 访问授权。任何旧的账本数量和指纹均非本次实时事实。
+状态（2026-09-30）：`PRODUCTION_DB_READ=NOT_AUTHORIZED`、`DB_EVIDENCE=NOT_COLLECTED`。`scripts/r3_db_read.py` 的真实 `DatabaseReadAdapter.collect()` 仍硬性拒绝；本文件不启用入口，不构成 DB 访问授权。12 个固定 QueryId 均绑定无自由 SQL 参数的 `SELECT`，专项测试还拒绝写语句、分号和 `SELECT ... INTO OUTFILE`；这些是代码静态门禁，不代表已连接生产库。任何旧的账本数量和指纹均非本次实时事实。
 
 ## 唯一目的与对象
 

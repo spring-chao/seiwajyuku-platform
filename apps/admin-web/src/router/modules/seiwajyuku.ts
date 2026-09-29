@@ -108,6 +108,17 @@ export default [
           icon: "ep/notebook",
           auths: ["plans:read"]
         }
+      },
+      {
+        path: "/operations/learning-credit-settlements",
+        name: "LearningCreditSettlements",
+        component: () =>
+          import("@/views/seiwajyuku/learning-credit-settlements.vue"),
+        meta: {
+          title: "学分结算工作台",
+          icon: "ep/coin",
+          auths: ["plans:credit_settlement_manage"]
+        }
       }
     ]
   },

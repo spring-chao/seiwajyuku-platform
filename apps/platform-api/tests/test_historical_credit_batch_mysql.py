@@ -19,6 +19,7 @@ from app.services.credit_settlement_batches import (
 )
 from app.services.historical_credit_import import register_suzhou_credit_workbook
 from app.services.historical_credit_review import accept_year_only_period, upsert_class_mapping_candidates
+from credit_batch_test_support import create_credit_batch_reviewer
 from test_learning_credit_ledger import _admin_id
 from test_v12_mvp import _seed_group_leader_fixture
 
@@ -113,13 +114,14 @@ def test_historical_credit_batch_mysql_preserves_year_precision_and_gated_post(
     }
     submitted = submit_historical_credit_batch_for_approval(actor_user_id=actor, batch_id=month_batch["id"])
     assert submitted["status"] == "PENDING_APPROVAL"
+    reviewer = create_credit_batch_reviewer()
     with patch(
         "app.services.learning_credits.user_context",
         return_value={"permissions": [
             "plans:credit_settlement_approve", "plans:historical_credit_import_manage",
         ]},
-    ):
-        approved = approve_historical_credit_batch(actor_user_id=actor, batch_id=month_batch["id"])
+    ), patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+        approved = approve_historical_credit_batch(actor_user_id=reviewer, batch_id=month_batch["id"])
     assert approved["status"] == "APPROVED"
     assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == ledger_before
 

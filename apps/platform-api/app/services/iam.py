@@ -26,7 +26,12 @@ PERMISSIONS = {
     "plans:read": ("查看年度MP", "INTERNAL"),
     "plans:credit_rules_manage": ("维护学习计划课程积分标准", "SENSITIVE"),
     "plans:credit_settlement_preview": ("预览学分结算与对账", "INTERNAL"),
-    "plans:credit_settlement_manage": ("正式结算与学分冲销", "SENSITIVE"),
+    "plans:credit_settlement_manage": ("创建与维护学分结算批次", "SENSITIVE"),
+    "plans:credit_settlement_approve": ("独立审批学分结算批次", "SENSITIVE"),
+    "plans:credit_settlement_post": ("正式入账已批准的学分结算批次", "RESTRICTED"),
+    "plans:credit_settlement_reconcile": ("恢复中断的学分批次状态", "SENSITIVE"),
+    "plans:credit_settlement_close": ("对账并封账学分结算批次", "SENSITIVE"),
+    "plans:credit_settlement_reverse": ("追加正式学分冲销记录", "RESTRICTED"),
     "plans:business_calendar_manage": ("维护年度工作日日历", "SENSITIVE"),
     "plans:credit_activity_fact_manage": ("维护每日读书与优秀分享事实", "SENSITIVE"),
     "plans:hq_reading_import_manage": ("导入总部每日读书并进行身份核验", "SENSITIVE"),
@@ -59,8 +64,25 @@ PERMISSIONS = {
     "enrollment:manage_link": ("管理公开入塾申请二维码", "SENSITIVE"),
 }
 PASSWORD_MIN_LENGTH = 6
+_CREDIT_SETTLEMENT_PRIVILEGED_PERMISSIONS = {
+    "plans:credit_settlement_approve",
+    "plans:credit_settlement_post",
+    "plans:credit_settlement_reconcile",
+    "plans:credit_settlement_close",
+    "plans:credit_settlement_reverse",
+}
+CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS = frozenset({
+    "credit_settlement_approver",
+    "credit_settlement_poster",
+    "credit_settlement_reconciler",
+    "credit_settlement_closer",
+    "credit_settlement_reverser",
+})
 ROLE_PERMISSIONS = {
-    "system_admin": set(PERMISSIONS) - {"exports:sensitive"},
+    # High-risk credit actions require an explicit capability assignment even
+    # for a system administrator; adding a permission to the catalog must not
+    # silently grant production ledger authority during IAM seed/sync.
+    "system_admin": set(PERMISSIONS) - {"exports:sensitive"} - _CREDIT_SETTLEMENT_PRIVILEGED_PERMISSIONS,
     "technical_admin": {
         "iam:manage", "org:read", "org:manage", "audit:read", "integrations:manage",
     },
@@ -178,6 +200,32 @@ ROLE_PERMISSIONS = {
     "ops_center_administration": {
         "org:read", "members:read", "members:detail_view", "followups:manage",
     },
+    # Credit settlement is split into explicit operational capabilities. The
+    # RESTRICTED poster/reverser roles are assignable only by system admins;
+    # ordinary learning roles never receive them through template sync.
+    "credit_settlement_approver": {
+        "plans:credit_settlement_manage",
+        "plans:credit_settlement_preview",
+        "plans:credit_settlement_approve",
+    },
+    "credit_settlement_poster": {
+        "plans:credit_settlement_manage",
+        "plans:credit_settlement_preview",
+        "plans:credit_settlement_post",
+    },
+    "credit_settlement_reconciler": {
+        "plans:credit_settlement_manage",
+        "plans:credit_settlement_reconcile",
+    },
+    "credit_settlement_closer": {
+        "plans:credit_settlement_manage",
+        "plans:credit_settlement_close",
+    },
+    "credit_settlement_reverser": {
+        "plans:credit_settlement_manage",
+        "plans:credit_settlement_preview",
+        "plans:credit_settlement_reverse",
+    },
     "volunteer_director": {
         "org:read", "plans:read", "members:read", "members:detail_view",
         "followups:manage", "contact:reveal", "renewals:read",
@@ -243,6 +291,11 @@ ROLE_NAMES = {
     "ops_center_data": "数据中心专员",
     "ops_center_finance": "财务专员",
     "ops_center_administration": "行政专员",
+    "credit_settlement_approver": "学分结算审批人",
+    "credit_settlement_poster": "学分正式入账人",
+    "credit_settlement_reconciler": "学分批次对账恢复人",
+    "credit_settlement_closer": "学分批次封账人",
+    "credit_settlement_reverser": "学分冲销操作人",
     "volunteer_director": "理事志工",
     "volunteer_regional_lead": "三级分中心负责人志工",
     "volunteer_regional_service": "三级分中心志工",
@@ -255,7 +308,9 @@ ROLE_NAMES = {
 
 # These keys are the only business roles selectable through the ordinary
 # staff-management drawer. Legacy position templates remain available only for
-# compatibility previews, while SYSTEM/RESTRICTED roles stay outside it.
+# compatibility previews. Credit capabilities are explicitly granted in the
+# dedicated section; restricted credit capabilities are hidden from anyone
+# below system-admin level.
 EMPLOYEE_ASSIGNABLE_ROLE_KEYS = frozenset(
     {
         "employee_operations_lead",
@@ -268,6 +323,7 @@ EMPLOYEE_ASSIGNABLE_ROLE_KEYS = frozenset(
         "employee_data_management",
         "employee_administration_management",
         "read_only",
+        *CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS,
     }
 )
 
@@ -308,8 +364,9 @@ POSITION_NAMES = {
 
 # Direct legacy role assignment remains available for expert workflows, but
 # system-level and RESTRICTED-capability templates must never be delegated by
-# an ordinary IAM operator. The regular staff drawer does not expose these
-# keys at all; this guard also protects the lower-level legacy endpoint.
+# an ordinary IAM operator. Restricted credit capabilities are exposed only to
+# system administrators in the dedicated staff authorization workflow; this
+# guard also protects the lower-level legacy endpoint.
 HIGHEST_ADMIN_ROLE_KEYS = frozenset({"system_admin"})
 SYSTEM_OR_RESTRICTED_ROLE_KEYS = frozenset(
     {
@@ -904,6 +961,8 @@ def create_user(
     if len(password) < PASSWORD_MIN_LENGTH:
         raise ValueError(f"密码至少需要 {PASSWORD_MIN_LENGTH} 位")
     requested_roles = set(roles)
+    if requested_roles.intersection(CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS):
+        raise PermissionError("学分结算能力必须通过专职人员管理按组织范围显式授权")
     # ``None`` is retained for established trusted service callers. Every
     # HTTP call supplies actor roles and therefore receives the hard gate.
     if (

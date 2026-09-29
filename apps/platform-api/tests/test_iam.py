@@ -10,7 +10,13 @@ from fastapi.testclient import TestClient
 from app.api.attendance import list_event_groups
 from app.db import execute, fetch_one, transaction
 from app.main import app
-from app.services.iam import create_user, user_context
+from app.services.iam import (
+    PERMISSIONS,
+    ROLE_PERMISSIONS,
+    SYSTEM_OR_RESTRICTED_ROLE_KEYS,
+    create_user,
+    user_context,
+)
 from app.services.followups import create_task, list_tasks
 from app.services.members import create_member, list_members, merge_members, update_member
 
@@ -53,6 +59,40 @@ class IamIsolationTests(unittest.TestCase):
         response = self.client.get("/api/v1/me", headers=self.admin_headers)
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("exports:sensitive", response.json()["data"]["permissions"])
+        for permission in {
+            "plans:credit_settlement_approve",
+            "plans:credit_settlement_post",
+            "plans:credit_settlement_reconcile",
+            "plans:credit_settlement_close",
+            "plans:credit_settlement_reverse",
+        }:
+            self.assertNotIn(permission, response.json()["data"]["permissions"])
+
+    def test_credit_actions_have_narrow_assignable_roles(self) -> None:
+        manage = "plans:credit_settlement_manage"
+        preview = "plans:credit_settlement_preview"
+        approve = "plans:credit_settlement_approve"
+        post = "plans:credit_settlement_post"
+        reconcile = "plans:credit_settlement_reconcile"
+        close = "plans:credit_settlement_close"
+        reverse = "plans:credit_settlement_reverse"
+        dedicated_roles = {
+            "credit_settlement_approver",
+            "credit_settlement_poster",
+            "credit_settlement_reconciler",
+            "credit_settlement_closer",
+            "credit_settlement_reverser",
+        }
+        elevated = {approve, post, reconcile, close, reverse}
+        self.assertTrue(elevated.issubset(PERMISSIONS))
+        self.assertTrue(all(elevated.isdisjoint(grants) for role, grants in ROLE_PERMISSIONS.items() if role not in dedicated_roles))
+        self.assertEqual(ROLE_PERMISSIONS["credit_settlement_approver"], {manage, preview, approve})
+        self.assertEqual(ROLE_PERMISSIONS["credit_settlement_poster"], {manage, preview, post})
+        self.assertEqual(ROLE_PERMISSIONS["credit_settlement_reconciler"], {manage, reconcile})
+        self.assertEqual(ROLE_PERMISSIONS["credit_settlement_closer"], {manage, close})
+        self.assertEqual(ROLE_PERMISSIONS["credit_settlement_reverser"], {manage, preview, reverse})
+        self.assertIn("credit_settlement_poster", SYSTEM_OR_RESTRICTED_ROLE_KEYS)
+        self.assertIn("credit_settlement_reverser", SYSTEM_OR_RESTRICTED_ROLE_KEYS)
 
     def test_regional_scope_cannot_see_other_center(self) -> None:
         username = "regional-a"

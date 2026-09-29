@@ -34,6 +34,7 @@ from app.services.credit_settlement_batches import (
     submit_daily_reading_batch_for_approval,
     submit_excellent_share_batch_for_approval,
 )
+from credit_batch_test_support import create_credit_batch_reviewer
 
 
 @pytest.fixture(autouse=True)
@@ -458,12 +459,13 @@ def test_activity_batches_approve_post_and_preserve_business_dates(
         shares = dry_run_excellent_share_batch(**args)
         submit_daily_reading_batch_for_approval(actor_user_id=_admin_id(), batch_id=daily["id"])
         submit_excellent_share_batch_for_approval(actor_user_id=_admin_id(), batch_id=shares["id"])
+        reviewer = create_credit_batch_reviewer()
         with patch(
             "app.services.learning_credits.user_context",
             return_value={"permissions": ["plans:credit_settlement_approve"]},
-        ):
-            approve_daily_reading_batch(actor_user_id=_admin_id(), batch_id=daily["id"])
-            approve_excellent_share_batch(actor_user_id=_admin_id(), batch_id=shares["id"])
+        ), patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+            approve_daily_reading_batch(actor_user_id=reviewer, batch_id=daily["id"])
+            approve_excellent_share_batch(actor_user_id=reviewer, batch_id=shares["id"])
         assert _ledger_count() == before
         monkeypatch.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
         monkeypatch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")

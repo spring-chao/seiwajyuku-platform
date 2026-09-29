@@ -27,6 +27,7 @@ from app.services.credit_settlement_batches import (
     post_historical_credit_batch,
     submit_historical_credit_batch_for_approval,
 )
+from credit_batch_test_support import create_credit_batch_reviewer
 from app.services.learning_credits import LearningCreditError, _insert_entry
 
 
@@ -545,9 +546,15 @@ def test_historical_settlement_batch_approval_and_post_use_gated_append_only_pat
                     "plans:credit_settlement_approve", "plans:historical_credit_import_manage",
                 ]},
             ):
-                approved = approve_historical_credit_batch(
-                    actor_user_id=_admin_id(), batch_id=batch["id"],
-                )
+                with pytest.raises(PermissionError, match="创建人不能审批"):
+                    approve_historical_credit_batch(
+                        actor_user_id=_admin_id(), batch_id=batch["id"],
+                    )
+                reviewer = create_credit_batch_reviewer()
+                with patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+                    approved = approve_historical_credit_batch(
+                        actor_user_id=reviewer, batch_id=batch["id"],
+                    )
             assert approved["status"] == "APPROVED"
 
             with pytest.raises(LearningCreditError, match="批次正式入账尚未开启"):

@@ -1,6 +1,6 @@
 # Phase 3 真实只读采集：认证前置条件
 
-状态（2026-09-29）：`LIVE_CONTROL_PLANE_EVIDENCE=NOT_COLLECTED`、`LIVE_RUNTIME_EVIDENCE=NOT_COLLECTED`。本机进程未配置 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY`，亦未发现可供本任务确认的只读 SDK 身份。此文不是创建身份或扩大权限的授权。
+状态（2026-09-30）：`LIVE_CONTROL_PLANE_EVIDENCE=NOT_COLLECTED`、`LIVE_RUNTIME_EVIDENCE=NOT_COLLECTED`。本次检查的 Codex 进程未发现 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` / 临时 Token 环境变量；本机存在 `tcb` 命令，但其认证主体、CAM 有效策略和只读范围无法从当前证据确认，因此未调用 CLI 或生产接口。没有读取浏览器登录态、配置文件内容或任何凭据值。此文不是创建身份或扩大权限的授权。
 
 ## 固定对象与能力
 
@@ -33,7 +33,7 @@ CAM 的现有附加策略、角色继承与实际资源匹配必须一并核对�
 ## 必须由授权方提供或确认
 
 1. **已有且获准用于本次只读采集的身份**：主体标识、CAM 策略版本/有效期、上述五项 Action 的实际允许范围及无生产写权限的核验记录。身份本身不写入仓库或报告。
-2. **认证注入方式**：在隔离进程中安全提供 SDK 所需的 ID、Key 和可选临时 Token；不得读取浏览器会话、控制台缓存、历史 JSON、应用的运行时密钥或其他角色凭据。不得在命令行、日志、CI artifact 和报告中输出值。
+2. **认证注入方式**：由授权方提供或确认既有只读身份，并在隔离进程中安全提供 SDK 所需的 ID、Key 和可选临时 Token；不得读取浏览器会话、控制台缓存、历史 JSON、CLI 私有配置、应用的运行时密钥或其他角色凭据。不得在命令行、日志、CI artifact 和报告中输出值。
 3. **可信签封密钥**：`--verifier-key-file` 指向预先存在、独立保管、至少 32 bytes 的文件；与 bundle 不在同一输出目录。Windows 文件和父目录需有预配置受限 ACL；collector 只读验证，不创建/修改密钥或 ACL。
 4. **运行时实参**：采集前用授权只读方式重新确认唯一 stable revision、其 runtime commit、对应管理任务 ID、无活动发布单，以及 FLOW=100%。旧报告中的 `258` / `2201828` 仅为历史候选值，不可不经复核直接填入。
 

@@ -22,6 +22,7 @@ from app.services.volunteer_positions import (
     get_member_volunteer_services,
 )
 from app.services.wechat_learning import get_member_learning_summary
+from app.services.wechat_credit_summary import get_member_credit_summary
 
 
 router = APIRouter(prefix="/api/v1/wechat", tags=["wechat-identity"])
@@ -188,6 +189,23 @@ def learning_summary(
     try:
         session = resolve_member_session(token)
         data = get_member_learning_summary(session["member_id"])
+    except WeChatIdentityError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/credit-summary")
+def credit_summary(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    """Return posted ledger totals and recent entries for the bound member."""
+
+    token = _session_token(credentials)
+    try:
+        session = resolve_member_session(token)
+        data = get_member_credit_summary(session["member_id"])
     except WeChatIdentityError as exc:
         raise HTTPException(401, str(exc)) from exc
     except ValueError as exc:

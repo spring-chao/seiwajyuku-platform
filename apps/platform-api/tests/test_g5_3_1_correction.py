@@ -403,6 +403,13 @@ def test_cross_plan_correction_with_formal_entry_is_blocked(monkeypatch: pytest.
     )
     assert cycle
     monkeypatch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+    monkeypatch.setattr(
+        "app.services.learning_credits.user_context",
+        lambda _user_id: {"permissions": [
+            "plans:credit_settlement_manage",
+            "plans:credit_settlement_post",
+        ]},
+    )
     post_credit_entry(
         actor_user_id=admin_id,
         item={

@@ -18,7 +18,10 @@ from app.main import app
 from app.migrations import MIGRATION_ROOT
 from app.services.iam import accessible_org_ids, create_user, user_context
 from app.services.members import create_member
-from app.services.staff_management import authorization_migration_preview
+from app.services.staff_management import (
+    _validate_actor_grants,
+    authorization_migration_preview,
+)
 from app.services.iam import ROLE_PERMISSIONS
 
 
@@ -308,6 +311,10 @@ class IAM2StaffManagementTests(unittest.TestCase):
             ROLE_PERMISSIONS["employee_operations_lead"],
             ROLE_PERMISSIONS["operations_admin"],
         )
+        role_keys = {item["role_key"] for item in catalog["roles"]}
+        self.assertTrue(catalog["actor_is_highest_admin"])
+        self.assertIn("credit_settlement_approver", role_keys)
+        self.assertIn("credit_settlement_poster", role_keys)
 
     def test_business_staff_manager_sees_and_writes_only_its_scope(self) -> None:
         account = f"scope-manager-{uuid4().hex[:12]}"
@@ -340,8 +347,14 @@ class IAM2StaffManagementTests(unittest.TestCase):
             "/api/v1/staff-management/catalog", headers=manager_headers
         )
         self.assertEqual(catalog.status_code, 200, catalog.text)
+        manager_catalog = catalog.json()["data"]
+        manager_role_keys = {item["role_key"] for item in manager_catalog["roles"]}
+        self.assertFalse(manager_catalog["actor_is_highest_admin"])
+        self.assertIn("credit_settlement_approver", manager_role_keys)
+        self.assertNotIn("credit_settlement_poster", manager_role_keys)
+        self.assertNotIn("credit_settlement_reverser", manager_role_keys)
         self.assertEqual(
-            {row["id"] for row in catalog.json()["data"]["org_units"]},
+            {row["id"] for row in manager_catalog["org_units"]},
             {self.center_a, self.class_a},
         )
         rejected = self.client.post(
@@ -802,7 +815,153 @@ class IAM2StaffManagementTests(unittest.TestCase):
         self.assertEqual(rejected.status_code, 403, rejected.text)
         self.assertIn("平台系统管理员", rejected.text)
         self.assertIsNone(fetch_one("SELECT id FROM app_users WHERE username=?", (protected_username,)))
+
+        unscoped_username = f"iam2-unscoped-credit-{uuid4().hex[:12]}"
+        unscoped_credit = self.client.post(
+            "/api/v1/iam/users",
+            headers=self.admin_headers,
+            json={
+                "username": unscoped_username,
+                "display_name": "IAM2无组织范围学分授权测试",
+                "password": f"p-{uuid4().hex}",
+                "roles": ["credit_settlement_approver"],
+                "scopes": [],
+            },
+        )
+        self.assertEqual(unscoped_credit.status_code, 403, unscoped_credit.text)
+        self.assertIn("专职人员管理", unscoped_credit.text)
+        self.assertIsNone(fetch_one("SELECT id FROM app_users WHERE username=?", (unscoped_username,)))
         self.assertIsNotNone(fetch_one("SELECT id FROM app_users WHERE id=?", (technical_id,)))
+
+    def test_credit_capability_assignment_requires_reason_and_is_audited(self) -> None:
+        grants = [
+            {
+                "role_key": "employee_learning_management",
+                "org_unit_id": self.center_a,
+                "scope_type": "SUBTREE",
+            },
+            {
+                "role_key": "credit_settlement_approver",
+                "org_unit_id": self.center_a,
+                "scope_type": "SUBTREE",
+            },
+        ]
+        account = f"credit-approver-{uuid4().hex[:12]}"
+        payload = self._staff_payload(account=account, grants=grants)
+        payload["authorization_reason"] = ""
+        denied = self.client.post(
+            "/api/v1/staff-management/staff", headers=self.admin_headers, json=payload
+        )
+        self.assertEqual(denied.status_code, 400, denied.text)
+        self.assertIn("学分结算能力", denied.text)
+        self.assertIsNone(fetch_one("SELECT id FROM app_users WHERE username=?", (account,)))
+
+        reason = "授权学分批次独立审批职责"
+        payload["authorization_reason"] = reason
+        created = self.client.post(
+            "/api/v1/staff-management/staff", headers=self.admin_headers, json=payload
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        user_id = int(created.json()["data"]["id"])
+        self.assertIn("credit_settlement_approver", user_context(user_id)["roles"])
+        audit = fetch_one(
+            "SELECT purpose, after_json FROM audit_logs WHERE action='iam2.staff.create' "
+            "AND resource_id=(SELECT CAST(id AS TEXT) FROM operations_employments "
+            "WHERE person_id=(SELECT person_id FROM account_person_links WHERE user_id=?)) "
+            "ORDER BY id DESC LIMIT 1",
+            (user_id,),
+        )
+        self.assertEqual(audit["purpose"], reason)
+
+        update_payload = {
+            **payload,
+            "grants": [
+                *grants,
+                {
+                    "role_key": "credit_settlement_closer",
+                    "org_unit_id": self.center_a,
+                    "scope_type": "SUBTREE",
+                },
+            ],
+            "authorization_reason": "",
+        }
+        preview = self.client.post(
+            f"/api/v1/staff-management/staff/{user_id}/change-preview",
+            headers=self.admin_headers,
+            json=update_payload,
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertTrue(preview.json()["data"]["requires_business_reason"])
+        update_denied = self.client.put(
+            f"/api/v1/staff-management/staff/{user_id}",
+            headers=self.admin_headers,
+            json=update_payload,
+        )
+        self.assertEqual(update_denied.status_code, 400, update_denied.text)
+        update_payload["authorization_reason"] = "授权学分批次封账职责"
+        updated = self.client.put(
+            f"/api/v1/staff-management/staff/{user_id}",
+            headers=self.admin_headers,
+            json=update_payload,
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertIn("credit_settlement_closer", user_context(user_id)["roles"])
+
+        scope_update = {
+            **update_payload,
+            "grants": None,
+            "responsibility_org_unit_id": self.class_a,
+            "responsibility_scope_type": "UNIT",
+            "authorization_reason": "岗位范围调整，保留已批准的学分专项能力",
+        }
+        scoped = self.client.put(
+            f"/api/v1/staff-management/staff/{user_id}",
+            headers=self.admin_headers,
+            json=scope_update,
+        )
+        self.assertEqual(scoped.status_code, 200, scoped.text)
+        self.assertIn("credit_settlement_approver", user_context(user_id)["roles"])
+        self.assertIn("credit_settlement_closer", user_context(user_id)["roles"])
+
+    def test_credit_capability_self_grant_and_restricted_grant_are_denied(self) -> None:
+        grant = {
+            "role_key": "credit_settlement_approver",
+            "org_unit_id": self.center_a,
+            "scope_type": "UNIT",
+        }
+        with (
+            patch("app.services.staff_management.user_context", return_value={"roles": []}),
+            patch("app.services.staff_management._actor_scope_ids", return_value=None),
+        ):
+            with self.assertRaisesRegex(PermissionError, "不能为本人"):
+                _validate_actor_grants(41, [grant], target_user_id=41)
+
+        poster = {**grant, "role_key": "credit_settlement_poster"}
+        with (
+            patch(
+                "app.services.staff_management.user_context",
+                return_value={"roles": ["technical_admin"]},
+            ),
+            patch("app.services.staff_management._actor_scope_ids", return_value=None),
+        ):
+            with self.assertRaisesRegex(PermissionError, "平台系统管理员"):
+                _validate_actor_grants(42, [poster], target_user_id=43)
+
+            # A non-system actor can edit unrelated staff data without
+            # disturbing a pre-existing restricted credit grant.
+            _validate_actor_grants(
+                42,
+                [poster],
+                target_user_id=43,
+                current_grants=[poster],
+            )
+            with self.assertRaisesRegex(PermissionError, "平台系统管理员"):
+                _validate_actor_grants(
+                    42,
+                    [],
+                    target_user_id=43,
+                    current_grants=[poster],
+                )
 
     def test_legacy_migration_preview_is_no_write_and_deduplicates_pairs(self) -> None:
         suffix = uuid4().hex[:10]

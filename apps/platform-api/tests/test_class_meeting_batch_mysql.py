@@ -14,6 +14,7 @@ from app.services.credit_settlement_batches import (
     post_class_meeting_batch,
     submit_class_meeting_batch_for_approval,
 )
+from credit_batch_test_support import create_credit_batch_reviewer
 from test_class_meeting_credits import _admin_id, _create_class_meeting
 from test_v12_mvp import _seed_group_leader_fixture
 
@@ -44,11 +45,12 @@ def test_class_meeting_batch_mysql_freezes_without_ledger_write(
 
     submitted = submit_class_meeting_batch_for_approval(actor_user_id=_admin_id(), batch_id=batch["id"])
     assert submitted["status"] == "PENDING_APPROVAL"
+    reviewer = create_credit_batch_reviewer()
     with patch(
         "app.services.learning_credits.user_context",
         return_value={"permissions": ["plans:credit_settlement_approve"]},
-    ):
-        approved = approve_class_meeting_batch(actor_user_id=_admin_id(), batch_id=batch["id"])
+    ), patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+        approved = approve_class_meeting_batch(actor_user_id=reviewer, batch_id=batch["id"])
     assert approved["status"] == "APPROVED"
     monkeypatch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
     monkeypatch.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")

@@ -22,6 +22,7 @@ from app.services.credit_settlement_batches import (
     post_class_meeting_batch,
     submit_class_meeting_batch_for_approval,
 )
+from credit_batch_test_support import create_credit_batch_reviewer
 from test_v12_mvp import _seed_group_leader_fixture
 
 
@@ -299,11 +300,12 @@ def test_class_meeting_batch_approves_posts_and_replays_once(
     batch = dry_run_class_meeting_batch(actor_user_id=actor, event_group_id=group_id)
     submitted = submit_class_meeting_batch_for_approval(actor_user_id=actor, batch_id=batch["id"])
     assert submitted["status"] == "PENDING_APPROVAL"
+    reviewer = create_credit_batch_reviewer()
     with patch(
         "app.services.learning_credits.user_context",
         return_value={"permissions": ["plans:credit_settlement_approve"]},
-    ):
-        approved = approve_class_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+    ), patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+        approved = approve_class_meeting_batch(actor_user_id=reviewer, batch_id=batch["id"])
     assert approved["status"] == "APPROVED"
     assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before
     monkeypatch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
@@ -477,35 +479,43 @@ def test_class_meeting_correction_is_append_only_after_future_post() -> None:
 
     with pytest.MonkeyPatch.context() as patch_env:
         patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
-        original = post_credit_entry(actor_user_id=_admin_id(), item=original_item)
-        reverse_credit_entry(
-            actor_user_id=_admin_id(),
-            entry_id=original["id"],
-            reason="班会评分修正，先冲销原入账",
-        )
-
-        score_record_id = original_item["score_details"][0]["score_record_id"]
-        with transaction() as connection:
-            execute(
-                connection,
-                "UPDATE attendance_score_records SET final_points=5, "
-                "calculated_at=?, updated_at=? WHERE id=?",
-                ("2100-01-01T00:00:00+00:00", "2100-01-01T00:00:00+00:00", score_record_id),
+        with patch(
+            "app.services.learning_credits.user_context",
+                return_value={"permissions": [
+                    "plans:credit_settlement_preview",
+                    "plans:credit_settlement_manage",
+                "plans:credit_settlement_post",
+                "plans:credit_settlement_reverse",
+            ]},
+        ):
+            original = post_credit_entry(actor_user_id=_admin_id(), item=original_item)
+            reverse_credit_entry(
+                actor_user_id=_admin_id(),
+                entry_id=original["id"],
+                reason="班会评分修正，先冲销原入账",
             )
-        corrected_preview = dry_run_class_meeting_settlement(
-            actor_user_id=_admin_id(), event_group_id=group_id
-        )
-        corrected = corrected_preview["entries"][0]
-        assert corrected["status"] == "SKIPPED_DUPLICATE"
-        assert corrected["final_points"] == 16
+            score_record_id = original_item["score_details"][0]["score_record_id"]
+            with transaction() as connection:
+                execute(
+                    connection,
+                    "UPDATE attendance_score_records SET final_points=5, "
+                    "calculated_at=?, updated_at=? WHERE id=?",
+                    ("2100-01-01T00:00:00+00:00", "2100-01-01T00:00:00+00:00", score_record_id),
+                )
+            corrected_preview = dry_run_class_meeting_settlement(
+                actor_user_id=_admin_id(), event_group_id=group_id
+            )
+            corrected = corrected_preview["entries"][0]
+            assert corrected["status"] == "SKIPPED_DUPLICATE"
+            assert corrected["final_points"] == 16
 
-        corrected_item = {
-            **corrected,
-            "idempotency_key": f"{corrected['idempotency_key']}:CORRECTION:2100-01-01",
-        }
-        replacement = post_credit_entry(
-            actor_user_id=_admin_id(), item=corrected_item
-        )
+            corrected_item = {
+                **corrected,
+                "idempotency_key": f"{corrected['idempotency_key']}:CORRECTION:2100-01-01",
+            }
+            replacement = post_credit_entry(
+                actor_user_id=_admin_id(), item=corrected_item
+            )
 
     assert replacement["points"] == 16
     assert fetch_one(
