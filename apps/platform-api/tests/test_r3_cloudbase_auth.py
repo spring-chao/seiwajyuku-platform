@@ -78,7 +78,7 @@ def test_cli_task_rejected_before_dispatch(cli, bad):
     assert cli == []
 
 
-@pytest.mark.parametrize("case", ["exit", "timeout", "malformed", "error", "trailing", "oversize"])
+@pytest.mark.parametrize("case", ["exit", "timeout", "malformed", "error", "trailing", "oversize", "nested", "prefix"])
 def test_cli_transport_fail_closed_without_raw_exception_or_retry(monkeypatch, cli, case, capsys):
     calls = []
 
@@ -95,6 +95,10 @@ def test_cli_transport_fail_closed_without_raw_exception_or_retry(monkeypatch, c
             stdout += "\nsecret-private"
         elif case == "oversize":
             stdout = "a" * (16 * 1024 * 1024 + 1)
+        elif case == "nested":
+            stdout = "{" * 2000
+        elif case == "prefix":
+            stdout = "invalid { prefix\n" + stdout
         return SimpleNamespace(returncode=1 if case == "exit" else 0,
                                stdout=stdout, stderr="secret-private")
 

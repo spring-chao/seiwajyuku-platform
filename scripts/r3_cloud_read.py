@@ -159,18 +159,11 @@ def _cli_ports():
             raise ReadFailure("CLOUDBASE_CLI_READ_FAILED")
         output = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
         # CLI 3.6.1 emits its banner before a single JSON document.
-        document = None
-        decoder = json.JSONDecoder()
-        for offset, char in enumerate(output):
-            if char != "{":
-                continue
-            try:
-                candidate, end = decoder.raw_decode(output, offset)
-            except ValueError:
-                continue
-            if output[end:].strip() == "" and isinstance(candidate, dict):
-                document = candidate
-                break
+        try:
+            # Parse once; do not scan malformed/nested output for a valid suffix.
+            document = json.loads(output[output.index("{"):])
+        except (ValueError, RecursionError):
+            raise ReadFailure("CLOUDBASE_CLI_RESPONSE_INVALID") from None
         if (
             not isinstance(document, dict)
             or set(document) != {"data"}
