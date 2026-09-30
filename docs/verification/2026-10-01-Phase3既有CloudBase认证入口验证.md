@@ -22,6 +22,8 @@ python -m pytest tests/test_r3_cloudbase_auth.py tests/test_r3_readonly_evidence
 
 结果：`167 passed`。Windows pytest 退出时报告已有临时 symlink 清理 `PermissionError`，未影响测试结果与退出码；不是生产异常。
 
+全量本地 API 测试曾在北京时间 10 月 1 日、UTC 9 月 30 日的边界发现一项既存续费测试失败：测试用本地 `datetime.now()` 选取历史月份，服务的历史续费判断使用 `datetime.now(UTC)`。仅将该测试时钟对齐 UTC，未改续费服务、业务口径或生产数据；专项复测与最终 CI 需以修正后提交验收。
+
 新增测试覆盖：五个固定读取、固定对象参数、无 shell/交互 stdin、不安全 TLS 与 preload 隔离、非法版本/任务不发起调用、超时/错误/非 JSON/尾随信息/过大输出/深层嵌套/错误前缀一次失败关闭、原始 secret 不输出、realm 隔离、官方包名与版本核验、CLI 模式仍必须先通过 trusted key 检查、没有 SDK 环境变量时仍可选择 CLI 通道、沿用 service 校验/redaction、无写方法。
 
 ## 生产与交付状态
