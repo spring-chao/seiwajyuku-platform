@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 from app.db import execute
@@ -17,6 +18,11 @@ def _audit_json_default(value: Any) -> str:
     """
     if isinstance(value, (datetime, date)):
         return value.isoformat()
+    if isinstance(value, Decimal):
+        # MySQL DECIMAL is exact: never round an audit snapshot through float.
+        if not value.is_finite():
+            raise TypeError("Non-finite Decimal is not valid audit data")
+        return format(value, "f")
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
