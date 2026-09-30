@@ -120,6 +120,7 @@ def main(argv=None):
     parser.add_argument("--manage-task-id", type=int, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--verifier-key-file", type=Path)
+    parser.add_argument("--cloud-auth", choices=("sdk", "cloudbase-cli"), default="sdk")
     args = parser.parse_args(argv)
     try:
         if args.output.exists():
@@ -136,7 +137,7 @@ def main(argv=None):
         os.getenv("TENCENTCLOUD_SECRET_ID"),
         os.getenv("TENCENTCLOUD_SECRET_KEY"),
     )
-    if not secret_id or not secret_key:
+    if args.cloud_auth == "sdk" and (not secret_id or not secret_key):
         print(
             json.dumps(
                 {
@@ -149,8 +150,12 @@ def main(argv=None):
         return 2
     issuer = _Issuer(key)
     try:
-        cloud = TencentCloudReadAdapter.authenticated(
-            issuer, secret_id, secret_key, os.getenv("TENCENTCLOUD_TOKEN")
+        cloud = (
+            TencentCloudReadAdapter.authenticated_cli(issuer)
+            if args.cloud_auth == "cloudbase-cli"
+            else TencentCloudReadAdapter.authenticated(
+                issuer, secret_id, secret_key, os.getenv("TENCENTCLOUD_TOKEN")
+            )
         )
         bundle = collect_cloud_runtime(
             cloud,

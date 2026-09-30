@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -23,6 +24,17 @@ from app.services.learning_activity_credits import (
     save_business_calendar,
 )
 from app.services.learning_credits import LearningCreditError
+from app.services.credit_settlement_batches import (
+    approve_daily_reading_batch,
+    approve_excellent_share_batch,
+    dry_run_daily_reading_batch,
+    dry_run_excellent_share_batch,
+    post_daily_reading_batch,
+    post_excellent_share_batch,
+    submit_daily_reading_batch_for_approval,
+    submit_excellent_share_batch_for_approval,
+)
+from credit_batch_test_support import create_credit_batch_reviewer
 
 
 @pytest.fixture(autouse=True)
@@ -360,6 +372,125 @@ def test_excellent_share_monthly_cap_preserves_all_eight_facts_and_writes_nothin
             (fixture["member_id"],),
         )["n"]
     ) == 8
+
+
+def test_activity_batches_freeze_daily_and_share_proposals_without_post(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _fixture()
+    class_id = str(fixture["class_id"])
+    calendar_id = _calendar(
+        fixture, year=2026,
+        day_types={"2026-05-04": "NORMAL_WORKDAY", "2026-05-09": "WEEKEND"},
+    )
+    try:
+        _fact(fixture, activity_type=DAILY_READING, occurred_on="2026-05-04")
+        _fact(fixture, activity_type=DAILY_READING, occurred_on="2026-05-09")
+        for day in range(1, 8):
+            _fact(fixture, activity_type=EXCELLENT_SHARE, occurred_on=f"2026-05-{day:02d}")
+        before = _ledger_count()
+        monkeypatch.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+        daily = dry_run_daily_reading_batch(
+            actor_user_id=_admin_id(), class_org_unit_id=class_id,
+            occurred_from="2026-05-01", occurred_to="2026-05-31",
+        )
+        shares = dry_run_excellent_share_batch(
+            actor_user_id=_admin_id(), class_org_unit_id=class_id,
+            occurred_from="2026-05-01", occurred_to="2026-05-31",
+        )
+        repeated = dry_run_excellent_share_batch(
+            actor_user_id=_admin_id(), class_org_unit_id=class_id,
+            occurred_from="2026-05-01", occurred_to="2026-05-31",
+        )
+        assert daily["status"] == shares["status"] == "DRY_RUN"
+        assert daily["proposed_entry_count"] == 1
+        assert daily["proposed_points"] == "1.00"
+        assert shares["proposed_entry_count"] == 5
+        assert shares["proposed_points"] == "5.00"
+        assert repeated["idempotent"] is True
+        assert repeated["id"] == shares["id"]
+        assert int(fetch_one(
+            "SELECT COUNT(*) AS n FROM learning_credit_settlement_batch_items WHERE batch_id=?",
+            (daily["id"],),
+        )["n"]) == 1
+        assert int(fetch_one(
+            "SELECT COUNT(*) AS n FROM learning_credit_settlement_batch_items WHERE batch_id=?",
+            (shares["id"],),
+        )["n"]) == 5
+        assert _ledger_count() == before
+    finally:
+        _remove_calendar(calendar_id)
+
+
+def test_activity_batch_rejects_truncated_fact_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    fixture = _fixture()
+    before = int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_settlement_batches")["n"])
+    monkeypatch.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+    with patch(
+        "app.services.credit_settlement_batches.activity_credits._load_activity_facts",
+        return_value=[{}] * 501,
+    ):
+        with pytest.raises(LearningCreditError, match="超过500条"):
+            dry_run_daily_reading_batch(
+                actor_user_id=_admin_id(), class_org_unit_id=str(fixture["class_id"]),
+                occurred_from="2026-05-01", occurred_to="2026-05-31",
+            )
+    assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_settlement_batches")["n"]) == before
+
+
+def test_activity_batches_approve_post_and_preserve_business_dates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _fixture()
+    class_id = str(fixture["class_id"])
+    calendar_id = _calendar(fixture, year=2026, day_types={"2026-05-01": "NORMAL_WORKDAY"})
+    try:
+        _fact(fixture, activity_type=DAILY_READING, occurred_on="2026-05-01")
+        for day in range(1, 6):
+            _fact(fixture, activity_type=EXCELLENT_SHARE, occurred_on=f"2026-05-{day:02d}")
+        before = _ledger_count()
+        monkeypatch.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+        monkeypatch.setenv("LEARNING_CREDIT_BATCH_APPROVAL_ENABLED", "true")
+        args = {
+            "actor_user_id": _admin_id(), "class_org_unit_id": class_id,
+            "occurred_from": "2026-05-01", "occurred_to": "2026-05-31",
+        }
+        daily = dry_run_daily_reading_batch(**args)
+        shares = dry_run_excellent_share_batch(**args)
+        submit_daily_reading_batch_for_approval(actor_user_id=_admin_id(), batch_id=daily["id"])
+        submit_excellent_share_batch_for_approval(actor_user_id=_admin_id(), batch_id=shares["id"])
+        reviewer = create_credit_batch_reviewer()
+        with patch(
+            "app.services.learning_credits.user_context",
+            return_value={"permissions": ["plans:credit_settlement_approve"]},
+        ), patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+            approve_daily_reading_batch(actor_user_id=reviewer, batch_id=daily["id"])
+            approve_excellent_share_batch(actor_user_id=reviewer, batch_id=shares["id"])
+        assert _ledger_count() == before
+        monkeypatch.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
+        monkeypatch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        with patch(
+            "app.services.learning_credits.user_context",
+            return_value={"permissions": ["plans:credit_settlement_manage", "plans:credit_settlement_post"]},
+        ):
+            daily_posted = post_daily_reading_batch(actor_user_id=_admin_id(), batch_id=daily["id"])
+            shares_posted = post_excellent_share_batch(actor_user_id=_admin_id(), batch_id=shares["id"])
+            replay = post_excellent_share_batch(actor_user_id=_admin_id(), batch_id=shares["id"])
+        assert daily_posted["status"] == shares_posted["status"] == "POSTED"
+        assert daily_posted["posted_entry_count"] == 1
+        assert shares_posted["posted_entry_count"] == 5
+        assert replay["idempotent"] is True
+        assert _ledger_count() == before + 6
+        daily_ledger = fetch_one(
+            "SELECT occurred_year,occurred_month,occurred_at FROM learning_credit_entries "
+            "WHERE idempotency_key=?",
+            (f"DAILY_READING:{fixture['member_id']}:2026-05-01",),
+        )
+        assert daily_ledger["occurred_year"] == 2026
+        assert daily_ledger["occurred_month"] == 5
+        assert str(daily_ledger["occurred_at"])[:10] == "2026-05-01"
+    finally:
+        _remove_calendar(calendar_id)
 
 
 def test_occurrence_date_selects_the_frozen_learning_round_and_overlap_blocks() -> None:

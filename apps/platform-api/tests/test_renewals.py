@@ -1085,7 +1085,8 @@ def test_inferred_renewal_month_is_first_anniversary_month() -> None:
 def test_past_renewal_month_maintenance_completes_existing_open_cycle() -> None:
     admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
     assert admin is not None
-    now = datetime.now()
+    # Match the service clock: local month can be ahead of UTC at month start.
+    now = datetime.now(UTC)
     if now.month == 1:
         pytest.skip("当前月份没有可用于测试的历史月份")
     year = now.year

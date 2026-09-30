@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -15,6 +16,13 @@ from app.services.class_meeting_credits import (
     dry_run_class_meeting_settlement,
     dry_run_class_meetings,
 )
+from app.services.credit_settlement_batches import (
+    approve_class_meeting_batch,
+    dry_run_class_meeting_batch,
+    post_class_meeting_batch,
+    submit_class_meeting_batch_for_approval,
+)
+from credit_batch_test_support import create_credit_batch_reviewer
 from test_v12_mvp import _seed_group_leader_fixture
 
 
@@ -66,8 +74,8 @@ def _bind_class_meeting_rule(fixture: dict) -> None:
             version_cursor = execute(
                 connection,
                 "INSERT INTO learning_credit_rule_versions "
-                "(rule_set_key, version_label, status, created_at, updated_at) "
-                "VALUES (?, ?, 'PUBLISHED', ?, ?)",
+                "(rule_set_key, version_label, status, metadata_json, created_at, updated_at) "
+                "VALUES (?, ?, 'PUBLISHED', '{}', ?, ?)",
                 (binding["plan_key"], binding["version_label"], now, now),
             )
             version_id = int(version_cursor.lastrowid)
@@ -78,21 +86,27 @@ def _bind_class_meeting_rule(fixture: dict) -> None:
                 "UPDATE learning_credit_rule_versions SET status='PUBLISHED', updated_at=? WHERE id=?",
                 (now, version_id),
             )
-        execute(
+        existing_rule = execute(
             connection,
-            "INSERT OR IGNORE INTO learning_credit_rules "
-            "(rule_version_id, rule_key, credit_category, credit_type, settlement_model, "
-            "rule_snapshot_json, created_at, updated_at) "
-            "VALUES (?, ?, 'STANDARD_LEARNING', ?, 'EVENT_ONCE', ?, ?, ?)",
-            (
-                version_id,
-                CLASS_MEETING_SCORE,
-                CLASS_MEETING_SCORE,
-                '{"points":"FROM_ATTENDANCE_SCORE","source":"attendance_score_records"}',
-                now,
-                now,
-            ),
-        )
+            "SELECT id FROM learning_credit_rules WHERE rule_version_id=? AND rule_key=? LIMIT 1",
+            (version_id, CLASS_MEETING_SCORE),
+        ).fetchone()
+        if not existing_rule:
+            execute(
+                connection,
+                "INSERT INTO learning_credit_rules "
+                "(rule_version_id, rule_key, credit_category, credit_type, settlement_model, "
+                "rule_snapshot_json, created_at, updated_at) "
+                "VALUES (?, ?, 'STANDARD_LEARNING', ?, 'EVENT_ONCE', ?, ?, ?)",
+                (
+                    version_id,
+                    CLASS_MEETING_SCORE,
+                    CLASS_MEETING_SCORE,
+                    '{"points":"FROM_ATTENDANCE_SCORE","source":"attendance_score_records"}',
+                    now,
+                    now,
+                ),
+            )
         execute(
             connection,
             "UPDATE class_learning_bindings SET credit_rule_version_id=? WHERE id=?",
@@ -251,6 +265,64 @@ def test_class_meeting_projection_uses_backend_breakdown_and_is_zero_write() -> 
     assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == before
 
 
+def test_class_meeting_batch_freezes_score_facts_without_ledger_post(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _seed_group_leader_fixture()
+    group_id = _create_class_meeting(fixture)
+    actor = _admin_id()
+    before = int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"])
+    monkeypatch.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+    batch = dry_run_class_meeting_batch(actor_user_id=actor, event_group_id=group_id)
+    repeat = dry_run_class_meeting_batch(actor_user_id=actor, event_group_id=group_id)
+    assert batch["status"] == "DRY_RUN"
+    assert batch["proposed_entry_count"] == 2
+    assert batch["proposed_points"] == "35.00"
+    assert batch["blocked_count"] == 0
+    assert repeat["idempotent"] is True
+    assert repeat["id"] == batch["id"]
+    assert fetch_one(
+        "SELECT COUNT(*) AS n FROM learning_credit_settlement_batch_items WHERE batch_id=?",
+        (batch["id"],),
+    )["n"] == 2
+    assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before
+
+
+def test_class_meeting_batch_approves_posts_and_replays_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _seed_group_leader_fixture()
+    group_id = _create_class_meeting(fixture)
+    actor = _admin_id()
+    before = int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"])
+    monkeypatch.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+    monkeypatch.setenv("LEARNING_CREDIT_BATCH_APPROVAL_ENABLED", "true")
+    batch = dry_run_class_meeting_batch(actor_user_id=actor, event_group_id=group_id)
+    submitted = submit_class_meeting_batch_for_approval(actor_user_id=actor, batch_id=batch["id"])
+    assert submitted["status"] == "PENDING_APPROVAL"
+    reviewer = create_credit_batch_reviewer()
+    with patch(
+        "app.services.learning_credits.user_context",
+        return_value={"permissions": ["plans:credit_settlement_approve"]},
+    ), patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+        approved = approve_class_meeting_batch(actor_user_id=reviewer, batch_id=batch["id"])
+    assert approved["status"] == "APPROVED"
+    assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before
+    monkeypatch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+    monkeypatch.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
+    with patch(
+        "app.services.learning_credits.user_context",
+        return_value={"permissions": ["plans:credit_settlement_manage", "plans:credit_settlement_post"]},
+    ):
+        posted = post_class_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+        repeated = post_class_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+    assert posted["status"] == "POSTED"
+    assert posted["posted_entry_count"] == 2
+    assert posted["posted_points"] == "35.00"
+    assert repeated["idempotent"] is True
+    assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before + 2
+
+
 def test_class_meeting_projection_is_idempotent_and_skips_existing_ledger_entry() -> None:
     fixture = _seed_group_leader_fixture()
     group_id = _create_class_meeting(fixture, member_ids=[fixture["member_id"]])
@@ -407,35 +479,43 @@ def test_class_meeting_correction_is_append_only_after_future_post() -> None:
 
     with pytest.MonkeyPatch.context() as patch_env:
         patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
-        original = post_credit_entry(actor_user_id=_admin_id(), item=original_item)
-        reverse_credit_entry(
-            actor_user_id=_admin_id(),
-            entry_id=original["id"],
-            reason="班会评分修正，先冲销原入账",
-        )
-
-        score_record_id = original_item["score_details"][0]["score_record_id"]
-        with transaction() as connection:
-            execute(
-                connection,
-                "UPDATE attendance_score_records SET final_points=5, "
-                "calculated_at=?, updated_at=? WHERE id=?",
-                ("2100-01-01T00:00:00+00:00", "2100-01-01T00:00:00+00:00", score_record_id),
+        with patch(
+            "app.services.learning_credits.user_context",
+                return_value={"permissions": [
+                    "plans:credit_settlement_preview",
+                    "plans:credit_settlement_manage",
+                "plans:credit_settlement_post",
+                "plans:credit_settlement_reverse",
+            ]},
+        ):
+            original = post_credit_entry(actor_user_id=_admin_id(), item=original_item)
+            reverse_credit_entry(
+                actor_user_id=_admin_id(),
+                entry_id=original["id"],
+                reason="班会评分修正，先冲销原入账",
             )
-        corrected_preview = dry_run_class_meeting_settlement(
-            actor_user_id=_admin_id(), event_group_id=group_id
-        )
-        corrected = corrected_preview["entries"][0]
-        assert corrected["status"] == "SKIPPED_DUPLICATE"
-        assert corrected["final_points"] == 16
+            score_record_id = original_item["score_details"][0]["score_record_id"]
+            with transaction() as connection:
+                execute(
+                    connection,
+                    "UPDATE attendance_score_records SET final_points=5, "
+                    "calculated_at=?, updated_at=? WHERE id=?",
+                    ("2100-01-01T00:00:00+00:00", "2100-01-01T00:00:00+00:00", score_record_id),
+                )
+            corrected_preview = dry_run_class_meeting_settlement(
+                actor_user_id=_admin_id(), event_group_id=group_id
+            )
+            corrected = corrected_preview["entries"][0]
+            assert corrected["status"] == "SKIPPED_DUPLICATE"
+            assert corrected["final_points"] == 16
 
-        corrected_item = {
-            **corrected,
-            "idempotency_key": f"{corrected['idempotency_key']}:CORRECTION:2100-01-01",
-        }
-        replacement = post_credit_entry(
-            actor_user_id=_admin_id(), item=corrected_item
-        )
+            corrected_item = {
+                **corrected,
+                "idempotency_key": f"{corrected['idempotency_key']}:CORRECTION:2100-01-01",
+            }
+            replacement = post_credit_entry(
+                actor_user_id=_admin_id(), item=corrected_item
+            )
 
     assert replacement["points"] == 16
     assert fetch_one(

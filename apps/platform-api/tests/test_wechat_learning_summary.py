@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.db import execute, transaction
 from app.main import app
+from app.services.learning_credits import _insert_entry
 from test_v12_mvp import _seed_group_leader_fixture
 
 
@@ -205,6 +206,33 @@ def _bind(fixture: dict, client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}
 
 
+def _insert_ledger_entry(
+    *, member_id: int, class_id: str, credit_type: str, credit_category: str,
+    points: float, occurred_at: str, source_type: str, idempotency_key: str,
+) -> None:
+    with transaction() as connection:
+        _insert_entry(
+            connection,
+            {
+                "member_id": member_id,
+                "credit_category": credit_category,
+                "credit_type": credit_type,
+                "points": points,
+                "source_type": source_type,
+                "source_id": idempotency_key,
+                "class_org_unit_id": class_id,
+                "rule_key": credit_type,
+                "rule_version": "wechat-credit-test-v1",
+                "rule_version_id": None,
+                "rule_snapshot": {"test_fixture": True},
+                "occurred_at": occurred_at,
+                "idempotency_key": idempotency_key,
+            },
+            status="POSTED",
+            actor_user_id=None,
+        )
+
+
 def test_learning_summary_requires_bound_session_and_isolates_member() -> None:
     fixture = _seed_group_leader_fixture()
     _insert_learning_facts(fixture)
@@ -286,3 +314,103 @@ def test_learning_summary_returns_explicit_empty_state_without_facts() -> None:
         data = response.json()["data"]
         assert data["recent_learning"] == []
         assert data["current_learning"][0]["status_name"] == "进行中"
+
+
+def test_wechat_credit_summary_shows_only_bound_members_posted_ledger() -> None:
+    fixture = _seed_group_leader_fixture()
+    from zoneinfo import ZoneInfo
+
+    current_year = datetime.now(ZoneInfo("Asia/Shanghai")).year
+    suffix = fixture["suffix"]
+    _insert_ledger_entry(
+        member_id=fixture["member_id"], class_id=fixture["class_id"],
+        credit_type="GROUP_MEETING_ATTENDANCE", credit_category="STANDARD_LEARNING",
+        points=12, occurred_at=f"{current_year}-09-01", source_type="STUDY_MEETING",
+        idempotency_key=f"wechat-credit-group-{suffix}",
+    )
+    _insert_ledger_entry(
+        member_id=fixture["member_id"], class_id=fixture["class_id"],
+        credit_type="DAILY_READING", credit_category="EXTENSION_ACTIVITY",
+        points=2, occurred_at=f"{current_year}-08-04", source_type="LEARNING_ACTIVITY_DAILY_READING",
+        idempotency_key=f"wechat-credit-reading-{suffix}",
+    )
+    _insert_ledger_entry(
+        member_id=fixture["member_id"], class_id=fixture["class_id"],
+        credit_type="COURSE_COMPLETION", credit_category="STANDARD_LEARNING",
+        points=3, occurred_at=f"{current_year - 1}-12-01", source_type="COURSE_COMPLETION",
+        idempotency_key=f"wechat-credit-course-{suffix}",
+    )
+    _insert_ledger_entry(
+        member_id=fixture["foreign_member_id"], class_id=fixture["class_id"],
+        credit_type="COURSE_COMPLETION", credit_category="STANDARD_LEARNING",
+        points=99, occurred_at=f"{current_year}-09-01", source_type="COURSE_COMPLETION",
+        idempotency_key=f"wechat-credit-foreign-{suffix}",
+    )
+
+    with patch.dict(
+        os.environ,
+        {
+            "WECHAT_MEMBER_BINDING_ENABLED": "true",
+            "WECHAT_MINIPROGRAM_APP_ID": "wechat-credit-test",
+            "WECHAT_MINIPROGRAM_APP_SECRET": "wechat-credit-secret",
+        },
+    ), patch(
+        "app.services.wechat_identity.exchange_wechat_code",
+        return_value={"appid": "wechat-credit-test", "openid": f"credit-{suffix}"},
+    ), TestClient(app) as client:
+        assert client.get("/api/v1/wechat/credit-summary").status_code == 401
+        headers = _bind(fixture, client)
+        response = client.get(
+            f"/api/v1/wechat/credit-summary?member_id={fixture['foreign_member_id']}",
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()["data"]
+        assert data["current_year"] == current_year
+        assert data["total_points"] == "17.00"
+        assert data["current_year_points"] == "14.00"
+        assert data["standard_learning_points"] == "15.00"
+        assert data["extension_activity_points"] == "2.00"
+        assert [item["points"] for item in data["recent_entries"]] == [
+            "12.00", "2.00", "3.00",
+        ]
+        assert data["recent_entries"][0]["credit_type_label"] == "小组学习会出席"
+        assert data["recent_entries"][0]["rule_basis"] == "小组学习会出席规则"
+        assert data["recent_entries"][1]["credit_category_label"] == "拓展活动"
+        assert all(
+            set(item)
+            == {
+                "period_display", "credit_category_label", "credit_type_label",
+                "rule_basis", "points", "is_reversal",
+            }
+            for item in data["recent_entries"]
+        )
+        assert all(
+            not ({"id", "member_id", "source_id", "source_type", "rule_snapshot"} & set(item))
+            for item in data["recent_entries"]
+        )
+
+
+def test_wechat_credit_summary_returns_zero_without_posted_entries() -> None:
+    fixture = _seed_group_leader_fixture()
+    suffix = fixture["suffix"]
+    with patch.dict(
+        os.environ,
+        {
+            "WECHAT_MEMBER_BINDING_ENABLED": "true",
+            "WECHAT_MINIPROGRAM_APP_ID": "wechat-credit-empty-test",
+            "WECHAT_MINIPROGRAM_APP_SECRET": "wechat-credit-empty-secret",
+        },
+    ), patch(
+        "app.services.wechat_identity.exchange_wechat_code",
+        return_value={"appid": "wechat-credit-empty-test", "openid": f"credit-empty-{suffix}"},
+    ), TestClient(app) as client:
+        headers = _bind(fixture, client)
+        response = client.get("/api/v1/wechat/credit-summary", headers=headers)
+        assert response.status_code == 200, response.text
+        data = response.json()["data"]
+        assert data["total_points"] == "0.00"
+        assert data["current_year_points"] == "0.00"
+        assert data["standard_learning_points"] == "0.00"
+        assert data["extension_activity_points"] == "0.00"
+        assert data["recent_entries"] == []

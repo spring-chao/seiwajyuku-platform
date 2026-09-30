@@ -11,11 +11,14 @@ from app.core.settings import get_settings
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import (
+    CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS,
     EMPLOYEE_ASSIGNABLE_ROLE_KEYS,
+    HIGHEST_ADMIN_ROLE_KEYS,
     PERMISSIONS,
     POSITION_NAMES,
     ROLE_NAMES,
     ROLE_PERMISSIONS,
+    SYSTEM_OR_RESTRICTED_ROLE_KEYS,
     accessible_org_ids,
     current_request_permission,
     user_context,
@@ -283,10 +286,61 @@ def _actor_scope_ids(actor_user_id: int) -> set[str] | None:
     return accessible_org_ids(actor_user_id, permission)
 
 
-def _validate_actor_grants(actor_user_id: int, grants: list[dict[str, Any]]) -> None:
+def _validate_actor_grants(
+    actor_user_id: int,
+    grants: list[dict[str, Any]],
+    *,
+    target_user_id: int | None = None,
+    current_grants: list[dict[str, Any]] | None = None,
+) -> None:
+    actor = user_context(actor_user_id) or {}
+    actor_roles = set(actor.get("roles", []))
+    highest_admin = bool(actor_roles.intersection(HIGHEST_ADMIN_ROLE_KEYS))
     allowed = _actor_scope_ids(actor_user_id)
     if allowed is not None and any(grant["org_unit_id"] not in allowed for grant in grants):
         raise PermissionError("授权范围超出当前账号可管理的组织范围")
+
+    requested_credit = {
+        _grant_identity(grant)
+        for grant in grants
+        if grant["role_key"] in CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS
+    }
+    current_credit = {
+        _grant_identity(grant)
+        for grant in (current_grants or [])
+        if grant["role_key"] in CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS
+    }
+    if target_user_id == actor_user_id and requested_credit - current_credit:
+        raise PermissionError("不能为本人新增或扩大任何学分结算能力")
+
+    # POST and reversal are RESTRICTED capabilities. The direct staff workflow
+    # must uphold the same system-admin boundary as the generic IAM endpoint,
+    # including attempts to change scope or revoke a protected grant.
+    restricted_credit = CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS.intersection(
+        SYSTEM_OR_RESTRICTED_ROLE_KEYS
+    )
+    requested_restricted = {
+        _grant_identity(grant)
+        for grant in grants
+        if grant["role_key"] in restricted_credit
+    }
+    current_restricted = {
+        _grant_identity(grant)
+        for grant in (current_grants or [])
+        if grant["role_key"] in restricted_credit
+    }
+    if not highest_admin and requested_restricted != current_restricted:
+        raise PermissionError("只有平台系统管理员可以授予、变更或撤销学分正式入账/冲销能力")
+
+
+def _validate_credit_grant_institution(
+    connection: Any,
+    institution: dict[str, Any],
+    grants: list[dict[str, Any]],
+) -> None:
+    for grant in grants:
+        if grant["role_key"] in CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS:
+            _validate_institution_scope(connection, institution, grant["org_unit_id"])
 
 
 def _assert_staff_item_in_actor_scope(actor_user_id: int, item: dict[str, Any]) -> None:
@@ -339,12 +393,12 @@ def _normalize_grants(
         role_key = str(raw.get("role_key") or "").strip()
         org_unit_id = str(raw.get("org_unit_id") or "").strip()
         scope_type = str(raw.get("scope_type") or "").upper().strip()
-        if role_key not in EMPLOYEE_ASSIGNABLE_ROLE_KEYS:
+        key = (role_key, org_unit_id, scope_type)
+        if role_key not in EMPLOYEE_ASSIGNABLE_ROLE_KEYS and key not in (historical_grants or {}):
             raise ValueError("普通专职人员管理不允许分配该角色")
         if not org_unit_id or scope_type not in {"UNIT", "SUBTREE"}:
             raise ValueError("每条角色授权都必须指定组织和 UNIT/SUBTREE 范围")
         _organization(connection, org_unit_id)
-        key = (role_key, org_unit_id, scope_type)
         prior = (historical_grants or {}).get(key, {})
         # These values are retained only when an older API client explicitly
         # supplies them or when an existing archive record already has them.
@@ -648,9 +702,16 @@ def _public_staff_item(item: dict[str, Any]) -> dict[str, Any]:
 def staff_catalog(actor_user_id: int) -> dict[str, Any]:
     _read_gate()
     actor = user_context(actor_user_id) or {"roles": []}
+    highest_admin = bool(set(actor.get("roles", [])).intersection(HIGHEST_ADMIN_ROLE_KEYS))
     actor_allowed_org_ids = _actor_scope_ids(actor_user_id)
     roles = []
     for role_key in sorted(EMPLOYEE_ASSIGNABLE_ROLE_KEYS, key=lambda key: ROLE_NAMES[key]):
+        if (
+            role_key in CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS
+            and role_key in SYSTEM_OR_RESTRICTED_ROLE_KEYS
+            and not highest_admin
+        ):
+            continue
         permissions = _role_permissions(role_key)
         roles.append(
             {
@@ -973,6 +1034,12 @@ def create_staff(
         _validate_actor_grants(actor_user_id, normalized_grants)
         basis = str(authorization_basis or "").strip() or "SYSTEM_AUTO:POSITION_SCOPE_MAPPING"
         reason = str(authorization_reason or "").strip()
+        if any(
+            grant["role_key"] in CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS
+            for grant in normalized_grants
+        ) and not reason:
+            raise ValueError("分配学分结算能力必须填写授权原因")
+        _validate_credit_grant_institution(connection, institution, normalized_grants)
         member_match = _resolve_existing_member_person(
             connection, name=staff_name, phone_hash_value=phone_fields["phone_hash"]
         )
@@ -1185,6 +1252,16 @@ def _desired_snapshot(
         _grant_identity(grant): grant
         for grant in _grant_rows(int(current["_employment_id"]), current_only=True)
     }
+    current_position_keys = {
+        row["position_key"]
+        for row in _position_rows(int(current["_employment_id"]), current_only=True)
+    }
+    position_mapping_roles = set(POSITION_ROLE_MAPPING.values())
+    regenerate_position_grants = (
+        "responsibility_org_unit_id" in payload
+        or "responsibility_scope_type" in payload
+        or set(positions) != current_position_keys
+    )
     if "grants" in payload and payload.get("grants") is not None:
         normalized_grants = _normalize_grants(
             connection,
@@ -1192,11 +1269,8 @@ def _desired_snapshot(
             allow_empty=True,
             historical_grants=existing_grants,
         )
-    elif (
-        "responsibility_org_unit_id" in payload
-        or "responsibility_scope_type" in payload
-    ):
-        normalized_grants = _auto_grants(
+    elif regenerate_position_grants:
+        position_grants = _auto_grants(
             connection,
             positions,
             payload.get("responsibility_org_unit_id"),
@@ -1204,9 +1278,28 @@ def _desired_snapshot(
             institution=institution,
             actor_user_id=actor_user_id,
         )
+        # Position changes only replace grants generated by the position map.
+        # Direct capabilities and legacy/manual assignments remain intact.
+        preserved_grants = [
+            grant
+            for grant in existing_grants.values()
+            if grant["role_key"] not in position_mapping_roles
+        ]
+        normalized_grants = _normalize_grants(
+            connection,
+            [*preserved_grants, *position_grants],
+            allow_empty=True,
+            historical_grants=existing_grants,
+        )
     else:
         normalized_grants = list(existing_grants.values())
-    _validate_actor_grants(actor_user_id, normalized_grants)
+    _validate_actor_grants(
+        actor_user_id,
+        normalized_grants,
+        target_user_id=int(current["_id"]),
+        current_grants=list(existing_grants.values()),
+    )
+    _validate_credit_grant_institution(connection, institution, normalized_grants)
     return (
         {
             "name": str(payload.get("name") or current["name"]).strip(),
@@ -1278,6 +1371,14 @@ def preview_staff_update(
     sensitive_expansion = any(
         _role_risk(grant["role_key"]) for grant in added
     ) or any(_role_risk(after["role_key"]) for _, after in changed)
+    credit_capability_changed = any(
+        grant["role_key"] in CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS
+        for grant in added + removed
+    ) or any(
+        before["role_key"] in CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS
+        or after["role_key"] in CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS
+        for before, after in changed
+    )
     after = {
         "name": desired["name"],
         "login_account": mask_login_identifier(desired["login_account_raw"]),
@@ -1315,7 +1416,8 @@ def preview_staff_update(
             ),
         },
         "sensitive_expansion": sensitive_expansion,
-        "requires_business_reason": sensitive_expansion,
+        "credit_capability_changed": credit_capability_changed,
+        "requires_business_reason": sensitive_expansion or credit_capability_changed,
     }
 
 
@@ -1348,6 +1450,8 @@ def update_staff(
             or "SYSTEM_AUTO:STAFF_BUSINESS_UPDATE"
         )
         reason = str(payload.get("authorization_reason") or "").strip()
+        if preview["requires_business_reason"] and not reason:
+            raise ValueError("敏感授权变化或学分能力变化必须填写授权原因")
         duplicate = execute(
             connection,
             "SELECT id FROM app_users WHERE username=? AND id<>?",

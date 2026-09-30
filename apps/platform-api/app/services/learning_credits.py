@@ -639,8 +639,11 @@ def list_credit_entries(
         conditions.append(f"e.class_org_unit_id IN ({placeholders})")
         params.extend(sorted(allowed))
     rows = fetch_all(
-        "SELECT e.*, m.name AS member_name FROM learning_credit_entries e "
-        "JOIN members m ON m.id=e.member_id WHERE " + " AND ".join(conditions) +
+        "SELECT e.*, m.name AS member_name, reversal.id AS reversal_entry_id "
+        "FROM learning_credit_entries e "
+        "JOIN members m ON m.id=e.member_id "
+        "LEFT JOIN learning_credit_entries reversal ON reversal.reversal_of_entry_id=e.id "
+        "WHERE " + " AND ".join(conditions) +
         " ORDER BY e.occurred_year DESC, (e.occurred_month IS NULL) ASC, "
         "e.occurred_month DESC, e.occurred_at DESC, e.id DESC LIMIT 1000",
         tuple(params),
@@ -705,6 +708,62 @@ def member_credit_summary(*, actor_user_id: int, member_id: int) -> dict[str, An
                 "points": float(row["points"] or 0),
             }
             for row in period_rows
+        ],
+    }
+
+
+def credit_ledger_overview(*, actor_user_id: int) -> dict[str, Any]:
+    """Return exact ledger aggregates within the actor's credit-preview scope."""
+
+    _require_preview_permission(actor_user_id)
+    conditions = ["status IN ('POSTED', 'REVERSED')"]
+    params: list[Any] = []
+    allowed = accessible_org_ids(actor_user_id)
+    if allowed is not None:
+        if not allowed:
+            return {
+                "entry_count": 0,
+                "total_points": "0.00",
+                "categories": [],
+                "credit_types": [],
+            }
+        placeholders = ",".join("?" for _ in allowed)
+        conditions.append(f"class_org_unit_id IN ({placeholders})")
+        params.extend(sorted(allowed))
+    where = " AND ".join(conditions)
+    totals = fetch_one(
+        "SELECT COUNT(*) AS entry_count, COALESCE(SUM(points),0) AS total_points "
+        "FROM learning_credit_entries WHERE " + where,
+        tuple(params),
+    ) or {"entry_count": 0, "total_points": 0}
+    categories = fetch_all(
+        "SELECT credit_category,COUNT(*) AS entry_count,COALESCE(SUM(points),0) AS points "
+        "FROM learning_credit_entries WHERE " + where + " GROUP BY credit_category ORDER BY credit_category",
+        tuple(params),
+    )
+    credit_types = fetch_all(
+        "SELECT credit_type,COUNT(*) AS entry_count,COALESCE(SUM(points),0) AS points "
+        "FROM learning_credit_entries WHERE " + where + " GROUP BY credit_type ORDER BY credit_type",
+        tuple(params),
+    )
+    return {
+        "entry_count": int(totals["entry_count"]),
+        "total_points": format(Decimal(str(totals["total_points"] or 0)), ".2f"),
+        "categories": [
+            {
+                "credit_category": str(row["credit_category"]),
+                "entry_count": int(row["entry_count"]),
+                "points": format(Decimal(str(row["points"] or 0)), ".2f"),
+            }
+            for row in categories
+        ],
+        "credit_types": [
+            {
+                "credit_type": str(row["credit_type"]),
+                "entry_count": int(row["entry_count"]),
+                "points": format(Decimal(str(row["points"] or 0)), ".2f"),
+            }
+            for row in credit_types
         ],
     }
 
@@ -801,7 +860,8 @@ def _rule_version_is_frozen_for_item(
 def post_credit_entry(*, actor_user_id: int, item: dict[str, Any]) -> dict[str, Any]:
     _settlement_enabled()
     user = user_context(actor_user_id) or {}
-    if "plans:credit_settlement_manage" not in user.get("permissions", []):
+    permissions = set(user.get("permissions", []))
+    if not {"plans:credit_settlement_manage", "plans:credit_settlement_post"}.issubset(permissions):
         raise PermissionError("无权正式入账学分")
     if not item.get("rule_version") or not item.get("rule_snapshot"):
         raise LearningCreditError("正式入账必须冻结学分规则快照")
@@ -841,62 +901,17 @@ def post_credit_entry(*, actor_user_id: int, item: dict[str, Any]) -> dict[str, 
 
 
 def settle_study_meeting(*, actor_user_id: int, session_id: int) -> dict[str, Any]:
-    """Post a previously previewed session only behind the explicit flag."""
+    """Reject the retired direct-post path; study credits require an approved batch."""
 
-    _settlement_enabled()
-    user = user_context(actor_user_id) or {}
-    if "plans:credit_settlement_manage" not in user.get("permissions", []):
-        raise PermissionError("无权正式结算学分")
-    with transaction() as connection:
-        session = _session_context(connection, session_id)
-        if not session:
-            raise LearningCreditError("学习会记录不存在")
-        if not _scope_allows(actor_user_id, session["class_org_unit_id"]):
-            raise PermissionError("学习会记录不在当前组织授权范围内")
-        preview = _build_study_meeting_preview(connection, session_id)
-        if not preview["formal_settlement_allowed"]:
-            existing = [
-                item["existing_entry"]
-                for item in preview["entries"]
-                if item["status"] == "SKIPPED_DUPLICATE" and item.get("existing_entry")
-            ]
-            if existing and not any(item["status"] == "READY" for item in preview["entries"]):
-                return {
-                    "mode": "POSTED",
-                    "persisted": True,
-                    "idempotent": True,
-                    "entries": existing,
-                    "total_points": sum(float(item["points"]) for item in existing),
-                    "blocking_reasons": preview["blocking_reasons"],
-                }
-            raise LearningCreditError(
-                "；".join(preview["blocking_reasons"])
-                or "当前学习会没有可正式入账的学分"
-            )
-        posted: list[dict[str, Any]] = []
-        occurred_at = session["meeting_date"]
-        for item in preview["entries"]:
-            if not item["postable"]:
-                continue
-            item = {**item, "occurred_at": occurred_at}
-            posted.append(_insert_entry(connection, item, status="POSTED", actor_user_id=actor_user_id))
-        write_audit(
-            connection,
-            actor_user_id=actor_user_id,
-            action="learning_credit.settle_study_meeting",
-            resource_type="study_meeting_session",
-            resource_id=str(session_id),
-            org_unit_id=session["class_org_unit_id"],
-            purpose="正式结算学习会学分",
-            after={"posted_entry_ids": [item["id"] for item in posted]},
-        )
-        return {"mode": "POSTED", "persisted": True, "entries": posted, "total_points": sum(item["points"] for item in posted)}
+    del actor_user_id, session_id
+    raise LearningCreditError("学习会学分必须通过统一结算批次审批后入账")
 
 
 def reverse_credit_entry(*, actor_user_id: int, entry_id: int, reason: str) -> dict[str, Any]:
     _settlement_enabled()
     user = user_context(actor_user_id) or {}
-    if "plans:credit_settlement_manage" not in user.get("permissions", []):
+    permissions = set(user.get("permissions", []))
+    if not {"plans:credit_settlement_manage", "plans:credit_settlement_reverse"}.issubset(permissions):
         raise PermissionError("无权冲销学分")
     if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
         raise LearningCreditError("冲销必须填写原因，且不超过1000字")
@@ -909,6 +924,8 @@ def reverse_credit_entry(*, actor_user_id: int, entry_id: int, reason: str) -> d
             raise PermissionError("无组织范围的学分记录不能由当前权限冲销")
         if not _scope_allows(actor_user_id, original["class_org_unit_id"]):
             raise PermissionError("学分记录不在当前组织授权范围内")
+        if original.get("reversal_of_entry_id") is not None:
+            raise LearningCreditError("冲销记录不能再次冲销")
         existing = _existing_entry(connection, f"REVERSAL:{entry_id}")
         if existing:
             return _entry_payload(existing)

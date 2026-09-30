@@ -7,6 +7,9 @@ Page({
     member: null,
     currentLearning: [],
     recentLearning: [],
+    creditSummary: null,
+    creditEntries: [],
+    creditErrorMessage: "",
     canManageStudyMeeting: false,
     errorMessage: ""
   },
@@ -24,6 +27,9 @@ Page({
       errorMessage: "",
       currentLearning: [],
       recentLearning: [],
+      creditSummary: null,
+      creditEntries: [],
+      creditErrorMessage: "",
       canManageStudyMeeting: false
     });
     if (!token) {
@@ -48,6 +54,35 @@ Page({
         occurredAtLabel: String(item.occurred_at || "").slice(0, 10).replace(/-/g, "/")
       }));
       this.setData({ member, currentLearning, recentLearning });
+
+      try {
+        const creditResponse = await request("/api/v1/wechat/credit-summary", { auth: true });
+        if (!current()) return;
+        const summary = creditResponse.data || {};
+        const creditEntries = (summary.recent_entries || []).map((item, index) => ({
+          ...item,
+          uiKey: `${item.period_display || "period"}-${item.credit_type_label || "credit"}-${index}`,
+          pointsLabel: `${Number(item.points) > 0 ? "+" : ""}${String(item.points || "0.00")}分`
+        }));
+        this.setData({
+          creditSummary: {
+            ...summary,
+            totalPointsLabel: `${summary.total_points || "0.00"}分`,
+            currentYearPointsLabel: `${summary.current_year_points || "0.00"}分`,
+            standardPointsLabel: `${summary.standard_learning_points || "0.00"}分`,
+            extensionPointsLabel: `${summary.extension_activity_points || "0.00"}分`
+          },
+          creditEntries
+        });
+      } catch (error) {
+        if (!current()) return;
+        if (error.statusCode === 401) {
+          app.clearMemberSession();
+          this.setData({ member: null, errorMessage: "绑定已失效，请重新绑定。" });
+          return;
+        }
+        this.setData({ creditErrorMessage: "正式学分暂时无法加载，请重试。" });
+      }
 
       // This endpoint is only for the existing volunteer management entry;
       // it must never be used as an ordinary member's learning history.

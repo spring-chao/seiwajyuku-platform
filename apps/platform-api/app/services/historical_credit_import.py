@@ -26,6 +26,7 @@ from app.services.audit import write_audit
 
 HISTORICAL_IMPORT_TYPE = "LEGACY_SUZHOU_CREDIT_WORKBOOK"
 HISTORICAL_SOURCE_RULE_VERSION = "LEGACY_SUZHOU_2026_V1"
+HISTORICAL_LEDGER_SOURCE_TYPE = HISTORICAL_SOURCE_RULE_VERSION
 HISTORICAL_SOURCE_NAME = "苏州分中心2026年学分"
 
 VALIDATION_PASS = "PASS"
@@ -100,6 +101,23 @@ def _clean_points(value: float | None) -> int | float | None:
         return None
     rounded = round(value, 2)
     return int(rounded) if rounded.is_integer() else rounded
+
+
+def historical_credit_idempotency_key(
+    *, file_sha256: str, source_sheet: str, source_row_number: int, source_column_index: int,
+) -> str:
+    """Return the stable ledger identity for one source workbook cell."""
+
+    identity = "\0".join(
+        (
+            HISTORICAL_SOURCE_RULE_VERSION,
+            file_sha256.lower(),
+            source_sheet,
+            str(source_row_number),
+            str(source_column_index),
+        )
+    )
+    return f"LC-HIST:{hashlib.sha256(identity.encode('utf-8')).hexdigest()}"
 
 
 def _cell_value(ws: Any, row: int, column: int, merged: dict[tuple[int, int], Any]) -> Any:
@@ -552,7 +570,9 @@ def get_historical_credit_import_row(batch_id: int, row_id: int) -> dict[str, An
     return row
 
 
-def dry_run_historical_credit_import(batch_id: int) -> dict[str, Any]:
+def dry_run_historical_credit_import(
+    batch_id: int, *, allow_existing_ledger_keys: set[str] | None = None,
+) -> dict[str, Any]:
     """Return a complete historical proposal without writing any table."""
 
     batch = get_historical_credit_import_batch(batch_id)
@@ -568,7 +588,16 @@ def dry_run_historical_credit_import(batch_id: int) -> dict[str, Any]:
     )
     ready: list[dict[str, Any]] = []
     blocked: list[dict[str, Any]] = []
+    already_posted: list[dict[str, Any]] = []
     reason_counts: dict[str, dict[str, Any]] = {}
+    existing_ledger_keys = {
+        str(row["idempotency_key"])
+        for row in fetch_all(
+            "SELECT idempotency_key FROM learning_credit_entries WHERE source_type=?",
+            (HISTORICAL_LEDGER_SOURCE_TYPE,),
+        )
+    }
+    allow_existing_ledger_keys = allow_existing_ledger_keys or set()
 
     def period_display(item: dict[str, Any]) -> str | None:
         precision = str(item.get("occurred_precision") or "")
@@ -585,6 +614,19 @@ def dry_run_historical_credit_import(batch_id: int) -> dict[str, Any]:
         item.pop("row_metadata_json", None)
         item["period_display"] = period_display(item)
         item["points"] = float(item["points"] or 0)
+        item["idempotency_key"] = historical_credit_idempotency_key(
+            file_sha256=str(batch["file_sha256"]),
+            source_sheet=str(item["source_sheet"]),
+            source_row_number=int(item["source_row_number"]),
+            source_column_index=int(item["source_column_index"]),
+        )
+        if (
+            item["idempotency_key"] in existing_ledger_keys
+            and item["idempotency_key"] not in allow_existing_ledger_keys
+        ):
+            item["ledger_status"] = "ALREADY_POSTED"
+            already_posted.append(item)
+            continue
         reason: str | None = None
         if item.get("matched_member_id") is None or item.get("match_status") not in {"AUTO_MATCHED", "CONFIRMED"}:
             reason = item.get("match_reason") or "MEMBER_MAPPING_REQUIRED"
@@ -608,8 +650,15 @@ def dry_run_historical_credit_import(batch_id: int) -> dict[str, Any]:
                 reason = "PERIOD_YEAR_ACCEPTANCE_REQUIRED"
             elif item.get("occurred_precision") == "MONTH" and item.get("period_review_status") not in {"READY", "MONTH_CONFIRMED"}:
                 reason = "PERIOD_MONTH_CONFIRMATION_REQUIRED"
-        if reason is None and item.get("status") not in {"PENDING_REVIEW", "READY"}:
-            reason = "ITEM_NOT_READY"
+        item_key_is_in_batch_resume = item["idempotency_key"] in allow_existing_ledger_keys
+        if reason is None and item.get("status") not in {"PENDING_REVIEW", "READY"} and not (
+            item.get("status") == "POSTED" and item_key_is_in_batch_resume
+        ):
+            reason = (
+                "POSTED_STAGING_WITHOUT_LEDGER"
+                if item.get("status") == "POSTED"
+                else "ITEM_NOT_READY"
+            )
 
         if reason is None:
             ready.append(item)
@@ -656,6 +705,8 @@ def dry_run_historical_credit_import(batch_id: int) -> dict[str, Any]:
         "proposed_points": _clean_points(sum(item["points"] for item in ready)),
         "blocked_item_count": len(blocked),
         "blocked_points": _clean_points(sum(item["points"] for item in blocked)),
+        "already_posted_item_count": len(already_posted),
+        "already_posted_points": _clean_points(sum(item["points"] for item in already_posted)),
         "blocked_reason": blocked_reason,
         "blocked_reason_counts": reason_counts,
         "track_counts": track_counts,
@@ -665,6 +716,7 @@ def dry_run_historical_credit_import(batch_id: int) -> dict[str, Any]:
         "credit_review_counts": [dict(row) for row in credit_rows],
         "details": ready,
         "blocked_details": blocked,
+        "already_posted_details": already_posted,
         "learning_credit_entries_delta": 0,
         "ledger_write": False,
         "staging_write": False,

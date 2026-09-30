@@ -168,7 +168,12 @@ jobs:
           apps/platform-api/tests/test_v12_mvp.py
           apps/platform-api/tests/test_volunteer_position_model.py
           apps/platform-api/tests/test_study_meeting_attendees.py
+          apps/platform-api/tests/test_wechat_learning_summary.py
           apps/platform-api/tests/test_mobile_record_idempotency.py
+          apps/platform-api/tests/test_credit_settlement_batch_mysql.py
+          apps/platform-api/tests/test_class_meeting_batch_mysql.py
+          apps/platform-api/tests/test_credit_activity_batch_mysql.py
+          apps/platform-api/tests/test_historical_credit_batch_mysql.py
           -q --junitxml=b21-mysql.xml
       - name: Verify 0042 guarded rollback on disposable test data
         run: |
@@ -309,6 +314,42 @@ jobs:
       - run: pip install -r apps/platform-api/requirements.txt
       - name: Run real MySQL migrations, backfill and attendance validation
         run: python scripts/validate_staging_mysql.py
+      - name: Verify 0067 MySQL empty schema and guarded rollback
+        run: |
+          set -euo pipefail
+          container="${{ job.services.mysql.id }}"
+          db="seiwajyuku_staging"
+          # The migration runner already applied 0067; replay the script once
+          # to verify the DDL/catalog registration is idempotent on MySQL.
+          docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/mysql/0067_learning_credit_settlement_batches.sql
+          table_count="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('learning_credit_settlement_batches','learning_credit_settlement_batch_items');")"
+          test "$table_count" = "2"
+          ledger_before="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT COUNT(*) FROM learning_credit_entries;")"
+          docker exec "$container" mysql -uroot -pci-root-password "$db" -e "INSERT INTO learning_credit_settlement_batches (batch_no,batch_type,source_type,period_precision,period_year,source_snapshot_json,rule_snapshot_json,result_snapshot_json,source_fingerprint,rule_fingerprint,created_at,updated_at) VALUES ('CI-0067-GUARD','HISTORICAL_IMPORT','LEGACY_SUZHOU_2026_V1','YEAR',2026,'{}','{}','{}',REPEAT('a',64),REPEAT('b',64),UTC_TIMESTAMP(),UTC_TIMESTAMP());"
+          if docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/rollback/mysql/0067_learning_credit_settlement_batches.down.sql; then
+            echo "ERROR: 0067 rollback must refuse a non-empty batch"
+            exit 1
+          fi
+          docker exec "$container" mysql -uroot -pci-root-password "$db" -e "DELETE FROM learning_credit_settlement_batches WHERE batch_no='CI-0067-GUARD';"
+          # seed_iam has already attached these permissions to the dedicated
+          # capability roles. Clear the baseline grants so this fixture can
+          # prove the guard specifically blocks an assigned role, then restore
+          # the canonical IAM seed after the migration is replayed.
+          docker exec "$container" mysql -uroot -pci-root-password "$db" -e "DELETE FROM role_permissions WHERE permission_key IN ('plans:credit_settlement_approve','plans:credit_settlement_post');"
+          docker exec "$container" mysql -uroot -pci-root-password "$db" -e "INSERT INTO role_permissions(role_key,permission_key) VALUES ('read_only','plans:credit_settlement_post');"
+          if docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/rollback/mysql/0067_learning_credit_settlement_batches.down.sql; then
+            echo "ERROR: 0067 rollback must refuse a granted approval/post permission"
+            exit 1
+          fi
+          docker exec "$container" mysql -uroot -pci-root-password "$db" -e "DELETE FROM role_permissions WHERE permission_key IN ('plans:credit_settlement_approve','plans:credit_settlement_post');"
+          docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/rollback/mysql/0067_learning_credit_settlement_batches.down.sql
+          dropped="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('learning_credit_settlement_batches','learning_credit_settlement_batch_items');")"
+          test "$dropped" = "0"
+          docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/mysql/0067_learning_credit_settlement_batches.sql
+          docker exec "$container" mysql -uroot -pci-root-password "$db" -e "INSERT INTO schema_migrations(version,applied_at) VALUES ('0067_learning_credit_settlement_batches.sql',UTC_TIMESTAMP());"
+          python -c "from app.services.iam import seed_iam; seed_iam()"
+          ledger_after="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT COUNT(*) FROM learning_credit_entries;")"
+          test "$ledger_before" = "$ledger_after"
       - name: Dump staging database
         run: >-
           docker exec "${{ job.services.mysql.id }}"

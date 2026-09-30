@@ -124,6 +124,10 @@ Page({
     wx.navigateTo({ url: "/pages/identity/bind" });
   },
 
+  openLearning() {
+    wx.navigateTo({ url: "/pages/learning/index" });
+  },
+
   backHome() {
     wx.reLaunch({ url: "/pages/home/index" });
   }

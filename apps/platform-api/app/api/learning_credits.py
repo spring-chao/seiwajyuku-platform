@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api.auth import require_permission
 from app.services.learning_credits import (
     LearningCreditError,
+    credit_ledger_overview,
     dry_run_study_meeting_settlement,
     dry_run_study_meetings,
     list_credit_entries,
@@ -50,6 +51,23 @@ from app.services.historical_credit_review import (
     get_historical_credit_review_workbench,
     resolve_credit_anomalies,
     upsert_class_mapping_candidates,
+)
+from app.services.credit_settlement_batches import (
+    approve_settlement_batch,
+    close_settlement_batch,
+    approve_historical_credit_batch,
+    dry_run_class_meeting_batch,
+    dry_run_daily_reading_batch,
+    dry_run_excellent_share_batch,
+    dry_run_historical_credit_batches,
+    dry_run_study_meeting_batch,
+    get_settlement_batch,
+    list_settlement_batches,
+    post_historical_credit_batch,
+    post_settlement_batch,
+    reconcile_stale_posting_batch,
+    submit_settlement_batch_for_approval,
+    submit_historical_credit_batch_for_approval,
 )
 
 
@@ -197,6 +215,20 @@ class HistoricalMonthConfirmationPayload(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
 
 
+class HistoricalBatchPostPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resume_partial_failure: bool = False
+
+
+class SettlementActivityBatchPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    class_org_unit_id: str = Field(min_length=1, max_length=64)
+    occurred_from: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    occurred_to: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
 def _error(exc: Exception) -> HTTPException:
     if isinstance(exc, PermissionError):
         return HTTPException(403, str(exc))
@@ -280,6 +312,226 @@ def dry_run_historical_credit_import_endpoint(
 ) -> dict:
     try:
         return {"success": True, "data": dry_run_historical_credit_import(batch_id)}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-imports/{batch_id}/settlement-batches/dry-run")
+def dry_run_historical_credit_settlement_batches(
+    batch_id: int,
+    user: dict = Depends(require_permission("plans:historical_credit_import_manage")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": dry_run_historical_credit_batches(
+                actor_user_id=user["id"], import_batch_id=batch_id,
+            ),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-settlement-batches/{batch_id}/submit-approval")
+def historical_settlement_batch_submit(
+    batch_id: int,
+    user: dict = Depends(require_permission("plans:credit_settlement_manage")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": submit_historical_credit_batch_for_approval(
+                actor_user_id=user["id"], batch_id=batch_id,
+            ),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-settlement-batches/{batch_id}/approve")
+def historical_settlement_batch_approve(
+    batch_id: int,
+    user: dict = Depends(require_permission("plans:credit_settlement_approve")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": approve_historical_credit_batch(
+                actor_user_id=user["id"], batch_id=batch_id,
+            ),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/historical-settlement-batches/{batch_id}/post")
+def historical_settlement_batch_post(
+    batch_id: int,
+    payload: HistoricalBatchPostPayload,
+    user: dict = Depends(require_permission("plans:credit_settlement_post")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": post_historical_credit_batch(
+                actor_user_id=user["id"], batch_id=batch_id,
+                resume_partial_failure=payload.resume_partial_failure,
+            ),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/settlement-batches")
+def settlement_batches_list(
+    status: str | None = Query(default=None, max_length=32),
+    batch_type: str | None = Query(default=None, max_length=32),
+    class_org_unit_id: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1000000),
+    user: dict = Depends(require_permission("plans:credit_settlement_manage")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": list_settlement_batches(
+                actor_user_id=user["id"], status=status, batch_type=batch_type,
+                class_org_unit_id=class_org_unit_id, limit=limit, offset=offset,
+            ),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/settlement-batches/{batch_id}")
+def settlement_batch_detail(
+    batch_id: int,
+    user: dict = Depends(require_permission("plans:credit_settlement_manage")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": get_settlement_batch(actor_user_id=user["id"], batch_id=batch_id),
+        }
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/settlement-batches/study-meetings/{session_id}/dry-run")
+def study_meeting_batch_dry_run(
+    session_id: int,
+    user: dict = Depends(require_permission("plans:credit_settlement_manage")),
+) -> dict:
+    try:
+        return {"success": True, "data": dry_run_study_meeting_batch(
+            actor_user_id=user["id"], session_id=session_id,
+        )}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/settlement-batches/class-meetings/{event_group_id}/dry-run")
+def class_meeting_batch_dry_run(
+    event_group_id: int,
+    user: dict = Depends(require_permission("plans:credit_settlement_manage")),
+) -> dict:
+    try:
+        return {"success": True, "data": dry_run_class_meeting_batch(
+            actor_user_id=user["id"], event_group_id=event_group_id,
+        )}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/settlement-batches/daily-reading/dry-run")
+def daily_reading_batch_dry_run(
+    payload: SettlementActivityBatchPayload,
+    user: dict = Depends(require_permission("plans:credit_settlement_manage")),
+) -> dict:
+    try:
+        return {"success": True, "data": dry_run_daily_reading_batch(
+            actor_user_id=user["id"], **payload.model_dump(),
+        )}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/settlement-batches/excellent-share/dry-run")
+def excellent_share_batch_dry_run(
+    payload: SettlementActivityBatchPayload,
+    user: dict = Depends(require_permission("plans:credit_settlement_manage")),
+) -> dict:
+    try:
+        return {"success": True, "data": dry_run_excellent_share_batch(
+            actor_user_id=user["id"], **payload.model_dump(),
+        )}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/settlement-batches/{batch_id}/submit-approval")
+def settlement_batch_submit_approval(
+    batch_id: int,
+    user: dict = Depends(require_permission("plans:credit_settlement_manage")),
+) -> dict:
+    try:
+        return {"success": True, "data": submit_settlement_batch_for_approval(
+            actor_user_id=user["id"], batch_id=batch_id,
+        )}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/settlement-batches/{batch_id}/approve")
+def settlement_batch_approve(
+    batch_id: int,
+    user: dict = Depends(require_permission("plans:credit_settlement_approve")),
+) -> dict:
+    try:
+        return {"success": True, "data": approve_settlement_batch(
+            actor_user_id=user["id"], batch_id=batch_id,
+        )}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/settlement-batches/{batch_id}/post")
+def settlement_batch_post(
+    batch_id: int,
+    payload: HistoricalBatchPostPayload,
+    user: dict = Depends(require_permission("plans:credit_settlement_post")),
+) -> dict:
+    try:
+        return {"success": True, "data": post_settlement_batch(
+            actor_user_id=user["id"], batch_id=batch_id,
+            resume_partial_failure=payload.resume_partial_failure,
+        )}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/settlement-batches/{batch_id}/reconcile-posting")
+def settlement_batch_reconcile_posting(
+    batch_id: int,
+    user: dict = Depends(require_permission("plans:credit_settlement_reconcile")),
+) -> dict:
+    try:
+        return {"success": True, "data": reconcile_stale_posting_batch(
+            actor_user_id=user["id"], batch_id=batch_id,
+        )}
+    except (ValueError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/settlement-batches/{batch_id}/close")
+def settlement_batch_close(
+    batch_id: int,
+    user: dict = Depends(require_permission("plans:credit_settlement_close")),
+) -> dict:
+    try:
+        return {"success": True, "data": close_settlement_batch(
+            actor_user_id=user["id"], batch_id=batch_id,
+        )}
     except (ValueError, PermissionError) as exc:
         raise _error(exc) from exc
 
@@ -731,6 +983,19 @@ def credit_entries(
         raise _error(exc) from exc
 
 
+@router.get("/overview")
+def credit_ledger_overview_read(
+    user: dict = Depends(require_permission("plans:credit_settlement_preview")),
+) -> dict:
+    try:
+        return {
+            "success": True,
+            "data": credit_ledger_overview(actor_user_id=user["id"]),
+        }
+    except (LearningCreditError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
 @router.get("/members/{member_id}/summary")
 def credit_summary(
     member_id: int,
@@ -765,7 +1030,7 @@ def settle_meeting(
 def reverse_entry(
     entry_id: int,
     payload: ReversalPayload,
-    user: dict = Depends(require_permission("plans:credit_settlement_manage")),
+    user: dict = Depends(require_permission("plans:credit_settlement_reverse")),
 ) -> dict:
     try:
         return {

@@ -10,6 +10,7 @@ import {
   resetStaffPassword,
   updateStaff,
   type StaffCatalog,
+  type StaffGrantInput,
   type StaffPayload,
   type StaffRecord,
   type StaffScopeType
@@ -37,6 +38,8 @@ type StaffForm = {
   employment_status: "ACTIVE" | "LEAVE";
   custom_password: boolean;
   temporary_password: string;
+  credit_grants: StaffGrantInput[];
+  authorization_reason: string;
 };
 
 const loading = ref(false);
@@ -50,6 +53,7 @@ const permissionRecord = ref<StaffRecord>();
 const currentRecord = ref<StaffRecord>();
 const moreSections = ref<string[]>([]);
 const initialAuthorization = ref("");
+const initialCreditGrants = ref("");
 
 const filters = reactive({
   org_unit_id: "",
@@ -76,7 +80,9 @@ function emptyForm(): StaffForm {
     is_active: true,
     employment_status: "ACTIVE",
     custom_password: false,
-    temporary_password: ""
+    temporary_password: "",
+    credit_grants: [],
+    authorization_reason: ""
   };
 }
 
@@ -91,6 +97,56 @@ const positions = computed(() =>
 const institutions = computed(() => catalog.value?.institutions || []);
 const departments = computed(() => catalog.value?.departments || []);
 const supervisors = computed(() => catalog.value?.supervisors || []);
+const creditRoles = computed(() =>
+  (catalog.value?.roles || []).filter(role => role.role_key.startsWith("credit_settlement_"))
+);
+const isCreditRole = (roleKey: string) => roleKey.startsWith("credit_settlement_");
+const canEditCreditRole = (roleKey: string) =>
+  creditRoles.value.some(role => role.role_key === roleKey);
+const lockedCreditGrants = computed(() =>
+  (currentRecord.value?.authorization_grants || []).filter(
+    grant => isCreditRole(grant.role_key) && !canEditCreditRole(grant.role_key)
+  )
+);
+
+function creditGrantSignature(grants: StaffGrantInput[]) {
+  return JSON.stringify(
+    grants
+      .map(grant => [grant.role_key, grant.org_unit_id, grant.scope_type])
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+  );
+}
+
+function creditGrantKey(grant: StaffGrantInput) {
+  return JSON.stringify([grant.role_key, grant.org_unit_id, grant.scope_type]);
+}
+
+function isLockedCreditGrant(grant: StaffGrantInput) {
+  return (currentRecord.value?.authorization_grants || []).some(
+    current =>
+      isCreditRole(current.role_key) &&
+      !canEditCreditRole(current.role_key) &&
+      creditGrantKey({
+        role_key: current.role_key,
+        org_unit_id: current.org_unit_id,
+        scope_type: current.scope_type
+      }) === creditGrantKey(grant)
+  );
+}
+
+const creditGrantsChanged = computed(
+  () => creditGrantSignature(form.credit_grants) !== initialCreditGrants.value
+);
+const authorizationReasonRequired = computed(() => {
+  if (!isEditing.value) return form.credit_grants.length > 0;
+  const authorizationChanged =
+    authorizationSignature(
+      form.position_keys,
+      form.responsibility_org_unit_id,
+      form.responsibility_scope_type
+    ) !== initialAuthorization.value;
+  return creditGrantsChanged.value || authorizationChanged;
+});
 
 function buildOrgTree(units: StaffCatalog["org_units"]) {
   const byId = new Map(
@@ -185,6 +241,13 @@ function resetForm(record?: StaffRecord) {
     next.is_active = record.is_active;
     next.employment_status =
       record.employment_status === "LEAVE" ? "LEAVE" : "ACTIVE";
+    next.credit_grants = record.authorization_grants
+      .filter(grant => isCreditRole(grant.role_key))
+      .map(grant => ({
+        role_key: grant.role_key,
+        org_unit_id: grant.org_unit_id,
+        scope_type: grant.scope_type
+      }));
   }
   Object.assign(form, next);
   initialAuthorization.value = authorizationSignature(
@@ -192,7 +255,89 @@ function resetForm(record?: StaffRecord) {
     next.responsibility_org_unit_id,
     next.responsibility_scope_type
   );
+  initialCreditGrants.value = creditGrantSignature(next.credit_grants);
   moreSections.value = [];
+}
+
+function addCreditGrant() {
+  const role = creditRoles.value[0];
+  if (!role) return;
+  form.credit_grants.push({
+    role_key: role.role_key,
+    org_unit_id: form.responsibility_org_unit_id || selectedInstitution.value?.scope_root_org_unit_id || "",
+    scope_type: form.responsibility_scope_type
+  });
+}
+
+function removeCreditGrant(index: number) {
+  const grant = form.credit_grants[index];
+  if (!grant || !canEditCreditRole(grant.role_key)) return;
+  form.credit_grants.splice(index, 1);
+}
+
+function creditRoleName(roleKey: string) {
+  return (
+    creditRoles.value.find(role => role.role_key === roleKey)?.role_name ||
+    currentRecord.value?.authorization_grants.find(grant => grant.role_key === roleKey)
+      ?.role_name ||
+    roleKey
+  );
+}
+
+function creditGrantScopeName(grant: StaffGrantInput) {
+  const known = catalog.value?.org_units.find(unit => unit.id === grant.org_unit_id);
+  return (
+    known?.name ||
+    currentRecord.value?.authorization_grants.find(
+      current =>
+        current.role_key === grant.role_key &&
+        current.org_unit_id === grant.org_unit_id &&
+        current.scope_type === grant.scope_type
+    )?.org_name ||
+    grant.org_unit_id
+  );
+}
+
+function allGrantInputs(): StaffGrantInput[] {
+  const positionRoles = new Set(
+    (catalog.value?.positions || [])
+      .map(position => position.role_key)
+      .filter((roleKey): roleKey is string => Boolean(roleKey))
+  );
+  const positionAuthorizationChanged = isEditing.value &&
+    authorizationSignature(
+      form.position_keys,
+      form.responsibility_org_unit_id,
+      form.responsibility_scope_type
+    ) !== initialAuthorization.value;
+  const preserved = (currentRecord.value?.authorization_grants || [])
+    .filter(
+      grant =>
+        !isCreditRole(grant.role_key) &&
+        (!positionAuthorizationChanged || !positionRoles.has(grant.role_key))
+    )
+    .map(grant => ({
+      role_key: grant.role_key,
+      org_unit_id: grant.org_unit_id,
+      scope_type: grant.scope_type
+    }));
+  const positionGrants: StaffGrantInput[] =
+    isEditing.value && !positionAuthorizationChanged
+      ? []
+      : form.position_keys.flatMap(positionKey => {
+          const roleKey = (catalog.value?.positions || []).find(
+            position => position.position_key === positionKey
+          )?.role_key;
+          if (!roleKey) return [];
+          return [
+            {
+              role_key: roleKey,
+              org_unit_id: form.responsibility_org_unit_id,
+              scope_type: form.responsibility_scope_type
+            }
+          ];
+        });
+  return [...preserved, ...positionGrants, ...form.credit_grants];
 }
 
 async function loadCatalog() {
@@ -280,6 +425,27 @@ function validateForm() {
   ) {
     return `临时密码至少需要 ${PASSWORD_MIN_LENGTH} 位`;
   }
+  const duplicateCreditGrant = form.credit_grants.some((grant, index) =>
+    form.credit_grants.some(
+      (other, otherIndex) =>
+        otherIndex !== index &&
+        other.role_key === grant.role_key &&
+        other.org_unit_id === grant.org_unit_id &&
+        other.scope_type === grant.scope_type
+    )
+  );
+  if (duplicateCreditGrant) return "相同学分能力与组织范围不能重复配置";
+  for (const grant of form.credit_grants) {
+    if (!grant.role_key || !grant.org_unit_id) {
+      return "请完整配置学分能力、组织和范围";
+    }
+    if (!canEditCreditRole(grant.role_key) && !isLockedCreditGrant(grant)) {
+      return "当前账号不能新增或修改此学分能力";
+    }
+  }
+  if (authorizationReasonRequired.value && !form.authorization_reason.trim()) {
+    return "授权或学分能力发生变化时必须填写授权原因";
+  }
   return "";
 }
 
@@ -301,6 +467,7 @@ function payloadFromForm(): StaffPayload {
     payload.responsibility_org_unit_id = form.responsibility_org_unit_id;
     payload.responsibility_scope_type = form.responsibility_scope_type;
     payload.temporary_password = form.custom_password ? form.temporary_password : null;
+    if (form.credit_grants.length) payload.grants = allGrantInputs();
   } else {
     if (form.login_account.trim()) payload.login_account = form.login_account.trim();
     if (form.phone.trim()) {
@@ -316,6 +483,10 @@ function payloadFromForm(): StaffPayload {
       payload.responsibility_org_unit_id = form.responsibility_org_unit_id;
       payload.responsibility_scope_type = form.responsibility_scope_type;
     }
+    if (creditGrantsChanged.value) payload.grants = allGrantInputs();
+  }
+  if (form.authorization_reason.trim()) {
+    payload.authorization_reason = form.authorization_reason.trim();
   }
   return payload;
 }
@@ -428,7 +599,7 @@ onMounted(() => {
       <div>
         <p>一分钟完成人员建档</p>
         <h1>专职人员管理</h1>
-        <span>填写人员、岗位和负责范围，系统自动完成账号、权限与审计。</span>
+        <span>填写人员、岗位和负责范围；学分结算专项能力需单独授权并记录原因。</span>
       </div>
       <el-button type="primary" :disabled="!writesEnabled" @click="openCreate">新增专职人员</el-button>
     </section>
@@ -481,6 +652,35 @@ onMounted(() => {
           <el-form-item label="负责范围" required class="wide"><el-alert v-if="form.institution_id && selectedInstitution && !selectedInstitution.scope_available" title="该机构的组织根节点尚未配置，暂不能建立负责范围。请先补齐组织主数据。" type="warning" :closable="false" show-icon /><div v-else class="scope-fields"><el-tree-select v-model="form.responsibility_org_unit_id" :data="scopeOrgTree" :props="{ label: 'label', children: 'children' }" node-key="id" check-strictly filterable placeholder="选择负责组织" /><el-select v-model="form.responsibility_scope_type"><el-option label="含下级" value="SUBTREE" /><el-option label="仅本级" value="UNIT" /></el-select></div></el-form-item>
         </div>
 
+        <section class="credit-capabilities">
+          <div class="credit-capabilities-head">
+            <div>
+              <h3>学分结算专项能力</h3>
+              <p>按能力单独授权，并限定机构内组织范围；新增或变更时必须填写原因。</p>
+            </div>
+            <el-button v-if="creditRoles.length" plain type="primary" @click="addCreditGrant">添加能力</el-button>
+          </div>
+          <el-alert v-if="!creditRoles.length && !lockedCreditGrants.length" title="当前账号没有可分配的学分专项能力；需由有权管理员配置。" type="info" :closable="false" show-icon />
+          <div v-for="(grant, index) in form.credit_grants" :key="`${grant.role_key}-${index}`" class="credit-grant-row">
+            <el-select v-if="canEditCreditRole(grant.role_key)" v-model="grant.role_key" placeholder="选择能力">
+              <el-option v-for="role in creditRoles" :key="role.role_key" :label="role.role_name" :value="role.role_key" />
+            </el-select>
+            <span v-else class="locked-credit-value">{{ creditRoleName(grant.role_key) }}</span>
+            <el-tree-select v-if="canEditCreditRole(grant.role_key)" v-model="grant.org_unit_id" :data="scopeOrgTree" :props="{ label: 'label', children: 'children' }" node-key="id" check-strictly filterable placeholder="机构内组织" />
+            <span v-else class="locked-credit-value">{{ creditGrantScopeName(grant) }}</span>
+            <el-select v-if="canEditCreditRole(grant.role_key)" v-model="grant.scope_type">
+              <el-option label="含下级" value="SUBTREE" />
+              <el-option label="仅本级" value="UNIT" />
+            </el-select>
+            <span v-else class="locked-credit-value">{{ grant.scope_type === "SUBTREE" ? "含下级" : "仅本级" }}</span>
+            <el-button v-if="canEditCreditRole(grant.role_key)" link type="danger" @click="removeCreditGrant(index)">移除</el-button>
+            <el-tag v-else type="info">系统管理员专属，保持不变</el-tag>
+          </div>
+          <el-form-item v-if="authorizationReasonRequired" label="授权原因" required class="reason-field">
+            <el-input v-model="form.authorization_reason" type="textarea" :rows="2" maxlength="1000" show-word-limit placeholder="记录业务依据，写入授权审计" />
+          </el-form-item>
+        </section>
+
         <el-collapse v-model="moreSections">
           <el-collapse-item title="更多信息（可选）" name="more">
             <div class="form-grid more-grid">
@@ -496,7 +696,7 @@ onMounted(() => {
     </el-drawer>
 
     <el-dialog v-model="permissionVisible" :title="`${permissionRecord?.name || ''} · 系统权限`" width="min(760px, 94vw)">
-      <el-alert title="系统权限由当前岗位和负责范围自动生成，仅供查看。" type="info" :closable="false" show-icon />
+      <el-alert title="岗位权限由岗位与负责范围生成；学分结算专项能力为单独授权项。" type="info" :closable="false" show-icon />
       <el-table :data="permissionRecord?.authorization_grants || []" max-height="420" empty-text="暂无当前系统权限"><el-table-column prop="role_name" label="能力" min-width="180" /><el-table-column label="负责范围" min-width="240"><template #default="{ row }">{{ row.org_name || row.org_unit_id }}（{{ row.scope_type === "SUBTREE" ? "含下级" : "仅本级" }}）</template></el-table-column></el-table>
     </el-dialog>
   </div>
@@ -513,9 +713,16 @@ onMounted(() => {
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
 .form-grid .wide { grid-column: 1 / -1; }
 .scope-fields { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 10px; width: 100%; }
+.credit-capabilities { display: grid; gap: 12px; margin: 12px 0 18px; padding: 16px; border: 1px solid #dce6ee; border-radius: 12px; background: #f8fbfd; }
+.credit-capabilities-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.credit-capabilities-head h3 { margin: 0; font-size: 15px; }
+.credit-capabilities-head p { margin: 5px 0 0; color: #718096; font-size: 12px; }
+.credit-grant-row { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(170px, 1.2fr) 110px auto; align-items: center; gap: 8px; }
+.locked-credit-value { color: #606266; font-size: 14px; }
+.reason-field { margin-bottom: 0; }
 .position-option { display: flex; flex-direction: column; gap: 2px; line-height: 1.25; }
 .position-option small, .option-note { color: #86909c; font-size: 12px; }
 .option-note { float: right; margin-left: 12px; }
 .more-grid { padding-top: 18px; }
-@media (max-width: 720px) { .page-head { align-items: flex-start; flex-direction: column; } .form-grid, .scope-fields { grid-template-columns: 1fr; } .form-grid .wide { grid-column: auto; } }
+@media (max-width: 720px) { .page-head { align-items: flex-start; flex-direction: column; } .form-grid, .scope-fields, .credit-grant-row { grid-template-columns: 1fr; } .form-grid .wide { grid-column: auto; } }
 </style>

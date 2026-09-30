@@ -8,9 +8,13 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import re
+import shutil
 import ssl
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from r3_read_evidence import ReadFailure, safe_request_id
@@ -95,6 +99,102 @@ def _sdk_ports(secret_id, secret_key, token=None):
     return _ReadPorts(service, revision, release, task, pods, realm="live")
 
 
+def _cloudbase_command():
+    """Resolve the installed official CLI, not shell shims or credential files."""
+    node, shim = shutil.which("node"), shutil.which("tcb")
+    if not node or not shim:
+        raise ReadFailure("CLOUDBASE_CLI_NOT_INSTALLED")
+    root = Path(shim).absolute().parent / "node_modules" / "@cloudbase" / "cli"
+    try:
+        package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+        entry = root / "bin" / "tcb"
+        if (
+            not isinstance(package, dict)
+            or package.get("name") != "@cloudbase/cli"
+            or package.get("version") != "3.6.1"
+            or not entry.is_file()
+        ):
+            raise ReadFailure("CLOUDBASE_CLI_VERSION_NOT_VERIFIED")
+    except (OSError, ValueError, TypeError):
+        raise ReadFailure("CLOUDBASE_CLI_INSTALL_NOT_VERIFIED") from None
+    return (node, str(entry))
+
+
+@dataclass(frozen=True)
+class _CliResponse:
+    raw: dict
+
+    def to_json_string(self):
+        return json.dumps(self.raw)
+
+
+def _cli_ports():
+    """Five fixed reads via CLI-owned authentication; no login or secret export."""
+    command = _cloudbase_command()
+    actions = frozenset({
+        "DescribeCloudRunServerDetail", "DescribeVersionDetail", "DescribeReleaseOrder",
+        "DescribeServerManageTask", "DescribeCloudRunPodList",
+    })
+
+    def read(action, extra=None):
+        if action not in actions:
+            raise ReadFailure("CLOUD_READ_ACTION_NOT_ALLOWED")
+        params = {"EnvId": ENV_ID, "ServerName": SERVICE, **(extra or {})}
+        child_env = {**os.environ, "NODE_TLS_REJECT_UNAUTHORIZED": "1"}
+        # Avoid inherited preloads and implicit project .env/config discovery.
+        child_env.pop("NODE_OPTIONS", None)
+        try:
+            result = subprocess.run(
+                [*command, "api", "tcbr", action, "--api-version", "2022-02-17",
+                 "--body", json.dumps(params), "--json", "-r", REGION],
+                cwd=str(Path(command[1]).parent),
+                env=child_env, stdin=subprocess.DEVNULL, capture_output=True,
+                text=True, encoding="utf-8", timeout=10, check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except (OSError, subprocess.SubprocessError, UnicodeError):
+            raise ReadFailure("CLOUDBASE_CLI_READ_FAILED") from None
+        # Never surface stdout/stderr or exceptions, which may contain secrets.
+        if result.returncode != 0 or len(result.stdout) > 16 * 1024 * 1024:
+            raise ReadFailure("CLOUDBASE_CLI_READ_FAILED")
+        output = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+        # CLI 3.6.1 emits its banner before a single JSON document.
+        try:
+            # Parse once; do not scan malformed/nested output for a valid suffix.
+            document = json.loads(output[output.index("{"):])
+        except (ValueError, RecursionError):
+            raise ReadFailure("CLOUDBASE_CLI_RESPONSE_INVALID") from None
+        if (
+            not isinstance(document, dict)
+            or set(document) != {"data"}
+            or not isinstance(document["data"], dict)
+            or "Error" in document["data"]
+        ):
+            raise ReadFailure("CLOUDBASE_CLI_RESPONSE_INVALID")
+        return _CliResponse(document["data"])
+
+    def service():
+        return read("DescribeCloudRunServerDetail")
+
+    def revision(name):
+        return read("DescribeVersionDetail", {"VersionName": revision_name(name)})
+
+    def release():
+        return read("DescribeReleaseOrder")
+
+    def task(task_id):
+        if type(task_id) is not int or task_id <= 0:
+            raise ReadFailure("TASK_ID_INVALID")
+        return read("DescribeServerManageTask", {"TaskId": task_id})
+
+    def pods(name):
+        return read("DescribeCloudRunPodList", {
+            "VersionName": revision_name(name), "PageSize": 50, "PageNum": 1,
+        })
+
+    return _ReadPorts(service, revision, release, task, pods, realm="live")
+
+
 def revision_name(name):
     if not isinstance(name, str) or not re.fullmatch(SERVICE + r"-\d+", name):
         raise ReadFailure("REVISION_ID_INVALID")
@@ -117,11 +217,17 @@ class TencentCloudReadAdapter:
     def authenticated(cls, issuer, secret_id, secret_key, token=None):
         return cls(issuer, _sdk_ports(secret_id, secret_key, token))
 
+    @classmethod
+    def authenticated_cli(cls, issuer):
+        return cls(issuer, _cli_ports())
+
     def _observe(self, read):
         started = self._issuer.clock()
         try:
             value = read()
             raw = json.loads(value.to_json_string())
+        except ReadFailure:
+            raise
         except Exception as exc:  # noqa: BLE001 - sanitize every SDK/transport failure
             # Arbitrary SDK messages may embed credentials/URLs. Do not retain.
             rid = None

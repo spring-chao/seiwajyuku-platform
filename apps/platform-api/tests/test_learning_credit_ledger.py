@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -9,16 +9,27 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.security import create_token
-from app.db import execute, fetch_one, transaction
+from app.db import execute, fetch_all, fetch_one, transaction
 from app.main import app
+from app.services import learning_credits as credit_service
 from app.services.learning_credits import (
     LearningCreditError,
     dry_run_study_meeting_settlement,
+    list_credit_entries,
     member_credit_summary,
     post_credit_entry,
     reverse_credit_entry,
     settle_study_meeting,
 )
+from app.services.credit_settlement_batches import (
+    approve_study_meeting_batch,
+    close_settlement_batch,
+    dry_run_study_meeting_batch,
+    post_study_meeting_batch,
+    reconcile_stale_posting_batch,
+    submit_study_meeting_batch_for_approval,
+)
+from credit_batch_test_support import create_credit_batch_reviewer
 from app.services.study_meetings import (
     confirm_study_meeting_course_completion,
 )
@@ -48,14 +59,14 @@ def _use_credit_plan(f: dict, course_key: str | None = None) -> None:
     )
     assert binding
     with transaction() as connection:
-        execute(
+        generic_cursor = execute(
             connection,
             "INSERT INTO learning_credit_rule_versions "
-            "(rule_set_key, version_label, status, created_at, updated_at) "
-            "VALUES (?, ?, 'PUBLISHED', ?, ?)",
+            "(rule_set_key, version_label, status, metadata_json, created_at, updated_at) "
+            "VALUES (?, ?, 'PUBLISHED', '{}', ?, ?)",
             (binding["plan_key"], binding["version_label"], "2026-09-06", "2026-09-06"),
         )
-        generic_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
+        generic_id = int(generic_cursor.lastrowid)
         execute(
             connection,
             "INSERT INTO learning_credit_rules "
@@ -77,13 +88,13 @@ def _use_credit_plan(f: dict, course_key: str | None = None) -> None:
             (generic_id, f["class_id"]),
         )
         if course_key:
-            execute(
+            course_cursor = execute(
                 connection,
                 "INSERT INTO learning_plan_credit_rule_versions "
                 "(plan_key, version_label, status, created_at, updated_at) VALUES (?, ?, 'DRAFT', ?, ?)",
                 (binding["plan_key"], binding["version_label"], "2026-09-06", "2026-09-06"),
             )
-            rule_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
+            rule_id = int(course_cursor.lastrowid)
             execute(
                 connection,
                 "UPDATE class_learning_bindings SET course_credit_rule_version_id=? "
@@ -134,6 +145,251 @@ def test_group_meeting_dry_run_is_cycle_once_and_does_not_write() -> None:
         )
         assert repeated == preview
         assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == before
+
+
+def test_study_meeting_batch_freezes_preview_without_ledger_post() -> None:
+    f = _seed_group_leader_fixture()
+    _use_credit_plan(f)
+    session = create(f)
+    _submit_without_evidence(session)
+    actor = _admin_id()
+    ledger_before = fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]
+    batches_before = fetch_one("SELECT COUNT(*) AS n FROM learning_credit_settlement_batches")["n"]
+
+    with pytest.raises(LearningCreditError, match="批次DRY-RUN写入尚未开启"):
+        dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "false")
+        first = dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
+        repeated = dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
+        assert first["status"] == "DRY_RUN"
+        assert first["proposed_entry_count"] == 2
+        assert first["blocked_count"] == 0
+        assert first["idempotent"] is False
+        assert repeated["idempotent"] is True
+        assert repeated["id"] == first["id"]
+        assert fetch_one(
+            "SELECT COUNT(*) AS n FROM learning_credit_settlement_batch_items WHERE batch_id=?",
+            (first["id"],),
+        )["n"] == 2
+        with transaction() as connection:
+            execute(
+                connection,
+                "UPDATE learning_credit_rules SET points=5 WHERE rule_key='GROUP_MEETING_ATTENDANCE' "
+                "AND rule_version_id=(SELECT credit_rule_version_id FROM class_learning_bindings "
+                "WHERE class_org_unit_id=? ORDER BY id DESC LIMIT 1)",
+                (f["class_id"],),
+            )
+        with pytest.raises(LearningCreditError, match="冻结规则已变化"):
+            dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
+
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_settlement_batches")["n"] == batches_before + 1
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == ledger_before
+
+
+def test_study_meeting_batch_requires_separate_approval_gate_and_permission() -> None:
+    f = _seed_group_leader_fixture()
+    _use_credit_plan(f)
+    session = create(f)
+    _submit_without_evidence(session)
+    actor = _admin_id()
+    before = fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+        batch = dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
+        submitted = submit_study_meeting_batch_for_approval(actor_user_id=actor, batch_id=batch["id"])
+        assert submitted["status"] == "PENDING_APPROVAL"
+        with pytest.raises(LearningCreditError, match="批次审批尚未开启"):
+            approve_study_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+        patch_env.setenv("LEARNING_CREDIT_BATCH_APPROVAL_ENABLED", "true")
+        with pytest.raises(PermissionError, match="无权审批"):
+            approve_study_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+        with patch(
+            "app.services.learning_credits.user_context",
+            return_value={"permissions": ["plans:credit_settlement_approve"]},
+        ):
+            with pytest.raises(PermissionError, match="创建人不能审批"):
+                approve_study_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+            reviewer = create_credit_batch_reviewer()
+            with patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+                approved = approve_study_meeting_batch(actor_user_id=reviewer, batch_id=batch["id"])
+        assert approved["status"] == "APPROVED"
+        assert fetch_one(
+            "SELECT COUNT(*) AS n FROM learning_credit_settlement_batch_items "
+            "WHERE batch_id=? AND status='APPROVED'",
+            (batch["id"],),
+        )["n"] == 2
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == before
+
+
+def _approved_study_batch() -> tuple[int, int]:
+    f = _seed_group_leader_fixture()
+    _use_credit_plan(f)
+    session = create(f)
+    _submit_without_evidence(session)
+    actor = _admin_id()
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+        patch_env.setenv("LEARNING_CREDIT_BATCH_APPROVAL_ENABLED", "true")
+        batch = dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
+        submit_study_meeting_batch_for_approval(actor_user_id=actor, batch_id=batch["id"])
+        reviewer = create_credit_batch_reviewer()
+        with patch(
+            "app.services.learning_credits.user_context",
+            return_value={"permissions": ["plans:credit_settlement_approve"]},
+        ), patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+            approve_study_meeting_batch(actor_user_id=reviewer, batch_id=batch["id"])
+    return actor, batch["id"]
+
+
+def test_stale_posting_recovery_reconciles_without_ledger_write_then_allows_explicit_resume() -> None:
+    actor, batch_id = _approved_study_batch()
+    before = int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"])
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE learning_credit_settlement_batches SET status='POSTING' WHERE id=?",
+            (batch_id,),
+        )
+
+    reconcile_permissions = [
+        "plans:credit_settlement_manage", "plans:credit_settlement_reconcile",
+    ]
+    post_permissions = ["plans:credit_settlement_manage", "plans:credit_settlement_post"]
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
+        with patch("app.services.learning_credits.user_context", return_value={"permissions": reconcile_permissions}):
+            with pytest.raises(LearningCreditError, match="最近30分钟"):
+                reconcile_stale_posting_batch(actor_user_id=actor, batch_id=batch_id)
+
+            with transaction() as connection:
+                stale_heartbeat = credit_service._db_timestamp(
+                    connection, datetime.now(UTC) - timedelta(minutes=31),
+                )
+                execute(
+                    connection,
+                    "UPDATE learning_credit_settlement_batches SET updated_at=? WHERE id=?",
+                    (stale_heartbeat, batch_id),
+                )
+            recovered = reconcile_stale_posting_batch(actor_user_id=actor, batch_id=batch_id)
+        assert recovered["status"] == "PARTIAL_FAILED"
+        assert recovered["posted_entry_count"] == 0
+        assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before
+
+        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        with patch("app.services.learning_credits.user_context", return_value={"permissions": post_permissions}):
+            resumed = post_study_meeting_batch(
+                actor_user_id=actor, batch_id=batch_id, resume_partial_failure=True,
+            )
+    assert resumed["status"] == "POSTED"
+    assert resumed["posted_entry_count"] == 2
+    assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before + 2
+
+
+def test_study_meeting_batch_post_reconciles_and_replays_once() -> None:
+    actor, batch_id = _approved_study_batch()
+    before = fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]
+    permissions = ["plans:credit_settlement_manage", "plans:credit_settlement_post"]
+    with pytest.raises(LearningCreditError, match="批次正式入账尚未开启"):
+        post_study_meeting_batch(actor_user_id=actor, batch_id=batch_id)
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
+        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        with patch("app.services.learning_credits.user_context", return_value={"permissions": permissions}):
+            posted = post_study_meeting_batch(actor_user_id=actor, batch_id=batch_id)
+            repeated = post_study_meeting_batch(actor_user_id=actor, batch_id=batch_id)
+    assert posted["status"] == "POSTED"
+    assert posted["posted_entry_count"] == 2
+    assert posted["posted_points"] == "8.00"
+    assert repeated["idempotent"] is True
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == before + 2
+
+
+def test_posted_batch_closes_only_after_exact_ledger_reconciliation() -> None:
+    actor, batch_id = _approved_study_batch()
+    before = int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"])
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
+        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        with patch(
+            "app.services.learning_credits.user_context",
+            return_value={"permissions": ["plans:credit_settlement_manage", "plans:credit_settlement_post"]},
+        ), patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+            posted = post_study_meeting_batch(actor_user_id=actor, batch_id=batch_id)
+        assert posted["status"] == "POSTED"
+        with patch(
+            "app.services.learning_credits.user_context",
+            return_value={"permissions": ["plans:credit_settlement_manage", "plans:credit_settlement_post"]},
+        ), patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+            with pytest.raises(PermissionError, match="无权封账"):
+                close_settlement_batch(actor_user_id=actor, batch_id=batch_id)
+        with patch(
+            "app.services.learning_credits.user_context",
+            return_value={"permissions": ["plans:credit_settlement_manage", "plans:credit_settlement_close"]},
+        ), patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+            closed = close_settlement_batch(actor_user_id=actor, batch_id=batch_id)
+            replay = close_settlement_batch(actor_user_id=actor, batch_id=batch_id)
+    assert closed["status"] == "CLOSED"
+    assert replay["idempotent"] is True
+    assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before + 2
+
+
+def test_study_meeting_batch_resumes_only_failed_item() -> None:
+    actor, batch_id = _approved_study_batch()
+    before = fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]
+    from app.services import learning_credits as credit_service
+
+    original_post = credit_service.post_credit_entry
+    attempts = 0
+
+    def fail_second_once(**kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 2:
+            raise RuntimeError("isolated-test-failure")
+        return original_post(**kwargs)
+
+    permissions = ["plans:credit_settlement_manage", "plans:credit_settlement_post"]
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
+        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        with patch("app.services.learning_credits.user_context", return_value={"permissions": permissions}):
+            with patch(
+                "app.services.credit_settlement_batches.credits.post_credit_entry",
+                side_effect=fail_second_once,
+            ):
+                partial = post_study_meeting_batch(actor_user_id=actor, batch_id=batch_id)
+            assert partial["status"] == "PARTIAL_FAILED"
+            assert partial["posted_entry_count"] == 1
+            with pytest.raises(LearningCreditError, match="明确请求续跑"):
+                post_study_meeting_batch(actor_user_id=actor, batch_id=batch_id)
+            completed = post_study_meeting_batch(
+                actor_user_id=actor, batch_id=batch_id, resume_partial_failure=True
+            )
+    assert completed["status"] == "POSTED"
+    assert completed["posted_entry_count"] == 2
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == before + 2
+
+
+def test_study_meeting_batch_post_rejects_changed_approved_item() -> None:
+    actor, batch_id = _approved_study_batch()
+    before = fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]
+    with transaction() as connection:
+        execute(
+            connection,
+            "UPDATE learning_credit_settlement_batch_items SET source_id='changed' "
+            "WHERE id=(SELECT MIN(id) FROM learning_credit_settlement_batch_items WHERE batch_id=?)",
+            (batch_id,),
+        )
+    permissions = ["plans:credit_settlement_manage", "plans:credit_settlement_post"]
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
+        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        with patch("app.services.learning_credits.user_context", return_value={"permissions": permissions}):
+            with pytest.raises(LearningCreditError, match="审批指纹不匹配"):
+                post_study_meeting_batch(actor_user_id=actor, batch_id=batch_id)
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"] == before
 
 
 def test_dry_run_does_not_fallback_to_plans_read_permission() -> None:
@@ -243,9 +499,16 @@ def test_reverse_rejects_unscoped_credit_entry() -> None:
     }
     with pytest.MonkeyPatch.context() as patch_env:
         patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
-        original = post_credit_entry(actor_user_id=actor, item=item)
-        with pytest.raises(PermissionError, match="无组织范围"):
-            reverse_credit_entry(actor_user_id=actor, entry_id=original["id"], reason="范围测试")
+        with patch(
+            "app.services.learning_credits.user_context",
+            return_value={"permissions": [
+                "plans:credit_settlement_manage", "plans:credit_settlement_post",
+                "plans:credit_settlement_reverse",
+            ]},
+        ):
+            original = post_credit_entry(actor_user_id=actor, item=item)
+            with pytest.raises(PermissionError, match="无组织范围"):
+                reverse_credit_entry(actor_user_id=actor, entry_id=original["id"], reason="范围测试")
     assert fetch_one("SELECT status FROM learning_credit_entries WHERE id=?", (original["id"],))["status"] == "POSTED"
 
 
@@ -286,12 +549,31 @@ def test_course_completion_fact_and_plan_rule_version_gate() -> None:
     assert len(course_rows) == 2
     assert all(item["status"] == "READY" and item["points"] == 40 for item in course_rows)
 
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
-        posted = settle_study_meeting(actor_user_id=_admin_id(), session_id=session["id"])
-        repeated = settle_study_meeting(actor_user_id=_admin_id(), session_id=session["id"])
-    assert posted["persisted"] is True
-    assert posted["total_points"] == 88
+    actor = _admin_id()
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+        patch_env.setenv("LEARNING_CREDIT_BATCH_APPROVAL_ENABLED", "true")
+        batch = dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
+        assert batch["proposed_points"] == "88.00"
+        assert batch["proposed_entry_count"] == 4
+        submit_study_meeting_batch_for_approval(actor_user_id=actor, batch_id=batch["id"])
+        reviewer = create_credit_batch_reviewer()
+        with patch(
+            "app.services.learning_credits.user_context",
+            return_value={"permissions": ["plans:credit_settlement_approve"]},
+        ), patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+            approved = approve_study_meeting_batch(actor_user_id=reviewer, batch_id=batch["id"])
+        assert approved["status"] == "APPROVED"
+        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        patch_env.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
+        with patch(
+            "app.services.learning_credits.user_context",
+            return_value={"permissions": ["plans:credit_settlement_manage", "plans:credit_settlement_post"]},
+        ):
+            posted = post_study_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+            repeated = post_study_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
+    assert posted["status"] == "POSTED"
+    assert posted["posted_points"] == "88.00"
     assert repeated["idempotent"] is True
     assert fetch_one(
         "SELECT COUNT(*) AS n FROM learning_credit_entries "
@@ -321,7 +603,7 @@ def test_completion_confirmation_can_block_only_the_course_credit() -> None:
     assert any("实际完成尚未确认" in reason for reason in course[0]["reasons"])
 
 
-def test_settlement_posts_ready_group_entries_when_course_is_blocked() -> None:
+def test_batch_posts_ready_group_entries_when_course_is_blocked() -> None:
     f = _seed_group_leader_fixture()
     _use_credit_plan(f, "Y1-ACCOUNTING-ANALYSIS-TASK")
     session = create(f, ["Y1-ACCOUNTING-ANALYSIS-TASK"])
@@ -332,13 +614,46 @@ def test_settlement_posts_ready_group_entries_when_course_is_blocked() -> None:
         completion_status="NOT_COMPLETED", note="仅阻塞课程分",
     )
 
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
-        settled = settle_study_meeting(actor_user_id=_admin_id(), session_id=session["id"])
+    actor = _admin_id()
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED", "true")
+        patch_env.setenv("LEARNING_CREDIT_BATCH_APPROVAL_ENABLED", "true")
+        batch = dry_run_study_meeting_batch(actor_user_id=actor, session_id=session["id"])
+        assert batch["blocked_count"] > 0
+        assert batch["proposed_points"] == "8.00"
+        submit_study_meeting_batch_for_approval(actor_user_id=actor, batch_id=batch["id"])
+        reviewer = create_credit_batch_reviewer()
+        with patch(
+            "app.services.learning_credits.user_context",
+            return_value={"permissions": ["plans:credit_settlement_approve"]},
+        ), patch("app.services.learning_credits.accessible_org_ids", return_value=None):
+            approve_study_meeting_batch(actor_user_id=reviewer, batch_id=batch["id"])
+        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        patch_env.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
+        with patch(
+            "app.services.learning_credits.user_context",
+            return_value={"permissions": ["plans:credit_settlement_manage", "plans:credit_settlement_post"]},
+        ):
+            posted = post_study_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
 
-    assert settled["total_points"] == 8
-    assert len(settled["entries"]) == 2
-    assert all(item["credit_type"] == "GROUP_MEETING_ATTENDANCE" for item in settled["entries"])
+    assert posted["status"] == "POSTED"
+    assert posted["posted_points"] == "8.00"
+    assert posted["blocked_count"] > 0
+    entries = fetch_all(
+        "SELECT credit_type FROM learning_credit_entries WHERE source_type='STUDY_MEETING_ATTENDANCE' "
+        "AND source_id=?",
+        (str(session["id"]),),
+    )
+    assert len(entries) == 2
+
+
+def test_retired_direct_study_meeting_post_never_writes_ledger() -> None:
+    before = int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"])
+    with pytest.MonkeyPatch.context() as patch_env:
+        patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        with pytest.raises(LearningCreditError, match="统一结算批次"):
+            settle_study_meeting(actor_user_id=_admin_id(), session_id=1)
+    assert int(fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")["n"]) == before
 
 
 def test_ledger_reversal_is_append_only_and_idempotent() -> None:
@@ -367,6 +682,14 @@ def test_ledger_reversal_is_append_only_and_idempotent() -> None:
     }
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        patch.setattr(
+            "app.services.learning_credits.user_context",
+            lambda _actor: {"permissions": [
+                "plans:credit_settlement_manage", "plans:credit_settlement_post",
+                "plans:credit_settlement_reverse", "plans:credit_settlement_preview",
+            ]},
+        )
+        patch.setattr("app.services.learning_credits.accessible_org_ids", lambda _actor: None)
         original = post_credit_entry(actor_user_id=actor, item=item)
         assert member_credit_summary(actor_user_id=actor, member_id=f["member_id"])["total_points"] == 40
         original_row = fetch_one(
@@ -374,18 +697,23 @@ def test_ledger_reversal_is_append_only_and_idempotent() -> None:
         )
         reversal = reverse_credit_entry(actor_user_id=actor, entry_id=original["id"], reason="核对后冲销")
         repeated = reverse_credit_entry(actor_user_id=actor, entry_id=original["id"], reason="核对后冲销")
-    assert reversal["points"] == -40
-    assert repeated["id"] == reversal["id"]
-    assert fetch_one(
-        "SELECT * FROM learning_credit_entries WHERE id=?", (original["id"],)
-    ) == original_row
-    assert fetch_one("SELECT status FROM learning_credit_entries WHERE id=?", (original["id"],))["status"] == "POSTED"
-    assert fetch_one(
-        "SELECT reversal_of_entry_id, status FROM learning_credit_entries WHERE id=?",
-        (reversal["id"],),
-    ) == {"reversal_of_entry_id": original["id"], "status": "POSTED"}
-    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries WHERE idempotency_key=?", (f"REVERSAL:{original['id']}",))["n"] == 1
-    assert member_credit_summary(actor_user_id=actor, member_id=f["member_id"])["total_points"] == 0
+        with pytest.raises(LearningCreditError, match="不能再次冲销"):
+            reverse_credit_entry(actor_user_id=actor, entry_id=reversal["id"], reason="禁止二次冲销")
+        assert reversal["points"] == -40
+        assert repeated["id"] == reversal["id"]
+        ledger_rows = list_credit_entries(actor_user_id=actor, member_id=f["member_id"])
+        original_row_view = next(item for item in ledger_rows if item["id"] == original["id"])
+        assert original_row_view["reversal_entry_id"] == reversal["id"]
+        assert fetch_one(
+            "SELECT * FROM learning_credit_entries WHERE id=?", (original["id"],)
+        ) == original_row
+        assert fetch_one("SELECT status FROM learning_credit_entries WHERE id=?", (original["id"],))["status"] == "POSTED"
+        assert fetch_one(
+            "SELECT reversal_of_entry_id, status FROM learning_credit_entries WHERE id=?",
+            (reversal["id"],),
+        ) == {"reversal_of_entry_id": original["id"], "status": "POSTED"}
+        assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries WHERE idempotency_key=?", (f"REVERSAL:{original['id']}",))["n"] == 1
+        assert member_credit_summary(actor_user_id=actor, member_id=f["member_id"])["total_points"] == 0
 
 
 @pytest.mark.parametrize(
@@ -422,6 +750,10 @@ def test_post_rejects_same_idempotency_key_for_different_fact(changed: dict) -> 
     }
     with pytest.MonkeyPatch.context() as patch_env:
         patch_env.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+        patch_env.setattr(
+            "app.services.learning_credits.user_context",
+            lambda _actor: {"permissions": ["plans:credit_settlement_manage", "plans:credit_settlement_post"]},
+        )
         original = post_credit_entry(actor_user_id=actor, item=item)
         assert post_credit_entry(actor_user_id=actor, item=item)["id"] == original["id"]
         with pytest.raises(LearningCreditError, match="幂等键已关联不同学分事实"):
