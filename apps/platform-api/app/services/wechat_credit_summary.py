@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
@@ -27,6 +29,112 @@ _CREDIT_TYPE_LABELS = {
     "LEGACY_CLASS_MEETING": "历史班级学习日",
 }
 _HISTORICAL_SOURCE_TYPE = "LEGACY_SUZHOU_2026_V1"
+
+
+class MemberCreditEntryNotFound(ValueError):
+    pass
+
+
+def _require_active_member(connection, member_id):
+    if not execute(connection, "SELECT id FROM members WHERE id=? AND status='ACTIVE' LIMIT 1",
+                   (member_id,)).fetchone():
+        raise ValueError("当前学员身份不可用")
+
+
+def _safe_rule_text(value: Any, fallback: str) -> str:
+    # Whitelist public rule labels; never publish raw snapshots or review notes.
+    if not isinstance(value, str) or not value.strip() or len(value) > 128:
+        return fallback
+    if (
+        not re.fullmatch(r"[\w\s·（）().,/，：:、—\-]+", value)
+        or re.search(r"(?<!\d)1[3-9]\d{9}(?!\d)|secret|token|password|credential", value, re.I)
+    ):
+        return fallback
+    return value.strip()
+
+
+_ENTRY_COLUMNS = (
+    "id,credit_category,credit_type,source_type,points,occurred_at,"
+    "occurred_precision,occurred_year,occurred_month"
+)
+_ENTRY_ORDER = (
+    "occurred_year DESC,(occurred_month IS NULL) ASC,occurred_month DESC,"
+    "occurred_at DESC,id DESC"
+)
+
+
+def get_member_credit_entries(
+    member_id: int, *, limit: int = 20, offset: int = 0, snapshot_id: int | None = None,
+) -> dict[str, Any]:
+    """Paginate only the bound member's posted ledger, anchored against new inserts."""
+    if not 1 <= limit <= 50 or offset < 0 or (snapshot_id is not None and snapshot_id < 0):
+        raise ValueError("学分分页参数无效")
+    connection = connect()
+    try:
+        _require_active_member(connection, member_id)
+        maximum = execute(
+            connection, "SELECT COALESCE(MAX(id),0) AS maximum FROM learning_credit_entries "
+            "WHERE member_id=? AND status IN (?,?)", (member_id, *_POSTED_STATUSES),
+        ).fetchone()
+        anchor = int(maximum["maximum"]) if snapshot_id is None else min(int(maximum["maximum"]), snapshot_id)
+        rows = execute(
+            connection, "SELECT " + _ENTRY_COLUMNS + " FROM learning_credit_entries "
+            "WHERE member_id=? AND status IN (?,?) AND id<=? ORDER BY " + _ENTRY_ORDER + " LIMIT ? OFFSET ?",
+            (member_id, *_POSTED_STATUSES, anchor, limit + 1, offset),
+        ).fetchall()
+        entries = [{**_entry_display(dict(row)), "entry_ref": str(row["id"])} for row in rows[:limit]]
+        return {"entries": entries, "snapshot_id": str(anchor), "has_more": len(rows) > limit,
+                "next_offset": offset + len(entries)}
+    finally:
+        connection.close()
+
+
+def get_member_credit_entry(member_id: int, entry_id: int) -> dict[str, Any]:
+    """Ownership is checked in SQL; foreign and absent entries both return not found."""
+    connection = connect()
+    try:
+        _require_active_member(connection, member_id)
+        row = execute(
+            connection, "SELECT " + _ENTRY_COLUMNS + ",rule_key,rule_version,rule_snapshot_json,"
+            "posted_at,reversal_of_entry_id,status FROM learning_credit_entries "
+            "WHERE id=? AND member_id=? AND status IN (?,?) LIMIT 1",
+            (entry_id, member_id, *_POSTED_STATUSES),
+        ).fetchone()
+        if not row:
+            raise MemberCreditEntryNotFound("学分记录不存在")
+        row = dict(row)
+        try:
+            snapshot = json.loads(row["rule_snapshot_json"] or "{}")
+        except (ValueError, TypeError, RecursionError):
+            snapshot = {}
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        display = _entry_display(row)
+        title = _safe_rule_text(snapshot.get("course_name"), display["credit_type_label"])
+        reversed_row = execute(
+            connection, "SELECT id FROM learning_credit_entries WHERE reversal_of_entry_id=? "
+            "AND member_id=? AND status IN (?,?) LIMIT 1", (entry_id, member_id, *_POSTED_STATUSES),
+        ).fetchone()
+        original = None
+        if row["reversal_of_entry_id"]:
+            original = execute(
+                connection, "SELECT id FROM learning_credit_entries WHERE id=? AND member_id=? "
+                "AND status IN (?,?) LIMIT 1", (row["reversal_of_entry_id"], member_id, *_POSTED_STATUSES),
+            ).fetchone()
+        return {
+            **display, "entry_ref": str(entry_id), "title": title,
+            "rule_key": _safe_rule_text(row["rule_key"], "规则信息待确认"),
+            "rule_version": _safe_rule_text(row["rule_version"], "规则版本待确认"),
+            "course_rule_version": _safe_rule_text(snapshot.get("course_rule_version_label"), "课程规则版本待确认")
+                if row["credit_type"] == "COURSE_COMPLETION" else None,
+            "source_label": "历史学分原始导入" if row["source_type"] == _HISTORICAL_SOURCE_TYPE
+                else "已入账学分冲销" if display["is_reversal"] else display["credit_type_label"],
+            "posted_at": str(row["posted_at"]) if row["posted_at"] else None,
+            "is_reversed": bool(reversed_row) or row["status"] == "REVERSED",
+            "original_entry_ref": str(original["id"]) if original else None,
+        }
+    finally:
+        connection.close()
 
 
 def _points(value: Any) -> str:

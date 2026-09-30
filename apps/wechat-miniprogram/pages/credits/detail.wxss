@@ -1,0 +1,2 @@
+@import "../learning/index.wxss";
+.hero-card .credit-total { color: #fff; }
