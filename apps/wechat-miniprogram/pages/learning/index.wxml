@@ -57,6 +57,7 @@
           </view>
         </view>
         <view wx:else class="empty-copy">暂无正式入账记录。待审批或未入账提案不会计入总分。</view>
+        <button class="plain-button" bindtap="openCreditHistory">全部学分记录与详情</button>
       </block>
     </view>
   </block>

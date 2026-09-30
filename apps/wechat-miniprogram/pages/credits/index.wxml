@@ -1,0 +1,17 @@
+<view class="page-shell">
+  <view class="hero-card">
+    <view class="hero-title">我的学分记录</view>
+    <view class="hero-copy">仅展示正式账本。冲销以负数抵扣，原记录保留；新入账记录刷新后显示。</view>
+  </view>
+  <view wx:for="{{entries}}" wx:key="entry_ref" class="section-card" bindtap="openEntry" data-ref="{{item.entry_ref}}">
+    <view class="learning-name">{{item.credit_type_label}} · {{item.pointsLabel}}</view>
+    <view class="learning-copy">{{item.period_display}} · {{item.credit_category_label}}</view>
+    <view class="learning-copy">{{item.rule_basis}}</view>
+    <view class="learning-copy">查看来源与规则详情 →</view>
+  </view>
+  <view wx:if="{{errorMessage}}" class="section-card error">{{errorMessage}}</view>
+  <view wx:if="{{!loading && !entries.length && !errorMessage}}" class="section-card">暂无正式入账记录。</view>
+  <button wx:if="{{hasMore}}" class="plain-button" loading="{{loading}}" disabled="{{loading}}" bindtap="loadMore">{{errorMessage ? '重试加载' : '加载更多'}}</button>
+  <view wx:if="{{!hasMore && entries.length}}" class="learning-copy">已显示全部记录</view>
+  <button wx:if="{{errorMessage && !entries.length}}" class="plain-button" bindtap="openBinding">检查学员绑定</button>
+</view>

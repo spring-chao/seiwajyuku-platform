@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -22,7 +22,10 @@ from app.services.volunteer_positions import (
     get_member_volunteer_services,
 )
 from app.services.wechat_learning import get_member_learning_summary
-from app.services.wechat_credit_summary import get_member_credit_summary
+from app.services.wechat_credit_summary import (
+    MemberCreditEntryNotFound, get_member_credit_summary,
+    get_member_credit_entries, get_member_credit_entry,
+)
 
 
 router = APIRouter(prefix="/api/v1/wechat", tags=["wechat-identity"])
@@ -209,6 +212,38 @@ def credit_summary(
     except WeChatIdentityError as exc:
         raise HTTPException(401, str(exc)) from exc
     except ValueError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/credit-entries")
+def credit_entries(
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0, le=9223372036854775807),
+    snapshot_id: int | None = Query(default=None, ge=0, le=9223372036854775807),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    token = _session_token(credentials)
+    try:
+        session = resolve_member_session(token)
+        data = get_member_credit_entries(session["member_id"], limit=limit, offset=offset, snapshot_id=snapshot_id)
+    except (WeChatIdentityError, ValueError) as exc:
+        raise HTTPException(401, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/credit-entries/{entry_id}")
+def credit_entry(
+    entry_id: int = PathParam(gt=0, le=9223372036854775807),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    token = _session_token(credentials)
+    try:
+        session = resolve_member_session(token)
+        data = get_member_credit_entry(session["member_id"], entry_id)
+    except MemberCreditEntryNotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except (WeChatIdentityError, ValueError) as exc:
         raise HTTPException(401, str(exc)) from exc
     return {"success": True, "data": data}
 

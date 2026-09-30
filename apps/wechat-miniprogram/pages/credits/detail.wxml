@@ -1,0 +1,24 @@
+<view class="page-shell">
+  <view wx:if="{{loading}}" class="section-card">正在加载学分详情…</view>
+  <view wx:elif="{{errorMessage}}" class="section-card error">{{errorMessage}}</view>
+  <block wx:elif="{{entry}}">
+    <view class="hero-card">
+      <view class="hero-title">{{entry.title}}</view>
+      <view class="credit-total">{{entry.pointsLabel}}</view>
+      <view class="hero-copy">{{entry.period_display}} · {{entry.credit_category_label}}</view>
+    </view>
+    <view class="section-card">
+      <view class="section-title">为什么获得这些学分</view>
+      <view class="learning-copy">来源：{{entry.source_label}}</view>
+      <view class="learning-copy">依据：{{entry.rule_basis}}</view>
+      <view class="learning-copy">规则：{{entry.rule_key}}</view>
+      <view class="learning-copy">通用规则冻结版本：{{entry.rule_version}}</view>
+      <view wx:if="{{entry.course_rule_version}}" class="learning-copy">课程规则冻结版本：{{entry.course_rule_version}}</view>
+      <view class="learning-copy">入账时间（系统记录）：{{entry.posted_at || '待确认'}}</view>
+      <view wx:if="{{entry.is_reversed}}" class="learning-copy">此记录已冲销；原记录和负数冲销记录同时保留。</view>
+      <view wx:if="{{entry.is_reversal}}" class="learning-copy">此负数用于抵扣原记录，不修改原始积分。</view>
+      <button wx:if="{{entry.original_entry_ref}}" class="plain-button" bindtap="openOriginal">查看原学分记录</button>
+    </view>
+  </block>
+  <button wx:if="{{errorMessage}}" class="plain-button" bindtap="onShow">重试加载</button>
+</view>

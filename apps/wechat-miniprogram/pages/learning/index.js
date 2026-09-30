@@ -121,6 +121,11 @@ Page({
     wx.navigateTo({ url: "/pages/study-meeting/index" });
   },
 
+  openCreditHistory() {
+    if (!this.data.member) return;
+    wx.navigateTo({ url: "/pages/credits/index" });
+  },
+
   openBinding() {
     wx.navigateTo({ url: "/pages/identity/bind" });
   },
