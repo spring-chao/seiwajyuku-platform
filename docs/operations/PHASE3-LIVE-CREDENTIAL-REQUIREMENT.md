@@ -1,6 +1,6 @@
 # Phase 3 真实只读采集：认证前置条件
 
-状态（2026-09-30）：`LIVE_CONTROL_PLANE_EVIDENCE=NOT_COLLECTED`、`LIVE_RUNTIME_EVIDENCE=NOT_COLLECTED`。本次检查的 Codex 进程未发现 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` / 临时 Token 环境变量；本机存在 `tcb` 命令，但其认证主体、CAM 有效策略和只读范围无法从当前证据确认，因此未调用 CLI 或生产接口。没有读取浏览器登录态、配置文件内容或任何凭据值。此文不是创建身份或扩大权限的授权。
+状态（2026-09-30）：正式签封的 `LIVE_CONTROL_PLANE_EVIDENCE=NOT_COLLECTED`、`LIVE_RUNTIME_EVIDENCE=NOT_COLLECTED`。早先仅检查进程环境变量不足以判断认证不可用；补充检查已通过 CloudBase CLI 3.6.1 的官方 `api` 命令使用既有登录完成固定 Describe 只读诊断，未自行读取私有凭据文件内容、导出凭据或读取浏览器登录态。当前 `260=100% / FLOW / normal`，发布单 `2747514=success / IsReleasing=false`，三个运行时 GET 返回 200，安全开关均 false。详见 [本次只读诊断](../verification/2026-09-30-腾讯云既有认证与260生产只读诊断.md)。认证可用不等于已证明主体无写权限；CAM 有效只读策略、可信签封 key、完整 VPC 与管理任务关联仍未证明，故未运行正式 collector，也不改变生产 DB 门禁。此文不是创建身份或扩大权限的授权。
 
 ## 固定对象与能力
 
