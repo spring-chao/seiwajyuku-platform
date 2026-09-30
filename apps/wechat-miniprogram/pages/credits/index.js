@@ -18,7 +18,7 @@ Page({
     if (this.data.loading || !this.data.hasMore) return;
     const version = this._loadVersion;
     const token = session();
-    if (!token) { this.setData({ errorMessage: "请先绑定学员身份。" }); return; }
+    if (!token) { this.setData({ entries: [], hasMore: false, errorMessage: "请先绑定学员身份。" }); return; }
     const current = () => this._loadVersion === version && session() === token;
     let path = `/api/v1/wechat/credit-entries?limit=20&offset=${this.data.nextOffset}`;
     if (this.data.snapshotId !== null) path += `&snapshot_id=${encodeURIComponent(this.data.snapshotId)}`;
@@ -39,7 +39,12 @@ Page({
         app.clearMemberSession();
         this.setData({ entries: [], hasMore: false, errorMessage: "绑定已失效，请重新绑定。" });
       } else this.setData({ errorMessage: "学分记录暂时无法加载，请重试。" });
-    } finally { if (this._loadVersion === version) this.setData({ loading: false }); }
+    } finally {
+      if (this._loadVersion === version) {
+        if (session() !== token) this.setData({ entries: [], hasMore: false, nextOffset: 0, snapshotId: null });
+        this.setData({ loading: false });
+      }
+    }
   },
   openEntry(event) {
     const ref = String(event.currentTarget.dataset.ref || "");

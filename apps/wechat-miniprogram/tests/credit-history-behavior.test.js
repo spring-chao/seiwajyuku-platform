@@ -56,6 +56,18 @@ test("expired session clears existing history instead of retaining private rows"
   assert.equal(p.data.hasMore, false);
 });
 
+test("account change during later-page request clears the previously displayed account", async () => {
+  let finish, count = 0;
+  const { p, app } = page("index", () => {
+    if (++count === 1) return Promise.resolve({ data: { entries: [row("1")], next_offset: 20, snapshot_id: "1", has_more: true } });
+    return new Promise(resolve => { finish = resolve; });
+  });
+  await p.onShow(); const pending = p.loadMore();
+  app.globalData.memberSessionToken = "new-account";
+  finish({ data: { entries: [row("2")], next_offset: 21, has_more: false } }); await pending;
+  assert.equal(p.data.entries.length, 0); assert.equal(p.data.snapshotId, null);
+});
+
 test("detail responses after account change or hide never restore data", async () => {
   for (const action of ["logout", "hide"]) {
     let finish;
