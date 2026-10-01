@@ -1,5 +1,8 @@
 """Isolated cross-module acceptance; never authorizes or connects production."""
 
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from threading import Event
 from uuid import uuid4
 
 import pytest
@@ -9,6 +12,7 @@ from app.db import execute, fetch_one, transaction
 from app.main import app
 from app.services import credit_settlement_batches as batches
 from app.services.learning_credits import credit_ledger_overview, list_credit_entries, reverse_credit_entry
+from app.services.learning_credits import LearningCreditError
 from app.services.study_meetings import submit_study_meeting
 from app.services.historical_credit_import import register_suzhou_credit_workbook
 from app.services.historical_credit_review import accept_year_only_period, upsert_class_mapping_candidates
@@ -78,6 +82,92 @@ def read(client, path, headers):
     response = client.get(path, headers=headers)
     assert response.status_code == 200, response.text
     return response.json()["data"]
+
+
+def test_overlapping_batch_posts_reject_second_executor_without_duplicate_ledger(
+    lifecycle, monkeypatch,
+):
+    """Real independent DB connections; pause only between committed ownership
+    and the first item transaction. No simulated ledger or batch-state writes.
+    Runs on SQLite locally and disposable MySQL in the existing CI job.
+    """
+    fixture = lifecycle
+    _use_credit_plan(fixture)
+    session = create(fixture)
+    upload(fixture, session)
+    submit_study_meeting(member_id=fixture["member_id"], session_id=session["id"])
+    batch = batches.dry_run_study_meeting_batch(
+        actor_user_id=fixture["actor"], session_id=session["id"],
+    )
+    batches.submit_settlement_batch_for_approval(
+        actor_user_id=fixture["actor"], batch_id=batch["id"],
+    )
+    batches.approve_settlement_batch(
+        actor_user_id=fixture["reviewer"], batch_id=batch["id"],
+    )
+    monkeypatch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "true")
+    monkeypatch.setenv("LEARNING_CREDIT_BATCH_POST_ENABLED", "true")
+    before = count()
+    ownership_committed = Event()
+    release_executor = Event()
+    real_atomic_transaction = batches.atomic_transaction
+
+    @contextmanager
+    def pause_before_first_item():
+        if not ownership_committed.is_set():
+            ownership_committed.set()
+            if not release_executor.wait(timeout=30):
+                raise AssertionError("isolated concurrency coordination timed out")
+        with real_atomic_transaction() as connection:
+            yield connection
+
+    monkeypatch.setattr(batches, "atomic_transaction", pause_before_first_item)
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        winner = workers.submit(
+            batches.post_settlement_batch,
+            actor_user_id=fixture["actor"], batch_id=batch["id"],
+        )
+        try:
+            assert ownership_committed.wait(timeout=15), "POST did not reach item dispatch"
+            row = fetch_one(
+                "SELECT status FROM learning_credit_settlement_batches WHERE id=?",
+                (batch["id"],),
+            )
+            assert row["status"] == "POSTING"
+            assert count() == before
+            contender = workers.submit(
+                batches.post_settlement_batch,
+                actor_user_id=fixture["reviewer"], batch_id=batch["id"],
+            )
+            with pytest.raises(LearningCreditError, match="只有已审批或部分失败批次可以入账"):
+                contender.result(timeout=15)
+            assert not winner.done()
+            assert count() == before
+        finally:
+            release_executor.set()
+        posted = winner.result(timeout=30)
+
+    assert posted["status"] == "POSTED"
+    assert posted["posted_entry_count"] == 2
+    assert posted["posted_points"] == "8.00"
+    assert count() == before + 2
+    replay = batches.post_settlement_batch(
+        actor_user_id=fixture["reviewer"], batch_id=batch["id"],
+    )
+    assert replay["idempotent"] is True
+    assert count() == before + 2
+    with transaction() as connection:
+        entries = execute(
+            connection,
+            "SELECT i.ledger_entry_id,e.idempotency_key,e.points "
+            "FROM learning_credit_settlement_batch_items i "
+            "JOIN learning_credit_entries e ON e.id=i.ledger_entry_id "
+            "WHERE i.batch_id=? AND i.status='POSTED'",
+            (batch["id"],),
+        ).fetchall()
+    assert len(entries) == 2
+    assert len({entry["ledger_entry_id"] for entry in entries}) == 2
+    assert len({entry["idempotency_key"] for entry in entries}) == 2
 
 
 def test_group_batch_operator_member_and_reversal_share_one_ledger(lifecycle, monkeypatch):

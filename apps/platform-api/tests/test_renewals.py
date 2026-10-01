@@ -564,11 +564,27 @@ def _member_for_renewal_test() -> dict:
     return fetch_one("SELECT id, org_unit_id FROM members WHERE id=?", (member_id,))
 
 
-def test_list_cycles_defaults_to_remaining_unrenewed_and_supports_filters() -> None:
+@pytest.fixture
+def august_renewal_clock(monkeypatch):
+    """These month-filter fixtures describe August, not the CI machine's date."""
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 8, 19, 12, tzinfo=UTC)
+            return value.astimezone(tz) if tz else value.replace(tzinfo=None)
+
+    # Member maintenance passes its own timestamp to renewal reconciliation.
+    # Freeze both callers so creating the fixture cannot auto-close September.
+    monkeypatch.setattr("app.services.members.datetime", FixedDatetime)
+    monkeypatch.setattr("app.services.renewals.datetime", FixedDatetime)
+    return FixedDatetime
+
+
+def test_list_cycles_defaults_to_remaining_unrenewed_and_supports_filters(august_renewal_clock) -> None:
     admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
     assert admin is not None
-    now = datetime.now().isoformat()
-    year = datetime.now().year
+    now = august_renewal_clock.now().isoformat()
+    year = august_renewal_clock.now().year
     suffix = f"{uuid4().int % 100000000:08d}"
     org_id = "org-renewal-filter"
     with transaction() as connection:
@@ -774,11 +790,11 @@ def test_renewal_ledger_uses_primary_member_org_and_preserves_import_snapshot() 
     )
 
 
-def test_cycle_coverage_exposes_member_master_gaps_instead_of_hiding_them() -> None:
+def test_cycle_coverage_exposes_member_master_gaps_instead_of_hiding_them(august_renewal_clock) -> None:
     admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
     assert admin is not None
-    now = datetime.now().isoformat()
-    year = datetime.now().year
+    now = august_renewal_clock.now().isoformat()
+    year = august_renewal_clock.now().year
     suffix = f"{uuid4().int % 100000000:08d}"
     org_id = f"org-renewal-coverage-{suffix}"
     with transaction() as connection:
