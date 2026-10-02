@@ -82,7 +82,7 @@
       </view>
       <view class="field-row picker-row">
         <view class="field-label required">出生日期</view>
-        <picker mode="date" value="{{form.birthday}}" start="1900-01-01" end="2026-12-31" bindchange="handleBirthdayChange">
+        <picker mode="date" value="{{form.birthday}}" start="1900-01-01" end="{{birthdayMax}}" bindchange="handleBirthdayChange">
           <view class="picker-value {{form.birthday ? '' : 'placeholder'}}">{{form.birthday || '请选择出生日期'}}</view>
         </picker>
       </view>
@@ -276,7 +276,7 @@
               <view>{{formMeta.service_address || formMeta.contact.contact_address}}</view>
             </view>
           </view>
-          <view wx:else class="config-warning">当前塾的缴费和联系资料尚未配置（BUSINESS_CONFIG_REQUIRED），请先联系工作人员确认。平台不会展示未经确认的收款账号或联系人。</view>
+          <view wx:else class="config-warning">当前塾的缴费和联系资料尚未配置，请先联系工作人员确认。平台不会展示未经确认的收款账号或联系人。</view>
         </view>
       </view>
       <view class="consent-row" bindtap="toggleRules">
