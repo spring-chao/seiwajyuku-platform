@@ -29,19 +29,32 @@ function request(path, options = {}) {
   });
 }
 
-function uploadPhoto(path, filePath) {
-  const baseUrl = (app.globalData.apiBaseUrl || "").replace(/\/$/, "");
-  return new Promise((resolve, reject) => wx.uploadFile({
-    url: baseUrl + path, filePath, name: "photo", timeout: 30000,
-    header: { Authorization: "Bearer " + (app.globalData.personSessionToken || app.globalData.memberSessionToken || "") },
-    success(response) {
-      let data;
-      try { data = JSON.parse(response.data); } catch (_) { data = {}; }
-      if (response.statusCode >= 200 && response.statusCode < 300) { resolve(data); return; }
-      reject(new Error(typeof data.detail === "string" ? data.detail : "合影上传失败，请重试"));
-    },
-    fail() { reject(new Error("合影上传中断，请重试")); }
+async function uploadPhoto(path, filePath) {
+  const session = () => app.globalData.personSessionToken || app.globalData.memberSessionToken || "";
+  const token = session();
+  if (!token) throw new Error("请先绑定学员身份");
+  const file = await new Promise((resolve, reject) => wx.getFileSystemManager().readFile({
+    filePath, success: resolve, fail: () => reject(new Error("合影读取失败，请重新选择"))
   }));
+  if (session() !== token) throw new Error("绑定已变更，请重新进入学习会");
+  const bytes = new Uint8Array(file.data);
+  if (!bytes.length || bytes.length > 5 * 1024 * 1024) throw new Error("请选择不超过5MB的合影");
+  const png = bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71;
+  const boundary = `study-photo-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+  const header = `--${boundary}\r\nContent-Disposition: form-data; name="photo"; filename="photo.${png ? "png" : "jpg"}"\r\nContent-Type: image/${png ? "png" : "jpeg"}\r\n\r\n`;
+  const trailer = `\r\n--${boundary}--\r\n`;
+  const body = new Uint8Array(header.length + bytes.length + trailer.length);
+  for (let index = 0; index < header.length; index++) body[index] = header.charCodeAt(index);
+  body.set(bytes, header.length);
+  for (let index = 0; index < trailer.length; index++) body[header.length + bytes.length + index] = trailer.charCodeAt(index);
+  // The existing evidence endpoint accepts the same multipart photo via
+  // wx.request's ArrayBuffer support and the configured request legal domain.
+  const response = await request(path, {
+    method: "POST", auth: true, timeout: 30000, data: body.buffer,
+    header: { "content-type": `multipart/form-data; boundary=${boundary}` }
+  });
+  if (session() !== token) throw new Error("绑定已变更，请重新进入学习会");
+  return response;
 }
 
 module.exports = { request, uploadPhoto };
