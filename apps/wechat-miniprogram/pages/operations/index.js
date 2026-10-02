@@ -1,3 +1,4 @@
+const { beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
 const { request } = require("../../utils/request");
 
 const destinations = {
@@ -16,7 +17,10 @@ Page({
     greeting: "你好",
     errorMessage: ""
   },
-  onShow() { this.load(); },
+  onShow() { showPrivatePage(this); this.load(); },
+  onHide() { hidePrivatePage(this, { loading: false, entries: [], workerName: "", summary: {}, errorMessage: "" }); },
+  onUnload() { this.onHide(); },
+
   greetingForNow() {
     const hour = new Date().getHours();
     if (hour < 12) return "上午好";
@@ -24,9 +28,13 @@ Page({
     return "晚上好";
   },
   async load() {
+    this.onHide();
+    showPrivatePage(this);
+    const current = beginPrivateRequest(this);
     this.setData({ loading: true, errorMessage: "" });
     try {
       const response = await request("/api/v1/wechat/operations/workbench", { auth: true });
+      if (!current()) return;
       const data = response.data || {};
       this.setData({
         workerName: data.worker_name || "工作人员",
@@ -35,8 +43,8 @@ Page({
         greeting: this.greetingForNow()
       });
     } catch (error) {
-      this.setData({ errorMessage: error.message || "当前无法读取工作人员权限" });
-    } finally { this.setData({ loading: false }); }
+      if (current()) this.setData({ errorMessage: error.message || "当前无法读取工作人员权限" });
+    } finally { if (current()) this.setData({ loading: false }); }
   },
   openEntry(event) {
     const url = destinations[event.currentTarget.dataset.key];

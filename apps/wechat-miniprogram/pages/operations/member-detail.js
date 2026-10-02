@@ -1,3 +1,4 @@
+const { beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
 const { request } = require("../../utils/request");
 
 function careUrl({ memberId, renewalCycleId, birthdayDueDate, operationItemId }) {
@@ -29,6 +30,7 @@ Page({
   },
   onShow() {
     this._visible = true;
+    showPrivatePage(this);
     if (this.data.memberId) this.load();
   },
   onHide() { this.invalidatePage(); },
@@ -37,6 +39,7 @@ Page({
     this._visible = false;
     this._loadVersion = (this._loadVersion || 0) + 1;
     this.clearContact();
+    hidePrivatePage(this, { detail: null, contactPhone: "", loading: false, errorMessage: "" });
   },
   clearContact() {
     this._contactVersion = (this._contactVersion || 0) + 1;
@@ -44,7 +47,8 @@ Page({
   },
   async load() {
     const version = this._loadVersion = (this._loadVersion || 0) + 1;
-    const current = () => this._visible !== false && version === this._loadVersion;
+    const validSession = beginPrivateRequest(this);
+    const current = () => validSession() && this._visible !== false && version === this._loadVersion;
     this.clearContact();
     this.setData({ loading: true, errorMessage: "", detail: null });
     try {
@@ -87,7 +91,8 @@ Page({
     if (!((this.data.detail || {}).actions || {}).can_reveal_contact) return;
     const memberId = this.data.memberId;
     const version = this._contactVersion = (this._contactVersion || 0) + 1;
-    const current = () => this._visible !== false && version === this._contactVersion && memberId === this.data.memberId;
+    const validSession = beginPrivateRequest(this, "contact");
+    const current = () => validSession() && this._visible !== false && version === this._contactVersion && memberId === this.data.memberId;
     wx.showModal({
       title: "查看联系方式",
       content: "仅用于本次关爱联系。系统会实时校验权限并记录查看行为。",

@@ -23,6 +23,9 @@ Page({
     });
   },
 
+  onHide() { this.setData({ session: null, summary: null }); },
+  onUnload() { this.onHide(); },
+
   backHome() {
     wx.reLaunch({ url: "/pages/home/index" });
   }

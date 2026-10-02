@@ -1,3 +1,4 @@
+const { beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
 const { request } = require("../../utils/request");
 
 function memberUrl(item) {
@@ -18,15 +19,22 @@ Page({
     summary: { pending_action_count: 0, completed_action_count: 0 },
     errorMessage: ""
   },
-  onShow() { this.load(); },
+  onShow() { showPrivatePage(this); this.load(); },
+  onHide() { hidePrivatePage(this, { loading: false, pending: [], completed: [], items: [], summary: {}, errorMessage: "" }); },
+  onUnload() { this.onHide(); },
+
   showTab(event) {
     const activeTab = event.currentTarget.dataset.tab;
     this.setData({ activeTab, items: activeTab === "completed" ? this.data.completed : this.data.pending });
   },
   async load() {
+    this.onHide();
+    showPrivatePage(this);
+    const current = beginPrivateRequest(this);
     this.setData({ loading: true, errorMessage: "" });
     try {
       const response = await request("/api/v1/wechat/operations/today-actions", { auth: true });
+      if (!current()) return;
       const data = response.data || {};
       const pending = data.pending || [];
       const completed = data.completed || [];
@@ -37,9 +45,9 @@ Page({
         summary: data.summary || { pending_action_count: 0, completed_action_count: 0 }
       });
     } catch (error) {
-      this.setData({ errorMessage: error.message || "今日行动暂时无法加载" });
+      if (current()) this.setData({ errorMessage: error.message || "今日行动暂时无法加载" });
     } finally {
-      this.setData({ loading: false });
+      if (current()) this.setData({ loading: false });
     }
   },
   openMember(event) {

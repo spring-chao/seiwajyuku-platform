@@ -1,3 +1,4 @@
+const { beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
 const app = getApp();
 const { request } = require("../../utils/request");
 const {
@@ -25,10 +26,15 @@ Page({
   },
 
   onShow() {
+    showPrivatePage(this);
     this.loadContext();
   },
 
+  onHide() { hidePrivatePage(this, { loading: false, context: null, assignment: null, meetingSteps: [], learningContents: [], learningContentResults: [], meetingPlanReady: false, selectedGroupId: "" }); },
+  onUnload() { this.onHide(); },
+
   async loadContext(groupId) {
+    const current = beginPrivateRequest(this);
     this.setData({
       loading: true,
       errorMessage: "",
@@ -45,6 +51,7 @@ Page({
     try {
       const suffix = groupId ? `?group_org_unit_id=${encodeURIComponent(groupId)}` : "";
       const response = await request(`/api/v1/study-meetings/context${suffix}`, { auth: true });
+      if (!current()) return;
       const context = response.data || {};
       const selected = groupId || context.selected_group_org_unit_id || "";
       const assignment = context.assignment || null;
@@ -78,7 +85,7 @@ Page({
         loading: false
       });
     } catch (error) {
-      this.setData({ loading: false, errorMessage: error.message || "学习会入口暂时不可用" });
+      if (current()) this.setData({ loading: false, errorMessage: error.message || "学习会入口暂时不可用" });
     }
   },
 
