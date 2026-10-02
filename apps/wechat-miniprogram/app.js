@@ -27,6 +27,10 @@ App({
   },
 
   setPersonSession(token) {
+    if (this.globalData.personSessionToken !== (token || "")) {
+      this.globalData.studyMeetingDraft = null;
+      this.globalData.studyMeetingResult = null;
+    }
     this.globalData.personSessionToken = token || "";
     this.globalData.memberSessionToken = token || "";
     try {

@@ -30,6 +30,10 @@ const meetingPlan = {
 function harness() {
   const calls = [];
   const app = { globalData: { studyMeetingDraft: { group_org_unit_id: "group-test", member_ids: [1], cross_group_member_ids: [] } } };
+  const guardModule = { exports: {} };
+  vm.runInNewContext(readFileSync(new URL("../apps/wechat-miniprogram/utils/page-session.js", import.meta.url), "utf8"), {
+    module: guardModule, getApp: () => app
+  });
   const wx = {
     showToast: payload => calls.push({ toast: payload.title }),
     redirectTo: payload => calls.push({ navigation: payload.url }),
@@ -58,7 +62,7 @@ function harness() {
   };
   vm.runInNewContext(readFileSync(new URL("../apps/wechat-miniprogram/pages/study-meeting/submit.js", import.meta.url), "utf8"), {
     getApp: () => app, Page: definition => { page = definition; },
-    require: modulePath => modulePath.includes("study-meeting")
+    require: modulePath => modulePath.endsWith("page-session") ? guardModule.exports : modulePath.includes("study-meeting")
       ? studyMeetingUtils
       : { request, uploadPhoto: async path => calls.push({ upload: path }) },
     wx, Date, Promise

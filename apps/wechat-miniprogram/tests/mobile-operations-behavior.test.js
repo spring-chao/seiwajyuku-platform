@@ -6,11 +6,17 @@ const vm = require("node:vm");
 
 function page(name, request, wx = {}) {
   let instance;
+  const app = { globalData: { personSessionToken: "synthetic-session" } };
+  const guardModule = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../utils/page-session.js"), "utf8"), {
+    module: guardModule, getApp: () => app
+  });
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../pages/operations", `${name}.js`), "utf8"), {
-    Page: value => { instance = value; }, require: () => ({ request }),
+    Page: value => { instance = value; }, require: name => name.endsWith("page-session") ? guardModule.exports : ({ request }),
     wx: { showToast() {}, navigateBack() {}, ...wx }
   });
   instance.setData = value => Object.assign(instance.data, value);
+  instance.app = app;
   return instance;
 }
 

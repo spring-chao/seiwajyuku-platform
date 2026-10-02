@@ -1,3 +1,4 @@
+const { beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
 const app = getApp();
 const { request } = require("../../utils/request");
 const { normalizeMeetingPlan } = require("../../utils/study-meeting");
@@ -33,10 +34,16 @@ Page({
     this.loadMembers();
   },
 
+  onShow() { showPrivatePage(this); if (this._shown) this.loadMembers(); this._shown = true; },
+  onHide() { hidePrivatePage(this, { loading: false, searching: false, assignment: null, meetingPlanReady: false, members: [], selected: {}, crossMembers: [], crossSelected: {}, searchText: "", selectedCount: 0, crossSelectedCount: 0 }); },
+  onUnload() { this.onHide(); },
+
   async loadMembers() {
+    const current = beginPrivateRequest(this);
     this.setData({ loading: true, errorMessage: "" });
     try {
       const response = await request(`/api/v1/study-meetings/context?group_org_unit_id=${encodeURIComponent(this.data.groupId)}`, { auth: true });
+      if (!current()) return;
       const context = response.data || {};
       const assignment = context.assignment || {};
       const meetingPlan = normalizeMeetingPlan(
@@ -61,7 +68,7 @@ Page({
         loading: false
       });
     } catch (error) {
-      this.setData({ loading: false, errorMessage: error.message || "本组成员加载失败" });
+      if (current()) this.setData({ loading: false, errorMessage: error.message || "本组成员加载失败" });
     }
   },
 
@@ -92,6 +99,7 @@ Page({
   },
 
   async searchCross() {
+    const current = beginPrivateRequest(this, "search");
     if (!this.data.searchText.trim()) {
       wx.showToast({ title: "请输入学长姓名", icon: "none" });
       return;
@@ -100,11 +108,11 @@ Page({
     try {
       const q = encodeURIComponent(this.data.searchText || "");
       const response = await request(`/api/v1/study-meetings/cross-group-members?group_org_unit_id=${encodeURIComponent(this.data.groupId)}&q=${q}`, { auth: true });
-      this.setData({ crossMembers: (response.data && response.data.members) || [] });
+      if (current()) this.setData({ crossMembers: (response.data && response.data.members) || [] });
     } catch (error) {
-      wx.showToast({ title: error.message || "搜索失败", icon: "none" });
+      if (current()) wx.showToast({ title: error.message || "搜索失败", icon: "none" });
     } finally {
-      this.setData({ searching: false });
+      if (current()) this.setData({ searching: false });
     }
   },
 

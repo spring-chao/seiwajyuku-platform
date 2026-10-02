@@ -1,3 +1,4 @@
+const { beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
 const app = getApp();
 const { request, uploadPhoto } = require("../../utils/request");
 const {
@@ -24,7 +25,12 @@ Page({
 
   onLoad() { this.loadContext(); },
 
+  onShow() { showPrivatePage(this); if (this._shown) this.loadContext(); this._shown = true; },
+  onHide() { hidePrivatePage(this, { loading: false, submitting: false, choosingPhoto: false, assignment: null, meetingPlanReady: false, meetingSteps: [], learningContentResults: [], homeCount: 0, crossCount: 0, totalCount: 0, crossSummary: "", photoPath: "", evidenceEnabled: false }); },
+  onUnload() { this.onHide(); },
+
   async loadContext() {
+    const current = beginPrivateRequest(this);
     const draft = app.globalData.studyMeetingDraft || {};
     if (!draft.group_org_unit_id) {
       this.setData({ loading: false, errorMessage: "登记信息已过期，请重新选择小组。" });
@@ -32,6 +38,7 @@ Page({
     }
     try {
       const response = await request("/api/v1/study-meetings/context?group_org_unit_id=" + encodeURIComponent(draft.group_org_unit_id), { auth: true });
+      if (!current()) return;
       const context = response.data || {};
       const assignment = context.assignment || {};
       const meetingPlan = normalizeMeetingPlan(
@@ -61,7 +68,7 @@ Page({
         crossSummary: crossCount ? "，其他小组 " + crossCount + " 人" : "",
         evidenceEnabled: context.evidence_enabled === true, loading: false });
     } catch (error) {
-      this.setData({ loading: false, errorMessage: error.message || "学习会信息加载失败" });
+      if (current()) this.setData({ loading: false, errorMessage: error.message || "学习会信息加载失败" });
     }
   },
 
@@ -92,26 +99,31 @@ Page({
 
   async choosePhoto() {
     if (this.data.submitting || this.data.choosingPhoto) return;
+    const current = beginPrivateRequest(this, "photo");
+    if (!current()) return;
     this.setData({ choosingPhoto: true });
     try {
       const chosen = await new Promise((resolve, reject) => wx.chooseMedia({
         count: 1, mediaType: ["image"], sourceType: ["album", "camera"], sizeType: ["compressed"],
         success: resolve, fail: reject
       }));
+      if (!current()) return;
       const compressed = await new Promise((resolve, reject) => wx.compressImage({
         src: chosen.tempFiles[0].tempFilePath, quality: 75, compressedWidth: 1920,
         success: resolve, fail: reject
       }));
+      if (!current()) return;
       const info = await new Promise((resolve, reject) => wx.getFileSystemManager().getFileInfo({
         filePath: compressed.tempFilePath, success: resolve, fail: reject
       }));
+      if (!current()) return;
       if (info.size > 5 * 1024 * 1024) throw new Error("合影超过5MB，请选择较小的图片");
       this.setData({ photoPath: compressed.tempFilePath });
     } catch (error) {
-      if (!String(error.errMsg || "").includes("cancel")) {
+      if (current() && !String(error.errMsg || "").includes("cancel")) {
         wx.showToast({ title: error.message || "合影处理失败，请重新选择", icon: "none" });
       }
-    } finally { this.setData({ choosingPhoto: false }); }
+    } finally { if (current()) this.setData({ choosingPhoto: false }); }
   },
 
   previewPhoto() {
@@ -120,6 +132,8 @@ Page({
 
   async submit() {
     if (this.data.submitting || this.data.choosingPhoto) return;
+    const current = beginPrivateRequest(this, "submit");
+    if (!current()) return;
     if (!this.data.meetingPlanReady) {
       wx.showToast({ title: "当前学习周期内容尚未配置", icon: "none" }); return;
     }
@@ -146,28 +160,32 @@ Page({
       // Retry the same draft after upload/submit failure; never silently submit twice.
       if (draft.sessionId && draft.payloadFingerprint !== fingerprint) {
         const existing = await request("/api/v1/study-meetings/" + draft.sessionId, { auth: true });
+        if (!current()) return;
         if (existing.data.status === "SUBMITTED") { this.complete(existing.data); return; }
         delete draft.sessionId; delete draft.uploadedPhotoPath;
       }
       if (!draft.sessionId) {
         const created = await request("/api/v1/study-meetings", { method: "POST", auth: true, data: payload });
+        if (!current()) return;
         draft.sessionId = created.data.id;
         draft.payloadFingerprint = fingerprint;
         app.globalData.studyMeetingDraft = draft;
       } else {
         const existing = await request("/api/v1/study-meetings/" + draft.sessionId, { auth: true });
+        if (!current()) return;
         if (existing.data.status === "SUBMITTED") { this.complete(existing.data); return; }
         if (!existing.data.evidence) delete draft.uploadedPhotoPath;
       }
       if (draft.uploadedPhotoPath !== this.data.photoPath) {
         await uploadPhoto("/api/v1/study-meetings/" + draft.sessionId + "/evidence", this.data.photoPath);
+        if (!current()) return;
         draft.uploadedPhotoPath = this.data.photoPath;
       }
       const submitted = await request("/api/v1/study-meetings/" + draft.sessionId + "/submit", { method: "POST", auth: true });
-      this.complete(submitted.data);
+      if (current()) this.complete(submitted.data);
     } catch (error) {
-      wx.showToast({ title: error.message || "提交失败，请稍后重试", icon: "none", duration: 2600 });
-    } finally { this.setData({ submitting: false }); }
+      if (current()) wx.showToast({ title: error.message || "提交失败，请稍后重试", icon: "none", duration: 2600 });
+    } finally { if (current()) this.setData({ submitting: false }); }
   },
 
   complete(session) {
