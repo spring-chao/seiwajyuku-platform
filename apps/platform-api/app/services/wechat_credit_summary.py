@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
@@ -63,6 +64,32 @@ _ENTRY_ORDER = (
 )
 
 
+def _entry_sql(connection) -> tuple[str, str, str]:
+    """Read both the original exact-date ledger and the later precision schema.
+
+    Schema inspection returns no ledger rows and never runs migrations. An old
+    exact timestamp remains an exact date; partial precision upgrades fail closed.
+    """
+    cursor = execute(connection, "SELECT * FROM learning_credit_entries WHERE 1=0")
+    columns = {item[0] for item in cursor.description}
+    precision_columns = {"occurred_precision", "occurred_year", "occurred_month"}
+    present = precision_columns & columns
+    if present == precision_columns:
+        return _ENTRY_COLUMNS, _ENTRY_ORDER, "occurred_year"
+    if present or "occurred_at" not in columns:
+        raise RuntimeError("学分账本结构不完整")
+    if isinstance(connection, sqlite3.Connection):
+        year = "CAST(strftime('%Y',occurred_at) AS INTEGER)"
+        month = "CAST(strftime('%m',occurred_at) AS INTEGER)"
+    else:
+        year, month = "YEAR(occurred_at)", "MONTH(occurred_at)"
+    projection = (
+        "id,credit_category,credit_type,source_type,points,occurred_at,"
+        f"'EXACT_DATE' AS occurred_precision,{year} AS occurred_year,{month} AS occurred_month"
+    )
+    return projection, "occurred_at DESC,id DESC", year
+
+
 def get_member_credit_entries(
     member_id: int, *, limit: int = 20, offset: int = 0, snapshot_id: int | None = None,
 ) -> dict[str, Any]:
@@ -72,14 +99,15 @@ def get_member_credit_entries(
     connection = connect()
     try:
         _require_active_member(connection, member_id)
+        entry_columns, entry_order, _ = _entry_sql(connection)
         maximum = execute(
             connection, "SELECT COALESCE(MAX(id),0) AS maximum FROM learning_credit_entries "
             "WHERE member_id=? AND status IN (?,?)", (member_id, *_POSTED_STATUSES),
         ).fetchone()
         anchor = int(maximum["maximum"]) if snapshot_id is None else min(int(maximum["maximum"]), snapshot_id)
         rows = execute(
-            connection, "SELECT " + _ENTRY_COLUMNS + " FROM learning_credit_entries "
-            "WHERE member_id=? AND status IN (?,?) AND id<=? ORDER BY " + _ENTRY_ORDER + " LIMIT ? OFFSET ?",
+            connection, "SELECT " + entry_columns + " FROM learning_credit_entries "
+            "WHERE member_id=? AND status IN (?,?) AND id<=? ORDER BY " + entry_order + " LIMIT ? OFFSET ?",
             (member_id, *_POSTED_STATUSES, anchor, limit + 1, offset),
         ).fetchall()
         entries = [{**_entry_display(dict(row)), "entry_ref": str(row["id"])} for row in rows[:limit]]
@@ -94,8 +122,9 @@ def get_member_credit_entry(member_id: int, entry_id: int) -> dict[str, Any]:
     connection = connect()
     try:
         _require_active_member(connection, member_id)
+        entry_columns, _, _ = _entry_sql(connection)
         row = execute(
-            connection, "SELECT " + _ENTRY_COLUMNS + ",rule_key,rule_version,rule_snapshot_json,"
+            connection, "SELECT " + entry_columns + ",rule_key,rule_version,rule_snapshot_json,"
             "posted_at,reversal_of_entry_id,status FROM learning_credit_entries "
             "WHERE id=? AND member_id=? AND status IN (?,?) LIMIT 1",
             (entry_id, member_id, *_POSTED_STATUSES),
@@ -188,6 +217,8 @@ def get_member_credit_summary(member_id: int) -> dict[str, Any]:
         if not member:
             raise ValueError("当前学员身份不可用")
 
+        entry_columns, entry_order, year_column = _entry_sql(connection)
+
         status_sql = "status IN (?, ?)"
         category_rows = execute(
             connection,
@@ -205,16 +236,13 @@ def get_member_credit_summary(member_id: int) -> dict[str, Any]:
             connection,
             "SELECT COALESCE(SUM(points),0) AS points "
             "FROM learning_credit_entries WHERE member_id=? AND " + status_sql +
-            " AND occurred_year=?",
+            " AND " + year_column + "=?",
             (member_id, *_POSTED_STATUSES, current_year),
         ).fetchone()
         entries = execute(
             connection,
-            "SELECT credit_category,credit_type,source_type,points,occurred_at,"
-            "occurred_precision,occurred_year,occurred_month "
-            "FROM learning_credit_entries WHERE member_id=? AND " + status_sql +
-            " ORDER BY occurred_year DESC,(occurred_month IS NULL) ASC,occurred_month DESC,"
-            "occurred_at DESC,id DESC LIMIT ?",
+            "SELECT " + entry_columns + " FROM learning_credit_entries WHERE member_id=? AND " + status_sql +
+            " ORDER BY " + entry_order + " LIMIT ?",
             (member_id, *_POSTED_STATUSES, RECENT_CREDIT_LIMIT),
         ).fetchall()
         return {

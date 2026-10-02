@@ -267,6 +267,7 @@ jobs:
           apps/platform-api/tests/test_c7_1_2_mysql_reconciliation.py
           apps/platform-api/tests/test_c7_1_1_mysql_reconciliation.py
           apps/platform-api/tests/test_g5_4_c3_2_production_apply.py
+          apps/platform-api/tests/test_wechat_credit_legacy_schema.py
           -q --junitxml=c7-1-2-mysql.xml
       - uses: actions/upload-artifact@v7
         if: always()
