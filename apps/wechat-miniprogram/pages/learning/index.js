@@ -18,12 +18,21 @@ Page({
     this.loadLearning();
   },
 
+  onHide() {
+    this._loadVersion = (this._loadVersion || 0) + 1;
+    this.setData({ loading: false, member: null, currentLearning: [], recentLearning: [],
+      creditSummary: null, creditEntries: [], canManageStudyMeeting: false });
+  },
+
+  onUnload() { this.onHide(); },
+
   async loadLearning() {
     const version = this._loadVersion = (this._loadVersion || 0) + 1;
-    const current = () => this._loadVersion === version;
     const token = app.globalData.memberSessionToken;
+    const current = () => this._loadVersion === version && app.globalData.memberSessionToken === token;
     this.setData({
       loading: true,
+      member: null,
       errorMessage: "",
       currentLearning: [],
       recentLearning: [],
@@ -93,6 +102,7 @@ Page({
         const canManageStudyMeeting = assignments.some(item => item && item.current_cycle);
         this.setData({ canManageStudyMeeting });
       } catch (error) {
+        if (!current()) return;
         if (error.statusCode === 401) {
           app.clearMemberSession();
           if (current()) this.setData({ member: null, errorMessage: "绑定已失效，请重新绑定。" });
@@ -112,7 +122,10 @@ Page({
         this.setData({ errorMessage: error.message || "学习服务暂时无法加载，请重试。" });
       }
     } finally {
-      if (current()) this.setData({ loading: false });
+      if (this._loadVersion === version) {
+        if (app.globalData.memberSessionToken !== token) this.onHide();
+        else this.setData({ loading: false });
+      }
     }
   },
 

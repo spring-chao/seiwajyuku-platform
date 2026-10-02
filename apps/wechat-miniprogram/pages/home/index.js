@@ -42,10 +42,20 @@ Page({
     this.loadHome();
   },
 
+  onHide() {
+    this._homeLoadVersion = (this._homeLoadVersion || 0) + 1;
+    this.setData({ loading: false, portal: null, member: null, identities: null, isEmployee: false,
+      operationEntries: [], identityState: "unknown", canManageStudyMeeting: false,
+      isVolunteer: false, volunteerRoles: [], displayRole: "", displayScope: "", serviceMessage: "" });
+  },
+
+  onUnload() { this.onHide(); },
+
   async loadHome() {
     const version = this._homeLoadVersion = (this._homeLoadVersion || 0) + 1;
-    const token = app.globalData.personSessionToken || app.globalData.memberSessionToken;
-    const current = () => this._homeLoadVersion === version;
+    let token = app.globalData.personSessionToken || app.globalData.memberSessionToken || "";
+    const current = () => this._homeLoadVersion === version &&
+      (app.globalData.personSessionToken || app.globalData.memberSessionToken || "") === token;
     this.setData({ loading: true, errorMessage: "", canManageStudyMeeting: false });
     const next = {
       portal: null, member: null, identities: null, isEmployee: false, operationEntries: [], identityState: token ? "unknown" : "unbound",
@@ -71,6 +81,7 @@ Page({
         // reach the UI and study-meeting pages still enforce their own checks.
         if (next.member) try {
           const servicesResponse = await request("/api/v1/wechat/volunteer-services", { auth: true });
+          if (!current()) return;
           const serviceState = resolveVolunteerServices(servicesResponse.data);
           next.volunteerRoles = serviceState.roles;
           next.isVolunteer = serviceState.isVolunteer;
@@ -80,8 +91,10 @@ Page({
             next.serviceMessage = "当前暂无需要操作的线上服务。";
           }
         } catch (error) {
+          if (!current()) return;
           if (error.statusCode === 401) {
             clearLocalSession();
+            token = "";
             next.identityState = "unbound";
             next.member = null;
           } else if (error.statusCode !== 403 && error.statusCode !== 404) {
@@ -91,10 +104,13 @@ Page({
         if (next.isEmployee) {
           try {
             const workbench = await request("/api/v1/wechat/operations/workbench", { auth: true });
+            if (!current()) return;
             next.operationEntries = (workbench.data && workbench.data.entries) || [];
           } catch (error) {
+            if (!current()) return;
             if (error.statusCode === 401) {
               clearLocalSession();
+              token = "";
               next.identityState = "unbound";
               next.member = null;
               next.isEmployee = false;
@@ -107,6 +123,7 @@ Page({
         if (!current()) return;
         if (error.statusCode === 401) {
           clearLocalSession();
+          token = "";
           next.identityState = "unbound";
           next.member = null;
         } else {

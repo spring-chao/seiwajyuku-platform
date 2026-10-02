@@ -17,11 +17,19 @@ Page({
     this.loadServices();
   },
 
+  onHide() {
+    this._loadVersion = (this._loadVersion || 0) + 1;
+    this.setData({ loading: false, member: null, isVolunteer: false, volunteerRoles: [],
+      serviceAssignments: [], canManageStudyMeeting: false });
+  },
+
+  onUnload() { this.onHide(); },
+
   async loadServices() {
     const version = this._loadVersion = (this._loadVersion || 0) + 1;
-    const current = () => this._loadVersion === version;
     const token = app.globalData.memberSessionToken;
-    this.setData({ loading: true, errorMessage: "", isVolunteer: false, volunteerRoles: [], serviceAssignments: [], canManageStudyMeeting: false });
+    const current = () => this._loadVersion === version && app.globalData.memberSessionToken === token;
+    this.setData({ loading: true, member: null, errorMessage: "", isVolunteer: false, volunteerRoles: [], serviceAssignments: [], canManageStudyMeeting: false });
     if (!token) {
       this.setData({ loading: false, member: null });
       return;
@@ -43,6 +51,7 @@ Page({
           canManageStudyMeeting: serviceState.canManageStudyMeeting
         });
       } catch (error) {
+        if (!current()) return;
         if (error.statusCode === 401) {
           app.clearMemberSession();
           if (current()) this.setData({ member: null, errorMessage: "绑定已失效，请重新绑定。" });
@@ -59,7 +68,10 @@ Page({
         this.setData({ errorMessage: error.message || "服务列表暂时无法加载，请重试。" });
       }
     } finally {
-      if (current()) this.setData({ loading: false });
+      if (this._loadVersion === version) {
+        if (app.globalData.memberSessionToken !== token) this.onHide();
+        else this.setData({ loading: false });
+      }
     }
   },
 

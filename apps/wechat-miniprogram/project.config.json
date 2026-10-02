@@ -1,7 +1,11 @@
 {
   "description": "学长服务助手",
   "packOptions": {
-    "ignore": []
+    "ignore": [
+      { "type": "folder", "value": "tests" },
+      { "type": "file", "value": "project.private.config.json" },
+      { "type": "file", "value": "README.md" }
+    ]
   },
   "setting": {
     "urlCheck": true,
