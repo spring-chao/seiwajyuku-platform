@@ -46,12 +46,25 @@ Page({
     this.loadProfile();
   },
 
+  onHide() {
+    this._loadVersion = (this._loadVersion || 0) + 1;
+    this.setData({ loading: false, member: null, identityKinds: [], isEmployee: false,
+      employeeName: "", joinDateLabel: "暂未记录", currentVolunteerServices: [], volunteerAppointments: [] });
+  },
+
+  onUnload() { this.onHide(); },
+
   async loadProfile() {
     const version = this._loadVersion = (this._loadVersion || 0) + 1;
-    const current = () => this._loadVersion === version;
     const token = app.globalData.memberSessionToken;
+    const current = () => this._loadVersion === version && app.globalData.memberSessionToken === token;
     this.setData({
       loading: true,
+      member: null,
+      identityKinds: [],
+      isEmployee: false,
+      employeeName: "",
+      joinDateLabel: "暂未记录",
       errorMessage: "",
       volunteerErrorMessage: "",
       currentVolunteerServices: [],
@@ -116,7 +129,10 @@ Page({
         this.setData({ errorMessage: error.message || "个人资料暂时无法加载，请重试。" });
       }
     } finally {
-      if (current()) this.setData({ loading: false });
+      if (this._loadVersion === version) {
+        if (app.globalData.memberSessionToken !== token) this.onHide();
+        else this.setData({ loading: false });
+      }
     }
   },
 

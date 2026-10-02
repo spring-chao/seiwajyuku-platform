@@ -73,9 +73,22 @@ function cleanPayload(payload) {
   return payload;
 }
 
+function todayLabel() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function validBirthday(value, maximum) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value < "1900-01-01" || value > maximum) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}
+
 Page({
   data: {
     config: app.globalData,
+    birthdayMax: todayLabel(),
     token: "",
     state: "loading",
     errorMessage: "",
@@ -166,6 +179,7 @@ Page({
   },
 
   onLoad(options) {
+    this.setData({ birthdayMax: todayLabel() });
     const token = decodeScene((options && (options.scene || options.token)) || "");
     this.setData({ token });
     if (!token) {
@@ -382,8 +396,8 @@ Page({
       wx.showToast({ title: "请输入正确的11位手机号", icon: "none" });
       return false;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.birthday)) {
-      wx.showToast({ title: "请选择出生日期", icon: "none" });
+    if (!validBirthday(form.birthday, todayLabel())) {
+      wx.showToast({ title: "请选择有效且不晚于今天的出生日期", icon: "none" });
       return false;
     }
     if (!/^\d+$/.test(String(form.employee_count).trim())) {
