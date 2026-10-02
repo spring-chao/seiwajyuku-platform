@@ -210,6 +210,7 @@ def test_group_batch_operator_member_and_reversal_share_one_ledger(lifecycle, mo
 def test_history_import_batches_keep_original_value_and_precision_in_member_views(lifecycle, monkeypatch):
     fixture = lifecycle
     imported = register_suzhou_credit_workbook(content=_history_workbook(), original_filename=f"acceptance-{uuid4().hex}.xlsx")
+    assert imported["idempotent"] is False
     import_id = int(imported["batch"]["id"])
     with transaction() as connection:
         execute(connection, "UPDATE learning_credit_import_rows SET matched_member_id=?,match_status='AUTO_MATCHED',"

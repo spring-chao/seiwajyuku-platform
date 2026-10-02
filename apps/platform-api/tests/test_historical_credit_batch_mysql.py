@@ -32,6 +32,10 @@ pytestmark = pytest.mark.skipif(
 
 def _history_workbook() -> bytes:
     workbook = Workbook()
+    # Different tests share an isolated MySQL database. XLSX timestamps have
+    # second precision, so identical fixtures can otherwise hash to the same
+    # import and reuse a batch already posted by another test.
+    workbook.properties.identifier = f"isolated-history-fixture-{uuid4().hex}"
     sheet = workbook.active
     sheet.title = "历史结算测试班"
     sheet.append(["历史学分测试"])
@@ -58,6 +62,7 @@ def test_historical_credit_batch_mysql_preserves_year_precision_and_gated_post(
     imported = register_suzhou_credit_workbook(
         content=_history_workbook(), original_filename=filename,
     )
+    assert imported["idempotent"] is False
     import_batch_id = int(imported["batch"]["id"])
     actor = _admin_id()
     class_id = str(fixture["class_id"])
