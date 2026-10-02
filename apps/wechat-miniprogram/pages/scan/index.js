@@ -1,5 +1,6 @@
 const app = getApp();
 const { request } = require("../../utils/request");
+const { beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
 const { classifyScanResult, enrollmentToken } = require("../../utils/scan");
 
 Page({
@@ -11,24 +12,32 @@ Page({
     showScanAgain: false
   },
 
+  onShow() { showPrivatePage(this); },
+  onHide() { hidePrivatePage(this, { scanning: false, statusType: "", statusMessage: "", showBindButton: false, showScanAgain: false }); },
+  onUnload() { this.onHide(); },
+
   startScan() {
     if (this.data.scanning) return;
+    const current = beginPrivateRequest(this, "scan");
     this.setData({ scanning: true, statusType: "", statusMessage: "", showBindButton: false, showScanAgain: false });
     wx.scanCode({
       onlyFromCamera: false,
       scanType: ["qrCode", "barCode"],
-      success: result => this.handleScanResult(result),
+      success: result => { if (current()) this.handleScanResult(result); },
       fail: error => {
+        if (!current()) return;
         const message = String(error && error.errMsg || "");
         if (!/cancel/i.test(message)) {
           this.setData({ statusType: "error", statusMessage: "扫码没有完成，请重试。", showScanAgain: true });
         }
       },
-      complete: () => this.setData({ scanning: false })
+      complete: () => { if (current()) this.setData({ scanning: false }); }
     });
   },
 
   async handleScanResult(result) {
+    const current = beginPrivateRequest(this, "resolve");
+    if (!current()) return;
     const target = classifyScanResult(result || {});
     if (target === "enrollment") {
       if (app.globalData.memberSessionToken) {
@@ -55,9 +64,12 @@ Page({
     }
     try {
       await request("/api/v1/wechat/me", { auth: true });
+      if (!current()) return;
       await request("/api/v1/study-meetings/context", { auth: true });
+      if (!current()) return;
       wx.navigateTo({ url: "/pages/study-meeting/index" });
     } catch (error) {
+      if (!current()) return;
       if (error.statusCode === 401) {
         app.clearMemberSession();
         this.setData({ statusType: "info", statusMessage: "绑定已失效，请重新绑定。", showBindButton: true, showScanAgain: true });

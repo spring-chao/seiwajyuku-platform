@@ -12,11 +12,14 @@ function harness(name, request, uploadPhoto = async () => {}) {
   vm.runInNewContext(fs.readFileSync(path.join(root, "utils/page-session.js"), "utf8"), { module: guard, getApp: () => app });
   let page;
   const calls = [];
+  app.setPersonSession = token => { app.globalData.personSessionToken = token; calls.push("bound"); };
+  app.clearMemberSession = () => { app.globalData.personSessionToken = ""; app.globalData.memberSessionToken = ""; calls.push("revoked"); };
   vm.runInNewContext(fs.readFileSync(path.join(root, "pages", name + ".js"), "utf8"), {
     Page: value => { page = value; }, getApp: () => app,
     require: name => name.endsWith("page-session") ? guard.exports : name.endsWith("study-meeting")
-      ? require("../utils/study-meeting") : ({ request, uploadPhoto }),
-    wx: { showToast: value => calls.push(value), redirectTo: value => calls.push(value), navigateBack: () => calls.push("back") }
+      ? require("../utils/study-meeting") : name.endsWith("scan") ? require("../utils/scan") : ({ request, uploadPhoto }),
+    wx: { login: options => options.success({ code: "synthetic-login" }), showModal: value => calls.push(value),
+      showToast: value => calls.push(value), redirectTo: value => calls.push(value), navigateBack: () => calls.push("back") }
   });
   page.setData = value => Object.assign(page.data, value);
   return { page, app, calls };
@@ -105,4 +108,39 @@ test("person identity replacement clears learning draft and result", () => {
   app.setPersonSession("account-b");
   assert.equal(app.globalData.studyMeetingDraft, null);
   assert.equal(app.globalData.studyMeetingResult, null);
+});
+
+for (const [name, method] of [["identity/bind", "bindIdentity"], ["identity/staff-bind", "bindStaffIdentity"]]) {
+  for (const action of ["hide", "switch"]) {
+    test(`${name}: ${action} prevents an old binding from replacing identity`, async () => {
+      let finish;
+      const { page, app, calls } = harness(name, () => new Promise(yes => { finish = yes; }));
+      Object.assign(page.data, name === "identity/bind" ? { name: "synthetic", phone: "13800000000" }
+        : { username: "synthetic", password: "synthetic" });
+      const pending = page[method]();
+      await new Promise(resolve => setImmediate(resolve));
+      if (action === "hide") page.onHide();
+      else app.globalData.personSessionToken = "account-b";
+      finish({ data: { access_token: "old-response", member: { name_masked: "S*" } } });
+      await pending;
+      assert.equal(app.globalData.personSessionToken, action === "hide" ? "account-a" : "account-b");
+      assert.equal(calls.length, 0);
+      assert.equal(page.data.password || "", "");
+      assert.equal(page.data.phone || "", "");
+    });
+  }
+}
+
+test("old scanner 401 cannot revoke a new account", async () => {
+  let fail;
+  const { page, app, calls } = harness("scan/index", () => new Promise((_, no) => { fail = no; }));
+  const pending = page.handleScanResult({ path: "pages/study-meeting/index" });
+  assert.equal(typeof fail, "function");
+  app.globalData.personSessionToken = "account-b";
+  app.globalData.memberSessionToken = "account-b";
+  fail(Object.assign(new Error("expired old account"), { statusCode: 401 }));
+  await pending;
+  assert.equal(app.globalData.personSessionToken, "account-b");
+  assert.equal(calls.length, 0);
+  assert.equal(page.data.statusMessage, "");
 });

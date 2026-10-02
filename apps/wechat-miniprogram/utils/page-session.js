@@ -4,11 +4,11 @@ function sessionToken() {
 }
 
 function beginPrivateRequest(page, channel = "load") {
-  const token = sessionToken();
+  let token = sessionToken();
   const epoch = page._privateEpoch || 0;
   const versions = page._privateVersions || (page._privateVersions = {});
   const version = versions[channel] = (versions[channel] || 0) + 1;
-  return () => {
+  const current = () => {
     if ((page._privateEpoch || 0) !== epoch || versions[channel] !== version || page._privateVisible === false) return false;
     if (sessionToken() !== token) {
       page.onHide();
@@ -16,6 +16,10 @@ function beginPrivateRequest(page, channel = "load") {
     }
     return true;
   };
+  // A successful binding installs its own new session synchronously. Subsequent
+  // modal callbacks must still reject any later identity replacement.
+  current.acceptSession = next => { token = next || ""; };
+  return current;
 }
 
 function hidePrivatePage(page, reset) {

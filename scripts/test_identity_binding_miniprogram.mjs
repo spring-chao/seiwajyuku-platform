@@ -7,7 +7,7 @@ function loadPage({ requestError } = {}) {
   const calls = [];
   const app = {
     globalData: {},
-    setPersonSession(token) { calls.push({ session: token }); }
+    setPersonSession(token) { this.globalData.personSessionToken = token; calls.push({ session: token }); }
   };
   const request = async (path, options) => {
     calls.push({ request: { path, options } });
@@ -15,6 +15,10 @@ function loadPage({ requestError } = {}) {
     return { data: { access_token: 'new-session', member: { name_masked: '李*', class_name: '测试班' } } };
   };
   let page;
+  const guard = { exports: {} };
+  vm.runInNewContext(readFileSync(new URL('../apps/wechat-miniprogram/utils/page-session.js', import.meta.url), 'utf8'), {
+    module: guard, getApp: () => app
+  });
   const wx = {
     login: options => options.success({ code: 'login-code' }),
     showToast: options => calls.push({ toast: options.title }),
@@ -27,7 +31,7 @@ function loadPage({ requestError } = {}) {
   vm.runInNewContext(readFileSync(new URL('../apps/wechat-miniprogram/pages/identity/bind.js', import.meta.url), 'utf8'), {
     Page: definition => { page = definition; },
     getApp: () => app,
-    require: () => ({ request }),
+    require: name => name.endsWith('page-session') ? guard.exports : ({ request }),
     wx
   });
   page.setData = values => Object.assign(page.data, values);
