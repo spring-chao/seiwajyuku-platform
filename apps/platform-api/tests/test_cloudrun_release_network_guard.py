@@ -112,6 +112,11 @@ class FakeApi:
     def create_candidate(self, spec: release.UpdateRequestSpec) -> int:
         self.events.append("create_candidate")
         self.update_specs.append(spec)
+        self.release_order = {
+            "Id": 9101, "TrafficType": "FLOW", "IsReleasing": True, "ReleaseStatus": "open",
+            "CurrentVersion": {"VersionName": self.stable["Name"]},
+            "ReleaseVersion": {"VersionName": self.candidate_name},
+        }
         return 9001
 
     def release_targeted(

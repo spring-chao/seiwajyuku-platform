@@ -125,3 +125,15 @@ def test_targeted_release_payload_fixture_redacts_runtime_token() -> None:
         },
     ]
     assert "real-runtime-token-must-not-escape" not in json.dumps(payload)
+
+
+@pytest.mark.parametrize("percent", [0, 5, 100])
+def test_only_full_promotion_serializes_close_gray_release(percent):
+    request = release.build_flow_release_request("stable", "candidate", percent)
+    payload = json.loads(request.to_json_string())
+    assert payload.get("CloseGrayRelease", False) is (percent == 100)
+    assert payload["TrafficType"] == "FLOW"
+    assert sum(item["FlowRatio"] for item in payload["VersionFlowItems"]) == 100
+    if percent == 100:
+        assert payload["VersionFlowItems"] == [{"VersionName": "candidate", "IsDefaultPriority": True,
+            "FlowRatio": 100, "UrlParam": None, "Priority": 0}]

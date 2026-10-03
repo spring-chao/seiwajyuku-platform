@@ -26,4 +26,12 @@ python scripts/deploy_cloudrun_api.py --commit <main提交> --source --dry-run -
 
 执行增加 `--release-manifest <该main提交CI产物> --build-id <CI编号>`，使用 `--execute --promotion full`。生产完成证据单独保存；本实现文档不表示已经上线。
 
+## 继续已创建的修复候选
+
+候选版本变为 `normal` 与发布单进入可路由状态并非同一个事件。发布器等待对应发布单及正常服务状态后，才提交定向路由。全量切换在序列化请求中显式加入 `CloseGrayRelease=true`；参数与已安装的官方 CloudBase CLI 3.6.1 `CloudrunService.promote` 一致，旧版 Python 类型模型未包含该字段。
+
+若候选已创建、稳定版本仍为唯一 100% 且发布单仍在 FLOW 阶段，可在同一缺失 VPC 修复授权内增加 `--resume-repair-candidate <候选> --expected-task-id <任务> --expected-release-order-id <发布单>`。入口只接受精确匹配的运行中 GRAY 任务和当前发布单，并重新验证稳定环境、网络及候选的完整配置；不上传源包、不创建新版本。其他进行中的发布、已经分流或身份变化一律停止。
+
+候选的 `--commit` / `--release-manifest` 仍指向原已部署构建；修复后的控制器通过 `--control-tool-commit <最新main提交> --controller-release-manifest <该提交CI产物>` 独立验证干净 main 与 9/9 CI。继续发布仍必须完成定向路由、Pod、20/20 数据库健康和 23/23 候选日志核验，不能跳过验证直接切换普通流量。
+
 参考：[腾讯云访问 MySQL 的网络要求](https://cloud.tencent.com/document/product/1243/49231)、[ReleaseGray API](https://cloud.tencent.com/document/product/1243/75872)。

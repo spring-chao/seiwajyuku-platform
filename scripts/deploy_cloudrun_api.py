@@ -367,6 +367,18 @@ class MissingVpcRepairInput:
 
 
 @dataclass(frozen=True)
+class RepairContinuation:
+    candidate_revision: str
+    task_id: int
+    release_order_id: int
+
+    def __post_init__(self) -> None:
+        if (not re.fullmatch(re.escape(SERVICE_NAME) + r"-\d+", self.candidate_revision)
+                or self.task_id <= 0 or self.release_order_id <= 0):
+            raise ReleaseFailure("REPAIR_CONTINUATION_INVALID", "continuation requires exact candidate, task and release order")
+
+
+@dataclass(frozen=True)
 class ReleasePlan:
     env_id: str
     service_name: str
@@ -387,6 +399,7 @@ class ReleasePlan:
     ci_provenance_verified: bool = False
     network_repair: MissingVpcRepairInput | None = None
     stable_env_fingerprint: str = ""
+    continuation: RepairContinuation | None = None
 
     def safe_dict(self) -> dict[str, Any]:
         deploy_type = (
@@ -394,6 +407,8 @@ class ReleasePlan:
             if self.artifact is not None
             else "package (source upload pending)"
         )
+        if self.continuation:
+            deploy_type = "existing candidate (no source upload)"
         return {
             "state": ReleaseState.BUILD_PLAN.value,
             "env_id": self.env_id,
@@ -411,14 +426,20 @@ class ReleasePlan:
                  "database_and_vpc_control_plane_verified": True}
                 if self.network_repair else None
             ),
+            "continuation": (
+                {"candidate_revision": self.continuation.candidate_revision,
+                 "task_id": self.continuation.task_id, "release_order_id": self.continuation.release_order_id,
+                 "new_revision_creation": False}
+                if self.continuation else None
+            ),
             "candidate_request_vpc_conf": self.desired_vpc_conf.as_api_dict(),
-            "candidate_request_items": [
+            "candidate_request_items": [] if self.continuation else [
                 "VpcConf",
                 *(["EnvParam"] if self.env_params_json is not None else []),
             ],
             "desired_env_changes": list(self.env_change_summary),
             "release_strategy": {
-                "create": "UpdateCloudRunServer with ReleaseType=GRAY",
+                "create": "none; resume exact existing repair candidate" if self.continuation else "UpdateCloudRunServer with ReleaseType=GRAY",
                 "candidate_route": "URL_PARAMS one-time token; wait for DescribeReleaseOrder",
                 "candidate_instance": "DescribeCloudRunPodList ready instance",
                 "candidate_identity": "SearchClsLog 23/23 candidate, 0 stable",
@@ -795,7 +816,16 @@ def build_flow_release_request(
     candidate.Priority = 0 if candidate_percent == 100 else 2
     items.append(candidate)
 
-    request = models.ReleaseGrayRequest()
+    class CloseAwareReleaseGrayRequest(models.ReleaseGrayRequest):
+        # The installed typed SDK predates this parameter. The official
+        # CloudBase CLI promote implementation sends it to close the order.
+        def _serialize(self, allow_none=False):
+            payload = super()._serialize(allow_none=allow_none)
+            if candidate_percent == 100:
+                payload["CloseGrayRelease"] = True
+            return payload
+
+    request = CloseAwareReleaseGrayRequest()
     request.EnvId = ENV_ID
     request.ServerName = SERVICE_NAME
     request.GrayType = "gray"
@@ -1259,10 +1289,17 @@ class CloudRunReleaseController:
         self.history.append(state)
 
     def _discover_stable(
-        self, service: Mapping[str, Any], records: Sequence[Mapping[str, Any]]
+        self, service: Mapping[str, Any], records: Sequence[Mapping[str, Any]],
+        *, continuation: RepairContinuation | None = None,
     ) -> tuple[str, str | None, str]:
         release_order = self.api.describe_release_order()
-        if _release_order_is_active(release_order):
+        if continuation:
+            if (not _release_order_is_active(release_order)
+                    or _value(release_order, "Id") != continuation.release_order_id
+                    or _value(_value(release_order, "ReleaseVersion"), "VersionName") != continuation.candidate_revision
+                    or _value(release_order, "TrafficType") != "FLOW"):
+                raise ReleaseFailure("REPAIR_CONTINUATION_CHANGED", "pending repair order identity or routing changed")
+        elif _release_order_is_active(release_order):
             raise ReleaseFailure(
                 "ACTIVE_RELEASE_ORDER_EXISTS",
                 "a CloudRun release order is still active",
@@ -1286,6 +1323,14 @@ class CloudRunReleaseController:
             )
         for record in records:
             if _record_is_active(record):
+                if continuation:
+                    # Both current and release records are marked IsReleasing
+                    # for one pending gray order. No third record is allowed.
+                    order_names = {continuation.candidate_revision,
+                        str(_value(_value(release_order, "CurrentVersion"), "VersionName") or "")}
+                    order_ids = order_names | {name.removeprefix(SERVICE_NAME + "-") for name in order_names}
+                    if str(_value(record, "DeployId")) in order_ids:
+                        continue
                 raise ReleaseFailure(
                     "STABLE_REVISION_NOT_UNIQUE",
                     "a CloudRun release is already active",
@@ -1310,6 +1355,8 @@ class CloudRunReleaseController:
             raise ReleaseFailure(
                 "STABLE_REVISION_NOT_UNIQUE", "stable revision name is missing"
             )
+        if continuation and _value(_value(release_order, "CurrentVersion"), "VersionName") != stable_name:
+            raise ReleaseFailure("REPAIR_CONTINUATION_CHANGED", "pending repair stable identity changed")
         image_url = str(_value(positive[0], "ImageUrl") or "").strip() or None
         domain = str(_value(base_info, "DefaultDomainName") or "")
         return stable_name, image_url, _normalise_base_url(domain)
@@ -1497,10 +1544,11 @@ class CloudRunReleaseController:
         return commit
 
     def build_plan(
-        self, release_input: ReleaseInput, *, network_repair: MissingVpcRepairInput | None = None
+        self, release_input: ReleaseInput, *, network_repair: MissingVpcRepairInput | None = None,
+        continuation: RepairContinuation | None = None,
     ) -> ReleasePlan:
         try:
-            return self._build_plan(release_input, network_repair=network_repair)
+            return self._build_plan(release_input, network_repair=network_repair, continuation=continuation)
         except ReleaseFailure:
             if not self.history or self.history[-1] not in {
                 ReleaseState.BLOCKED,
@@ -1566,8 +1614,11 @@ class CloudRunReleaseController:
         return desired
 
     def _build_plan(
-        self, release_input: ReleaseInput, *, network_repair: MissingVpcRepairInput | None = None
+        self, release_input: ReleaseInput, *, network_repair: MissingVpcRepairInput | None = None,
+        continuation: RepairContinuation | None = None,
     ) -> ReleasePlan:
+        if continuation and not network_repair:
+            raise ReleaseFailure("REPAIR_CONTINUATION_INVALID", "continuation is limited to the missing VPC repair mode")
         if network_repair and (
             not release_input.approval_ref or release_input.artifact_mode != "source"
             or set(release_input.requested_env_changes) - {"LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED"}
@@ -1579,12 +1630,14 @@ class CloudRunReleaseController:
         records = self.api.describe_deploy_records()
         current_task = self.api.describe_manage_task(0)
         current_task_status = str(_value(current_task, "Status") or "").lower()
-        if current_task_status in ACTIVE_TASK_STATUSES:
+        if continuation:
+            self._assert_continuation_task(current_task, continuation)
+        elif current_task_status in ACTIVE_TASK_STATUSES:
             raise ReleaseFailure(
                 "STABLE_REVISION_NOT_UNIQUE",
                 "a CloudRun release task is already active",
             )
-        stable_name, stable_image, base_url = self._discover_stable(service, records)
+        stable_name, stable_image, base_url = self._discover_stable(service, records, continuation=continuation)
         self._stable_revision = stable_name
 
         self._transition(ReleaseState.READ_STABLE_VERSION)
@@ -1610,6 +1663,13 @@ class CloudRunReleaseController:
         env_json, env_summary = _merge_env_params(
             stable_env, release_input.requested_env_changes
         )
+        if continuation:
+            if continuation.candidate_revision in {stable_name, network_repair.reference_revision}:
+                raise ReleaseFailure("REPAIR_CONTINUATION_INVALID", "repair candidate must be separate from stable and reference")
+            self._assert_repair_candidate(
+                continuation.candidate_revision, desired_vpc,
+                json.loads(env_json) if env_json else stable_env,
+            )
 
         artifact: DeployArtifact | None
         if release_input.artifact_mode == "image":
@@ -1654,7 +1714,42 @@ class CloudRunReleaseController:
             ci_provenance_verified=release_input.ci_provenance_verified,
             network_repair=network_repair,
             stable_env_fingerprint=hashlib.sha256(json.dumps(stable_env, sort_keys=True).encode()).hexdigest(),
+            continuation=continuation,
         )
+
+    @staticmethod
+    def _assert_continuation_task(task, continuation: RepairContinuation) -> None:
+        if (not task or _value(task, "Id") != continuation.task_id
+                or _value(task, "VersionName") != continuation.candidate_revision
+                or _value(task, "ReleaseType") != "GRAY"
+                or str(_value(task, "Status") or "").lower() != "running"):
+            raise ReleaseFailure("REPAIR_CONTINUATION_CHANGED", "pending repair task identity or lifecycle changed")
+
+    def _assert_repair_candidate(self, name: str, vpc: VpcConfiguration, expected_env: Mapping[str, str]) -> None:
+        candidate = self.api.describe_version(name)
+        if _value(candidate, "Name") != name or _value(candidate, "Status") != "normal":
+            raise ReleaseFailure("CANDIDATE_RELEASE_NOT_READY", "repair candidate identity or status is not ready")
+        self._assert_candidate_vpc(candidate, vpc)
+        if _parse_env_params(_value(candidate, "EnvParams")) != expected_env:
+            raise ReleaseFailure("CANDIDATE_ENV_MISMATCH", "candidate environment does not match the authorized repair")
+
+    def _wait_for_release_ready(self, stable: str, candidate: str, *, expected_order_id: int | None = None) -> None:
+        # VersionDetail can become normal before its new release order exists.
+        # Wait for that order instead of racing ReleaseGray against creation.
+        for _ in range(self.max_polls):
+            order = self.api.describe_release_order() or {}
+            service = self.api.describe_service()
+            if expected_order_id is not None and _value(order, "Id") != expected_order_id:
+                raise ReleaseFailure("REPAIR_CONTINUATION_CHANGED", "pending repair order changed before routing")
+            if (_value(_value(order, "CurrentVersion"), "VersionName") == stable
+                    and _value(_value(order, "ReleaseVersion"), "VersionName") == candidate
+                    and _value(order, "IsReleasing") is True
+                    and _value(order, "ReleaseStatus") in {"open", "gray"}
+                    and _value(_value(service, "BaseInfo"), "Status") == "normal"):
+                return
+            self.sleep(self.poll_seconds)
+        raise ReleaseFailure("CANDIDATE_RELEASE_NOT_READY", "candidate publication order did not become ready",
+                             terminal_state=ReleaseState.FAILED)
 
     def _candidate_name_from_records(
         self,
@@ -2395,19 +2490,20 @@ class CloudRunReleaseController:
             raise ReleaseFailure("GRAY_RATIO_INVALID", "gray ratio must be 1..99")
 
         artifact = plan.artifact
-        if artifact is None:
+        if artifact is None and not plan.continuation:
             if self.source_provider is None:
                 raise ReleaseFailure(
                     "SOURCE_PROVIDER_MISSING", "source package provider is unavailable"
                 )
             artifact = self.source_provider.prepare(plan)
-        artifact.validate_for_update()
+        if artifact is not None:
+            artifact.validate_for_update()
 
         # Source upload can take long enough for the control-plane baseline to
         # change. Re-read it immediately before the first service write.
         current_service = self.api.describe_service()
         before_records = self.api.describe_deploy_records()
-        current_stable, _, _ = self._discover_stable(current_service, before_records)
+        current_stable, _, _ = self._discover_stable(current_service, before_records, continuation=plan.continuation)
         if current_stable != plan.stable_revision:
             raise ReleaseFailure(
                 "STABLE_REVISION_CHANGED",
@@ -2433,7 +2529,9 @@ class CloudRunReleaseController:
             raise ReleaseFailure("STABLE_ENV_CHANGED", "stable environment changed after planning")
         before_task = self.api.describe_manage_task(0)
         before_task_status = str(_value(before_task, "Status") or "").lower()
-        if before_task_status in ACTIVE_TASK_STATUSES:
+        if plan.continuation:
+            self._assert_continuation_task(before_task, plan.continuation)
+        elif before_task_status in ACTIVE_TASK_STATUSES:
             raise ReleaseFailure(
                 "STABLE_REVISION_NOT_UNIQUE",
                 "a CloudRun release task became active before candidate creation",
@@ -2448,34 +2546,32 @@ class CloudRunReleaseController:
             f"{plan.approval_ref}; commit={plan.desired_runtime_commit[:12]}; "
             f"stable={plan.stable_revision}"
         )
-        spec = UpdateRequestSpec(
-            artifact=artifact,
-            vpc_conf=plan.desired_vpc_conf,
-            env_params_json=plan.env_params_json,
-            deploy_remark=remark,
-        )
-
         try:
-            self._transition(ReleaseState.CREATE_CANDIDATE)
             self._candidate_created = True
-            task_id = self.api.create_candidate(spec)
-            candidate_name = self._wait_for_candidate(
-                task_id, before_ids, before_task_id
-            )
+            if plan.continuation:
+                self._transition(ReleaseState.READ_EXISTING_CANDIDATE)
+                candidate_name = plan.continuation.candidate_revision
+            else:
+                assert artifact is not None
+                spec = UpdateRequestSpec(artifact=artifact, vpc_conf=plan.desired_vpc_conf,
+                                         env_params_json=plan.env_params_json, deploy_remark=remark)
+                self._transition(ReleaseState.CREATE_CANDIDATE)
+                task_id = self.api.create_candidate(spec)
+                candidate_name = self._wait_for_candidate(task_id, before_ids, before_task_id)
             self._candidate_revision = candidate_name
 
             self._transition(ReleaseState.VERIFY_CANDIDATE_CONFIG)
             candidate = self.api.describe_version(candidate_name)
+            if _value(candidate, "Status") != "normal":
+                raise ReleaseFailure("CANDIDATE_RELEASE_NOT_READY", "candidate revision is not normal")
             self._assert_candidate_vpc(candidate, plan.desired_vpc_conf)
             if plan.network_repair:
                 expected_env = json.loads(plan.env_params_json) if plan.env_params_json else current_env
-                if _parse_env_params(_value(candidate, "EnvParams")) != expected_env:
-                    raise ReleaseFailure(
-                        "CANDIDATE_ENV_MISMATCH", "repair candidate environment does not match the approved configuration",
-                        terminal_state=ReleaseState.FAILED,
-                    )
+                self._assert_repair_candidate(candidate_name, plan.desired_vpc_conf, expected_env)
 
             self._transition(ReleaseState.TARGETED_HEALTH)
+            self._wait_for_release_ready(plan.stable_revision, candidate_name,
+                expected_order_id=plan.continuation.release_order_id if plan.continuation else None)
             token = secrets.token_urlsafe(32)
             batch_id = secrets.token_urlsafe(16)
             # Treat an uncertain API response as potentially applied.  A
@@ -2599,6 +2695,9 @@ def _parser() -> argparse.ArgumentParser:
         "--repair-missing-vpc-from-version", metavar="REVISION",
         help="separately authorized missing-baseline repair using verified historical and database network metadata",
     )
+    parser.add_argument("--resume-repair-candidate", metavar="REVISION")
+    parser.add_argument("--expected-task-id", type=int)
+    parser.add_argument("--expected-release-order-id", type=int)
     parser.add_argument(
         "--verify-existing-candidate",
         metavar="REVISION",
@@ -2636,13 +2735,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.poll_seconds <= 0 or args.max_polls <= 0:
             raise ReleaseFailure("POLL_POLICY_INVALID", "poll timing must be positive")
+        if not args.resume_repair_candidate and (args.expected_task_id is not None or args.expected_release_order_id is not None):
+            raise ReleaseFailure("REPAIR_CONTINUATION_INVALID", "task and order assertions require repair continuation")
         existing_candidate = str(args.verify_existing_candidate or "").strip()
         artifact_selected = sum(
             bool(value)
             for value in (args.source, args.image_url, args.reuse_stable_image)
         )
         if existing_candidate:
-            if args.repair_missing_vpc_from_version:
+            if args.repair_missing_vpc_from_version or args.resume_repair_candidate:
                 raise ReleaseFailure("VPC_REPAIR_SCOPE_INVALID", "network repair cannot be combined with existing-candidate mode")
             if artifact_selected or args.env_file or args.build_id or args.commit:
                 raise ReleaseFailure(
@@ -2769,14 +2870,23 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         assert release_input is not None
         repair = None
+        continuation = None
+        if args.resume_repair_candidate:
+            if not args.repair_missing_vpc_from_version:
+                raise ReleaseFailure("REPAIR_CONTINUATION_INVALID", "continuation requires the authorized network repair scope")
+            continuation = RepairContinuation(args.resume_repair_candidate, args.expected_task_id or 0,
+                                               args.expected_release_order_id or 0)
         if args.repair_missing_vpc_from_version:
             repair = MissingVpcRepairInput(
                 expected_stable_revision=args.expected_stable_revision or "",
                 reference_revision=args.repair_missing_vpc_from_version,
             )
             if args.execute:
-                verify_controller_provenance(args.commit, args.release_manifest)
-        plan = controller.build_plan(release_input, network_repair=repair)
+                if continuation:
+                    verify_controller_provenance(args.control_tool_commit or "", args.controller_release_manifest)
+                else:
+                    verify_controller_provenance(args.commit, args.release_manifest)
+        plan = controller.build_plan(release_input, network_repair=repair, continuation=continuation)
         if args.dry_run:
             safe_plan = plan.safe_dict()
             safe_plan["release_strategy"]["requested_promotion"] = args.promotion
