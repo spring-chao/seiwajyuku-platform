@@ -27,3 +27,5 @@
 10. API 发布依次记录 `DISCOVER_STABLE → READ_STABLE_VERSION → BUILD_PLAN → CREATE_CANDIDATE → VERIFY_CANDIDATE_CONFIG → TARGETED_HEALTH → TARGETED_ROUTE_ACTIVE → CANDIDATE_INSTANCE_READY → CANDIDATE_IDENTITY_VERIFIED → READY_FOR_RELEASE → TRAFFIC_RESTORED → GRAY → FULL → VERIFIED`；按批准范围可在 `TRAFFIC_RESTORED` 或 `GRAY` 停止。任何失败进入 `BLOCKED`／`FAILED`，不让失败候选获得普通流量。`253=100% / 257=0%` 只代表流量恢复，不代表发布单已关闭；活动 `DescribeReleaseOrder.IsReleasing=true` 会阻止新 candidate。`OperateServerManage` 的收尾动作必须另行确认语义和授权。
 11. 发布后 API 核验 `/api/v1/system/build-info`、`/api/v1/health`、部署记录、启动日志及流量；管理端核验其构建信息、登录和受影响页面。涉及独立签到组件时按该组件实际提供的版本、健康与页面入口核验，不把主平台端点套用过去。浏览器超时不等于验收成功。
 12. 发布失败按预先核验的恢复方案处理。代码回退不能替代数据库恢复；不要给启动失败或网络断言失败的候选切普通流量，也不删除共享 CloudBase 资源。记录实际结果与未完成事项。
+
+完全缺失 VPC 的稳定版本仍阻塞普通发布。用户单独授权恢复网络时，使用[缺失 VPC 基线恢复](missing-vpc-repair-20261004.md)的专用验证模式，不向普通发布传入网络覆写值。
