@@ -906,36 +906,67 @@ def revoke_member_binding(token: str) -> dict[str, Any]:
     _require_binding_enabled()
     session = resolve_wechat_session(token)
     with transaction() as connection:
-        now = _db_timestamp(connection)
-        previous_token_version = int(session["token_version"])
-        next_token_version = previous_token_version + 1
-        updated = execute(
-            connection,
-            "UPDATE wechat_member_bindings SET status='REVOKED', revoked_at=?, updated_at=? "
-            ", active_slot=NULL, token_version=? "
-            "WHERE id=? AND status='VERIFIED' AND token_version=?",
-            (now, now, next_token_version, session["binding_id"], previous_token_version),
-        )
-        if updated.rowcount != 1:
-            raise WeChatIdentityError("微信身份登录已失效，请重新绑定")
-        write_audit(
-            connection,
-            actor_user_id=None,
-            action="wechat.member_binding.revoke",
-            resource_type="wechat_member_binding",
-            resource_id=str(session["binding_id"]),
-            before={
-                "member_id": session["member_id"],
-                "status": "VERIFIED",
-                "token_version": previous_token_version,
-            },
-            after={
-                "member_id": session["member_id"],
-                "status": "REVOKED",
-                "token_version": next_token_version,
-            },
-        )
+        _revoke_binding_row(connection, session)
     return {"revoked": True}
+
+
+def revoke_binding_by_wechat_code(code: str) -> dict[str, Any]:
+    """Recover self-service unbinding when the cached app token is gone.
+
+    Only the official provider's appid/openid selects the binding. No caller
+    supplied person/binding ID is accepted and no person data is returned.
+    """
+    _require_binding_enabled()
+    identity = exchange_wechat_code(code)
+    appid, openid = identity.get("appid"), identity.get("openid")
+    if not appid or not openid:
+        raise WeChatProviderError("微信身份服务暂时不可用，请稍后重试")
+    with transaction() as connection:
+        row = execute(
+            connection,
+            "SELECT id AS binding_id, member_id, token_version, status "
+            "FROM wechat_member_bindings WHERE appid=? AND openid=? LIMIT 1",
+            (str(appid), str(openid)),
+        ).fetchone()
+        if not row or row["status"] == "REVOKED":
+            return {"revoked": True}
+        if row["status"] != "VERIFIED":
+            raise WeChatIdentityError("微信身份记录无效，请联系工作人员")
+        _revoke_binding_row(connection, dict(row), verification_source="WECHAT_LOGIN_CODE")
+    return {"revoked": True}
+
+
+def _revoke_binding_row(connection, session, *, verification_source=None) -> None:
+    now = _db_timestamp(connection)
+    previous_token_version = int(session["token_version"])
+    next_token_version = previous_token_version + 1
+    updated = execute(
+        connection,
+        "UPDATE wechat_member_bindings SET status='REVOKED', revoked_at=?, updated_at=? "
+        ", active_slot=NULL, token_version=? "
+        "WHERE id=? AND status='VERIFIED' AND token_version=?",
+        (now, now, next_token_version, session["binding_id"], previous_token_version),
+    )
+    if updated.rowcount != 1:
+        raise WeChatIdentityError("微信身份登录已失效，请重新绑定")
+    write_audit(
+        connection,
+        actor_user_id=None,
+        action="wechat.member_binding.revoke",
+        resource_type="wechat_member_binding",
+        resource_id=str(session["binding_id"]),
+        before={
+            "member_id": session["member_id"],
+            "status": "VERIFIED",
+            "token_version": previous_token_version,
+        },
+        after={
+            "member_id": session["member_id"],
+            "status": "REVOKED",
+            "token_version": next_token_version,
+            **({"verification_source": verification_source} if verification_source else {}),
+        },
+    )
 
 
 def get_member_role_scopes(member_id: int) -> list[dict[str, Any]]:

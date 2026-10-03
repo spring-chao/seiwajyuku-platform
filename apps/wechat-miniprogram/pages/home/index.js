@@ -1,6 +1,7 @@
 const app = getApp();
 const { request } = require("../../utils/request");
 const { resolveVolunteerServices } = require("../../utils/volunteer-services");
+const { identityChangePending, revokeCurrentBinding } = require("../../utils/identity-session");
 
 function clearLocalSession() {
   if (typeof app.clearPersonSession === "function") {
@@ -22,6 +23,7 @@ function clearLocalSession() {
 Page({
   data: {
     loading: true,
+    unbinding: false,
     portal: null,
     member: null,
     identities: null,
@@ -38,13 +40,18 @@ Page({
     bindingActionLabel: "绑定我的身份"
   },
 
+  onLoad(options = {}) { this._manageIdentity = options.manage_identity === "1"; },
+
   onShow() {
+    this._homeVisible = true;
     this.loadHome();
   },
 
   onHide() {
+    this._homeVisible = false;
+    this._homeVisibilityEpoch = (this._homeVisibilityEpoch || 0) + 1;
     this._homeLoadVersion = (this._homeLoadVersion || 0) + 1;
-    this.setData({ loading: false, portal: null, member: null, identities: null, isEmployee: false,
+    this.setData({ loading: false, unbinding: false, portal: null, member: null, identities: null, isEmployee: false,
       operationEntries: [], identityState: "unknown", canManageStudyMeeting: false,
       isVolunteer: false, volunteerRoles: [], displayRole: "", displayScope: "", serviceMessage: "" });
   },
@@ -147,7 +154,7 @@ Page({
     // A member/volunteer/staff composite keeps the combined entry page so the
     // person session can expose each identity without merging permissions.
     const isStaffOnly = next.isEmployee && !next.member && !next.isVolunteer && next.operationEntries.length;
-    if (isStaffOnly && !this._staffOnlyRedirected) {
+    if (isStaffOnly && !this._manageIdentity && !this._staffOnlyRedirected) {
       this._staffOnlyRedirected = true;
       wx.redirectTo({ url: "/pages/operations/index" });
     } else if (!isStaffOnly) {
@@ -168,6 +175,7 @@ Page({
   },
 
   openBinding() {
+    if (this.data.unbinding || identityChangePending()) return;
     wx.navigateTo({ url: "/pages/identity/bind" });
   },
 
@@ -197,24 +205,33 @@ Page({
   },
 
   unbind() {
+    if (this.data.unbinding || identityChangePending()) return;
+    const token = app.globalData.personSessionToken || app.globalData.memberSessionToken || "";
+    const epoch = this._homeVisibilityEpoch || 0;
+    const current = () => this._homeVisible !== false && (this._homeVisibilityEpoch || 0) === epoch &&
+      (app.globalData.personSessionToken || app.globalData.memberSessionToken || "") === token;
+    this.setData({ unbinding: true });
     wx.showModal({
-      title: "解除本机绑定？",
-      content: "解除后下次登记需要重新输入姓名和手机号。",
+      title: "解除当前微信绑定？",
+      content: "解除后可重新绑定其他人员，平台人员资料不会删除。",
       success: async result => {
-        if (!result.confirm || !(app.globalData.personSessionToken || app.globalData.memberSessionToken)) return;
         try {
-          await request("/api/v1/wechat/member-bindings/revoke", { method: "POST", auth: true });
+          if (!result.confirm || !current()) return;
+          if (!await revokeCurrentBinding(current)) return;
           this._homeLoadVersion = (this._homeLoadVersion || 0) + 1;
-          clearLocalSession();
+          if (this._homeVisible === false) return;
           this.setData({ member: null, identityState: "unbound", canManageStudyMeeting: false,
             isVolunteer: false, volunteerRoles: [], displayRole: "", displayScope: "", serviceMessage: "",
             bindingActionLabel: "重新绑定我的身份", isEmployee: false, operationEntries: [], identities: null });
           wx.showToast({ title: "已解除绑定", icon: "success" });
           await this.loadHome();
         } catch (error) {
-          wx.showToast({ title: error.message || "解除失败", icon: "none" });
+          if (current()) wx.showToast({ title: error.message || "解除失败", icon: "none" });
+        } finally {
+          if (this._homeVisible !== false) this.setData({ unbinding: false });
         }
-      }
+      },
+      fail: () => { if (current()) this.setData({ unbinding: false }); }
     });
   }
 });

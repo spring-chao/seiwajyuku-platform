@@ -12,11 +12,15 @@ function harness(name, request, uploadPhoto = async () => {}) {
   vm.runInNewContext(fs.readFileSync(path.join(root, "utils/page-session.js"), "utf8"), { module: guard, getApp: () => app });
   let page;
   const calls = [];
+  const identity = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(root, "utils/identity-session.js"), "utf8"), {
+    module: identity, getApp: () => app, require: () => ({ request }), wx: {}
+  });
   app.setPersonSession = token => { app.globalData.personSessionToken = token; calls.push("bound"); };
   app.clearMemberSession = () => { app.globalData.personSessionToken = ""; app.globalData.memberSessionToken = ""; calls.push("revoked"); };
   vm.runInNewContext(fs.readFileSync(path.join(root, "pages", name + ".js"), "utf8"), {
     Page: value => { page = value; }, getApp: () => app,
-    require: name => name.endsWith("page-session") ? guard.exports : name.endsWith("study-meeting")
+    require: name => name.endsWith("identity-session") ? identity.exports : name.endsWith("page-session") ? guard.exports : name.endsWith("study-meeting")
       ? require("../utils/study-meeting") : name.endsWith("scan") ? require("../utils/scan") : ({ request, uploadPhoto }),
     wx: { login: options => options.success({ code: "synthetic-login" }), showModal: value => calls.push(value),
       showToast: value => calls.push(value), redirectTo: value => calls.push(value), navigateBack: () => calls.push("back") }

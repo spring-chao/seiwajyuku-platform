@@ -1,6 +1,7 @@
 const app = getApp();
 const { request } = require("../../utils/request");
 const { beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
+const { identityChangePending } = require("../../utils/identity-session");
 
 Page({
   data: { username: "", password: "", loading: false },
@@ -14,7 +15,7 @@ Page({
   },
 
   async bindStaffIdentity() {
-    if (this.data.loading) return;
+    if (this.data.loading || identityChangePending()) return;
     const current = beginPrivateRequest(this, "bind");
     if (!current()) return;
     const username = (this.data.username || "").trim();
@@ -24,6 +25,7 @@ Page({
       return;
     }
     this.setData({ loading: true });
+    app._identityBindPending = true;
     try {
       const login = await new Promise((resolve, reject) => wx.login({ success: resolve, fail: reject }));
       if (!current()) return;
@@ -46,6 +48,7 @@ Page({
     } catch (error) {
       if (current()) wx.showToast({ title: error.message || "暂时无法确认工作人员身份", icon: "none", duration: 2600 });
     } finally {
+      app._identityBindPending = false;
       if (current()) this.setData({ loading: false });
     }
   }

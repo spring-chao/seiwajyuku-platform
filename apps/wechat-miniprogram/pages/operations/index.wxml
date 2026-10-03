@@ -16,4 +16,5 @@
   <view wx:for="{{entries}}" wx:key="key" class="section-card entry" data-key="{{item.key}}" bindtap="openEntry">
     <view class="section-title">{{item.name}}</view><view class="entry-copy">{{item.description}}</view><view class="entry-arrow">进入 ›</view>
   </view>
+  <button class="plain-button" bindtap="manageIdentity">身份与解绑</button>
 </view>

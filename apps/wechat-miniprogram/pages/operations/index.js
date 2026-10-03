@@ -49,5 +49,8 @@ Page({
   openEntry(event) {
     const url = destinations[event.currentTarget.dataset.key];
     if (url) wx.navigateTo({ url });
+  },
+  manageIdentity() {
+    wx.reLaunch({ url: "/pages/home/index?manage_identity=1" });
   }
 });
