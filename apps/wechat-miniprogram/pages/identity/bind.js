@@ -1,17 +1,19 @@
 const app = getApp();
 const { request } = require("../../utils/request");
 const { beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
+const { identityChangePending, revokeCurrentBinding } = require("../../utils/identity-session");
 
 Page({
   data: {
     name: "",
     phone: "",
     loading: false,
+    unbinding: false,
     preview: null
   },
 
   onShow() { showPrivatePage(this); },
-  onHide() { hidePrivatePage(this, { name: "", phone: "", preview: null, loading: false }); },
+  onHide() { hidePrivatePage(this, { name: "", phone: "", preview: null, loading: false, unbinding: false }); },
   onUnload() { this.onHide(); },
 
   handleInput(event) {
@@ -20,7 +22,7 @@ Page({
   },
 
   async bindIdentity(event = {}) {
-    if (this.data.loading) return;
+    if (this.data.loading || this.data.unbinding || identityChangePending()) return;
     const current = beginPrivateRequest(this, "bind");
     if (!current()) return;
     const name = (this.data.name || "").trim();
@@ -30,6 +32,7 @@ Page({
       return;
     }
     this.setData({ loading: true });
+    app._identityBindPending = true;
     try {
       const login = await new Promise((resolve, reject) => {
         wx.login({
@@ -76,12 +79,33 @@ Page({
       if (!current()) return;
       const message = error.message || "暂时无法完成绑定";
       if (error.statusCode === 400) {
-        wx.showModal({ title: "无法绑定", content: message, showCancel: false });
+        const conflict = /^当前微信已绑定其他/.test(message);
+        wx.showModal({ title: conflict ? "当前微信已有绑定" : "无法绑定", content: message,
+          showCancel: conflict, confirmText: conflict ? "解除绑定" : "确定", cancelText: "返回",
+          success: result => { if (conflict && result.confirm && current()) this.unbindCurrentIdentity(); }
+        });
       } else {
         wx.showToast({ title: message, icon: "none", duration: 2600 });
       }
     } finally {
+      app._identityBindPending = false;
       if (current()) this.setData({ loading: false });
     }
+  },
+
+  async unbindCurrentIdentity() {
+    if (this.data.loading || this.data.unbinding || identityChangePending()) return;
+    const current = beginPrivateRequest(this, "unbind");
+    if (!current()) return;
+    this.setData({ unbinding: true });
+    try {
+      if (!await revokeCurrentBinding(current)) return;
+      current.acceptSession("");
+      if (!current()) return;
+      this.setData({ preview: null });
+      wx.showToast({ title: "已解绑，请重新点击绑定", icon: "none", duration: 2600 });
+    } catch (error) {
+      if (current()) wx.showModal({ title: "解绑未完成", content: error.message || "请稍后重试", showCancel: false });
+    } finally { if (current()) this.setData({ unbinding: false }); }
   }
 });

@@ -21,7 +21,7 @@
            entry now lives in the volunteer-service card below. -->
       <button wx:if="{{canManageStudyMeeting}}" class="primary-button" bindtap="openStudyMeeting" hidden="{{true}}">小组学习会登记</button>
       <view wx:if="{{isEmployee}}" class="identity-copy">工作人员移动运营能力会随账号启用、在职状态和后台组织授权实时变化。</view>
-      <button class="plain-button" bindtap="unbind">解除本机绑定</button>
+      <button class="plain-button" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbind">解除当前微信绑定</button>
     </view>
     <view wx:else class="identity-card">
       <view class="identity-name">尚未绑定平台身份</view>

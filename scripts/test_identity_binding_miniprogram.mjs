@@ -28,10 +28,14 @@ function loadPage({ requestError } = {}) {
     },
     navigateBack: options => calls.push({ navigateBack: options.delta })
   };
+  const identity = { exports: {} };
+  vm.runInNewContext(readFileSync(new URL('../apps/wechat-miniprogram/utils/identity-session.js', import.meta.url), 'utf8'), {
+    module: identity, getApp: () => app, require: () => ({ request }), wx
+  });
   vm.runInNewContext(readFileSync(new URL('../apps/wechat-miniprogram/pages/identity/bind.js', import.meta.url), 'utf8'), {
     Page: definition => { page = definition; },
     getApp: () => app,
-    require: name => name.endsWith('page-session') ? guard.exports : ({ request }),
+    require: name => name.endsWith('identity-session') ? identity.exports : name.endsWith('page-session') ? guard.exports : ({ request }),
     wx
   });
   page.setData = values => Object.assign(page.data, values);
@@ -46,7 +50,8 @@ test('binding conflicts are shown in an actionable modal', async () => {
   page.data.phone = '13800000000';
   await page.bindIdentity();
   const modal = calls.find(item => item.modal)?.modal;
-  assert.equal(modal.title, '无法绑定');
+  assert.equal(modal.title, '当前微信已有绑定');
+  assert.equal(modal.confirmText, '解除绑定');
   assert.equal(modal.content, '当前微信已绑定其他学员，请先解绑后再绑定');
   assert.equal(calls.some(item => item.session), false);
 });

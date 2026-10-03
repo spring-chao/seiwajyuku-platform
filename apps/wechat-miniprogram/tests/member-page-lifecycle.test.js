@@ -18,6 +18,7 @@ function harness(pageName) {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../pages", pageName, "index.js"), "utf8"), {
     Page(value) { page = value; }, getApp: () => app, wx: {},
     require(name) {
+      if (name.includes("identity-session")) return { identityChangePending: () => false };
       if (name.includes("volunteer-services")) return { resolveVolunteerServices: () => ({ serviceAssignments: [] }) };
       return { request(url) { const pending = deferred(); calls.push({ url, ...pending }); return pending.promise; } };
     }

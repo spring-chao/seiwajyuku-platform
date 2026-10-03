@@ -7,13 +7,13 @@
   <view class="section-card">
     <view class="field-row">
       <view class="field-label">姓名</view>
-      <input class="field-input" always-embed="true" placeholder-class="field-input-placeholder" placeholder-style="color:#b7aaaa;" data-field="name" bindinput="handleInput" placeholder="请输入正式姓名" style="color:#3d2a2a;caret-color:#741f2b;background-color:#ffffff;" />
+      <input class="field-input" value="{{name}}" always-embed="true" placeholder-class="field-input-placeholder" placeholder-style="color:#b7aaaa;" data-field="name" bindinput="handleInput" placeholder="请输入正式姓名" style="color:#3d2a2a;caret-color:#741f2b;background-color:#ffffff;" />
     </view>
     <view class="field-row">
       <view class="field-label">手机号</view>
-      <input class="field-input" always-embed="true" placeholder-class="field-input-placeholder" placeholder-style="color:#b7aaaa;" type="number" maxlength="11" data-field="phone" bindinput="handleInput" placeholder="请输入登记手机号" style="color:#3d2a2a;caret-color:#741f2b;background-color:#ffffff;" />
+      <input class="field-input" value="{{phone}}" always-embed="true" placeholder-class="field-input-placeholder" placeholder-style="color:#b7aaaa;" type="number" maxlength="11" data-field="phone" bindinput="handleInput" placeholder="请输入登记手机号" style="color:#3d2a2a;caret-color:#741f2b;background-color:#ffffff;" />
     </view>
-    <button class="primary-button" open-type="getPhoneNumber" loading="{{loading}}" disabled="{{loading}}" bindgetphonenumber="bindIdentity">验证并绑定</button>
+    <button class="primary-button" open-type="getPhoneNumber" loading="{{loading || unbinding}}" disabled="{{loading || unbinding}}" bindgetphonenumber="bindIdentity">{{unbinding ? '正在解除绑定' : '验证并绑定'}}</button>
   </view>
   <view class="privacy-copy">绑定成功后，微信身份只作为登录凭证；平台记录始终归属于统一人员身份。您不需要选择塾或身份类型。</view>
 </view>

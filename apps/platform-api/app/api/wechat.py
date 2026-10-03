@@ -12,6 +12,7 @@ from app.services.wechat_identity import (
     resolve_wechat_session,
     resolve_member_session,
     revoke_member_binding,
+    revoke_binding_by_wechat_code,
     verify_person_binding,
     verify_staff_binding,
     verify_member_binding,
@@ -55,6 +56,11 @@ class PersonBindingVerifyPayload(BaseModel):
     # Optional for member-only identities; mandatory and verified against the
     # staff profile when the resolved person has an effective staff identity.
     phone_verification: str | None = Field(default=None, max_length=512)
+
+
+class BindingRevokePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    wx_login_code: str = Field(min_length=1, max_length=512)
 
 
 class FollowupRecordPayload(BaseModel):
@@ -280,11 +286,17 @@ def volunteer_history(
 
 @router.post("/member-bindings/revoke")
 def revoke_binding(
+    payload: BindingRevokePayload | None = None,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
 ) -> dict:
-    token = _session_token(credentials)
     try:
-        data = revoke_member_binding(token)
+        data = (
+            revoke_binding_by_wechat_code(payload.wx_login_code)
+            if payload is not None
+            else revoke_member_binding(_session_token(credentials))
+        )
+    except WeChatProviderError as exc:
+        raise HTTPException(503, str(exc)) from exc
     except WeChatIdentityError as exc:
         raise HTTPException(401, str(exc)) from exc
     return {"success": True, "data": data}

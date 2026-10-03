@@ -46,15 +46,19 @@ function harness({ bound = false, assignments = [], meError, serviceError, meRes
         ? serviceResponse()
         : { data: { is_volunteer: assignments.length > 0, roles: assignments } };
     }
-    if (path.endsWith('/revoke')) return { success: true };
+    if (path.endsWith('/revoke')) return { success: true, data: { revoked: true } };
     return { data: { enrollment_entry: { handoff_token: 'synthetic-handoff' } } };
   };
   let page;
-  const wx = { navigateTo: data => calls.push(data.url), showToast() {}, showModal: options => { page.modal = options; } };
+  const wx = { login: options => options.success({ code: 'synthetic-login' }), navigateTo: data => calls.push(data.url), showToast() {}, showModal: options => { page.modal = options; } };
+  const identity = { exports: {} };
+  vm.runInNewContext(readFileSync(new URL('../apps/wechat-miniprogram/utils/identity-session.js', import.meta.url), 'utf8'), {
+    module: identity, getApp: () => app, require: () => ({ request }), wx
+  });
   vm.runInNewContext(readFileSync(new URL('../apps/wechat-miniprogram/pages/home/index.js', import.meta.url), 'utf8'), {
     Page: definition => { page = definition; },
     getApp: () => app,
-    require: modulePath => modulePath.includes('volunteer-services')
+    require: modulePath => modulePath.includes('identity-session') ? identity.exports : modulePath.includes('volunteer-services')
       ? { resolveVolunteerServices }
       : { request },
     wx

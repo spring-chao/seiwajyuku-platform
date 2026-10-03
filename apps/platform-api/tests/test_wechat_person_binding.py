@@ -12,6 +12,7 @@ from app.core.security import hash_password
 from app.db import execute, fetch_one, transaction
 from app.main import app
 from app.services.members import create_member
+from app.services.wechat_identity import WeChatProviderError
 
 
 def _now() -> str:
@@ -224,3 +225,82 @@ def test_unified_binding_rejects_two_people_with_same_name_and_phone() -> None:
         )
     assert response.status_code == 400, response.text
     assert response.json()["detail"] == "检测到重复身份资料，请联系工作人员核对。"
+
+
+def test_lost_local_session_recovers_unbind_and_rebinds_another_person() -> None:
+    first_name, second_name = [f"解绑恢复-{uuid4().hex[:8]}" for _ in range(2)]
+    first_phone, second_phone = _phone(), _phone()
+    first_id, _ = _seed_member(name=first_name, phone=first_phone)
+    second_id, _ = _seed_member(name=second_name, phone=second_phone)
+    openid = f"recovery-{uuid4().hex}"
+    with _client_context(), patch(
+        "app.services.wechat_identity.exchange_wechat_code",
+        return_value={"appid": "person-binding-test-app", "openid": openid},
+    ), TestClient(app) as client:
+        def bind(name, phone):
+            return client.post("/api/v1/wechat/person-bindings/verify", json={
+                "wx_login_code": "fresh-login", "name": name, "phone": phone})
+        first = bind(first_name, first_phone)
+        assert first.status_code == 200, first.text
+        old_headers = {"Authorization": "Bearer " + first.json()["data"]["access_token"]}
+        blocked = bind(second_name, second_phone)
+        assert blocked.status_code == 400
+        assert "当前微信已绑定其他人员" in blocked.json()["detail"]
+        # The old client token can be absent or expired. A provider-issued
+        # WeChat code still proves ownership of exactly this WeChat binding.
+        recovered = client.post("/api/v1/wechat/member-bindings/revoke",
+            headers={"Authorization": "Bearer expired-app-token"},
+            json={"wx_login_code": "fresh-revoke-login"})
+        assert recovered.status_code == 200, recovered.text
+        assert recovered.json() == {"success": True, "data": {"revoked": True}}
+        assert client.get("/api/v1/wechat/me", headers=old_headers).status_code == 401
+        row = fetch_one("SELECT status, active_slot, token_version FROM wechat_member_bindings WHERE openid=?", (openid,))
+        assert row == {"status": "REVOKED", "active_slot": None, "token_version": 2}
+        # A repeated explicit unbind is safe and does not rotate/audit twice.
+        again = client.post("/api/v1/wechat/member-bindings/revoke", json={"wx_login_code": "another-fresh-code"})
+        assert again.status_code == 200
+        assert fetch_one("SELECT token_version FROM wechat_member_bindings WHERE openid=?", (openid,))["token_version"] == 2
+        rebound = bind(second_name, second_phone)
+        assert rebound.status_code == 200, rebound.text
+        new_headers = {"Authorization": "Bearer " + rebound.json()["data"]["access_token"]}
+        assert client.get("/api/v1/wechat/me", headers=new_headers).json()["data"]["member"]["member_id"] == second_id
+        assert client.post("/api/v1/wechat/member-bindings/revoke", headers=old_headers).status_code == 401
+        assert client.get("/api/v1/wechat/me", headers=new_headers).status_code == 200
+        assert fetch_one("SELECT status FROM members WHERE id=?", (first_id,))["status"] == "ACTIVE"
+
+
+def test_recovery_proof_cannot_select_or_revoke_another_wechat_binding() -> None:
+    fixtures = [(f"隔离解绑-{uuid4().hex[:8]}", _phone(), f"openid-{uuid4().hex}") for _ in range(2)]
+    for name, phone, _ in fixtures:
+        _seed_member(name=name, phone=phone)
+    with _client_context(), patch("app.services.wechat_identity.exchange_wechat_code") as provider, TestClient(app) as client:
+        tokens = []
+        for name, phone, openid in fixtures:
+            provider.return_value = {"appid": "person-binding-test-app", "openid": openid}
+            bound = client.post("/api/v1/wechat/person-bindings/verify", json={"wx_login_code": "login", "name": name, "phone": phone})
+            assert bound.status_code == 200, bound.text
+            tokens.append(bound.json()["data"]["access_token"])
+        provider.return_value = {"appid": "person-binding-test-app", "openid": fixtures[0][2]}
+        malicious = client.post("/api/v1/wechat/member-bindings/revoke", json={"wx_login_code": "fresh-code", "openid": fixtures[1][2]})
+        assert malicious.status_code == 422
+        assert client.post("/api/v1/wechat/member-bindings/revoke", json={"wx_login_code": "fresh-code"}).status_code == 200
+        assert client.get("/api/v1/wechat/me", headers={"Authorization": "Bearer " + tokens[0]}).status_code == 401
+        assert client.get("/api/v1/wechat/me", headers={"Authorization": "Bearer " + tokens[1]}).status_code == 200
+
+
+def test_recovery_requires_provider_proof_and_preserves_existing_token_api() -> None:
+    with _client_context(), patch("app.services.wechat_identity.exchange_wechat_code", side_effect=WeChatProviderError("微信登录凭证已失效")), TestClient(app) as client:
+        assert client.post("/api/v1/wechat/member-bindings/revoke").status_code == 401
+        assert client.post("/api/v1/wechat/member-bindings/revoke", json={}).status_code == 422
+        assert client.post("/api/v1/wechat/member-bindings/revoke", json={"wx_login_code": "invalid"}).status_code == 503
+
+
+def test_staff_only_binding_can_be_revoked_without_member_or_cached_token() -> None:
+    name, phone = f"专职解绑-{uuid4().hex[:8]}", _phone()
+    _seed_staff(name=name, phone=phone)
+    with _client_context(), patch("app.services.wechat_identity.exchange_wechat_code", return_value={"appid": "person-binding-test-app", "openid": f"staff-revoke-{uuid4().hex}"}), patch("app.services.wechat_identity.verify_wechat_phone_ownership", return_value=True), TestClient(app) as client:
+        bound = client.post("/api/v1/wechat/person-bindings/verify", json={"wx_login_code": "login", "name": name, "phone": phone, "phone_verification": "phone-code"})
+        assert bound.status_code == 200, bound.text
+        token = bound.json()["data"]["access_token"]
+        assert client.post("/api/v1/wechat/member-bindings/revoke", json={"wx_login_code": "new-login"}).status_code == 200
+        assert client.get("/api/v1/wechat/me", headers={"Authorization": "Bearer " + token}).status_code == 401
