@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -76,6 +77,7 @@ SAFE_BOOLEAN_ENV_KEYS = frozenset(
         "G5_4_PRODUCTION_RULE_APPLY_ENABLED",
         "IDENTITY_ADMIN_WRITES_ENABLED",
         "LEARNING_CREDIT_SETTLEMENT_ENABLED",
+        "LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED",
         "RUN_BOOTSTRAP_ON_STARTUP",
     }
 )
@@ -350,6 +352,21 @@ class ReleaseInput:
 
 
 @dataclass(frozen=True)
+class MissingVpcRepairInput:
+    """Separately authorized repair; never accepts caller-supplied VPC IDs."""
+
+    expected_stable_revision: str
+    reference_revision: str
+
+    def __post_init__(self) -> None:
+        for value in (self.expected_stable_revision, self.reference_revision):
+            if not re.fullmatch(re.escape(SERVICE_NAME) + r"-\d+", value):
+                raise ReleaseFailure("VPC_REPAIR_SCOPE_INVALID", "repair revisions must belong to the controlled service")
+        if self.expected_stable_revision == self.reference_revision:
+            raise ReleaseFailure("VPC_REPAIR_SCOPE_INVALID", "repair requires a separate historical network reference")
+
+
+@dataclass(frozen=True)
 class ReleasePlan:
     env_id: str
     service_name: str
@@ -368,6 +385,8 @@ class ReleasePlan:
     approval_ref: str | None = None
     build_id: str | None = None
     ci_provenance_verified: bool = False
+    network_repair: MissingVpcRepairInput | None = None
+    stable_env_fingerprint: str = ""
 
     def safe_dict(self) -> dict[str, Any]:
         deploy_type = (
@@ -387,6 +406,11 @@ class ReleasePlan:
             "release_type": self.release_type,
             "stable_vpc_conf": self.stable_vpc_conf.as_api_dict(),
             "stable_vpc_fingerprint": self.stable_vpc_conf.fingerprint,
+            "network_repair": (
+                {"mode": "REPAIR_MISSING_BASELINE", "reference_revision": self.network_repair.reference_revision,
+                 "database_and_vpc_control_plane_verified": True}
+                if self.network_repair else None
+            ),
             "candidate_request_vpc_conf": self.desired_vpc_conf.as_api_dict(),
             "candidate_request_items": [
                 "VpcConf",
@@ -400,7 +424,10 @@ class ReleasePlan:
                 "candidate_identity": "SearchClsLog 23/23 candidate, 0 stable",
                 "stable_default": True,
                 "database_health_samples": 20,
-                "network_change": "DISALLOWED; inherit stable revision",
+                "network_change": (
+                    "AUTHORIZED_MISSING_BASELINE_REPAIR; revalidate historical revision, database, VPC and subnet"
+                    if self.network_repair else "DISALLOWED; inherit stable revision"
+                ),
             },
             "dry_run_effects": {
                 "revision_writes": 0,
@@ -478,6 +505,10 @@ class UpdateRequestSpec:
 
 
 class CloudRunApi(Protocol):
+    def describe_database_network(self) -> Mapping[str, Any]: ...
+
+    def describe_vpc_subnet(self, vpc_id: str, subnet_id: str) -> Mapping[str, Any]: ...
+
     def describe_service(self) -> Mapping[str, Any]: ...
 
     def describe_version(self, version_name: str) -> Mapping[str, Any]: ...
@@ -850,6 +881,16 @@ class TencentCloudSdkApi:
         request.EnvId = ENV_ID
         request.ServerName = SERVICE_NAME
         return self._tcbr_request("DescribeCloudRunServerDetail", request)
+
+    def describe_database_network(self) -> Mapping[str, Any]:
+        from cloudrun_network_read import database_network
+
+        return database_network(self._credential)
+
+    def describe_vpc_subnet(self, vpc_id: str, subnet_id: str) -> Mapping[str, Any]:
+        from cloudrun_network_read import vpc_subnet
+
+        return vpc_subnet(self._credential, vpc_id, subnet_id)
 
     def describe_version(self, version_name: str) -> Mapping[str, Any]:
         from tencentcloud.tcbr.v20220217 import models
@@ -1455,9 +1496,11 @@ class CloudRunReleaseController:
             )
         return commit
 
-    def build_plan(self, release_input: ReleaseInput) -> ReleasePlan:
+    def build_plan(
+        self, release_input: ReleaseInput, *, network_repair: MissingVpcRepairInput | None = None
+    ) -> ReleasePlan:
         try:
-            return self._build_plan(release_input)
+            return self._build_plan(release_input, network_repair=network_repair)
         except ReleaseFailure:
             if not self.history or self.history[-1] not in {
                 ReleaseState.BLOCKED,
@@ -1472,7 +1515,65 @@ class CloudRunReleaseController:
                 f"release planning stopped after {type(exc).__name__}",
             ) from exc
 
-    def _build_plan(self, release_input: ReleaseInput) -> ReleasePlan:
+    def _resolve_missing_vpc(
+        self, stable_name: str, stable: Mapping[str, Any], repair: MissingVpcRepairInput
+    ) -> VpcConfiguration:
+        if stable_name != repair.expected_stable_revision:
+            raise ReleaseFailure("STABLE_REVISION_CHANGED", "repair stable revision does not match the authorized baseline")
+        old_vpc = VpcConfiguration.from_payload(_value(stable, "VpcConf"))
+        if any(old_vpc.as_api_dict().values()):
+            raise ReleaseFailure("VPC_REPAIR_NOT_MISSING", "repair is limited to a completely missing network baseline")
+        reference = self.api.describe_version(repair.reference_revision)
+        if (_value(reference, "Name") != repair.reference_revision
+                or str(_value(reference, "Status") or "").lower() != "normal"):
+            raise ReleaseFailure("VPC_REPAIR_REFERENCE_INVALID", "historical reference must be a normal revision")
+        desired = VpcConfiguration.from_payload(_value(reference, "VpcConf"))
+        if not all(desired.as_api_dict().values()):
+            raise ReleaseFailure("VPC_REPAIR_REFERENCE_INVALID", "historical reference must contain all four network fields")
+        try:
+            if not ipaddress.ip_network(desired.subnet_cidr).subnet_of(ipaddress.ip_network(desired.vpc_cidr)):
+                raise ValueError("subnet outside VPC")
+        except (ValueError, TypeError) as exc:
+            raise ReleaseFailure("VPC_REPAIR_REFERENCE_INVALID", "historical network CIDRs are inconsistent") from exc
+        database = self.api.describe_database_network()
+        net = _value(_value(database, "Data"), "NetInfo") or {}
+        db_info = _value(_value(database, "Data"), "DbInfo") or {}
+        stable_env = _parse_env_params(_value(stable, "EnvParams"))
+        database_host = urlsplit(stable_env.get("DATABASE_URL", "")).hostname
+        known_hosts = {
+            urlsplit("//" + str(_value(net, key) or "")).hostname
+            for key in ("PrivateNetAddress", "PubNetAddress")
+        }
+        if (
+            str(_value(db_info, "Status") or "").lower() != "running"
+            or not database_host or database_host not in known_hosts
+            or _value(net, "VpcId") != desired.vpc_id
+            or _value(net, "SubnetId") != desired.subnet_id
+        ):
+            raise ReleaseFailure("VPC_REPAIR_DATABASE_MISMATCH", "historical network does not match the running database used by stable")
+        network = self.api.describe_vpc_subnet(desired.vpc_id, desired.subnet_id)
+        vpcs, subnets = network.get("VpcSet", []), network.get("SubnetSet", [])
+        if (
+            len(vpcs) != 1 or len(subnets) != 1
+            or vpcs[0].get("VpcId") != desired.vpc_id
+            or vpcs[0].get("CidrBlock") != desired.vpc_cidr
+            or subnets[0].get("VpcId") != desired.vpc_id
+            or subnets[0].get("SubnetId") != desired.subnet_id
+            or subnets[0].get("CidrBlock") != desired.subnet_cidr
+            or not str(subnets[0].get("Zone", "")).startswith(REGION + "-")
+        ):
+            raise ReleaseFailure("VPC_REPAIR_NETWORK_MISMATCH", "VPC and subnet control-plane metadata do not match the historical network")
+        return desired
+
+    def _build_plan(
+        self, release_input: ReleaseInput, *, network_repair: MissingVpcRepairInput | None = None
+    ) -> ReleasePlan:
+        if network_repair and (
+            not release_input.approval_ref or release_input.artifact_mode != "source"
+            or set(release_input.requested_env_changes) - {"LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED"}
+            or any(value != "true" for value in release_input.requested_env_changes.values())
+        ):
+            raise ReleaseFailure("VPC_REPAIR_SCOPE_INVALID", "repair requires explicit authorization, main source and only the authorized monthly flag")
         self._transition(ReleaseState.DISCOVER_STABLE)
         service = self.api.describe_service()
         records = self.api.describe_deploy_records()
@@ -1493,9 +1594,13 @@ class CloudRunReleaseController:
                 "STABLE_REVISION_NOT_UNIQUE", "stable revision is not normal"
             )
         stable_vpc = VpcConfiguration.from_payload(_value(stable, "VpcConf"))
-        stable_vpc.require_baseline()
+        if network_repair:
+            desired_vpc = self._resolve_missing_vpc(stable_name, stable, network_repair)
+        else:
+            stable_vpc.require_baseline()
+            desired_vpc = stable_vpc
         expected_db_vpc = (release_input.expected_database_vpc_id or "").strip()
-        if expected_db_vpc and stable_vpc.vpc_id != expected_db_vpc:
+        if expected_db_vpc and desired_vpc.vpc_id != expected_db_vpc:
             raise ReleaseFailure(
                 "VPC_DATABASE_MISMATCH",
                 "stable revision VPC does not match the read-only database VPC assertion",
@@ -1534,7 +1639,7 @@ class CloudRunReleaseController:
             stable_runtime_commit=stable_commit,
             desired_runtime_commit=release_input.desired_runtime_commit.lower(),
             stable_vpc_conf=stable_vpc,
-            desired_vpc_conf=stable_vpc,
+            desired_vpc_conf=desired_vpc,
             stable_image_url=stable_image,
             base_url=base_url,
             artifact_mode=release_input.artifact_mode,
@@ -1547,6 +1652,8 @@ class CloudRunReleaseController:
             approval_ref=release_input.approval_ref,
             build_id=release_input.build_id,
             ci_provenance_verified=release_input.ci_provenance_verified,
+            network_repair=network_repair,
+            stable_env_fingerprint=hashlib.sha256(json.dumps(stable_env, sort_keys=True).encode()).hexdigest(),
         )
 
     def _candidate_name_from_records(
@@ -1750,6 +1857,31 @@ class CloudRunReleaseController:
             )
             self._routing_changed = False
             self._transition(ReleaseState.TRAFFIC_RESTORED)
+
+    def _wait_for_flow(self, stable_revision: str, candidate_revision: str, percent: int) -> None:
+        """A successful ReleaseGray call is not proof that routing converged."""
+        expected = {stable_revision: 100 - percent, candidate_revision: percent}
+        for _ in range(self.max_polls):
+            service = self.api.describe_service()
+            base = _value(service, "BaseInfo") or {}
+            order = self.api.describe_release_order() or {}
+            rows = list(_value(service, "OnlineVersionInfos") or [])
+            actual = {str(_value(row, "VersionName")): _ratio(_value(row, "FlowRatio")) for row in rows}
+            if (
+                len(actual) == len(rows)
+                and _value(base, "Status") == "normal"
+                and _value(base, "TrafficType") == "FLOW"
+                and _value(order, "TrafficType") == "FLOW"
+                and all(actual.get(name, 0) == ratio for name, ratio in expected.items())
+                and all(name in expected or ratio == 0 for name, ratio in actual.items())
+                and (percent != 100 or _value(order, "IsReleasing") is False)
+            ):
+                return
+            self.sleep(self.poll_seconds)
+        raise ReleaseFailure(
+            "FLOW_PROMOTION_NOT_CONFIRMED", "traffic and release-order state did not converge",
+            terminal_state=ReleaseState.FAILED,
+        )
 
     def _assert_traffic_restored(
         self, stable_revision: str, candidate_revision: str
@@ -2285,12 +2417,20 @@ class CloudRunReleaseController:
         current_vpc = VpcConfiguration.from_payload(
             _value(current_stable_detail, "VpcConf")
         )
-        current_vpc.require_baseline()
+        if plan.network_repair:
+            repaired_vpc = self._resolve_missing_vpc(current_stable, current_stable_detail, plan.network_repair)
+            if repaired_vpc != plan.desired_vpc_conf:
+                raise ReleaseFailure("VPC_REPAIR_NETWORK_CHANGED", "verified repair network changed before candidate creation")
+        else:
+            current_vpc.require_baseline()
         if current_vpc != plan.stable_vpc_conf:
             raise ReleaseFailure(
                 "STABLE_VPC_CHANGED",
                 "stable revision VpcConf changed after the release plan was built",
             )
+        current_env = _parse_env_params(_value(current_stable_detail, "EnvParams"))
+        if plan.stable_env_fingerprint and hashlib.sha256(json.dumps(current_env, sort_keys=True).encode()).hexdigest() != plan.stable_env_fingerprint:
+            raise ReleaseFailure("STABLE_ENV_CHANGED", "stable environment changed after planning")
         before_task = self.api.describe_manage_task(0)
         before_task_status = str(_value(before_task, "Status") or "").lower()
         if before_task_status in ACTIVE_TASK_STATUSES:
@@ -2327,6 +2467,13 @@ class CloudRunReleaseController:
             self._transition(ReleaseState.VERIFY_CANDIDATE_CONFIG)
             candidate = self.api.describe_version(candidate_name)
             self._assert_candidate_vpc(candidate, plan.desired_vpc_conf)
+            if plan.network_repair:
+                expected_env = json.loads(plan.env_params_json) if plan.env_params_json else current_env
+                if _parse_env_params(_value(candidate, "EnvParams")) != expected_env:
+                    raise ReleaseFailure(
+                        "CANDIDATE_ENV_MISMATCH", "repair candidate environment does not match the approved configuration",
+                        terminal_state=ReleaseState.FAILED,
+                    )
 
             self._transition(ReleaseState.TARGETED_HEALTH)
             token = secrets.token_urlsafe(32)
@@ -2349,9 +2496,11 @@ class CloudRunReleaseController:
                 self.api.release_flow(
                     plan.stable_revision, candidate_name, gray_percent
                 )
+                self._wait_for_flow(plan.stable_revision, candidate_name, gray_percent)
                 if promotion == "full":
                     self._transition(ReleaseState.FULL)
                     self.api.release_flow(plan.stable_revision, candidate_name, 100)
+                    self._wait_for_flow(plan.stable_revision, candidate_name, 100)
                     full_build = self.probe.get_json(
                         plan.base_url, "/api/v1/system/build-info"
                     )
@@ -2447,6 +2596,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--env-file", type=Path)
     parser.add_argument("--expected-database-vpc-id")
     parser.add_argument(
+        "--repair-missing-vpc-from-version", metavar="REVISION",
+        help="separately authorized missing-baseline repair using verified historical and database network metadata",
+    )
+    parser.add_argument(
         "--verify-existing-candidate",
         metavar="REVISION",
         help="verify one already-created candidate; never creates a revision",
@@ -2489,6 +2642,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             for value in (args.source, args.image_url, args.reuse_stable_image)
         )
         if existing_candidate:
+            if args.repair_missing_vpc_from_version:
+                raise ReleaseFailure("VPC_REPAIR_SCOPE_INVALID", "network repair cannot be combined with existing-candidate mode")
             if artifact_selected or args.env_file or args.build_id or args.commit:
                 raise ReleaseFailure(
                     "EXISTING_CANDIDATE_ARGS_INVALID",
@@ -2613,7 +2768,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         assert release_input is not None
-        plan = controller.build_plan(release_input)
+        repair = None
+        if args.repair_missing_vpc_from_version:
+            repair = MissingVpcRepairInput(
+                expected_stable_revision=args.expected_stable_revision or "",
+                reference_revision=args.repair_missing_vpc_from_version,
+            )
+            if args.execute:
+                verify_controller_provenance(args.commit, args.release_manifest)
+        plan = controller.build_plan(release_input, network_repair=repair)
         if args.dry_run:
             safe_plan = plan.safe_dict()
             safe_plan["release_strategy"]["requested_promotion"] = args.promotion

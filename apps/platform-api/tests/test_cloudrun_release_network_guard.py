@@ -153,6 +153,12 @@ class FakeApi:
         self.events.append(f"release_flow:{candidate_percent}")
         self.flow_calls.append(candidate_percent)
         self.full_active = candidate_percent == 100
+        self.service["BaseInfo"]["TrafficType"] = "FLOW"
+        self.service["OnlineVersionInfos"] = [
+            {"VersionName": stable_revision, "FlowRatio": str(100 - candidate_percent)},
+            {"VersionName": candidate_revision, "FlowRatio": str(candidate_percent)},
+        ]
+        self.release_order = {"TrafficType": "FLOW", "IsReleasing": candidate_percent not in (0, 100)}
         if candidate_percent == 0:
             self.release_order = {
                 "TrafficType": "FLOW",
