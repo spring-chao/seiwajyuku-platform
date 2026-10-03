@@ -20,7 +20,6 @@
       <block wx:if="{{learningContentResults.length}}">
         <view class="section-hint">请由志工逐项选择全组是否已完成学习；不要求每位学员扫码。</view>
         <view wx:for="{{learningContentResults}}" wx:key="uiKey" class="learning-content {{item.completed ? 'completed' : (item.confirmed ? 'incomplete' : '')}}">
-          <view class="content-check">{{item.completed ? '✓' : (item.confirmed ? '!' : '○')}}</view>
           <view class="content-main">
             <view class="content-title">{{item.title}}</view>
             <view wx:if="{{item.description}}" class="content-description">{{item.description}}</view>
