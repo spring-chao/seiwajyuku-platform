@@ -55,6 +55,7 @@ class Settings:
     study_meeting_evidence_enabled: bool = False
     study_meeting_course_edit_enabled: bool = False
     study_meeting_attendee_edit_enabled: bool = False
+    learning_cycle_monthly_refresh_enabled: bool = False
     study_evidence_retention_hours: int = 168
     study_evidence_cleanup_enabled: bool = False
     study_evidence_cleanup_grace_seconds: int = 900
@@ -223,6 +224,7 @@ def get_settings() -> Settings:
         study_meeting_evidence_enabled=_bool("STUDY_MEETING_EVIDENCE_ENABLED"),
         study_meeting_course_edit_enabled=_bool("STUDY_MEETING_COURSE_EDIT_ENABLED"),
         study_meeting_attendee_edit_enabled=_bool("STUDY_MEETING_ATTENDEE_EDIT_ENABLED"),
+        learning_cycle_monthly_refresh_enabled=_bool("LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED"),
         study_evidence_retention_hours=int(os.getenv("STUDY_EVIDENCE_RETENTION_HOURS", "168")),
         study_evidence_cleanup_enabled=_bool("STUDY_EVIDENCE_CLEANUP_ENABLED"),
         study_evidence_cleanup_grace_seconds=int(

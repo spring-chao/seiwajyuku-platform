@@ -1,8 +1,8 @@
 """Pure helpers for class-level learning-cycle planned dates.
 
-Planned dates are only an operational reference.  They never advance a
-learning cycle.  The runtime cycle clock remains ``class_learning_cycles``:
-the next cycle opens only after the current class meeting is confirmed.
+Planned dates are an operational reference. Calendar progression is handled
+by ``learning_cycle_monthly`` when enabled; the legacy mode advances on an
+actual class meeting confirmation. These helpers never create meeting facts.
 """
 
 from __future__ import annotations

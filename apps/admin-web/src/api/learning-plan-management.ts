@@ -92,6 +92,7 @@ export type LearningPlanHealthClass = {
 };
 
 export type LearningPlanHealth = {
+  monthly_refresh?: { enabled: boolean; timezone: string };
   generated_at: string;
   scope: string;
   assessment: "GO" | "NO-GO";

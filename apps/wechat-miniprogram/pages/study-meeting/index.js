@@ -122,14 +122,6 @@ Page({
       wx.showToast({ title: "当前学习周期内容尚未配置", icon: "none" });
       return;
     }
-    if (!this.data.allRequiredContentConfirmed) {
-      wx.showToast({ title: "请先确认本期必学是否已完成", icon: "none" });
-      return;
-    }
-    if (!this.data.allRequiredContentCompleted) {
-      wx.showToast({ title: "请完成本期必学后再继续登记", icon: "none" });
-      return;
-    }
     saveLearningContentResults(this.data.selectedGroupId, this.data.learningContentResults);
     wx.navigateTo({
       url: `/pages/study-meeting/members?groupId=${encodeURIComponent(this.data.selectedGroupId)}`

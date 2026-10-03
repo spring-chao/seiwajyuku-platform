@@ -166,6 +166,7 @@ jobs:
         run: >-
           python -m pytest apps/platform-api/tests/test_study_meeting_evidence.py
           apps/platform-api/tests/test_v12_mvp.py
+          apps/platform-api/tests/test_learning_cycle_monthly.py
           apps/platform-api/tests/test_volunteer_position_model.py
           apps/platform-api/tests/test_study_meeting_attendees.py
           apps/platform-api/tests/test_wechat_learning_summary.py

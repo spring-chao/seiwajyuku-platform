@@ -95,6 +95,11 @@ def read_only_request_allowed(method: str, path: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    import asyncio
+    from contextlib import suppress
+    from app.services.learning_cycle_monthly import enabled, run_monthly_refresh
+
+    monthly_task = None
     try:
         async with mcp_server.session_manager.run():
             # A read-only deployment must never run migrations or IAM seeding,
@@ -103,8 +108,14 @@ async def lifespan(_: FastAPI):
             if settings.run_bootstrap_on_startup and not settings.deployment_read_only:
                 run_migrations()
                 seed_iam()
+            if enabled():
+                monthly_task = asyncio.create_task(run_monthly_refresh())
             yield
     finally:
+        if monthly_task is not None:
+            monthly_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await monthly_task
         # The SDK intentionally makes a session manager single-use in a
         # production process. Tests create several short-lived TestClients in
         # one process, so only the isolated test app may reset this private
