@@ -137,12 +137,6 @@ Page({
     if (!this.data.meetingPlanReady) {
       wx.showToast({ title: "当前学习周期内容尚未配置", icon: "none" }); return;
     }
-    if (!this.data.allRequiredContentConfirmed) {
-      wx.showToast({ title: "请先确认本期必学是否已完成", icon: "none" }); return;
-    }
-    if (!this.data.allRequiredContentCompleted) {
-      wx.showToast({ title: "请先确认本期必学内容已完成", icon: "none" }); return;
-    }
     if (!this.data.photoPath) {
       wx.showToast({ title: "请先拍摄或选择一张合影", icon: "none" }); return;
     }

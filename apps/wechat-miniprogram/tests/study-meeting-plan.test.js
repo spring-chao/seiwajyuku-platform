@@ -203,7 +203,7 @@ test("index renders current cycle and meeting plan, then preserves completion st
   }
 });
 
-test("required content marked incomplete cannot advance to attendee selection", async () => {
+for (const choice of ["no", null]) test(`incomplete or unconfirmed content can advance: ${choice}`, async () => {
   const harness = loadIndexPage({
     data: {
       selection_required: false,
@@ -219,10 +219,11 @@ test("required content marked incomplete cannot advance to attendee selection", 
   });
   try {
     await harness.page.loadContext();
-    harness.page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: "video-1", completed: "no" } } });
+    if (choice) harness.page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: "video-1", completed: choice } } });
     harness.page.openMembers();
-    assert.equal(harness.calls.some(item => item.navigation), false);
-    assert.equal(harness.calls.at(-1).toast, "请完成本期必学后再继续登记");
+    assert.equal(harness.calls.at(-1).navigation, "/pages/study-meeting/members?groupId=group-1");
+    assert.equal(harness.app.globalData.studyMeetingDraft.learning_content_results[0].completed, false);
+    assert.equal(harness.app.globalData.studyMeetingDraft.learning_content_results[0].confirmed, Boolean(choice));
   } finally {
     harness.cleanup();
   }

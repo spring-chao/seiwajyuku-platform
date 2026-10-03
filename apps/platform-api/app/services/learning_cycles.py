@@ -440,6 +440,8 @@ def _cycle_schedule_item(
         cycle.get("actual_class_meeting_at") if cycle else None,
         "实际班会时间",
     )
+    if actual_status == "CLOSED" and not actual_meeting:
+        actual_status = "PERIOD_ENDED"
     plan_cycle_row = (
         {"id": cycle["plan_cycle_id"]}
         if cycle and cycle.get("plan_cycle_id")
@@ -558,7 +560,11 @@ def _build_cycle_schedule(
         for item in cycles
     ]
     return {
-        "projection_model": "PLANNED_SCHEDULE_PLUS_ACTUAL_CLASS_MEETING_BOUNDARY",
+        "projection_model": (
+            "MONTHLY_CONTENT_WITH_SEPARATE_MEETING_FACTS"
+            if _monthly_cycle_status(binding, None, effective_at)["enabled"]
+            else "PLANNED_SCHEDULE_PLUS_ACTUAL_CLASS_MEETING_BOUNDARY"
+        ),
         "planned_projection": planned_projection,
         "actual_projection": actual_projection,
         "cycles": cycles,
@@ -638,7 +644,7 @@ def _runtime_status(
         if str(cycle.get("cycle_status") or "").upper() == "OPEN":
             return "NORMAL"
         if str(cycle.get("cycle_status") or "").upper() == "CLOSED":
-            return "COMPLETED"
+            return "COMPLETED" if cycle.get("actual_class_meeting_at") else "PERIOD_ENDED"
     started_at = _timestamp_as_datetime(binding.get("started_at"))
     query_at = _timestamp_as_datetime(at)
     if started_at and query_at and started_at > query_at:
@@ -828,10 +834,19 @@ def _latest_learning_plan_confirmation(
     }
 
 
+def _monthly_cycle_status(binding, cycle, at):
+    from app.services.learning_cycle_monthly import enabled, monthly_status
+    if binding:
+        return monthly_status(binding, cycle, at)
+    return {"enabled": enabled(), "timezone": "Asia/Shanghai"}
+
+
 def get_class_learning_schedule(
     *, user_id: int, class_org_unit_id: str
 ) -> dict[str, Any]:
     _visible_class(class_org_unit_id, user_id)
+    from app.services.learning_cycle_monthly import refresh_class
+    refresh_class(class_org_unit_id)
     connection = connect()
     try:
         binding = _latest_binding(connection, class_org_unit_id)
@@ -853,6 +868,9 @@ def get_class_learning_progress(
     *, user_id: int, class_org_unit_id: str, at: str | None = None
 ) -> dict[str, Any]:
     _visible_class(class_org_unit_id, user_id)
+    if at is None:
+        from app.services.learning_cycle_monthly import refresh_class
+        refresh_class(class_org_unit_id)
     current_at = _normalize_datetime(at, "查询时间") or _now()
     connection = connect()
     try:
@@ -1220,6 +1238,8 @@ def correct_class_learning_plan(
         current = _cycle_at(connection, int(binding["id"]), now)
         if not current or current["cycle_status"] != "OPEN":
             raise ValueError("当前没有可修正的开放学习周期")
+        if current.get("actual_class_meeting_at"):
+            raise ValueError("已确认实际班会的学习周期不可修正")
         target_plan_cycle = _plan_cycle_for_track(
             connection,
             plan_version_id=plan_version_id,
@@ -1436,7 +1456,7 @@ def get_class_learning_plan_history(
             summary = execute(
                 connection,
                 "SELECT COUNT(*) AS materialized_cycles, "
-                "MAX(CASE WHEN cycle_status='CLOSED' THEN learning_cycle_index ELSE 0 END) AS "
+                "MAX(CASE WHEN class_meeting_status='HELD' AND actual_class_meeting_at IS NOT NULL THEN learning_cycle_index ELSE 0 END) AS "
                 "completed_through_cycle, "
                 "MAX(CASE WHEN cycle_status='OPEN' THEN learning_cycle_index ELSE 0 END) AS "
                 "open_cycle_index FROM class_learning_cycles WHERE binding_id=?",
@@ -1454,7 +1474,7 @@ def get_class_learning_plan_history(
             "SELECT action, resource_type, resource_id, purpose, result, before_json, "
             "after_json, created_at FROM audit_logs "
             "WHERE org_unit_id=? AND resource_type='class_learning_binding' "
-            "AND action LIKE ? ORDER BY created_at, id",
+            "AND (action LIKE ? OR action='learning.cycle.monthly_refresh') ORDER BY created_at, id",
             (class_org_unit_id, "learning.binding.%"),
         ).fetchall()
         events: list[dict[str, Any]] = []
@@ -1959,6 +1979,7 @@ def scan_class_learning_plan_health(
                     else None
                 ),
                 "runtime_status": runtime_status,
+                "monthly_refresh": _monthly_cycle_status(binding, current_cycle, scan_at) if binding else None,
                 "business_expectation": (
                     public_expectation(expectation) if expectation else None
                 ),
@@ -1989,6 +2010,7 @@ def scan_class_learning_plan_health(
         return {
             "generated_at": _now(),
             "scope": "VISIBLE_FORMAL_CLASSES",
+            "monthly_refresh": _monthly_cycle_status(None, None, scan_at),
             "baseline": {
                 **baseline_summary(baseline),
                 "resolved_ids_in_scope": sum(
@@ -2020,6 +2042,8 @@ def update_current_learning_cycle(
         cycle = _cycle_at(connection, int(binding["id"]), now)
         if not cycle or cycle["cycle_status"] != "OPEN":
             raise ValueError("当前没有可维护的开放学习周期")
+        if cycle.get("actual_class_meeting_at"):
+            raise ValueError("已确认实际班会的学习周期不可调整")
         before = dict(cycle)
         assignments: list[str] = []
         params: list[Any] = []
@@ -2346,26 +2370,35 @@ def confirm_class_meeting(
     now = _now()
     with transaction() as connection:
         _lock_class_for_update(connection, class_org_unit_id)
+        from app.services.learning_cycle_monthly import enabled, refresh_in_connection
+        from app.services.learning_cycle_schedule import parse_utc_datetime
+        monthly_mode = enabled()
+        if monthly_mode:
+            refresh_in_connection(connection, class_org_unit_id, at=now)
         binding = _active_binding(connection, class_org_unit_id)
         if not binding:
             raise ValueError("该班级尚未绑定学习计划")
         cycle = _cycle_at(connection, int(binding["id"]), now)
         if not cycle or cycle["cycle_status"] != "OPEN":
             raise ValueError("当前没有可确认的开放学习周期")
+        if cycle.get("actual_class_meeting_at"):
+            raise ValueError("本期实际班会已确认，不能重复确认")
         actual, source_id = _resolve_actual_class_meeting_at(
             connection,
             class_org_unit_id=class_org_unit_id,
             actual_at=actual_class_meeting_at,
             source_event_group_id=source_event_group_id,
         )
-        if actual <= str(cycle["opened_at"]):
+        if parse_utc_datetime(actual) <= parse_utc_datetime(cycle["opened_at"]):
             raise ValueError("实际班会时间必须晚于当前学习周期开始时间")
+        if monthly_mode and parse_utc_datetime(actual) > parse_utc_datetime(now):
+            raise ValueError("实际班会时间不能晚于当前时间")
         before = dict(cycle)
         execute(
             connection,
             "UPDATE class_learning_cycles SET actual_class_meeting_at=?, class_meeting_status='HELD', "
-            "cycle_status='CLOSED', closed_at=?, source_event_group_id=?, updated_at=? WHERE id=?",
-            (actual, actual, source_id, now, cycle["id"]),
+            "cycle_status=?, closed_at=?, source_event_group_id=?, updated_at=? WHERE id=?",
+            (actual, "OPEN" if monthly_mode else "CLOSED", None if monthly_mode else actual, source_id, now, cycle["id"]),
         )
         plan_task = _group_plan_task(connection, int(cycle["plan_cycle_id"]))
         policy = str(cycle["group_meeting_policy"])
@@ -2403,7 +2436,11 @@ def confirm_class_meeting(
                 )
         next_index = int(cycle["learning_cycle_index"]) + 1
         duration = int(binding["duration_cycles"])
-        if next_index <= duration:
+        if monthly_mode:
+            # The fact of a held class meeting and the content month are
+            # independent. A confirmation must not advance twice in a month.
+            binding_status = "ACTIVE"
+        elif next_index <= duration:
             next_plan_cycle = _plan_cycle_for_track(
                 connection,
                 plan_version_id=int(binding["plan_version_id"]),
@@ -2460,6 +2497,7 @@ def confirm_class_meeting(
                 "source_event_group_id": source_id,
                 "final_group_counts": final_counts,
                 "binding_status": binding_status,
+                "progression_mode": "MONTHLY" if monthly_mode else "CLASS_MEETING",
             },
         )
-        return _progress_from_connection(connection, class_org_unit_id, at=actual)
+        return _progress_from_connection(connection, class_org_unit_id, at=now if monthly_mode else actual)

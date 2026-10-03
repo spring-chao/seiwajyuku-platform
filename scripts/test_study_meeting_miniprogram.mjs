@@ -87,6 +87,21 @@ test("meeting content is confirmed locally and submit payload has no legacy cour
   assert.equal(Object.keys(create.options.data).includes("has_course"), false);
 });
 
+for (const choice of ["no", null]) test(`registration submits without course completion: ${choice}`, async () => {
+  const { page, calls, app } = harness();
+  await page.loadContext();
+  if (choice) page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: "content-1", completed: choice } } });
+  page.data.photoPath = "/tmp/small.jpg";
+  await page.submit();
+  assert.equal(app.globalData.studyMeetingResult.status, "SUBMITTED");
+  const result = app.globalData.studyMeetingResult.learning_content_results[0];
+  assert.equal(result.completed, false);
+  assert.equal(result.confirmed, Boolean(choice));
+  const create = calls.find(item => item.path === "/api/v1/study-meetings");
+  assert.ok(create);
+  assert.equal(Object.keys(create.options.data).some(key => /course|credit/.test(key)), false);
+});
+
 test("one photo is compressed; retry reuses server draft and does not reupload", async () => {
   const { page, calls, app, failNextSubmit } = harness();
   page.data.evidenceEnabled = true;

@@ -118,6 +118,14 @@ def _current_cycle(connection, class_org_unit_id: str) -> dict[str, Any]:
     return {"binding": dict(binding), "cycle": dict(cycle)}
 
 
+def _refresh_monthly_content(class_org_unit_id: str) -> None:
+    from app.services.learning_cycle_monthly import refresh_class
+    try:
+        refresh_class(class_org_unit_id)
+    except ValueError as exc:
+        raise StudyMeetingError(str(exc)) from exc
+
+
 def _active_group_members(connection, group_org_unit_id: str) -> list[dict[str, Any]]:
     now = _now()
     rows = execute(
@@ -431,11 +439,19 @@ def get_study_meeting_context(
         selected = targets[0]
 
     assignments: list[dict[str, Any]] = []
+    refresh_errors: dict[str, str] = {}
+    for class_id in sorted({target["class_org_unit_id"] for target in targets}):
+        try:
+            _refresh_monthly_content(class_id)
+        except StudyMeetingError as exc:
+            refresh_errors[class_id] = str(exc)
     connection = connect()
     try:
         for target in targets:
             cycle_data: dict[str, Any] | None = None
             try:
+                if target["class_org_unit_id"] in refresh_errors:
+                    raise StudyMeetingError(refresh_errors[target["class_org_unit_id"]])
                 cycle_data = _current_cycle(connection, target["class_org_unit_id"])
             except StudyMeetingError as exc:
                 cycle_data = {"error": str(exc)}
@@ -741,6 +757,7 @@ def create_study_meeting(
     meeting_day = _parse_meeting_date(meeting_date)
     now = _now()
 
+    _refresh_monthly_content(target["class_org_unit_id"])
     with transaction() as connection:
         cycle_data = _current_cycle(connection, target["class_org_unit_id"])
         cycle = cycle_data["cycle"]
@@ -867,6 +884,11 @@ def create_study_meeting(
 def submit_study_meeting(*, member_id: int, session_id: int) -> dict[str, Any]:
     _require_enabled()
     _require_write()
+    session = fetch_one("SELECT class_org_unit_id, study_group_org_unit_id, status FROM study_meeting_sessions WHERE id=?", (session_id,))
+    if session and session["status"] == "DRAFT":
+        if not role_for_target(member_id, session["class_org_unit_id"], session["study_group_org_unit_id"]):
+            raise StudyMeetingPermissionError("当前没有该小组的有效登记任职")
+        _refresh_monthly_content(session["class_org_unit_id"])
     with transaction() as connection:
         row = _lock_session(connection, session_id)
         if not row:

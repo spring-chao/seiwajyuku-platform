@@ -136,6 +136,7 @@ const issueSummary = (item?: LearningPlanHealthClass) =>
   item?.issues.map(issueDescription).join("；") || "请点击重新扫描查看最新结果";
 const formatDateTime = (value?: string | null) => value ? value.replace("T", " ").replace("Z", "") : "—";
 const runtimeStatusLabel = (status?: string | null) => ({
+  PERIOD_ENDED: "期间已结束",
   NORMAL: "正常",
   POSTPONED: "延期/暂停",
   NOT_STARTED: "尚未开始",
@@ -401,6 +402,15 @@ onMounted(load);
         :closable="false"
       />
       <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
+      <el-alert
+        v-if="health"
+        :title="health.monthly_refresh?.enabled
+          ? '每月自动更新已启用：按上海时区月初推进学习内容，手动校正本月生效；班会、课程完成和积分仍按实际记录。'
+          : '每月自动更新尚未启用，当前学习周期仍需人工维护。'"
+        :type="health.monthly_refresh?.enabled ? 'info' : 'warning'"
+        show-icon
+        :closable="false"
+      />
     </el-card>
 
     <div class="stat-grid">
