@@ -732,6 +732,33 @@ def _sdk_response_dict(response: Any) -> dict[str, Any]:
     return json.loads(response.to_json_string())
 
 
+def _extract_log_marker(row: Any, marker: str) -> Mapping[str, Any] | None:
+    """Decode CLS Content/LogJson envelopes before reading a structured line."""
+    stack = [row]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, Mapping):
+            stack.extend(value.values())
+        elif isinstance(value, list):
+            stack.extend(value)
+        elif isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except (ValueError, TypeError):
+                parsed = None
+            if isinstance(parsed, (dict, list, str)) and parsed != value:
+                stack.append(parsed)
+                continue
+            if marker in value:
+                try:
+                    proof, _ = json.JSONDecoder().raw_decode(value.split(marker, 1)[1].lstrip())
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(proof, dict):
+                    return proof
+    return None
+
+
 def build_update_request(spec: UpdateRequestSpec) -> Any:
     """Build a typed ``UpdateCloudRunServerRequest`` from a guarded spec."""
 
@@ -1754,20 +1781,7 @@ class CloudRunReleaseController:
             for row in rows:
                 if self._log_identity(row, plan.stable_revision, candidate) != "candidate":
                     raise ReleaseFailure("CANDIDATE_IDENTITY_MISMATCH", "self-check result does not belong only to candidate")
-                stack = [row]
-                proof = None
-                while stack:
-                    value = stack.pop()
-                    if isinstance(value, Mapping): stack.extend(value.values())
-                    elif isinstance(value, list): stack.extend(value)
-                    elif isinstance(value, str):
-                        try:
-                            if marker in value:
-                                proof, _ = json.JSONDecoder().raw_decode(value.split(marker, 1)[1].lstrip())
-                                break
-                            parsed = json.loads(value)
-                            if isinstance(parsed, (dict, list)): stack.append(parsed)
-                        except (ValueError, TypeError): pass
+                proof = _extract_log_marker(row, marker)
                 if not isinstance(proof, dict) or proof.get("id") != result_id:
                     continue
                 if (proof.get("status") != "passed" or proof.get("commit_sha") != plan.desired_runtime_commit
