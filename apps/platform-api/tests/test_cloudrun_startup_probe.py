@@ -104,6 +104,23 @@ def test_candidate_port_mismatch_prevents_normal_flow():
     assert api.flow_calls == []
 
 
+def test_candidate_environment_drift_prevents_normal_flow():
+    controller, api, _, _, plan, _ = startup_fixture()
+    original = api.describe_version
+    def version(name):
+        value = original(name)
+        if name == api.candidate_name:
+            env = json.loads(value["EnvParams"])
+            env["DEPLOYMENT_READ_ONLY"] = "true"
+            value["EnvParams"] = json.dumps(env)
+        return value
+    api.describe_version = version
+    with pytest.raises(release.ReleaseFailure) as error:
+        controller.execute(plan, promotion="full")
+    assert error.value.code == "CANDIDATE_ENV_MISMATCH"
+    assert api.flow_calls == []
+
+
 @pytest.mark.parametrize("encoding", ["json", "double-json", "raw"])
 def test_startup_proof_reads_cls_escaped_content_without_changing_identity_gate(encoding):
     controller, api, _, _, plan, proof = startup_fixture()

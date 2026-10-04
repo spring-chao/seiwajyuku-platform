@@ -277,6 +277,12 @@ def test_obsolete_monthly_jump_waits_for_reviewed_snapshot_and_preserves_all_row
     before = _runtime(binding_id)
     credits_before = fetch_one("SELECT COUNT(*) AS count FROM learning_credit_entries")["count"]
     assert monthly.refresh_class(class_id)["status"] == "REPAIR_REQUIRED"
+    health = cycles.scan_class_learning_plan_health(user_id=imported_progress[0], class_org_unit_id=class_id)
+    assert health["summary"]["monthly_anchor_errors"] == 1
+    assert any(issue["issue_type"] == "MONTHLY_ANCHOR_REPAIR_REQUIRED" for issue in health["classes"][0]["issues"])
+    from app.services.study_meetings import StudyMeetingError, _refresh_monthly_content
+    with pytest.raises(StudyMeetingError, match="错误周期"):
+        _refresh_monthly_content(class_id)
     assert calendar.apply_snapshot("0" * 64, at=cycles._now())["status"] == "REPAIR_SNAPSHOT_CHANGED"
     with transaction() as connection:
         proof = calendar.collect_audit(connection, at=cycles._now())
@@ -287,6 +293,7 @@ def test_obsolete_monthly_jump_waits_for_reviewed_snapshot_and_preserves_all_row
     assert [row["cycle_status"] for row in rows] == ["CLOSED", "OPEN", "UPCOMING", "UPCOMING"]
     assert cycles.get_class_learning_progress(user_id=imported_progress[0], class_org_unit_id=class_id)["current_cycle"]["learning_cycle_index"] == 4
     assert monthly.refresh_class(class_id)["advanced"] == 0
+    assert cycles.scan_class_learning_plan_health(user_id=imported_progress[0], class_org_unit_id=class_id)["summary"]["monthly_anchor_errors"] == 0
     assert monthly.refresh_class(class_id, at="2026-10-31T16:00:00+00:00")["learning_cycle_index"] == 5
     assert _runtime(binding_id)[2]["id"] == before[2]["id"]
     assert monthly.refresh_class(class_id, at="2026-11-30T16:00:00+00:00")["learning_cycle_index"] == 6

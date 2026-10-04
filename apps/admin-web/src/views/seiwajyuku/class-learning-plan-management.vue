@@ -98,6 +98,7 @@ const issueLabel = (issueType: string) => ({
   VOLUNTEER_PERMISSION_MISSING: "志工权限待另行核验",
   DUPLICATE_CLASS_NAME: "班级名称重复，需按 ID 核对",
   EXPECTED_CYCLE_MISMATCH: "业务预期周期不一致",
+  MONTHLY_ANCHOR_REPAIR_REQUIRED: "月更次数待校准",
   EXPECTED_TEMPLATE_MISMATCH: "业务预期模板不一致",
   EXPECTED_PLAN_VERSION_MISMATCH: "业务预期计划版本不一致",
   EXPECTED_STATUS_MISMATCH: "业务预期状态不一致",
@@ -419,7 +420,7 @@ onMounted(load);
       <el-card shadow="never"><el-statistic title="已正确绑定" :value="summaryNumber('correctly_bound')" /></el-card>
       <el-card shadow="never"><el-statistic title="未绑定" :value="summaryNumber('unbound')" /></el-card>
       <el-card shadow="never"><el-statistic title="无需绑定" :value="summaryNumber('not_applicable_classes')" /></el-card>
-      <el-card shadow="never"><el-statistic title="当前周期错位" :value="summaryNumber('plan_cycle_mismatch')" /></el-card>
+      <el-card shadow="never"><el-statistic title="学习次数错位" :value="summaryNumber('plan_cycle_mismatch') + summaryNumber('monthly_anchor_errors')" /></el-card>
       <el-card shadow="never"><el-statistic title="可验收班级" :value="summaryNumber('ready_classes')" /></el-card>
     </div>
 
