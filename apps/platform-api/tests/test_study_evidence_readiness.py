@@ -18,7 +18,7 @@ def storage(monkeypatch):
     result = SimpleNamespace(backend="cloudbase", credential_mode="runtime",
         bucket="synthetic-bucket", region="ap-shanghai", client=MagicMock(),
         make_key=MagicMock(return_value="study-meetings/test/2026/10/" + "a" * 32 + ".jpg"),
-        put=MagicMock(), get=MagicMock(), delete=MagicMock())
+        put=MagicMock(), get=MagicMock(), delete=MagicMock(), exists=MagicMock(return_value=False))
     result.client.head_object.side_effect = MissingObject()
     result.get.side_effect = lambda _: result.put.call_args.args[1]
     return result
@@ -41,7 +41,7 @@ def test_failed_checks_never_pass_and_compensate_only_the_created_key(storage, f
     if failure == "corrupt": storage.get.side_effect = lambda _: b"wrong"
     if failure == "put_timeout": storage.put.side_effect = RuntimeError("private-secret-details")
     if failure == "delete_denied": storage.delete.side_effect = RuntimeError("private-secret-details")
-    if failure == "still_exists": storage.client.head_object.side_effect = None
+    if failure == "still_exists": storage.exists.return_value = True
     result = readiness.check(storage_factory=lambda: storage,
         anonymous_status=lambda _: 200 if failure == "public" else 403)
     assert result["status"] == "failed"

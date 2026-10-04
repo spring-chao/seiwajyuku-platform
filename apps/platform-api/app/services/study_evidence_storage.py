@@ -171,9 +171,8 @@ class EvidenceStorage:
             if self.backend == "cloudbase":
                 self.namespace = f"{self.namespace}/{self.prefix}"
 
-            # CloudRun/CloudBase deployments should inject short-lived
-            # credentials through the runtime environment.  The property-based
-            # CredentialInstance lets the SDK observe rotations between calls.
+            # Prefer a configured runtime identity. Containers without one can
+            # use the existing event function's temporary identity below.
             runtime_id = _first_env("TENCENTCLOUD_SECRETID", "TENCENTCLOUD_SECRET_ID")
             runtime_key = _first_env("TENCENTCLOUD_SECRETKEY", "TENCENTCLOUD_SECRET_KEY")
             static_id = _first_env(
@@ -211,7 +210,17 @@ class EvidenceStorage:
                     Token=static_token or None,
                 )
             else:
-                raise EvidenceStorageError("学习合影私有存储运行凭证尚未配置")
+                bridge_url = os.getenv("CLOUDBASE_STORAGE_BRIDGE_URL", "").strip()
+                if self.backend != "cloudbase" or not bridge_url:
+                    raise EvidenceStorageError("学习合影私有存储运行凭证尚未配置")
+                from app.services.study_evidence_bridge import StorageBridge
+                try:
+                    self.bridge = StorageBridge(bridge_url, settings.study_evidence_cleanup_token,
+                                                self.bucket, self.region)
+                except ValueError:
+                    raise EvidenceStorageError("学习合影存储接入配置无效") from None
+                self.credential_mode = "cloudbase-function"
+                return
             self.client = CosS3Client(CosConfig(**config_kwargs))
         else:
             raise EvidenceStorageError("未知合影存储类型")
@@ -262,6 +271,9 @@ class EvidenceStorage:
                 with path.open("xb") as output:
                     output.write(content)
             else:
+                if hasattr(self, "bridge"):
+                    self.bridge.request("PUT", key, content, content_type)
+                    return
                 self.client.put_object(Bucket=self.bucket, Key=key, Body=content,
                                        ContentType=content_type, ACL="private", EnableMD5=True,
                                        IfNoneMatch="*")
@@ -274,6 +286,8 @@ class EvidenceStorage:
             if self.backend == "local":
                 with self._path(key).open("rb") as content:
                     return content.read(MAX_BYTES + 1)
+            if hasattr(self, "bridge"):
+                return self.bridge.request("GET", key)
             body = self.client.get_object(Bucket=self.bucket, Key=key)["Body"].get_raw_stream()
             try:
                 return body.read(MAX_BYTES + 1)
@@ -287,9 +301,26 @@ class EvidenceStorage:
         try:
             if self.backend == "local":
                 self._path(key).unlink(missing_ok=True)
+            elif hasattr(self, "bridge"):
+                self.bridge.request("DELETE", key)
             else:
                 self.client.delete_object(Bucket=self.bucket, Key=key)
         except Exception as exc:
             if self.backend != "local" and _missing_object_error(exc):
                 return
             raise EvidenceStorageError("合影清理未完成，可稍后重试") from exc
+
+    def exists(self, key: str) -> bool:
+        self._key(key)
+        try:
+            if self.backend == "local":
+                return self._path(key).exists()
+            if hasattr(self, "bridge"):
+                self.bridge.request("HEAD", key)
+            else:
+                self.client.head_object(Bucket=self.bucket, Key=key)
+            return True
+        except Exception as error:
+            if _missing_object_error(error):
+                return False
+            raise EvidenceStorageError("合影状态核验失败") from error

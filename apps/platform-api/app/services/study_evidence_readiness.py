@@ -8,7 +8,7 @@ from urllib.request import urlopen
 from PIL import Image
 
 from app.core.settings import get_settings
-from app.services.study_evidence_storage import EvidenceStorage, _missing_object_error
+from app.services.study_evidence_storage import EvidenceStorage
 
 
 def _anonymous_status(url: str) -> int:
@@ -52,12 +52,7 @@ def check(*, storage_factory=EvidenceStorage, anonymous_status=_anonymous_status
             raise RuntimeError("private object verification failed")
         storage.delete(key)
         proof["delete"] = True
-        try:
-            storage.client.head_object(Bucket=storage.bucket, Key=key)
-        except Exception as error:
-            if not _missing_object_error(error):
-                raise
-            proof["deleted_verified"] = True
+        proof["deleted_verified"] = not storage.exists(key)
         if not proof["deleted_verified"]:
             raise RuntimeError("synthetic object still exists")
         proof["status"] = "passed"

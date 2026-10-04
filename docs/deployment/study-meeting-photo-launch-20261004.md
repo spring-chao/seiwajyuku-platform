@@ -4,7 +4,9 @@
 
 ## 生产配置
 
-复用当前环境既有私有 CloudBase 存储、`studyEvidenceCleanup` 云函数及已有服务间 Token。仅将 `STUDY_MEETING_EVIDENCE_ENABLED` 与 `STUDY_EVIDENCE_CLEANUP_ENABLED` 设为 `true`，补齐既有每日触发器；保留7天访问期限与15分钟清理宽限。学习会提交已开启。保持数据库、VPC、IAM、月更及积分结算门禁现状；不执行迁移、学员照片回填或真实学习会测试登记。
+复用当前环境既有私有 CloudBase 存储、`studyEvidenceCleanup` 云函数及已有服务间 Token。将 `STUDY_MEETING_EVIDENCE_ENABLED` 与 `STUDY_EVIDENCE_CLEANUP_ENABLED` 设为 `true`，补齐既有每日触发器；保留7天访问期限与15分钟清理宽限。学习会提交已开启。保持数据库、VPC、IAM、月更及积分结算门禁现状；不执行迁移、学员照片回填或真实学习会测试登记。
+
+容器实际没有存储运行身份，不能把本地 CloudBase 登录临时凭据注入生产，也不新建宽权限环境 API Key。现有事件云函数复用自动注入的临时身份：在同一函数增加 `/study-evidence-storage` 服务路径及明确启用配置，后端配置 `CLOUDBASE_STORAGE_BRIDGE_URL`。HTTP 请求须持有已有服务间 Token，只允许 `study-meetings/production/YYYY/MM/<随机32位ID>.jpg|png` 的单对象 PUT/GET/HEAD/DELETE，签名90秒到期。PUT 绑定图片类型、私有 ACL 和禁止覆盖条件。后端直接传输图片到既有桶，前端不接触存储凭据或签名 URL；原定时事件继续走既有清理入口。拒绝重定向、任意桶和路径，错误中不保留签名 URL。
 
 ## 发布验收
 
@@ -18,4 +20,4 @@
 
 保留发布前唯一100%稳定版本作代码/配置回退目标。准备浏览器演示、微信预览二维码与发布前状态报告；真机相册、拍照、权限提示和真实登记验收由用户测试，未执行项保持待验收。正式微信提审和发布不自动执行。
 
-运行身份依据：[CloudBase 服务开发说明](https://docs.cloudbase.net/run/develop/developing-guide)。定时触发器配置依据：[CloudBase 触发器文档](https://docs.cloudbase.net/cli-v1/functions/trigger)。
+运行身份依据：[CloudBase 云函数环境变量](https://docs.cloudbase.net/cloud-function/function-configuration/env)。HTTP 接入依据：[CloudBase HTTP 访问云函数](https://docs.cloudbase.net/service/access-cloud-function)。签名依据：[COS 请求签名](https://cloud.tencent.com/document/product/436/7778)。定时触发器配置依据：[CloudBase 触发器文档](https://docs.cloudbase.net/cli-v1/functions/trigger)。
