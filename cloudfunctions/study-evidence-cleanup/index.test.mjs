@@ -4,12 +4,90 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const cleanup = require("./index.js");
+const bridge = require("./storage-bridge.js");
+const key = `study-meetings/production/2026/10/${"a".repeat(32)}.jpg`;
+const runtime = {
+  CLOUDBASE_STORAGE_BUCKET: "7368-synthetic-123",
+  CLOUDBASE_STORAGE_REGION: "ap-shanghai",
+  TENCENTCLOUD_SECRETID: "synthetic-id",
+  TENCENTCLOUD_SECRETKEY: "synthetic-secret",
+  TENCENTCLOUD_SESSIONTOKEN: "synthetic+token/=",
+};
 
 test("boundedLimit keeps the scheduler batch within the service limit", () => {
   assert.equal(cleanup._test.boundedLimit(undefined), 500);
   assert.equal(cleanup._test.boundedLimit("17"), 17);
   assert.equal(cleanup._test.boundedLimit("9999"), 500);
   assert.equal(cleanup._test.boundedLimit("invalid"), 500);
+});
+
+test("COS signature fixture binds one private PUT and expires after 90 seconds", () => {
+  const result = bridge.signedObjectRequest({ method: "PUT", key, content_type: "image/jpeg" }, runtime, 1700000000);
+  const url = new URL(result.url);
+  assert.equal(url.hostname, "7368-synthetic-123.cos.ap-shanghai.myqcloud.com");
+  assert.equal(url.pathname, `/${key}`);
+  assert.equal(url.searchParams.get("q-sign-time"), "1700000000;1700000090");
+  assert.equal(url.searchParams.get("q-signature"), "2f2113fb150321c9311b8be15a5e5a145f09fc53");
+  assert.equal(url.searchParams.get("q-header-list"), "content-type;host;if-none-match;x-cos-acl");
+  assert.equal(url.searchParams.get("x-cos-security-token"), runtime.TENCENTCLOUD_SESSIONTOKEN);
+  assert.deepEqual(result.headers, { "content-type": "image/jpeg", "x-cos-acl": "private", "if-none-match": "*" });
+  assert.equal(result.expires_in, 90);
+  assert.ok(!JSON.stringify(result).includes(runtime.TENCENTCLOUD_SECRETKEY));
+});
+
+test("storage signing rejects arbitrary resources, nonproduction keys and invalid media", () => {
+  for (const payload of [
+    { method: "PUT", key, content_type: "text/plain" },
+    { method: "PUT", key, content_type: "image/png" },
+    { method: "LIST", key },
+    { method: "GET", key, bucket: "other" },
+    { method: "GET", key: key.replace("production", "test") },
+    { method: "GET", key: key.replace("/10/", "/13/") },
+    { method: "DELETE", key: "study-meetings/production/../file.jpg" },
+  ]) assert.throws(() => bridge.signedObjectRequest(payload, runtime));
+  assert.throws(() => bridge.signedObjectRequest({ method: "GET", key }, { ...runtime, TENCENTCLOUD_SESSIONTOKEN: "" }));
+  assert.throws(() => bridge.signedObjectRequest({ method: "GET", key }, { ...runtime, CLOUDBASE_STORAGE_REGION: "other" }));
+  for (const method of ["GET", "HEAD", "DELETE"]) {
+    const result = bridge.signedObjectRequest({ method, key }, runtime, 1700000000);
+    assert.deepEqual(result.headers, {});
+    assert.equal(new URL(result.url).searchParams.get("q-header-list"), "host");
+  }
+});
+
+test("HTTP invocations require the server token and never trigger scheduled cleanup", async () => {
+  const values = { ...runtime, STUDY_EVIDENCE_CLEANUP_TOKEN: "synthetic-server-token-".repeat(3),
+    STUDY_EVIDENCE_STORAGE_BRIDGE_ENABLED: "true" };
+  const previous = Object.fromEntries(Object.keys(values).map(k => [k, process.env[k]]));
+  const previousFetch = globalThis.fetch;
+  Object.assign(process.env, values);
+  globalThis.fetch = () => { throw new Error("HTTP signing must not run cleanup"); };
+  const event = { httpMethod: "POST", path: "/study-evidence-storage", headers: {},
+    body: JSON.stringify({ method: "PUT", key, content_type: "image/jpeg" }) };
+  try {
+    assert.equal((await cleanup.main({ ...event, httpMethod: "GET" }, {})).statusCode, 405);
+    assert.equal((await cleanup.main(event, {})).statusCode, 401);
+    assert.equal((await cleanup.main({ ...event, headers: { "x-study-evidence-cleanup-token": "wrong" } }, {})).statusCode, 401);
+    event.headers["X-Study-Evidence-Cleanup-Token"] = values.STUDY_EVIDENCE_CLEANUP_TOKEN;
+    assert.equal((await cleanup.main({ ...event, path: "/other" }, {})).statusCode, 404);
+    const result = await cleanup.main(event, {});
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.headers["Cache-Control"], "private, no-store");
+    assert.equal(JSON.parse(result.body).expires_in, 90);
+    assert.ok(!result.body.includes(values.STUDY_EVIDENCE_CLEANUP_TOKEN));
+    assert.equal((await cleanup.main({ ...event, body: "x".repeat(2049) }, {})).statusCode, 400);
+    assert.equal((await cleanup.main({ ...event, body: "not json" }, {})).statusCode, 503);
+    const encoded = { ...event, body: Buffer.from(event.body).toString("base64"), isBase64Encoded: true };
+    assert.equal((await cleanup.main(encoded, {})).statusCode, 200);
+    delete process.env.TENCENTCLOUD_SECRETKEY;
+    assert.deepEqual(JSON.parse((await cleanup.main(event, {})).body), { error: "storage unavailable" });
+    process.env.STUDY_EVIDENCE_STORAGE_BRIDGE_ENABLED = "false";
+    assert.equal((await cleanup.main(event, {})).statusCode, 503);
+  } finally {
+    globalThis.fetch = previousFetch;
+    for (const [k, v] of Object.entries(previous)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
 });
 
 test("boundedTimeout falls back from invalid values and caps long requests", () => {

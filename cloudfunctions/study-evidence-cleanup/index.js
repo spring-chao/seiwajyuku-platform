@@ -1,8 +1,9 @@
 "use strict";
 
-// This function is intentionally only an orchestrator.  Database selection,
-// expiry checks, object-prefix validation, deletion, audit, and idempotency
-// remain in platform-api's cleanup_evidence service.
+// Scheduled invocations orchestrate bounded cleanup in platform-api. The
+// authenticated HTTP route signs one private object operation using this
+// existing function's temporary runtime identity; it never accepts business
+// records, changes permissions, or returns a photo to anonymous callers.
 
 const DEFAULT_LIMIT = 500;
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -82,6 +83,7 @@ async function requestCleanup(url, token, limit, timeoutMs) {
 }
 
 exports.main = async (_event, _context) => {
+  if (_event && _event.httpMethod) return require("./storage-bridge").handle(_event);
   const url = cleanupEndpointUrl();
   const token = requiredEnv("STUDY_EVIDENCE_CLEANUP_TOKEN");
   if (token.length < 32) throw new Error("STUDY_EVIDENCE_CLEANUP_TOKEN is too short");
