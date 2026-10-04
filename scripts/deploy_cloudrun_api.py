@@ -1834,6 +1834,12 @@ class CloudRunReleaseController:
                         or proof.get("loopback") != "127.0.0.1:8000" or proof.get("http_requests") != 23
                         or proof.get("database_health_passed") != 20):
                     raise ReleaseFailure("CANDIDATE_SELF_PROBE_FAILED", "candidate self-check did not prove build, liveness and database 20/20")
+                desired_env = json.loads(plan.env_params_json)
+                if desired_env.get("STUDY_MEETING_EVIDENCE_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+                    photo = proof.get("study_evidence") or {}
+                    if photo.get("status") != "passed" or not all(photo.get(key) is True
+                            for key in ("private", "put", "get", "delete", "deleted_verified")):
+                        raise ReleaseFailure("CANDIDATE_PHOTO_STORAGE_NOT_PROVEN", "private photo storage Put/Get/Delete not proven")
                 self._wait_for_probe_log_evidence(stable_revision=plan.stable_revision, candidate_revision=candidate,
                     token=plan.startup_probe_id, batch_id=plan.startup_probe_id,
                     start_time=start_time, end_time=end_time)

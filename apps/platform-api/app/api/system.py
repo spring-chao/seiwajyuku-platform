@@ -51,6 +51,9 @@ def environment() -> dict[str, str | bool]:
         ),
         "wechat_local_test_mode": settings.wechat_local_test_mode,
         "learning_cycle_monthly_refresh_enabled": settings.learning_cycle_monthly_refresh_enabled,
+        "study_meeting_submission_enabled": settings.study_meeting_submission_enabled,
+        "study_meeting_evidence_enabled": settings.study_meeting_evidence_enabled,
+        "study_evidence_cleanup_enabled": settings.study_evidence_cleanup_enabled,
     }
 
 
