@@ -361,6 +361,7 @@ class MissingVpcRepairInput:
 
     expected_stable_revision: str
     reference_revision: str
+    restore_private_database_endpoint: bool = False
 
     def __post_init__(self) -> None:
         for value in (self.expected_stable_revision, self.reference_revision):
@@ -429,7 +430,8 @@ class ReleasePlan:
             "stable_vpc_fingerprint": self.stable_vpc_conf.fingerprint,
             "network_repair": (
                 {"mode": "REPAIR_MISSING_BASELINE", "reference_revision": self.network_repair.reference_revision,
-                 "database_and_vpc_control_plane_verified": True}
+                 "database_and_vpc_control_plane_verified": True,
+                 "database_endpoint_restored": self.network_repair.restore_private_database_endpoint}
                 if self.network_repair else None
             ),
             "continuation": (
@@ -1650,12 +1652,55 @@ class CloudRunReleaseController:
             raise ReleaseFailure("VPC_REPAIR_NETWORK_MISMATCH", "VPC and subnet control-plane metadata do not match the historical network")
         return desired
 
+    def _verified_private_database_url(
+        self, stable: Mapping[str, Any], repair: MissingVpcRepairInput
+    ) -> str:
+        """Restore only the same database's control-plane-proven internal endpoint."""
+        reference = self.api.describe_version(repair.reference_revision)
+        net_data = self.api.describe_database_network().get("Data") or {}
+        net = net_data.get("NetInfo") or {}
+        reference_vpc = VpcConfiguration.from_payload(_value(reference, "VpcConf"))
+        stable_url = _parse_env_params(_value(stable, "EnvParams")).get("DATABASE_URL", "")
+        reference_url = _parse_env_params(_value(reference, "EnvParams")).get("DATABASE_URL", "")
+        try:
+            current, historical = urlsplit(stable_url), urlsplit(reference_url)
+            internal = urlsplit("//" + str(net.get("PrivateNetAddress") or ""))
+            public = urlsplit("//" + str(net.get("PubNetAddress") or ""))
+            endpoint = (internal.hostname, internal.port or 3306)
+            current_endpoint = (current.hostname, current.port or 3306)
+            known_endpoints = {endpoint, (public.hostname, public.port or 3306)}
+            matches = (
+                _value(reference, "Name") == repair.reference_revision
+                and _value(reference, "Status") == "normal"
+                and (net_data.get("DbInfo") or {}).get("Status") == "running"
+                and net.get("VpcId") == reference_vpc.vpc_id
+                and net.get("SubnetId") == reference_vpc.subnet_id
+                and current.scheme == historical.scheme == "mysql+pymysql"
+                and endpoint[0] and 1 <= endpoint[1] <= 65535
+                and current_endpoint in known_endpoints
+                and (historical.hostname, historical.port or 3306) == endpoint
+                and all(getattr(current, key) == getattr(historical, key)
+                        for key in ("username", "password", "path", "query", "fragment"))
+                and "@" in current.netloc
+            )
+        except (ValueError, TypeError):
+            matches = False
+        if not matches:
+            raise ReleaseFailure("VPC_REPAIR_DATABASE_ENDPOINT_MISMATCH",
+                "database endpoint repair did not prove the same instance and unchanged credentials")
+        host = f"[{endpoint[0]}]" if ":" in endpoint[0] else endpoint[0]
+        # Preserve the original credential bytes, database, driver and query.
+        authority = current.netloc.rsplit("@", 1)[0] + "@" + host + ":" + str(endpoint[1])
+        return current._replace(netloc=authority).geturl()
+
     def _build_plan(
         self, release_input: ReleaseInput, *, network_repair: MissingVpcRepairInput | None = None,
         continuation: RepairContinuation | None = None,
     ) -> ReleasePlan:
         if continuation and not network_repair:
             raise ReleaseFailure("REPAIR_CONTINUATION_INVALID", "continuation is limited to the missing VPC repair mode")
+        if continuation and network_repair and network_repair.restore_private_database_endpoint:
+            raise ReleaseFailure("VPC_REPAIR_SCOPE_INVALID", "database endpoint restoration requires a new repair candidate")
         if release_input.candidate_verification == "startup-loopback" and (
             not network_repair or continuation or release_input.artifact_mode != "source"
         ):
@@ -1701,9 +1746,10 @@ class CloudRunReleaseController:
             )
         stable_commit = self._read_stable_commit(base_url)
         stable_env = _parse_env_params(_value(stable, "EnvParams"))
-        env_json, env_summary = _merge_env_params(
-            stable_env, release_input.requested_env_changes
-        )
+        changes = dict(release_input.requested_env_changes)
+        if network_repair and network_repair.restore_private_database_endpoint:
+            changes["DATABASE_URL"] = self._verified_private_database_url(stable, network_repair)
+        env_json, env_summary = _merge_env_params(stable_env, changes)
         probe_id = ""
         if release_input.candidate_verification == "startup-loopback":
             if int(_value(stable, "Port") or 0) != 8000:
@@ -2595,6 +2641,11 @@ class CloudRunReleaseController:
             repaired_vpc = self._resolve_missing_vpc(current_stable, current_stable_detail, plan.network_repair)
             if repaired_vpc != plan.desired_vpc_conf:
                 raise ReleaseFailure("VPC_REPAIR_NETWORK_CHANGED", "verified repair network changed before candidate creation")
+            if plan.network_repair.restore_private_database_endpoint:
+                restored_url = self._verified_private_database_url(current_stable_detail, plan.network_repair)
+                desired_env = json.loads(plan.env_params_json) if plan.env_params_json else _parse_env_params(_value(current_stable_detail, "EnvParams"))
+                if restored_url != desired_env.get("DATABASE_URL"):
+                    raise ReleaseFailure("VPC_REPAIR_DATABASE_ENDPOINT_CHANGED", "verified database endpoint changed before candidate creation")
         else:
             current_vpc.require_baseline()
         if current_vpc != plan.stable_vpc_conf:
@@ -2786,6 +2837,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-task-id", type=int)
     parser.add_argument("--expected-release-order-id", type=int)
     parser.add_argument("--candidate-verification", choices=("url-params", "startup-loopback"), default="url-params")
+    parser.add_argument("--restore-verified-private-database-endpoint", action="store_true")
     parser.add_argument(
         "--verify-existing-candidate",
         metavar="REVISION",
@@ -2960,6 +3012,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         assert release_input is not None
         repair = None
         continuation = None
+        if args.restore_verified_private_database_endpoint and not args.repair_missing_vpc_from_version:
+            raise ReleaseFailure("VPC_REPAIR_SCOPE_INVALID", "database endpoint restoration requires the authorized VPC repair mode")
         if args.resume_repair_candidate:
             if not args.repair_missing_vpc_from_version:
                 raise ReleaseFailure("REPAIR_CONTINUATION_INVALID", "continuation requires the authorized network repair scope")
@@ -2969,6 +3023,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             repair = MissingVpcRepairInput(
                 expected_stable_revision=args.expected_stable_revision or "",
                 reference_revision=args.repair_missing_vpc_from_version,
+                restore_private_database_endpoint=args.restore_verified_private_database_endpoint,
             )
             if args.execute:
                 if continuation:
