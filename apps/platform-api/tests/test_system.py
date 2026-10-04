@@ -38,8 +38,23 @@ class SystemApiTests(unittest.TestCase):
                 "wechat_staff_mobile_operations_enabled": False,
                 "wechat_local_test_mode": False,
                 "learning_cycle_monthly_refresh_enabled": False,
+                "study_meeting_submission_enabled": False,
+                "study_meeting_evidence_enabled": False,
+                "study_evidence_cleanup_enabled": False,
             },
         )
+
+    def test_environment_reports_photo_runtime_flags_without_secrets(self) -> None:
+        with patch.dict(os.environ, {
+            "STUDY_MEETING_SUBMISSION_ENABLED": "true",
+            "STUDY_MEETING_EVIDENCE_ENABLED": "true",
+            "STUDY_EVIDENCE_CLEANUP_ENABLED": "true",
+            "STUDY_EVIDENCE_CLEANUP_TOKEN": "synthetic-secret-must-not-escape",
+        }):
+            response = self.client.get("/api/v1/system/environment")
+        for key in ("study_meeting_submission_enabled", "study_meeting_evidence_enabled", "study_evidence_cleanup_enabled"):
+            self.assertIs(response.json()[key], True)
+        self.assertNotIn("synthetic-secret-must-not-escape", response.text)
 
     def test_build_info_exposes_only_allowlisted_provenance(self) -> None:
         with patch.dict(
