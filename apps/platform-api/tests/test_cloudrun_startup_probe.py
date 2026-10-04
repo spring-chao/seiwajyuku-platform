@@ -63,6 +63,22 @@ def test_missing_startup_result_never_allows_normal_flow():
     assert api.flow_calls == []
 
 
+@pytest.mark.parametrize("photo", [None, {"status": "failed"},
+    {"status": "passed", "private": False, "put": True, "get": True, "delete": True, "deleted_verified": True}])
+def test_enabled_photos_require_private_storage_proof_before_normal_flow(photo):
+    from dataclasses import replace
+    controller, api, _, _, plan, proof = startup_fixture()
+    env = json.loads(plan.env_params_json)
+    env["STUDY_MEETING_EVIDENCE_ENABLED"] = "true"
+    plan = replace(plan, env_params_json=json.dumps(env))
+    api.candidate["EnvParams"] = plan.env_params_json
+    if photo is not None: proof["study_evidence"] = photo
+    with pytest.raises(release.ReleaseFailure) as error:
+        controller.execute(plan, promotion="full")
+    assert error.value.code == "CANDIDATE_PHOTO_STORAGE_NOT_PROVEN"
+    assert api.flow_calls == []
+
+
 def test_loopback_mode_does_not_bypass_missing_vpc_baseline():
     controller, api, _, _, _, *_ = repair_fixture()
     with pytest.raises(release.ReleaseFailure) as error:

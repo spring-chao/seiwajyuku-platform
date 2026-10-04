@@ -62,6 +62,12 @@ def check(probe_id: str, *, get=_get, wait_for_socket=True) -> dict:
         proof["http_requests"] += 1
         if last.get("commit_sha") != proof["commit_sha"]:
             raise RuntimeError("candidate build identity changed")
+        from app.core.settings import get_settings
+        if get_settings().study_meeting_evidence_enabled:
+            from app.services.study_evidence_readiness import check as check_evidence
+            proof["study_evidence"] = check_evidence()
+            if proof["study_evidence"]["status"] != "passed":
+                raise RuntimeError("candidate photo storage check failed")
         proof["status"] = "passed"
     except Exception as error:
         # Never log response bodies, database credentials or exception text.
