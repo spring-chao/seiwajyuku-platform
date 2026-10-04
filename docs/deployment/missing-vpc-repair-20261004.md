@@ -46,4 +46,6 @@ python scripts/deploy_cloudrun_api.py --commit <main提交> --source --dry-run -
 
 通过后才执行原有 5% 灰度及 100% 全量切换，并核验线上提交、数据库健康及发布单已结束。`/api/v1/system/environment` 增加不含敏感信息的月更开关状态，用于区分配置写入和公开服务实际启用；无需改变 IAM、学分或业务写入门禁。
 
+月度启动/每小时任务输出 `MONTHLY_REFRESH_RESULT`，只包含构建提交、时间、扫描/更新/失败的汇总数量和开关状态。发布核验可确认实际任务运行，不能将成功开关或 0 条错误日志替代真实的执行汇总；日志不含人员资料或班级业务记录。
+
 本次用户明确要求自行解决发布故障并继续完成，卡住的零流量候选 261 需先结束其发布任务。控制台/API Inspector 浏览器访问超时，使用已安装官方 CloudBase CLI 3.6.1 的 `CloudRunService.rollback` 实际实现核验请求语义：`OperateServerManage` 携带固定 `TaskId` 和 `OperateType=go_back`。只对本次任务 2283377、发布单 2775793 执行一次，并在请求前再次确认 candidate=261、current=260、stable 100%、candidate 0%、GRAY running。2026-10-04 07:55（北京时间）回读 task=`stopped`、发布单已结束、260 仍 100%，请求号 `1717cdf4-69d1-4c64-b1b6-2020910c4748`。此记录不表示取得了 API Inspector 截图，也不授权未来未知发布单的收尾动作；不修改通用发布器的 cancel/go_back/done 行为。
