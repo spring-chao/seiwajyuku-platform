@@ -12,6 +12,10 @@ from app.services import learning_cycle_monthly as monthly
 
 @pytest.fixture
 def calendar_class(monkeypatch):
+    return _seed_calendar_class(monkeypatch)
+
+
+def _seed_calendar_class(monkeypatch):
     monkeypatch.setenv("LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED", "true")
     monkeypatch.setenv("DEPLOYMENT_READ_ONLY", "false")
     monkeypatch.setattr(cycles, "_now", lambda: "2026-10-03T13:00:00+00:00")
@@ -185,3 +189,21 @@ def test_miniprogram_context_catches_up_and_keeps_historical_registration(monkey
     context = get_study_meeting_context(member_id=fixture["member_id"], group_org_unit_id=fixture["group_id"])
     assert context["assignment"]["current_cycle"]["learning_cycle_index"] == 2
     assert fetch_one("SELECT learning_cycle_id FROM study_meeting_sessions WHERE id=?", (meeting["id"],))["learning_cycle_id"] == fixture["learning_cycle_id"]
+
+
+def test_monthly_sweep_isolates_missing_template_and_keeps_other_class_idempotent(calendar_class, monkeypatch):
+    _, good_class, _, good_binding = calendar_class
+    _, _, bad_plan, bad_binding = _seed_calendar_class(monkeypatch)
+    with transaction() as connection:
+        execute(connection, "DELETE FROM learning_plan_tasks WHERE plan_cycle_id IN "
+                "(SELECT id FROM learning_plan_cycles WHERE plan_version_id=? AND cycle_index=3)", (bad_plan,))
+        execute(connection, "DELETE FROM learning_plan_cycles WHERE plan_version_id=? AND cycle_index=3", (bad_plan,))
+    first = monthly.refresh_all()
+    assert first["scanned"] >= 2 and first["updated"] >= 1 and first["failed"] >= 1
+    assert _runtime(good_binding)[-1]["learning_cycle_index"] == 4
+    assert len(_runtime(bad_binding)) == 1
+    assert monthly.refresh_class(good_class)["advanced"] == 0
+    second = monthly.refresh_all()
+    assert second["updated"] == 0 and second["failed"] == first["failed"]
+    assert _runtime(good_binding)[-1]["learning_cycle_index"] == 4
+    assert len(_runtime(bad_binding)) == 1

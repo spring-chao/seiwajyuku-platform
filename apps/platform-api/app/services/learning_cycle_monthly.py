@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 from app.core.settings import get_settings
+from app.core.build_info import get_build_info
 from app.db import execute, fetch_all, transaction
 from app.services.audit import write_audit
 from app.services.learning_cycle_schedule import parse_utc_datetime
@@ -145,12 +147,12 @@ def refresh_class(class_org_unit_id: str, *, at: str | None = None) -> dict[str,
 
 def refresh_all() -> dict[str, int]:
     if not enabled():
-        return {"updated": 0, "failed": 0}
+        return {"scanned": 0, "updated": 0, "failed": 0}
     classes = fetch_all("SELECT DISTINCT b.class_org_unit_id FROM class_learning_bindings b "
                         "JOIN org_units o ON o.id=b.class_org_unit_id "
                         "WHERE b.status='ACTIVE' AND o.is_active=1 AND o.unit_type IN ('CLASS','SPECIAL_COHORT') "
                         "ORDER BY b.class_org_unit_id")
-    result = {"updated": 0, "failed": 0}
+    result = {"scanned": len(classes), "updated": 0, "failed": 0}
     at = cycles._now()
     for row in classes:
         try:
@@ -166,7 +168,13 @@ async def run_monthly_refresh() -> None:
     """Startup catch-up and hourly sweeps; reads also recover idle containers."""
     while True:
         try:
-            await asyncio.to_thread(refresh_all)
+            summary = await asyncio.to_thread(refresh_all)
+            # Aggregate operational proof only; no names, IDs or raw records.
+            logging.getLogger("uvicorn.error").info(
+                "MONTHLY_REFRESH_RESULT %s", json.dumps({**summary,
+                    "enabled": enabled(), "commit_sha": get_build_info()["commit_sha"],
+                    "as_of": cycles._now()}, sort_keys=True)
+            )
         except Exception:
             logger.exception("Monthly content sweep failed; will retry")
         await asyncio.sleep(3600)

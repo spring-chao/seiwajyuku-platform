@@ -121,6 +121,7 @@ class ReleaseState(str, Enum):
     SET_TARGETED_ROUTE = "SET_TARGETED_ROUTE"
     TARGETED_HEALTH = "TARGETED_HEALTH"
     TARGETED_ROUTE_ACTIVE = "TARGETED_ROUTE_ACTIVE"
+    CANDIDATE_SELF_PROBE = "CANDIDATE_SELF_PROBE"
     CANDIDATE_INSTANCE_READY = "CANDIDATE_INSTANCE_READY"
     CANDIDATE_IDENTITY_VERIFIED = "CANDIDATE_IDENTITY_VERIFIED"
     READY_FOR_RELEASE = "READY_FOR_RELEASE"
@@ -318,8 +319,11 @@ class ReleaseInput:
     expected_database_vpc_id: str | None = None
     build_id: str | None = None
     ci_provenance_verified: bool = False
+    candidate_verification: str = "url-params"
 
     def __post_init__(self) -> None:
+        if self.candidate_verification not in {"url-params", "startup-loopback"}:
+            raise ReleaseFailure("CANDIDATE_VERIFICATION_INVALID", "unsupported candidate verification")
         if not SHA_RE.fullmatch(self.desired_runtime_commit.lower()):
             raise ReleaseFailure(
                 "DESIRED_COMMIT_INVALID",
@@ -400,6 +404,7 @@ class ReleasePlan:
     network_repair: MissingVpcRepairInput | None = None
     stable_env_fingerprint: str = ""
     continuation: RepairContinuation | None = None
+    startup_probe_id: str = ""
 
     def safe_dict(self) -> dict[str, Any]:
         deploy_type = (
@@ -417,6 +422,7 @@ class ReleasePlan:
             "stable_runtime_commit": self.stable_runtime_commit,
             "desired_runtime_commit": self.desired_runtime_commit,
             "ci_provenance_verified": self.ci_provenance_verified,
+            "candidate_verification": "startup-loopback" if self.startup_probe_id else "url-params",
             "deploy_type": deploy_type,
             "release_type": self.release_type,
             "stable_vpc_conf": self.stable_vpc_conf.as_api_dict(),
@@ -440,7 +446,11 @@ class ReleasePlan:
             "desired_env_changes": list(self.env_change_summary),
             "release_strategy": {
                 "create": "none; resume exact existing repair candidate" if self.continuation else "UpdateCloudRunServer with ReleaseType=GRAY",
-                "candidate_route": "URL_PARAMS one-time token; wait for DescribeReleaseOrder",
+                "candidate_route": (
+                    "fixed loopback HTTP in candidate process; stable remains 100%"
+                    if self.startup_probe_id
+                    else "URL_PARAMS one-time token; wait for DescribeReleaseOrder"
+                ),
                 "candidate_instance": "DescribeCloudRunPodList ready instance",
                 "candidate_identity": "SearchClsLog 23/23 candidate, 0 stable",
                 "stable_default": True,
@@ -1619,6 +1629,10 @@ class CloudRunReleaseController:
     ) -> ReleasePlan:
         if continuation and not network_repair:
             raise ReleaseFailure("REPAIR_CONTINUATION_INVALID", "continuation is limited to the missing VPC repair mode")
+        if release_input.candidate_verification == "startup-loopback" and (
+            not network_repair or continuation or release_input.artifact_mode != "source"
+        ):
+            raise ReleaseFailure("CANDIDATE_VERIFICATION_INVALID", "startup check requires a new authorized source VPC repair candidate")
         if network_repair and (
             not release_input.approval_ref or release_input.artifact_mode != "source"
             or set(release_input.requested_env_changes) - {"LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED"}
@@ -1663,6 +1677,15 @@ class CloudRunReleaseController:
         env_json, env_summary = _merge_env_params(
             stable_env, release_input.requested_env_changes
         )
+        probe_id = ""
+        if release_input.candidate_verification == "startup-loopback":
+            if int(_value(stable, "Port") or 0) != 8000:
+                raise ReleaseFailure("CANDIDATE_VERIFICATION_INVALID", "startup check requires the existing port 8000")
+            probe_id = secrets.token_urlsafe(32)
+            probe_env = json.loads(env_json) if env_json else dict(stable_env)
+            probe_env["DEPLOYMENT_CANDIDATE_PROBE_ID"] = probe_id
+            env_json = json.dumps(probe_env, sort_keys=True)
+            env_summary = (*env_summary, {"key": "DEPLOYMENT_CANDIDATE_PROBE_ID", "status": "changed"})
         if continuation:
             if continuation.candidate_revision in {stable_name, network_repair.reference_revision}:
                 raise ReleaseFailure("REPAIR_CONTINUATION_INVALID", "repair candidate must be separate from stable and reference")
@@ -1715,7 +1738,48 @@ class CloudRunReleaseController:
             network_repair=network_repair,
             stable_env_fingerprint=hashlib.sha256(json.dumps(stable_env, sort_keys=True).encode()).hexdigest(),
             continuation=continuation,
+            startup_probe_id=probe_id,
         )
+
+    def _assert_startup_probe(self, plan: ReleasePlan, candidate: str, start: datetime) -> None:
+        result_id = "sj_result_" + hashlib.sha256(plan.startup_probe_id.encode()).hexdigest()
+        # CloudRun log API accepts service-local date strings (Shanghai).
+        local_offset = timedelta(hours=8)
+        start_time = (start + local_offset).strftime("%Y-%m-%d %H:%M:%S")
+        marker = "CANDIDATE_PROBE_RESULT "
+        for _ in range(self.max_polls):
+            end_time = (datetime.now(UTC) + local_offset + timedelta(seconds=5)).strftime("%Y-%m-%d %H:%M:%S")
+            result = self.api.search_cls_logs(f'"{result_id}"', start_time, end_time)
+            rows = _value(result, "Results") or []
+            for row in rows:
+                if self._log_identity(row, plan.stable_revision, candidate) != "candidate":
+                    raise ReleaseFailure("CANDIDATE_IDENTITY_MISMATCH", "self-check result does not belong only to candidate")
+                stack = [row]
+                proof = None
+                while stack:
+                    value = stack.pop()
+                    if isinstance(value, Mapping): stack.extend(value.values())
+                    elif isinstance(value, list): stack.extend(value)
+                    elif isinstance(value, str):
+                        try:
+                            if marker in value:
+                                proof, _ = json.JSONDecoder().raw_decode(value.split(marker, 1)[1].lstrip())
+                                break
+                            parsed = json.loads(value)
+                            if isinstance(parsed, (dict, list)): stack.append(parsed)
+                        except (ValueError, TypeError): pass
+                if not isinstance(proof, dict) or proof.get("id") != result_id:
+                    continue
+                if (proof.get("status") != "passed" or proof.get("commit_sha") != plan.desired_runtime_commit
+                        or proof.get("loopback") != "127.0.0.1:8000" or proof.get("http_requests") != 23
+                        or proof.get("database_health_passed") != 20):
+                    raise ReleaseFailure("CANDIDATE_SELF_PROBE_FAILED", "candidate self-check did not prove build, liveness and database 20/20")
+                self._wait_for_probe_log_evidence(stable_revision=plan.stable_revision, candidate_revision=candidate,
+                    token=plan.startup_probe_id, batch_id=plan.startup_probe_id,
+                    start_time=start_time, end_time=end_time)
+                return
+            self.sleep(self.poll_seconds)
+        raise ReleaseFailure("CANDIDATE_SELF_PROBE_NOT_PROVEN", "candidate self-check evidence did not arrive")
 
     @staticmethod
     def _assert_continuation_task(task, continuation: RepairContinuation) -> None:
@@ -2548,6 +2612,7 @@ class CloudRunReleaseController:
         )
         try:
             self._candidate_created = True
+            probe_start = datetime.now(UTC) - timedelta(seconds=5)
             if plan.continuation:
                 self._transition(ReleaseState.READ_EXISTING_CANDIDATE)
                 candidate_name = plan.continuation.candidate_revision
@@ -2565,6 +2630,8 @@ class CloudRunReleaseController:
             if _value(candidate, "Status") != "normal":
                 raise ReleaseFailure("CANDIDATE_RELEASE_NOT_READY", "candidate revision is not normal")
             self._assert_candidate_vpc(candidate, plan.desired_vpc_conf)
+            if plan.startup_probe_id and int(_value(candidate, "Port") or 0) != 8000:
+                raise ReleaseFailure("CANDIDATE_SELF_PROBE_FAILED", "candidate listener differs from the fixed startup check port")
             if plan.network_repair:
                 expected_env = json.loads(plan.env_params_json) if plan.env_params_json else current_env
                 self._assert_repair_candidate(candidate_name, plan.desired_vpc_conf, expected_env)
@@ -2572,16 +2639,21 @@ class CloudRunReleaseController:
             self._transition(ReleaseState.TARGETED_HEALTH)
             self._wait_for_release_ready(plan.stable_revision, candidate_name,
                 expected_order_id=plan.continuation.release_order_id if plan.continuation else None)
-            token = secrets.token_urlsafe(32)
-            batch_id = secrets.token_urlsafe(16)
-            # Treat an uncertain API response as potentially applied.  A
-            # cleanup attempt is safe even when the targeted route was not
-            # committed, while omitting cleanup could leave a test route live.
-            self._routing_changed = True
-            self.api.release_targeted(plan.stable_revision, candidate_name, token)
-            self._wait_for_targeted_route(plan.stable_revision, candidate_name, token)
-            self._wait_for_candidate_instance(candidate_name)
-            self._assert_candidate_health(plan, candidate_name, token, batch_id)
+            if plan.startup_probe_id:
+                self._transition(ReleaseState.CANDIDATE_SELF_PROBE)
+                self._assert_traffic_restored(plan.stable_revision, candidate_name)
+                self._wait_for_candidate_instance(candidate_name)
+                self._assert_startup_probe(plan, candidate_name, probe_start)
+                self._assert_traffic_restored(plan.stable_revision, candidate_name)
+            else:
+                token = secrets.token_urlsafe(32)
+                batch_id = secrets.token_urlsafe(16)
+                # An uncertain response is treated as potentially applied.
+                self._routing_changed = True
+                self.api.release_targeted(plan.stable_revision, candidate_name, token)
+                self._wait_for_targeted_route(plan.stable_revision, candidate_name, token)
+                self._wait_for_candidate_instance(candidate_name)
+                self._assert_candidate_health(plan, candidate_name, token, batch_id)
 
             self._transition(ReleaseState.READY_FOR_RELEASE)
             if promotion == "ready":
@@ -2624,6 +2696,7 @@ class CloudRunReleaseController:
                 "targeted_database_health": "20/20",
                 "promotion": promotion,
                 "candidate_identity": "verified",
+                "candidate_verification": "startup-loopback" if plan.startup_probe_id else "url-params",
                 "traffic_restored": not self._routing_changed,
                 "history": [state.value for state in self.history],
             }
@@ -2698,6 +2771,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--resume-repair-candidate", metavar="REVISION")
     parser.add_argument("--expected-task-id", type=int)
     parser.add_argument("--expected-release-order-id", type=int)
+    parser.add_argument("--candidate-verification", choices=("url-params", "startup-loopback"), default="url-params")
     parser.add_argument(
         "--verify-existing-candidate",
         metavar="REVISION",
@@ -2835,6 +2909,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 expected_database_vpc_id=args.expected_database_vpc_id,
                 build_id=args.build_id,
                 ci_provenance_verified=ci_provenance_verified,
+                candidate_verification=args.candidate_verification,
             )
         api = ExistingCandidateSdkApi() if existing_candidate else TencentCloudSdkApi()
         probe = UrlLibProbe()

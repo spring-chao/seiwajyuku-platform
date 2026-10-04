@@ -50,6 +50,7 @@ def environment() -> dict[str, str | bool]:
             settings.wechat_staff_mobile_operations_enabled
         ),
         "wechat_local_test_mode": settings.wechat_local_test_mode,
+        "learning_cycle_monthly_refresh_enabled": settings.learning_cycle_monthly_refresh_enabled,
     }
 
 

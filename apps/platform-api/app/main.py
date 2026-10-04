@@ -98,8 +98,10 @@ async def lifespan(_: FastAPI):
     import asyncio
     from contextlib import suppress
     from app.services.learning_cycle_monthly import enabled, run_monthly_refresh
+    from app.services import candidate_probe
 
     monthly_task = None
+    probe_task = None
     try:
         async with mcp_server.session_manager.run():
             # A read-only deployment must never run migrations or IAM seeding,
@@ -110,8 +112,15 @@ async def lifespan(_: FastAPI):
                 seed_iam()
             if enabled():
                 monthly_task = asyncio.create_task(run_monthly_refresh())
+            probe_id = candidate_probe.configured_id()
+            if settings.is_production and probe_id:
+                probe_task = asyncio.create_task(candidate_probe.run(probe_id))
             yield
     finally:
+        if probe_task is not None:
+            probe_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await probe_task
         if monthly_task is not None:
             monthly_task.cancel()
             with suppress(asyncio.CancelledError):
