@@ -19,7 +19,7 @@ class CleanupPayload(BaseModel):
     limit: int = Field(default=500, ge=1, le=500)
 
 
-def _require_cleanup_token(token: str | None) -> None:
+def require_maintenance_token(token: str | None) -> None:
     """Require a high-entropy server-side token without revealing its value."""
 
     expected = get_settings().study_evidence_cleanup_token
@@ -42,7 +42,7 @@ def cleanup_study_evidence(
     token; the cleanup service remains the single owner of DB/object rules.
     """
 
-    _require_cleanup_token(x_study_evidence_cleanup_token)
+    require_maintenance_token(x_study_evidence_cleanup_token)
     try:
         report = cleanup_evidence(apply=True, limit=payload.limit)
     except StudyMeetingPermissionError as exc:

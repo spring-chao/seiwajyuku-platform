@@ -181,19 +181,37 @@ def refresh_all() -> dict[str, int]:
     return result
 
 
+def refresh_sweep(*, startup_repair: bool = False) -> dict[str, Any]:
+    """Finish a sweep before the scheduler HTTP response releases its CPU.
+
+    Scheduled requests never apply the historical repair snapshot. The
+    existing startup repair remains guarded by its exact reviewed digest.
+    """
+    if not enabled():
+        return {"enabled": False, "scanned": 0, "updated": 0, "failed": 0,
+                "repair_required": 0, "review_required": 0}
+    if startup_repair:
+        calendar_clock.audit_and_repair(at=cycles._now())
+    summary = refresh_all()
+    verification = calendar_clock.log_verification(at=cycles._now())
+    result = {**summary, "enabled": True, "commit_sha": get_build_info()["commit_sha"],
+              "as_of": cycles._now(), "month": verification["month"],
+              **{key: verification[key] for key in ("repair_required", "review_required", "unbound", "not_applicable")}}
+    # Aggregate operational proof only; no names, IDs or raw records.
+    logging.getLogger("uvicorn.error").info("MONTHLY_REFRESH_RESULT %s", json.dumps(result, sort_keys=True))
+    return result
+
+
 async def run_monthly_refresh() -> None:
-    """Startup catch-up and hourly sweeps; reads also recover idle containers."""
+    """Catch up at startup; production recurrence belongs to HTTP scheduling."""
     while True:
         try:
-            await asyncio.to_thread(calendar_clock.audit_and_repair, at=cycles._now())
-            summary = await asyncio.to_thread(refresh_all)
-            await asyncio.to_thread(calendar_clock.log_verification, at=cycles._now())
-            # Aggregate operational proof only; no names, IDs or raw records.
-            logging.getLogger("uvicorn.error").info(
-                "MONTHLY_REFRESH_RESULT %s", json.dumps({**summary,
-                    "enabled": enabled(), "commit_sha": get_build_info()["commit_sha"],
-                    "as_of": cycles._now()}, sort_keys=True)
-            )
+            await asyncio.to_thread(refresh_sweep, startup_repair=True)
         except Exception:
             logger.exception("Monthly content sweep failed; will retry")
+        # CloudRun may suspend CPU after a response. Never keep an hourly
+        # database job alive there; the existing timer invokes a protected
+        # HTTP request and roster reads still perform class-local catch-up.
+        if get_settings().is_production:
+            return
         await asyncio.sleep(3600)

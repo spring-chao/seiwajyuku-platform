@@ -30,6 +30,7 @@ from app.api.portal import router as portal_router
 from app.api.wechat import router as wechat_router
 from app.api.study_meetings import router as study_meetings_router
 from app.api.study_evidence_cleanup import router as study_evidence_cleanup_router
+from app.api.learning_cycle_monthly import router as learning_cycle_monthly_router
 from app.api.learning_plans import router as learning_plans_router
 from app.api.learning_credits import router as learning_credits_router
 from app.api.production_actions import router as production_actions_router
@@ -111,7 +112,12 @@ async def lifespan(_: FastAPI):
                 run_migrations()
                 seed_iam()
             if enabled():
-                monthly_task = asyncio.create_task(run_monthly_refresh())
+                if settings.is_production:
+                    # Complete startup work while CloudRun grants CPU. Its
+                    # daily HTTP scheduler owns subsequent monthly checks.
+                    await run_monthly_refresh()
+                else:
+                    monthly_task = asyncio.create_task(run_monthly_refresh())
             probe_id = candidate_probe.configured_id()
             if settings.is_production and probe_id:
                 probe_task = asyncio.create_task(candidate_probe.run(probe_id))
@@ -238,6 +244,7 @@ app.include_router(portal_router)
 app.include_router(wechat_router)
 app.include_router(study_meetings_router)
 app.include_router(study_evidence_cleanup_router)
+app.include_router(learning_cycle_monthly_router)
 app.include_router(learning_plans_router)
 app.include_router(learning_credits_router)
 app.include_router(production_actions_router)
