@@ -14,7 +14,7 @@
 
 `scripts/deploy_cloudrun_api.py --repair-missing-vpc-from-version <历史版本> --expected-stable-revision <稳定版本>` 是单独授权的缺失基线修复模式，不改变普通发布继承稳定版本 VPC 的约束，也不接受调用者传入 VPC/subnet 值。
 
-修复模式只允许：完整缺失的四项配置、同服务历史健康版本、干净 main 源码、已通过 9 项 CI 的控制器/构建来源、明确批准引用，以及可选的 `LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED=true`。不变更数据库连接、IAM/学分门禁、启动迁移、容量或共享网络资源。
+修复模式只允许：完整缺失的四项配置、同服务历史健康版本、干净 main 源码、已通过 9 项 CI 的控制器/构建来源、明确批准引用，以及可选的 `LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED=true`。默认继承数据库连接；显式使用下述端点恢复选项时，只允许同数据库、相同身份凭据的已验证内网端点。不变更 IAM/学分门禁、启动迁移、容量或共享网络资源。
 
 控制器从三个控制面来源交叉验证网络，并在上传后、创建候选前再次验证稳定版本、环境指纹及网络。候选只通过 GRAY 创建，回读完整 VPC 后才验证候选健康。20/20 数据库健康及 23/23 候选日志身份通过后才切普通流量。灰度和全量切换都等待实际流量；全量必须同时确认发布单结束。异常恢复原稳定版本流量，不给未验证候选普通流量。
 
@@ -35,6 +35,14 @@ python scripts/deploy_cloudrun_api.py --commit <main提交> --source --dry-run -
 候选的 `--commit` / `--release-manifest` 仍指向原已部署构建；修复后的控制器通过 `--control-tool-commit <最新main提交> --controller-release-manifest <该提交CI产物>` 独立验证干净 main 与 9/9 CI。继续发布仍必须完成定向路由、Pod、20/20 数据库健康和 23/23 候选日志核验，不能跳过验证直接切换普通流量。
 
 参考：[腾讯云访问 MySQL 的网络要求](https://cloud.tencent.com/document/product/1243/49231)、[ReleaseGray API](https://cloud.tencent.com/document/product/1243/75872)。
+
+## 同实例内网数据库端点恢复
+
+候选 262 的完整 VPC 与构建提交均正确，真实 HTTP 数据库健康却失败（0/20），因此未获得普通流量。只读控制面核验发现：稳定版本 260 使用该数据库的公网端点；同服务健康版本 258 使用控制面当前 `PrivateNetAddress`，用户名、密码、数据库名称、驱动与查询参数均一致，只有地址和端口不同。
+
+用户明确要求自行解决后端 VPC 发布并使目标生效；同实例的内网端点恢复属于本次网络故障修复，不涉及凭据、权限或数据库内容变更。新增显式选项 `--restore-verified-private-database-endpoint`，只允许新建的缺失 VPC 修复候选。调用者仍不能在环境文件中提供 DATABASE_URL 或任意端点。
+
+发布器将历史健康版本、数据库 running 状态、相同 VPC/子网与当前内网端点交叉匹配，要求稳定版本使用同实例的已知公网/内网端点，并逐项保证用户名、密码、数据库、驱动、查询参数不变。只替换原 URL 的主机和端口，保留凭据原始字节。上传后再次核验元数据，端点或凭据变化即停止；候选回读环境完整一致后，仍必须完成真实健康与日志身份门禁。摘要只显示 DATABASE_URL 键的 changed/unchanged，不输出地址或凭据。普通发布路径不受此选项影响。
 
 ## 本服务的候选容器自检
 
