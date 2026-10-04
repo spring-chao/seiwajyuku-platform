@@ -18,7 +18,7 @@ from app.db import connect, execute, transaction
 from app.services import learning_cycles as cycles
 from app.services.audit import write_audit
 from app.services.learning_cycle_schedule import add_calendar_months, parse_utc_datetime
-from app.services.learning_plan_baseline import baseline_by_class_id, load_baseline
+from app.services.learning_plan_baseline import baseline_by_class_id, is_learning_plan_binding_required, load_baseline
 
 POLICY = "REGISTERED_MONTH_V2"
 REPAIR_ACTION = "learning.cycle.monthly_anchor_repair"
@@ -206,12 +206,16 @@ def can_activate_upcoming(connection, binding_id: int, cycle: dict) -> bool:
 
 def collect_audit(connection, *, at: str) -> dict:
     rows, plans = [], []
+    references = baseline_by_class_id(load_baseline())
     classes = execute(connection, "SELECT id, unit_code, name FROM org_units WHERE is_active=1 "
         "AND unit_type IN ('CLASS','SPECIAL_COHORT') ORDER BY id").fetchall()
     for org in classes:
         binding = cycles._active_binding(connection, org["id"])
         row = {"class_id": org["id"], "unit_code": org["unit_code"], "class_name": org["name"],
                "status": "UNBOUND", "current_index": None, "target_index": None}
+        reference = references.get(str(org["id"]))
+        if not binding and reference and reference.get("class_name") == org["name"] and not is_learning_plan_binding_required(reference):
+            row["status"] = "NOT_APPLICABLE"
         if binding:
             count = execute(connection, "SELECT COUNT(*) AS count FROM class_learning_bindings "
                             "WHERE class_org_unit_id=? AND status='ACTIVE'", (org["id"],)).fetchone()["count"]
@@ -311,4 +315,24 @@ def audit_and_repair(*, at: str) -> dict:
         "scanned": len(audit["rows"]), "repair_required": len(audit["repairs"]),
         "review_required": sum(row["status"] == "REPAIR_REVIEW_REQUIRED" for row in audit["rows"]), **result}
     logger.info("MONTHLY_CALENDAR_AUDIT_RESULT %s", json.dumps(summary, sort_keys=True))
+    return summary
+
+
+def log_verification(*, at: str) -> dict:
+    connection = connect()
+    try:
+        audit = collect_audit(connection, at=at)
+    finally:
+        connection.close()
+    from app.core.build_info import get_build_info
+    commit = get_build_info()["commit_sha"]
+    for row in audit["rows"]:
+        logger.info("MONTHLY_CALENDAR_VERIFIED_ROW %s", json.dumps({**row,
+            "snapshot_id": audit["snapshot_id"], "commit_sha": commit, "month": audit["month"]}, ensure_ascii=False, default=str))
+    summary = {"commit_sha": commit, "as_of": at, "month": audit["month"], "snapshot_id": audit["snapshot_id"],
+        "scanned": len(audit["rows"]), "repair_required": len(audit["repairs"]),
+        "review_required": sum(row["status"] == "REPAIR_REVIEW_REQUIRED" for row in audit["rows"]),
+        "unbound": sum(row["status"] == "UNBOUND" for row in audit["rows"]),
+        "not_applicable": sum(row["status"] == "NOT_APPLICABLE" for row in audit["rows"])}
+    logger.info("MONTHLY_CALENDAR_VERIFIED_RESULT %s", json.dumps(summary, sort_keys=True))
     return summary

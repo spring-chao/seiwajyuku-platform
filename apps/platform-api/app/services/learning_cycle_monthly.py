@@ -187,6 +187,7 @@ async def run_monthly_refresh() -> None:
         try:
             await asyncio.to_thread(calendar_clock.audit_and_repair, at=cycles._now())
             summary = await asyncio.to_thread(refresh_all)
+            await asyncio.to_thread(calendar_clock.log_verification, at=cycles._now())
             # Aggregate operational proof only; no names, IDs or raw records.
             logging.getLogger("uvicorn.error").info(
                 "MONTHLY_REFRESH_RESULT %s", json.dumps({**summary,
