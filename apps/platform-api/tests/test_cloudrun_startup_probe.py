@@ -84,3 +84,21 @@ def test_candidate_port_mismatch_prevents_normal_flow():
         controller.execute(plan, promotion="full")
     assert error.value.code == "CANDIDATE_SELF_PROBE_FAILED"
     assert api.flow_calls == []
+
+
+@pytest.mark.parametrize("encoding", ["json", "double-json", "raw"])
+def test_startup_proof_reads_cls_escaped_content_without_changing_identity_gate(encoding):
+    controller, api, _, _, plan, proof = startup_fixture()
+    original = api.search_cls_logs
+    def logs(query, start, end):
+        if proof["id"] in query:
+            content = "INFO: CANDIDATE_PROBE_RESULT " + json.dumps(proof)
+            if encoding == "json":
+                content = json.dumps({"log": content})
+            elif encoding == "double-json":
+                content = json.dumps(json.dumps({"log": content}))
+            return {"Results": [{"Source": api.candidate_name, "Content": content}]}
+        return original(query, start, end)
+    api.search_cls_logs = logs
+    assert controller.execute(plan, promotion="full")["state"] == "VERIFIED"
+    assert api.flow_calls == [5, 100]
