@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from datetime import UTC, datetime, timedelta, timezone
 
 
 BASELINE_FILENAME = "class-learning-plan-migration-baseline-2026-09.json"
@@ -115,6 +116,9 @@ def public_expectation(item: dict[str, Any]) -> dict[str, Any]:
         "expected_plan_version": item.get("expected_plan_version"),
         "expected_cohort_month": item.get("expected_cohort_month"),
         "expected_current_cycle": item.get("expected_current_cycle"),
+        "baseline_as_of": item.get("baseline_as_of"),
+        "baseline_current_cycle": item.get("baseline_current_cycle"),
+        "expected_as_of": item.get("expected_as_of"),
         "meeting_status": item.get("meeting_status"),
         "group_meeting_policy": item.get("group_meeting_policy"),
         "expected_runtime_status": item.get("expected_runtime_status"),
@@ -125,6 +129,27 @@ def public_expectation(item: dict[str, Any]) -> dict[str, Any]:
         "candidate_org_unit_ids": item.get("candidate_org_unit_ids"),
         "id_resolution_note": item.get("id_resolution_note"),
     }
+
+
+def expectation_for_month(item: dict[str, Any], *, baseline_as_of: str, at: str,
+                          duration_cycles: int | None = None) -> dict[str, Any]:
+    """Project a dated review reference; cohort_month only selects content."""
+    result = dict(item)
+    result["baseline_as_of"] = baseline_as_of
+    result["baseline_current_cycle"] = item.get("expected_current_cycle")
+    local = datetime.fromisoformat(at.replace("Z", "+00:00"))
+    if local.tzinfo is None:
+        local = local.replace(tzinfo=UTC)
+    local = local.astimezone(timezone(timedelta(hours=8)))
+    result["expected_as_of"] = local.strftime("%Y-%m")
+    index = item.get("expected_current_cycle")
+    if (index is None or not is_learning_plan_binding_required(item)
+        or item.get("meeting_status") == "POSTPONED" or item.get("migration_status") == "MANUAL_REVIEW_REQUIRED"):
+        return result
+    year, month = map(int, baseline_as_of.split("-"))
+    elapsed = max(0, (local.year - year) * 12 + local.month - month)
+    result["expected_current_cycle"] = min(int(index) + elapsed, duration_cycles or int(index) + elapsed)
+    return result
 
 
 def actual_snapshot(

@@ -160,7 +160,8 @@ const businessExpectationDescription = (item: LearningPlanHealthClass) => {
   if (item.business_expectation_resolution?.mode === "EXPLICIT_CONFIRMATION") {
     return `已记录人工确认，按本次绑定/接续/重新开始/修正结果验收；原业务基线仅作参考。确认原因：${item.business_expectation_resolution.reason || "未提供"}`;
   }
-  return expectation?.adjustment_reason || `证据：${expectation?.evidence_source || "未提供"}；状态：${expectation?.migration_status || "未提供"}`;
+  const period = expectation?.baseline_as_of ? `历史基准：${expectation.baseline_as_of} 第${expectation.baseline_current_cycle ?? "—"}次；本月参考：${expectation.expected_as_of}。开班月份仅用于选择学习内容。` : "";
+  return `${period}${expectation?.adjustment_reason || `证据：${expectation?.evidence_source || "未提供"}；状态：${expectation?.migration_status || "未提供"}`}`;
 };
 const dateOnly = (value?: string | null) => value ? value.slice(0, 10) : "";
 const formatDateOnly = (value?: string | null) => dateOnly(value) || "—";
@@ -455,14 +456,14 @@ onMounted(load);
       >
         <el-table-column prop="class_name" label="班级" min-width="150" />
         <el-table-column prop="unit_code" label="组织编码" min-width="180" />
-        <el-table-column label="学习计划" min-width="190">
+        <el-table-column label="学习计划 / 开班月份" min-width="210">
           <template #default="{ row }">
-            <span v-if="row.binding">{{ row.binding.version_label }} · {{ row.binding.cohort_month || "通用" }}月</span>
+            <span v-if="row.binding">{{ row.binding.version_label }} · {{ row.binding.cohort_month ? `${row.binding.cohort_month}月开班` : "通用模板" }}</span>
             <span v-else-if="!isBindingRequired(row)" class="muted">无需绑定</span>
             <span v-else class="muted">未绑定</span>
           </template>
         </el-table-column>
-        <el-table-column label="当前周期" width="100">
+        <el-table-column label="当前学习次数" width="120">
           <template #default="{ row }">{{ row.current_cycle?.learning_cycle_index || (row.runtime_status === "NOT_STARTED" ? "未开始" : "—") }}</template>
         </el-table-column>
         <el-table-column label="运行状态" width="110">
@@ -471,7 +472,7 @@ onMounted(load);
         <el-table-column label="业务预期" min-width="170">
           <template #default="{ row }">
             <span v-if="row.business_expectation && !isBindingRequired(row)">无需绑定学习计划</span>
-            <span v-else-if="row.business_expectation">{{ row.business_expectation.expected_plan_version || "版本待定" }} · {{ row.business_expectation.expected_cohort_month ? `${row.business_expectation.expected_cohort_month}月` : "模板待定" }} · {{ row.business_expectation.expected_current_cycle ?? "未开始/待确认" }}</span>
+            <span v-else-if="row.business_expectation">{{ row.business_expectation.expected_plan_version || "版本待定" }} · {{ row.business_expectation.expected_cohort_month ? `${row.business_expectation.expected_cohort_month}月开班` : "模板待定" }} · {{ row.business_expectation.expected_as_of || "历史基准" }} 第{{ row.business_expectation.expected_current_cycle ?? "未开始/待确认" }}次</span>
             <span v-else class="muted">未提供</span>
           </template>
         </el-table-column>

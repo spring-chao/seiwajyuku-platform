@@ -1702,9 +1702,9 @@ class CloudRunReleaseController:
         if continuation and network_repair and network_repair.restore_private_database_endpoint:
             raise ReleaseFailure("VPC_REPAIR_SCOPE_INVALID", "database endpoint restoration requires a new repair candidate")
         if release_input.candidate_verification == "startup-loopback" and (
-            not network_repair or continuation or release_input.artifact_mode != "source"
+            continuation or release_input.artifact_mode != "source" or not release_input.approval_ref
         ):
-            raise ReleaseFailure("CANDIDATE_VERIFICATION_INVALID", "startup check requires a new authorized source VPC repair candidate")
+            raise ReleaseFailure("CANDIDATE_VERIFICATION_INVALID", "startup check requires a new explicitly authorized main source candidate")
         if network_repair and (
             not release_input.approval_ref or release_input.artifact_mode != "source"
             or set(release_input.requested_env_changes) - {"LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED"}

@@ -3,7 +3,7 @@ import json
 
 import pytest
 from test_cloudrun_vpc_repair import repair_fixture
-from test_cloudrun_release_network_guard import source_input
+from test_cloudrun_release_network_guard import make_controller, source_input
 import deploy_cloudrun_api as release
 
 
@@ -63,10 +63,28 @@ def test_missing_startup_result_never_allows_normal_flow():
     assert api.flow_calls == []
 
 
-def test_loopback_mode_does_not_bypass_ordinary_release_gate():
+def test_loopback_mode_does_not_bypass_missing_vpc_baseline():
     controller, api, _, _, _, *_ = repair_fixture()
     with pytest.raises(release.ReleaseFailure) as error:
         controller.build_plan(source_input(candidate_verification="startup-loopback"))
+    assert error.value.code == "VPC_BASELINE_MISSING"
+    assert api.update_specs == []
+
+
+def test_authorized_source_loopback_inherits_complete_stable_vpc():
+    controller, api, _, _ = make_controller()
+    api.stable["Port"] = 8000
+    plan = controller.build_plan(source_input(candidate_verification="startup-loopback"))
+    assert plan.desired_vpc_conf == plan.stable_vpc_conf
+    assert plan.startup_probe_id and plan.network_repair is None
+    assert api.update_specs == []
+
+
+@pytest.mark.parametrize("override", [{"approval_ref": None}, {"artifact_mode": "stable-image"}])
+def test_ordinary_loopback_requires_explicit_approval_and_main_source(override):
+    controller, api, _, _ = make_controller()
+    with pytest.raises(release.ReleaseFailure) as error:
+        controller.build_plan(source_input(candidate_verification="startup-loopback", **override))
     assert error.value.code == "CANDIDATE_VERIFICATION_INVALID"
     assert api.update_specs == []
 

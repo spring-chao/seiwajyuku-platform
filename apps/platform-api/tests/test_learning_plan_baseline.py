@@ -10,6 +10,7 @@ from app.services.learning_plan_baseline import (
     compare_expectation,
     load_baseline,
     public_expectation,
+    expectation_for_month,
 )
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from scripts.audit_learning_plan_baseline import build_report
@@ -21,6 +22,27 @@ BASELINE_PATH = (
     / "learning-plans"
     / "class-learning-plan-migration-baseline-2026-09.json"
 )
+
+
+def test_dated_september_expectation_advances_once_independent_of_cohort_month():
+    for cohort in (1, 4, 7, 10):
+        original = {"expected_current_cycle": 3, "expected_cohort_month": cohort}
+        october = expectation_for_month(original, baseline_as_of="2026-09", at="2026-09-30T16:00:00+00:00")
+        assert october["expected_current_cycle"] == 4
+        assert october["baseline_current_cycle"] == 3
+        assert october["expected_as_of"] == "2026-10"
+        assert original["expected_current_cycle"] == 3
+
+
+def test_postponed_and_unconfirmed_references_are_not_advanced():
+    for state in ({"meeting_status": "POSTPONED"}, {"migration_status": "MANUAL_REVIEW_REQUIRED"}):
+        item = {"expected_current_cycle": 11, **state}
+        assert expectation_for_month(item, baseline_as_of="2026-09", at="2026-10-04T00:00:00+00:00")["expected_current_cycle"] == 11
+
+
+def test_expected_progress_is_capped_at_the_plan_duration():
+    assert expectation_for_month({"expected_current_cycle": 35}, baseline_as_of="2026-09",
+        at="2027-01-01T00:00:00+00:00", duration_cycles=36)["expected_current_cycle"] == 36
 
 
 def test_v3_baseline_keeps_unresolved_ids_explicit() -> None:

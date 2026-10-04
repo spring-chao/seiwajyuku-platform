@@ -8,6 +8,8 @@ import pytest
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services import learning_cycles as cycles
 from app.services import learning_cycle_monthly as monthly
+from app.services import learning_cycle_calendar as calendar
+from app.services.audit import write_audit
 
 
 @pytest.fixture
@@ -177,7 +179,7 @@ def test_miniprogram_context_catches_up_and_keeps_historical_registration(monkey
     monkeypatch.setenv("STUDY_MEETING_SUBMISSION_ENABLED", "true")
     monkeypatch.setenv("LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED", "false")
     meeting = create_study_meeting(member_id=fixture["member_id"], group_org_unit_id=fixture["group_id"],
-                                   meeting_date=None, member_ids=[fixture["member_id"]], cross_group_member_ids=[], has_course=False)
+                                   meeting_date="2026-09-20", member_ids=[fixture["member_id"]], cross_group_member_ids=[], has_course=False)
     monkeypatch.setenv("LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED", "true")
     monkeypatch.setattr(cycles, "_now", lambda: "2026-10-03T13:00:00+00:00")
     with transaction() as connection:
@@ -207,3 +209,111 @@ def test_monthly_sweep_isolates_missing_template_and_keeps_other_class_idempoten
     assert second["updated"] == 0 and second["failed"] == first["failed"]
     assert _runtime(good_binding)[-1]["learning_cycle_index"] == 4
     assert len(_runtime(bad_binding)) == 1
+
+
+@pytest.fixture
+def imported_progress(calendar_class, monkeypatch):
+    admin, class_id, plan_id, binding_id = calendar_class
+    with transaction() as connection:
+        plan_cycle = monthly.cycles._plan_cycle_for_track(connection, plan_version_id=plan_id, cohort_month=7, cycle_index=3)
+        execute(connection, "UPDATE class_learning_bindings SET start_cycle_index=3, created_at=? WHERE id=?",
+                ("2026-09-03T00:00:00+00:00", binding_id))
+        execute(connection, "UPDATE class_learning_cycles SET learning_cycle_index=3, plan_cycle_id=?, created_at=? WHERE binding_id=?",
+                (plan_cycle["id"], "2026-09-03T00:00:00+00:00", binding_id))
+    yield calendar_class
+    with transaction() as connection:
+        execute(connection, "UPDATE class_learning_bindings SET status='COMPLETED' WHERE id=?", (binding_id,))
+
+
+@pytest.mark.parametrize("cohort", [1, 4, 7, 10])
+def test_september_cycle_three_advances_to_october_four_regardless_of_cohort(imported_progress, cohort):
+    _, class_id, _, binding_id = imported_progress
+    with transaction() as connection:
+        execute(connection, "UPDATE class_learning_bindings SET cohort_month=?, started_at=? WHERE id=?",
+                (cohort, f"2025-{cohort:02d}-01T00:00:00+00:00", binding_id))
+        execute(connection, "UPDATE class_learning_cycles SET opened_at=? WHERE binding_id=?",
+                (f"2025-{cohort:02d}-01T00:00:00+00:00", binding_id))
+    first = monthly.refresh_class(class_id)
+    assert first["learning_cycle_index"] == 4 and first["advanced"] == 1
+    assert monthly.refresh_class(class_id)["advanced"] == 0
+    assert len(_runtime(binding_id)) == 2
+
+
+def _obsolete_jump(imported_progress):
+    _, class_id, plan_id, binding_id = imported_progress
+    with transaction() as connection:
+        original = execute(connection, "SELECT * FROM class_learning_cycles WHERE binding_id=?", (binding_id,)).fetchone()
+        execute(connection, "UPDATE class_learning_cycles SET cycle_status='CLOSED', closed_at=? WHERE id=?",
+                ("2026-07-31T16:00:00+00:00", original["id"]))
+        final_id = None
+        for index in range(4, 7):
+            plan_cycle = cycles._plan_cycle_for_track(connection, plan_version_id=plan_id, cohort_month=7, cycle_index=index)
+            boundary = calendar.month_start(calendar.month_number("2026-07-01") + index - 3)
+            cursor = execute(connection, "INSERT INTO class_learning_cycles(binding_id,class_org_unit_id,learning_cycle_index,plan_cycle_id,"
+                "opened_at,planned_class_meeting_at,class_meeting_status,group_meeting_policy,cycle_status,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,'PLANNED','REQUIRED',?,'2026-10-03T13:00:00+00:00','2026-10-03T13:00:00+00:00')",
+                (binding_id, class_id, index, plan_cycle["id"], boundary, boundary, "OPEN" if index == 6 else "CLOSED"))
+            final_id = int(cursor.lastrowid)
+        write_audit(connection, actor_user_id=None, action="learning.cycle.monthly_refresh", resource_type="class_learning_binding",
+            resource_id=str(binding_id), org_unit_id=class_id,
+            before={"learning_cycle_index": 3, "cycle_id": original["id"]},
+            after={"learning_cycle_index": 6, "cycle_id": final_id, "binding_id": binding_id,
+                   "as_of": "2026-10-03T13:00:00+00:00", "advanced": 3})
+
+
+def test_imported_in_october_uses_the_dated_september_reference(imported_progress, monkeypatch):
+    _, class_id, _, binding_id = imported_progress
+    monkeypatch.setattr(calendar, "load_baseline", lambda: {"baseline_as_of": "2026-09", "classes": [{
+        "class_org_unit_id": class_id, "class_name": "月更测试班", "expected_plan_version": "2026",
+        "expected_cohort_month": 7, "expected_current_cycle": 3}]})
+    with transaction() as connection:
+        execute(connection, "UPDATE class_learning_cycles SET created_at=? WHERE binding_id=?", (cycles._now(), binding_id))
+    assert monthly.refresh_class(class_id)["learning_cycle_index"] == 4
+
+
+def test_obsolete_monthly_jump_waits_for_reviewed_snapshot_and_preserves_all_rows(imported_progress):
+    _, class_id, _, binding_id = imported_progress
+    _obsolete_jump(imported_progress)
+    before = _runtime(binding_id)
+    credits_before = fetch_one("SELECT COUNT(*) AS count FROM learning_credit_entries")["count"]
+    assert monthly.refresh_class(class_id)["status"] == "REPAIR_REQUIRED"
+    assert calendar.apply_snapshot("0" * 64, at=cycles._now())["status"] == "REPAIR_SNAPSHOT_CHANGED"
+    with transaction() as connection:
+        proof = calendar.collect_audit(connection, at=cycles._now())
+    result = calendar.apply_snapshot(proof["snapshot_id"], at=cycles._now())
+    assert result["status"] == "REPAIRED"
+    rows = _runtime(binding_id)
+    assert [row["id"] for row in rows] == [row["id"] for row in before]
+    assert [row["cycle_status"] for row in rows] == ["CLOSED", "OPEN", "UPCOMING", "UPCOMING"]
+    assert cycles.get_class_learning_progress(user_id=imported_progress[0], class_org_unit_id=class_id)["current_cycle"]["learning_cycle_index"] == 4
+    assert monthly.refresh_class(class_id)["advanced"] == 0
+    assert monthly.refresh_class(class_id, at="2026-10-31T16:00:00+00:00")["learning_cycle_index"] == 5
+    assert _runtime(binding_id)[2]["id"] == before[2]["id"]
+    assert monthly.refresh_class(class_id, at="2026-11-30T16:00:00+00:00")["learning_cycle_index"] == 6
+    assert len(_runtime(binding_id)) == len(before)
+    assert calendar.apply_snapshot(proof["snapshot_id"], at="2026-12-01T00:00:00+00:00")["status"] == "NO_REPAIR_REQUIRED"
+    assert fetch_one("SELECT COUNT(*) AS count FROM learning_credit_entries")["count"] == credits_before
+
+
+def test_real_fact_after_obsolete_jump_blocks_automatic_repair(imported_progress):
+    _, class_id, _, binding_id = imported_progress
+    _obsolete_jump(imported_progress)
+    with transaction() as connection:
+        execute(connection, "UPDATE class_learning_cycles SET class_meeting_status='HELD',actual_class_meeting_at=? "
+                "WHERE binding_id=? AND learning_cycle_index=6", ("2026-10-02T10:00:00+00:00", binding_id))
+    before = _runtime(binding_id)
+    assert monthly.refresh_class(class_id)["status"] == "REPAIR_REVIEW_REQUIRED"
+    with transaction() as connection:
+        report = calendar.collect_audit(connection, at=cycles._now())
+    row = next(row for row in report["rows"] if row["class_id"] == class_id)
+    assert row["reason"] == "GENERATED_CYCLE_HAS_BUSINESS_FACTS_OR_OVERRIDE"
+    assert _runtime(binding_id) == before
+
+
+def test_manual_confirmation_after_obsolete_job_is_preserved(imported_progress):
+    admin, class_id, plan_id, binding_id = imported_progress
+    _obsolete_jump(imported_progress)
+    cycles.correct_class_learning_plan(actor_user_id=admin, class_org_unit_id=class_id, plan_version_id=plan_id,
+                                      cohort_month=7, learning_cycle_index=8, reason="本月人工明确为第八次")
+    assert monthly.refresh_class(class_id)["advanced"] == 0
+    assert _runtime(binding_id)[-1]["learning_cycle_index"] == 8

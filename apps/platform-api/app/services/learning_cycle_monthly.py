@@ -15,6 +15,7 @@ from app.db import execute, fetch_all, transaction
 from app.services.audit import write_audit
 from app.services.learning_cycle_schedule import parse_utc_datetime
 from app.services import learning_cycles as cycles
+from app.services import learning_cycle_calendar as calendar_clock
 
 BUSINESS_TIMEZONE = timezone(timedelta(hours=8))
 logger = logging.getLogger(__name__)
@@ -39,16 +40,23 @@ def _month_start(number: int) -> str:
     return datetime(year, month + 1, 1, tzinfo=BUSINESS_TIMEZONE).astimezone(UTC).isoformat()
 
 
-def monthly_status(binding: dict, cycle: dict | None, at: str) -> dict[str, Any]:
+def monthly_status(binding: dict, cycle: dict | None, at: str, *, connection=None) -> dict[str, Any]:
     result: dict[str, Any] = {"enabled": enabled(), "timezone": "Asia/Shanghai"}
     if not cycle or binding["status"] != "ACTIVE":
         return {**result, "status": "NOT_STARTED" if binding["status"] == "ACTIVE" else "INACTIVE"}
-    anchor = parse_utc_datetime(cycle["opened_at"])
-    # A manual correction declares the current cycle for its own month. It
-    # must not be replayed from the original, possibly much older start date.
-    if binding.get("transition_type") == "CORRECTION":
-        anchor = max(anchor, parse_utc_datetime(binding["updated_at"]))
-    anchor_month = _month_number(anchor)
+    if connection is not None:
+        state = calendar_clock.inspect_binding(connection, binding, cycle, at=at)
+        if state["status"] in {"REPAIR_REQUIRED", "REPAIR_REVIEW_REQUIRED"}:
+            return {**result, "status": state["status"], "due_cycles": 0, "next_refresh_at": None}
+        clock = state["clock"]
+        anchor_month = clock["month"]
+        result["clock_source"] = clock["source"]
+    else:
+        # Display-only fallback; actual writes always resolve the recorded
+        # month against audit and meeting evidence in the locked transaction.
+        anchor_month = _month_number(cycle["opened_at"] if int(cycle["learning_cycle_index"]) == 1 else cycle["created_at"])
+        if binding.get("transition_type") == "CORRECTION":
+            anchor_month = _month_number(binding["updated_at"])
     now = parse_utc_datetime(at)
     planned = cycle.get("planned_class_meeting_at")
     postponed = cycle.get("class_meeting_status") == "POSTPONED" and planned
@@ -85,7 +93,7 @@ def refresh_in_connection(connection, class_org_unit_id: str, *, at: str) -> dic
     if not binding:
         return {"status": "UNBOUND", "advanced": 0}
     cycle = cycles._cycle_at(connection, int(binding["id"]), at)
-    status = monthly_status(binding, cycle, at)
+    status = monthly_status(binding, cycle, at, connection=connection)
     if not cycle or not status.get("due_cycles"):
         return {**status, "advanced": 0}
     if cycle["cycle_status"] != "OPEN":
@@ -101,17 +109,19 @@ def refresh_in_connection(connection, class_org_unit_id: str, *, at: str) -> dic
         )
         if not plan:
             raise ValueError(f"学习计划缺少第{index}学习周期，不能自动更新")
-        if execute(connection, "SELECT id FROM class_learning_cycles WHERE binding_id=? AND learning_cycle_index=?",
-                   (binding["id"], index)).fetchone():
+        existing_row = execute(connection, "SELECT * FROM class_learning_cycles WHERE binding_id=? AND learning_cycle_index=?",
+                               (binding["id"], index)).fetchone()
+        existing = dict(existing_row) if existing_row else None
+        if existing and not calendar_clock.can_activate_upcoming(connection, int(binding["id"]), existing):
             raise ValueError("目标周期已有历史记录，不能自动覆盖")
-        next_cycles.append(plan)
+        next_cycles.append((plan, existing))
         override = cycles._active_schedule_override(connection, binding_id=int(binding["id"]), learning_cycle_index=index)
         if override and parse_utc_datetime(override["planned_class_meeting_at"]) > parse_utc_datetime(at):
             break
     now = cycles._storage_datetime(connection, at)
     anchor_month = _month_number(status["anchor_month"])
     previous_id = cycle["id"]
-    for offset, plan in enumerate(next_cycles, start=1):
+    for offset, (plan, existing) in enumerate(next_cycles, start=1):
         boundary = cycles._storage_datetime(connection, _month_start(anchor_month + offset))
         # Closing a calendar period does not say its class meeting was held,
         # its courses were completed, or its groups were absent.
@@ -120,7 +130,13 @@ def refresh_in_connection(connection, class_org_unit_id: str, *, at: str) -> dic
         index = current_index + offset
         override = cycles._active_schedule_override(connection, binding_id=int(binding["id"]), learning_cycle_index=index)
         planned = (cycles._output_datetime(override["planned_class_meeting_at"], "计划班会时间")
-                   if override else cycles._planned_at_for_binding_cycle(binding, index))
+                   if override else calendar_clock.month_start(anchor_month + offset))
+        if existing:
+            execute(connection, "UPDATE class_learning_cycles SET opened_at=?, planned_class_meeting_at=?, "
+                    "cycle_status='OPEN', closed_at=NULL, updated_at=? WHERE id=?",
+                    (boundary, cycles._storage_datetime(connection, planned), now, existing["id"]))
+            previous_id = int(existing["id"])
+            continue
         cursor = execute(connection,
             "INSERT INTO class_learning_cycles(binding_id, class_org_unit_id, learning_cycle_index, "
             "plan_cycle_id, opened_at, planned_class_meeting_at, class_meeting_status, group_meeting_policy, "
@@ -134,7 +150,8 @@ def refresh_in_connection(connection, class_org_unit_id: str, *, at: str) -> dic
                 purpose="按上海时区每月更新学习内容，不生成班会、课程完成或学分事实",
                 before={"learning_cycle_index": current_index, "cycle_id": cycle["id"]},
                 after={"learning_cycle_index": current_index + len(next_cycles), "cycle_id": previous_id,
-                       "binding_id": binding["id"], "as_of": at, "advanced": len(next_cycles)})
+                       "binding_id": binding["id"], "as_of": at, "advanced": len(next_cycles),
+                       "policy_version": calendar_clock.POLICY, "recorded_anchor_month": status["anchor_month"]})
     return {"status": "UPDATED", "advanced": len(next_cycles), "learning_cycle_index": current_index + len(next_cycles)}
 
 
@@ -168,6 +185,7 @@ async def run_monthly_refresh() -> None:
     """Startup catch-up and hourly sweeps; reads also recover idle containers."""
     while True:
         try:
+            await asyncio.to_thread(calendar_clock.audit_and_repair, at=cycles._now())
             summary = await asyncio.to_thread(refresh_all)
             # Aggregate operational proof only; no names, IDs or raw records.
             logging.getLogger("uvicorn.error").info(
