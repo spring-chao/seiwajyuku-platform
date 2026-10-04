@@ -5,7 +5,7 @@ const vm = require("node:vm");
 const test = require("node:test");
 
 test("enrollment rejects future and nonexistent birthdays while accepting leap days", () => {
-  const context = { getApp: () => ({ globalData: {} }), Page() {} };
+  const context = { getApp: () => ({ globalData: {} }), Page() {}, require: () => require("../utils/enrollment-rules") };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, "../pages/enrollment/index.js"), "utf8"), context);
   const valid = (date, max) => vm.runInContext(`validBirthday(${JSON.stringify(date)}, ${JSON.stringify(max)})`, context);

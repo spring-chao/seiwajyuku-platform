@@ -162,6 +162,24 @@ class EnrollmentApplicationTests(unittest.TestCase):
         )
         self.assertEqual(rejected.status_code, 422, rejected.text)
 
+    def test_public_reading_document_is_selected_by_organization_id(self) -> None:
+        _, token = self._create_link()
+        profile = {"status": "READY", "code": None, "display_name": "苏州塾",
+            "fee_amount": "4800", "fee_unit": "元/人/年"}
+        with patch("app.services.enrollment._public_shuku_profile", side_effect=lambda _: dict(profile)):
+            for scope in (None, "org-suzhou", "org-wuxi", "org-changzhou"):
+                response = self.client.get(f"/api/v1/public/enrollment/{token}",
+                    params={"target_shuku_org_unit_id": scope} if scope else {})
+                self.assertEqual(response.status_code, 200)
+                data = response.json()["data"]
+                document = data["joining_rules_document"]
+                self.assertEqual(document, data["shuku_profile"]["joining_rules_document"])
+                if scope == "org-suzhou":
+                    self.assertEqual(document["scope_org_unit_id"], scope)
+                    self.assertEqual(len(document["sections"]), 5)
+                else:
+                    self.assertIsNone(document)
+
     def test_public_form_loads_target_shuku_profile_only_after_target_selection(self) -> None:
         _, token = self._create_link()
         initial = self.client.get(f"/api/v1/public/enrollment/{token}")

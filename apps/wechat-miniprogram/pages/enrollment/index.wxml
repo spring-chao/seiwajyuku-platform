@@ -241,47 +241,16 @@
         <view class="support-kicker">05 · 重要说明</view>
         <view class="section-title">加入守则与缴费说明</view>
       </view>
-      <view class="rules-copy">
-        <view class="rules-subsection">
-          <view class="rules-heading">（一）加入守则</view>
-          <view wx:for="{{formMeta.joining_rules}}" wx:key="*this" class="rules-paragraph">{{item}}</view>
-          <view wx:if="{{!formMeta.joining_rules.length && formMeta.joining_notice}}" class="rules-paragraph">{{formMeta.joining_notice}}</view>
-        </view>
-        <view class="rules-subsection payment-subsection">
-          <view class="rules-heading">（二）缴费说明</view>
-          <view wx:if="{{formMeta.business_config_status === 'READY'}}">
-            <view wx:if="{{formMeta.fee_amount}}">学员服务费：{{formMeta.fee_amount}} {{formMeta.fee_unit}}</view>
-            <view wx:if="{{formMeta.fee_amount}}" class="fee-scope">适用于首次入塾及年度续费</view>
-            <view wx:if="{{formMeta.payment_instructions}}" class="rules-paragraph">{{formMeta.payment_instructions}}</view>
-            <view wx:if="{{formMeta.payment && formMeta.payment.payee_name}}">收款户名：{{formMeta.payment.payee_name}}</view>
-            <view wx:if="{{formMeta.payment && formMeta.payment.bank_name}}">开户行：{{formMeta.payment.bank_name}}</view>
-            <view wx:if="{{formMeta.payment && formMeta.payment.bank_account}}" class="copyable-line copyable-account" data-value="{{formMeta.payment.bank_account}}" bindtap="copyPaymentAccount">
-              <text class="copyable-label">收款账号</text>
-              <text class="copyable-text">{{formMeta.payment.bank_account}}</text>
-            </view>
-            <view wx:if="{{formMeta.payment && formMeta.payment.bank_account}}" class="copy-hint">点击收款账号即可复制</view>
-            <view wx:if="{{formMeta.contacts && formMeta.contacts.length}}" class="rules-heading contact-heading">咨询联系</view>
-            <view wx:if="{{formMeta.contacts && formMeta.contacts.length}}" wx:for="{{formMeta.contacts}}" wx:key="phone" class="copyable-line contact-line">
-              <text class="contact-name">{{item.name}}</text>
-              <text class="copyable-text contact-phone" data-phone="{{item.phone}}" bindtap="copyContactPhone">{{item.phone}}</text>
-            </view>
-            <view wx:if="{{!(formMeta.contacts && formMeta.contacts.length) && formMeta.contact && formMeta.contact.contact_name}}" class="rules-heading contact-heading">如有疑问请联系</view>
-            <view wx:if="{{!(formMeta.contacts && formMeta.contacts.length) && formMeta.contact && formMeta.contact.contact_name}}">联系人：{{formMeta.contact.contact_name}}</view>
-            <view wx:if="{{!(formMeta.contacts && formMeta.contacts.length) && formMeta.contact && formMeta.contact.contact_phone}}" class="copyable-line">
-              <text class="copyable-label">联系电话</text>
-              <text class="copyable-text" data-phone="{{formMeta.contact.contact_phone}}" bindtap="copyContactPhone">{{formMeta.contact.contact_phone}}</text>
-            </view>
-            <view wx:if="{{formMeta.service_address || (formMeta.contact && formMeta.contact.contact_address)}}" class="service-address">
-              <view class="service-address-label">运营服务地址</view>
-              <view>{{formMeta.service_address || formMeta.contact.contact_address}}</view>
-            </view>
-          </view>
-          <view wx:else class="config-warning">当前塾的缴费和联系资料尚未配置，请先联系工作人员确认。平台不会展示未经确认的收款账号或联系人。</view>
-        </view>
+      <view class="joining-summary">
+        <view class="joining-summary-title">申请前，请先了解</view>
+        <view wx:for="{{joiningDocument.summary}}" wx:key="*this" class="joining-summary-item"><text class="joining-summary-number">{{index + 1}}</text><text>{{item}}</text></view>
+      </view>
+      <view class="rules-detail-entry" bindtap="openJoiningRules" role="button" aria-label="查看加入守则与缴费说明详情">
+        <view><view class="rules-detail-title">《{{joiningDocument.title || '加入守则与缴费说明'}}》</view><view class="rules-detail-hint">点击查看条件、流程、缴费、学习与退费详情</view></view><text class="rules-detail-arrow">›</text>
       </view>
       <view class="consent-row" bindtap="toggleRules">
         <view class="checkbox {{rulesAcknowledged ? 'checked' : ''}}">{{rulesAcknowledged ? '✓' : ''}}</view>
-        <view>我已阅读并确认以上加入守则与缴费说明</view>
+        <view>我已阅读并确认<text class="privacy-link" catchtap="openJoiningRules">《加入守则与缴费说明》</text></view>
       </view>
     </view>
 
