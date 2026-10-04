@@ -18,6 +18,7 @@ from app.services.learning_plan_baseline import (
     baseline_by_class_id,
     baseline_summary,
     compare_expectation,
+    expectation_for_month,
     is_learning_plan_binding_required,
     load_baseline,
     public_expectation,
@@ -834,10 +835,10 @@ def _latest_learning_plan_confirmation(
     }
 
 
-def _monthly_cycle_status(binding, cycle, at):
+def _monthly_cycle_status(binding, cycle, at, *, connection=None):
     from app.services.learning_cycle_monthly import enabled, monthly_status
     if binding:
-        return monthly_status(binding, cycle, at)
+        return monthly_status(binding, cycle, at, connection=connection)
     return {"enabled": enabled(), "timezone": "Asia/Shanghai"}
 
 
@@ -1474,7 +1475,7 @@ def get_class_learning_plan_history(
             "SELECT action, resource_type, resource_id, purpose, result, before_json, "
             "after_json, created_at FROM audit_logs "
             "WHERE org_unit_id=? AND resource_type='class_learning_binding' "
-            "AND (action LIKE ? OR action='learning.cycle.monthly_refresh') ORDER BY created_at, id",
+            "AND (action LIKE ? OR action IN ('learning.cycle.monthly_refresh','learning.cycle.monthly_anchor_repair')) ORDER BY created_at, id",
             (class_org_unit_id, "learning.binding.%"),
         ).fetchall()
         events: list[dict[str, Any]] = []
@@ -1606,6 +1607,7 @@ def scan_class_learning_plan_health(
             "invalid_templates": 0,
             "missing_current_cycle": 0,
             "plan_cycle_mismatch": 0,
+            "monthly_anchor_errors": 0,
             "group_relation_anomalies": 0,
             "group_meeting_config_missing": 0,
             "volunteer_permission_missing": 0,
@@ -1625,6 +1627,9 @@ def scan_class_learning_plan_health(
             class_ids_in_scope.add(str(class_row["id"]))
             class_issues: list[dict[str, Any]] = []
             expectation = baseline_index.get(str(class_row["id"]))
+            from app.services.learning_cycle_monthly import enabled as monthly_enabled
+            if expectation and monthly_enabled():
+                expectation = expectation_for_month(expectation, baseline_as_of=baseline["baseline_as_of"], at=scan_at)
             expectation_name_matches = True
             if expectation:
                 expected_name = str(expectation.get("class_name") or "").strip()
@@ -1838,6 +1843,12 @@ def scan_class_learning_plan_health(
                                 suggested_action="先复核业务证据；确认后使用 CORRECTION 或当前状态修正，不自动创建新轮次。",
                             )
                         )
+            monthly_state = _monthly_cycle_status(binding, current_cycle, scan_at, connection=connection) if binding else None
+            if monthly_state and monthly_state.get("enabled") and monthly_state.get("status") in {"REPAIR_REQUIRED", "REPAIR_REVIEW_REQUIRED"}:
+                summary["monthly_anchor_errors"] += 1
+                class_issues.append(_health_issue(class_row=class_row, issue_type="MONTHLY_ANCHOR_REPAIR_REQUIRED",
+                    current_data={"learning_cycle_index": current_cycle["learning_cycle_index"], "status": monthly_state["status"]},
+                    suggested_action="月更曾使用错误月份基准；按核验清单修复，不覆盖实际登记或人工调整"))
             groups = _groups(connection, class_row["id"])
             group_anomalies = 0
             if plan_health_applicable:
@@ -1935,6 +1946,7 @@ def scan_class_learning_plan_health(
                     "INVALID_COHORT_TEMPLATE",
                     "MISSING_CURRENT_CYCLE",
                     "PLAN_CYCLE_MISMATCH",
+                    "MONTHLY_ANCHOR_REPAIR_REQUIRED",
                     "GROUP_MEETING_CONFIG_MISSING",
                     "EXPECTED_CYCLE_MISMATCH",
                     "EXPECTED_TEMPLATE_MISMATCH",
@@ -1979,7 +1991,7 @@ def scan_class_learning_plan_health(
                     else None
                 ),
                 "runtime_status": runtime_status,
-                "monthly_refresh": _monthly_cycle_status(binding, current_cycle, scan_at) if binding else None,
+                "monthly_refresh": monthly_state,
                 "business_expectation": (
                     public_expectation(expectation) if expectation else None
                 ),

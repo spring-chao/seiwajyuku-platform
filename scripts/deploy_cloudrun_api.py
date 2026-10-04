@@ -1702,9 +1702,9 @@ class CloudRunReleaseController:
         if continuation and network_repair and network_repair.restore_private_database_endpoint:
             raise ReleaseFailure("VPC_REPAIR_SCOPE_INVALID", "database endpoint restoration requires a new repair candidate")
         if release_input.candidate_verification == "startup-loopback" and (
-            not network_repair or continuation or release_input.artifact_mode != "source"
+            continuation or release_input.artifact_mode != "source" or not release_input.approval_ref
         ):
-            raise ReleaseFailure("CANDIDATE_VERIFICATION_INVALID", "startup check requires a new authorized source VPC repair candidate")
+            raise ReleaseFailure("CANDIDATE_VERIFICATION_INVALID", "startup check requires a new explicitly authorized main source candidate")
         if network_repair and (
             not release_input.approval_ref or release_input.artifact_mode != "source"
             or set(release_input.requested_env_changes) - {"LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED"}
@@ -2697,6 +2697,10 @@ class CloudRunReleaseController:
             self._assert_candidate_vpc(candidate, plan.desired_vpc_conf)
             if plan.startup_probe_id and int(_value(candidate, "Port") or 0) != 8000:
                 raise ReleaseFailure("CANDIDATE_SELF_PROBE_FAILED", "candidate listener differs from the fixed startup check port")
+            if plan.startup_probe_id:
+                expected_env = json.loads(plan.env_params_json) if plan.env_params_json else current_env
+                if _parse_env_params(_value(candidate, "EnvParams")) != expected_env:
+                    raise ReleaseFailure("CANDIDATE_ENV_MISMATCH", "candidate environment differs from the reviewed source release plan")
             if plan.network_repair:
                 expected_env = json.loads(plan.env_params_json) if plan.env_params_json else current_env
                 self._assert_repair_candidate(candidate_name, plan.desired_vpc_conf, expected_env)

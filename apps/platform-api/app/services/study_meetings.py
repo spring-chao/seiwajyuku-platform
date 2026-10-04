@@ -121,7 +121,9 @@ def _current_cycle(connection, class_org_unit_id: str) -> dict[str, Any]:
 def _refresh_monthly_content(class_org_unit_id: str) -> None:
     from app.services.learning_cycle_monthly import refresh_class
     try:
-        refresh_class(class_org_unit_id)
+        result = refresh_class(class_org_unit_id)
+        if result.get("status") in {"REPAIR_REQUIRED", "REPAIR_REVIEW_REQUIRED"}:
+            raise StudyMeetingError("该班级学习次数正在校准，请校准完成后再登记，避免记入错误周期")
     except ValueError as exc:
         raise StudyMeetingError(str(exc)) from exc
 

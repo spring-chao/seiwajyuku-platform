@@ -69,6 +69,9 @@ export type LearningPlanHealthClass = {
     expected_plan_version: string | null;
     expected_cohort_month: number | null;
     expected_current_cycle: number | null;
+    baseline_as_of?: string | null;
+    baseline_current_cycle?: number | null;
+    expected_as_of?: string | null;
     meeting_status: string | null;
     group_meeting_policy: string | null;
     expected_runtime_status: string | null;
