@@ -1,6 +1,7 @@
 "use strict";
 
-// Scheduled invocations orchestrate bounded cleanup in platform-api. The
+// Scheduled invocations orchestrate bounded cleanup and monthly progression
+// in platform-api while its HTTP request is entitled to CPU. The
 // authenticated HTTP route signs one private object operation using this
 // existing function's temporary runtime identity; it never accepts business
 // records, changes permissions, or returns a photo to anonymous callers.
@@ -51,7 +52,7 @@ function boundedTimeout(value) {
   return Math.min(parsed, MAX_TIMEOUT_MS);
 }
 
-async function requestCleanup(url, token, limit, timeoutMs) {
+async function requestMaintenance(url, token, payload, timeoutMs) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -62,24 +63,28 @@ async function requestCleanup(url, token, limit, timeoutMs) {
         "content-type": "application/json",
         "x-study-evidence-cleanup-token": token,
       },
-      body: JSON.stringify({ limit }),
+      body: JSON.stringify(payload),
       signal: controller.signal,
       redirect: "error",
     });
     const text = await response.text();
-    let payload = null;
+    let report = null;
     try {
-      payload = text ? JSON.parse(text) : null;
+      report = text ? JSON.parse(text) : null;
     } catch (_) {
-      payload = null;
+      report = null;
     }
     if (!response.ok) {
-      throw new Error(`cleanup endpoint returned HTTP ${response.status}`);
+      throw new Error(`maintenance endpoint returned HTTP ${response.status}`);
     }
-    return payload;
+    return report;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function validCounts(data, keys) {
+  return data && keys.every(key => Number.isInteger(data[key]) && data[key] >= 0);
 }
 
 exports.main = async (_event, _context) => {
@@ -88,15 +93,38 @@ exports.main = async (_event, _context) => {
   const token = requiredEnv("STUDY_EVIDENCE_CLEANUP_TOKEN");
   if (token.length < 32) throw new Error("STUDY_EVIDENCE_CLEANUP_TOKEN is too short");
   const timeoutMs = boundedTimeout(process.env.CLEANUP_REQUEST_TIMEOUT_MS);
-  const report = await requestCleanup(url, token, boundedLimit(process.env.STUDY_EVIDENCE_CLEANUP_LIMIT), timeoutMs);
-  const data = report && report.data ? report.data : {};
+  const monthlyUrl = new URL(url);
+  monthlyUrl.pathname = "/api/v1/internal/learning-cycle-monthly";
+  // One maintenance failure must not prevent the independent task from
+  // running. Both requests finish before the scheduled invocation returns.
+  const [cleanup, refresh] = await Promise.allSettled([
+    requestMaintenance(url, token, { limit: boundedLimit(process.env.STUDY_EVIDENCE_CLEANUP_LIMIT) }, timeoutMs),
+    requestMaintenance(monthlyUrl.toString(), token, {}, timeoutMs),
+  ]);
+  const report = cleanup.status === "fulfilled" ? cleanup.value : null;
+  const data = report && report.data;
+  const cleanupValid = Boolean(report && report.success === true && validCounts(data, ["candidates", "deleted", "errors"]));
+  const monthlyReport = refresh.status === "fulfilled" ? refresh.value : null;
+  const rawMonthly = monthlyReport && monthlyReport.data;
+  const monthlyValid = Boolean(monthlyReport && typeof monthlyReport.success === "boolean" && rawMonthly &&
+    typeof rawMonthly.enabled === "boolean" && validCounts(rawMonthly, ["scanned", "updated", "failed", "repair_required", "review_required"]));
+  const monthly = {
+    ok: monthlyValid && monthlyReport.success === true && rawMonthly.failed === 0 && rawMonthly.repair_required === 0 && rawMonthly.review_required === 0,
+    enabled: monthlyValid && rawMonthly.enabled,
+    scanned: monthlyValid ? rawMonthly.scanned : 0,
+    updated: monthlyValid ? rawMonthly.updated : 0,
+    failed: monthlyValid ? rawMonthly.failed : 1,
+    repair_required: monthlyValid ? rawMonthly.repair_required : 0,
+    review_required: monthlyValid ? rawMonthly.review_required : 0,
+  };
   // Return counts for the CloudBase invocation result, but never return or log
   // the authentication token or any upstream body containing sensitive data.
   return {
-    ok: Boolean(report && report.success) && Number(data.errors || 0) === 0,
-    candidates: Number(data.candidates || 0),
-    deleted: Number(data.deleted || 0),
-    errors: Number(data.errors || 0),
+    ok: cleanupValid && data.errors === 0 && monthly.ok,
+    candidates: cleanupValid ? data.candidates : 0,
+    deleted: cleanupValid ? data.deleted : 0,
+    errors: cleanupValid ? data.errors : 1,
+    monthly,
   };
 };
 

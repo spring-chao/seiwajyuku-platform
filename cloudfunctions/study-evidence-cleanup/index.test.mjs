@@ -121,7 +121,7 @@ test("cleanupEndpointUrl accepts only the exact HTTPS internal route", () => {
   }
 });
 
-test("main calls only the protected platform-api endpoint and returns safe counts", async () => {
+test("timer completes cleanup and monthly refresh through two fixed authenticated requests", async () => {
   const previousFetch = globalThis.fetch;
   const previous = {
     url: process.env.PLATFORM_API_CLEANUP_URL,
@@ -131,23 +131,30 @@ test("main calls only the protected platform-api endpoint and returns safe count
   process.env.PLATFORM_API_CLEANUP_URL = "https://api.example.invalid/api/v1/internal/study-evidence";
   process.env.STUDY_EVIDENCE_CLEANUP_TOKEN = "x".repeat(64);
   process.env.STUDY_EVIDENCE_CLEANUP_LIMIT = "23";
-  let request;
+  const requests = [];
   globalThis.fetch = async (url, options) => {
-    request = { url, options };
+    requests.push({ url, options });
     return new Response(JSON.stringify({
       success: true,
-      data: { candidates: 3, deleted: 2, errors: 0 },
+      data: url.endsWith("/study-evidence") ? { candidates: 3, deleted: 2, errors: 0 } :
+        { enabled: true, scanned: 19, updated: 0, failed: 0, repair_required: 0, review_required: 0, private_detail: "discard" },
     }), { status: 200, headers: { "content-type": "application/json" } });
   };
   try {
     const result = await cleanup.main({}, {});
     assert.equal(result.ok, true);
-    assert.deepEqual(result, { candidates: 3, deleted: 2, errors: 0, ok: true });
-    assert.equal(request.url, process.env.PLATFORM_API_CLEANUP_URL);
-    assert.equal(request.options.method, "POST");
-    assert.equal(request.options.redirect, "error");
-    assert.equal(request.options.headers["x-study-evidence-cleanup-token"], process.env.STUDY_EVIDENCE_CLEANUP_TOKEN);
-    assert.deepEqual(JSON.parse(request.options.body), { limit: 23 });
+    assert.deepEqual(result, { candidates: 3, deleted: 2, errors: 0, ok: true,
+      monthly: { ok: true, enabled: true, scanned: 19, updated: 0, failed: 0, repair_required: 0, review_required: 0 } });
+    assert.deepEqual(requests.map(r => r.url), [process.env.PLATFORM_API_CLEANUP_URL,
+      "https://api.example.invalid/api/v1/internal/learning-cycle-monthly"]);
+    for (const request of requests) {
+      assert.equal(request.options.method, "POST");
+      assert.equal(request.options.redirect, "error");
+      assert.equal(request.options.headers["x-study-evidence-cleanup-token"], process.env.STUDY_EVIDENCE_CLEANUP_TOKEN);
+    }
+    assert.deepEqual(JSON.parse(requests[0].options.body), { limit: 23 });
+    assert.deepEqual(JSON.parse(requests[1].options.body), {});
+    assert.ok(!JSON.stringify(result).includes("discard"));
   } finally {
     globalThis.fetch = previousFetch;
     for (const [key, value] of Object.entries({
@@ -160,3 +167,33 @@ test("main calls only the protected platform-api endpoint and returns safe count
     }
   }
 });
+
+for (const failingTask of ["study-evidence", "learning-cycle-monthly"]) {
+  test(`failure in ${failingTask} preserves the other maintenance call and returns no upstream details`, async () => {
+    const previousFetch = globalThis.fetch;
+    const previousUrl = process.env.PLATFORM_API_CLEANUP_URL;
+    const previousToken = process.env.STUDY_EVIDENCE_CLEANUP_TOKEN;
+    process.env.PLATFORM_API_CLEANUP_URL = "https://api.example.invalid/api/v1/internal/study-evidence";
+    process.env.STUDY_EVIDENCE_CLEANUP_TOKEN = "x".repeat(64);
+    const requests = [];
+    globalThis.fetch = async url => {
+      requests.push(url);
+      if (url.endsWith(`/${failingTask}`)) throw new Error("secret-looking upstream details");
+      return new Response(JSON.stringify({ success: true, data: url.endsWith("/study-evidence") ?
+        { candidates: 0, deleted: 0, errors: 0 } :
+        { enabled: true, scanned: 19, updated: 0, failed: 0, repair_required: 0, review_required: 0 } }));
+    };
+    try {
+      const result = await cleanup.main({}, {});
+      assert.equal(requests.length, 2);
+      assert.equal(result.ok, false);
+      assert.equal(result.errors, failingTask === "study-evidence" ? 1 : 0);
+      assert.equal(result.monthly.ok, failingTask === "study-evidence");
+      assert.ok(!JSON.stringify(result).includes("secret-looking"));
+    } finally {
+      globalThis.fetch = previousFetch;
+      if (previousUrl === undefined) delete process.env.PLATFORM_API_CLEANUP_URL; else process.env.PLATFORM_API_CLEANUP_URL = previousUrl;
+      if (previousToken === undefined) delete process.env.STUDY_EVIDENCE_CLEANUP_TOKEN; else process.env.STUDY_EVIDENCE_CLEANUP_TOKEN = previousToken;
+    }
+  });
+}

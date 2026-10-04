@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import asyncio
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -341,3 +343,31 @@ def test_repair_retains_original_postponement_instead_of_advancing_it(imported_p
     assert current["learning_cycle_index"] == 3 and current["class_meeting_status"] == "POSTPONED"
     assert monthly.refresh_class(class_id)["status"] == "POSTPONED"
     assert [row["cycle_status"] for row in _runtime(binding_id)] == ["OPEN", "UPCOMING", "UPCOMING", "UPCOMING"]
+
+
+def test_production_startup_finishes_once_without_an_idle_background_loop(monkeypatch):
+    calls = []
+    monkeypatch.setattr(monthly, "get_settings", lambda: SimpleNamespace(is_production=True))
+    monkeypatch.setattr(monthly, "refresh_sweep", lambda **kwargs: calls.append(kwargs))
+    asyncio.run(asyncio.wait_for(monthly.run_monthly_refresh(), timeout=2))
+    assert calls == [{"startup_repair": True}]
+
+
+def test_request_sweep_is_idempotent_and_cannot_apply_an_old_repair(imported_progress, monkeypatch):
+    _, class_id, _, binding_id = imported_progress
+    # Focus this scheduled sweep on one isolated imported September ordinal.
+    def refresh_fixture():
+        result = monthly.refresh_class(class_id)
+        return {"scanned": 1, "updated": int(bool(result["advanced"])), "failed": 0}
+    monkeypatch.setattr(monthly, "refresh_all", refresh_fixture)
+    def forbid_repair(**kwargs):
+        raise AssertionError("A timer cannot apply a historical repair snapshot")
+    monkeypatch.setattr(calendar, "audit_and_repair", forbid_repair)
+    monkeypatch.setenv(calendar.REPAIR_ENV, "0" * 64)
+    credits_before = fetch_one("SELECT COUNT(*) AS count FROM learning_credit_entries")["count"]
+    first = monthly.refresh_sweep()
+    second = monthly.refresh_sweep()
+    assert first["updated"] == 1 and second["updated"] == 0
+    assert _runtime(binding_id)[-1]["learning_cycle_index"] == 4
+    assert fetch_one("SELECT COUNT(*) AS count FROM learning_credit_entries")["count"] == credits_before
+    assert all(row["actual_class_meeting_at"] is None for row in _runtime(binding_id))
