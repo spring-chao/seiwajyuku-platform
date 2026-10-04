@@ -37,6 +37,7 @@ class SystemApiTests(unittest.TestCase):
                 "wechat_member_binding_enabled": False,
                 "wechat_staff_mobile_operations_enabled": False,
                 "wechat_local_test_mode": False,
+                "learning_cycle_monthly_refresh_enabled": False,
             },
         )
 
