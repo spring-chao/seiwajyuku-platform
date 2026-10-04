@@ -160,8 +160,16 @@ def inspect_binding(connection, binding: dict, current: dict | None, *, at: str)
     target = min(int(binding["duration_cycles"]), original_index + max(0, month_number(at) - anchor))
     # A future postponement is an explicit business exception to the calendar.
     planned = original.get("planned_class_meeting_at")
-    if original["class_meeting_status"] == "POSTPONED" and planned and parse_utc_datetime(planned) > parse_utc_datetime(at):
-        return {"status": "REPAIR_REVIEW_REQUIRED", "reason": "POSTPONEMENT_CONFLICT", "repair": None}
+    scheduled_anchor = anchor
+    if original["class_meeting_status"] == "POSTPONED":
+        if not planned or month_number(planned) < anchor or parse_utc_datetime(planned) > parse_utc_datetime(at):
+            # A stale cohort-relative date is not a resumption decision. Keep
+            # the paused ordinal while restoring only the erroneous rows.
+            target = original_index
+            scheduled_anchor = max(month_number(at), month_number(planned) if planned else anchor)
+        else:
+            scheduled_anchor = max(anchor, month_number(planned))
+            target = min(int(binding["duration_cycles"]), original_index + max(0, month_number(at) - scheduled_anchor))
     if int(current["learning_cycle_index"]) == target:
         return {"status": "CURRENT", "repair": None,
                 "clock": {"month": anchor + target - original_index, "source": base_clock["source"]}}
@@ -191,9 +199,12 @@ def inspect_binding(connection, binding: dict, current: dict | None, *, at: str)
         "binding_updated_at": binding["updated_at"],
         "audit_ids": [int(event["id"]) for event in old], "original_cycle_id": int(original["id"]),
         "original_index": original_index, "original_month": month_label(anchor), "clock_source": base_clock["source"],
+        "original_class_meeting_status": original["class_meeting_status"],
+        "original_planned_class_meeting_at": original.get("planned_class_meeting_at"),
+        "scheduled_anchor_month": month_label(scheduled_anchor),
         "original_closed_at": original.get("closed_at"), "original_updated_at": original["updated_at"],
         "current_index": int(current["learning_cycle_index"]), "target_index": target,
-        "current_month": month_label(anchor + target - original_index), "generated": snapshots}
+        "current_month": month_label(scheduled_anchor + target - original_index), "generated": snapshots}
     return {"status": "REPAIR_REQUIRED", "repair": repair, "clock": base_clock}
 
 
@@ -227,6 +238,7 @@ def collect_audit(connection, *, at: str) -> dict:
             row.update(binding_id=int(binding["id"]), cohort_month=binding.get("cohort_month"),
                 plan_version=binding["version_label"], status=state["status"],
                 current_index=int(current["learning_cycle_index"]) if current else None,
+                class_meeting_status=current["class_meeting_status"] if current else None,
                 binding_created_month=month_label(month_number(binding["created_at"])),
                 transition_type=binding.get("transition_type"),
                 cycle_opened_month=month_label(month_number(current["opened_at"])) if current else None)
@@ -238,6 +250,8 @@ def collect_audit(connection, *, at: str) -> dict:
                 plan = state["repair"]
                 row.update(target_index=plan["target_index"], original_index=plan["original_index"],
                     original_month=plan["original_month"], old_monthly_audit_ids=plan["audit_ids"],
+                    original_class_meeting_status=plan["original_class_meeting_status"],
+                    original_planned_class_meeting_at=plan["original_planned_class_meeting_at"],
                     generated_cycle_count=len(plan["generated"]))
                 plans.append(plan)
             else:
@@ -267,7 +281,7 @@ def apply_snapshot(expected: str, *, at: str) -> dict:
         now = cycles._storage_datetime(connection, at)
         for plan in audit["repairs"]:
             binding = cycles._active_binding(connection, plan["class_org_unit_id"])
-            anchor = month_number(plan["original_month"] + "-01")
+            anchor = month_number(plan["scheduled_anchor_month"] + "-01")
             original = execute(connection, "SELECT * FROM class_learning_cycles WHERE id=?", (plan["original_cycle_id"],)).fetchone()
             target_id = plan["original_cycle_id"]
             for row in plan["generated"]:

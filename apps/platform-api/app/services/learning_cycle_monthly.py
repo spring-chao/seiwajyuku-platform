@@ -59,8 +59,8 @@ def monthly_status(binding: dict, cycle: dict | None, at: str, *, connection=Non
             anchor_month = _month_number(binding["updated_at"])
     now = parse_utc_datetime(at)
     planned = cycle.get("planned_class_meeting_at")
-    postponed = cycle.get("class_meeting_status") == "POSTPONED" and planned
-    if postponed and parse_utc_datetime(planned) > now:
+    postponed = cycle.get("class_meeting_status") == "POSTPONED"
+    if postponed and (not planned or _month_number(planned) < anchor_month or parse_utc_datetime(planned) > now):
         return {**result, "status": "POSTPONED", "next_refresh_at": None, "due_cycles": 0}
     if postponed:
         anchor_month = max(anchor_month, _month_number(planned))
