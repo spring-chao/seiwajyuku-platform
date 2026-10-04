@@ -73,6 +73,10 @@ test("HTTP invocations require the server token and never trigger scheduled clea
     assert.equal(result.statusCode, 200);
     assert.equal(result.headers["Cache-Control"], "private, no-store");
     assert.equal(JSON.parse(result.body).expires_in, 90);
+    for (const path of ["/", ""]) {
+      assert.equal((await cleanup.main({ ...event, path }, {})).statusCode, 200);
+      assert.equal((await cleanup.main({ ...event, path, headers: {} }, {})).statusCode, 401);
+    }
     assert.ok(!result.body.includes(values.STUDY_EVIDENCE_CLEANUP_TOKEN));
     assert.equal((await cleanup.main({ ...event, body: "x".repeat(2049) }, {})).statusCode, 400);
     assert.equal((await cleanup.main({ ...event, body: "not json" }, {})).statusCode, 503);
