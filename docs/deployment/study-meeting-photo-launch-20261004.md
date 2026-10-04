@@ -8,6 +8,8 @@
 
 容器实际没有存储运行身份，不能把本地 CloudBase 登录临时凭据注入生产，也不新建宽权限环境 API Key。现有事件云函数复用自动注入的临时身份：在同一函数增加 `/study-evidence-storage` 服务路径及明确启用配置，后端配置 `CLOUDBASE_STORAGE_BRIDGE_URL`。HTTP 请求须持有已有服务间 Token，只允许 `study-meetings/production/YYYY/MM/<随机32位ID>.jpg|png` 的单对象 PUT/GET/HEAD/DELETE，签名90秒到期。PUT 绑定图片类型、私有 ACL 和禁止覆盖条件。后端直接传输图片到既有桶，前端不接触存储凭据或签名 URL；原定时事件继续走既有清理入口。拒绝重定向、任意桶和路径，错误中不保留签名 URL。
 
+网关默认剥去触发路径前缀，云函数只接受映射后的根路径或开启透传时的完整固定路径；两种路径均要求服务间 Token，其他子路径拒绝。保持既有网关设置。参见[路径透传说明](https://docs.cloudbase.net/en/service/path-passthrough)。
+
 ## 发布验收
 
 发布前通过隔离测试，确认一张真实 JPG/PNG、5MB限制、剥离图片元数据、组织范围隔离、重试复用草稿、重复提交幂等及未完成课程可登记。

@@ -41,7 +41,9 @@ function response(statusCode, data) {
 
 function handle(event) {
   if (event.httpMethod !== "POST") return response(405, { error: "method not allowed" });
-  if (event.path !== PATH) return response(404, { error: "not found" });
+  // CloudBase strips the configured route prefix by default. Accept only
+  // that mapped root or the full path when passthrough is enabled.
+  if (![PATH, "/", ""].includes(event.path)) return response(404, { error: "not found" });
   const expected = process.env.STUDY_EVIDENCE_CLEANUP_TOKEN || "";
   const headers = Object.fromEntries(Object.entries(event.headers || {}).map(([k,v]) => [k.toLowerCase(),v]));
   const supplied = headers["x-study-evidence-cleanup-token"] || "";
