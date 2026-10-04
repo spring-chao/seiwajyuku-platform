@@ -324,3 +324,20 @@ def test_manual_confirmation_after_obsolete_job_is_preserved(imported_progress):
                                       cohort_month=7, learning_cycle_index=8, reason="本月人工明确为第八次")
     assert monthly.refresh_class(class_id)["advanced"] == 0
     assert _runtime(binding_id)[-1]["learning_cycle_index"] == 8
+
+
+@pytest.mark.parametrize("planned", [None, "2025-10-01T00:00:00+00:00", "2026-11-20T00:00:00+00:00"])
+def test_repair_retains_original_postponement_instead_of_advancing_it(imported_progress, planned):
+    admin, class_id, _, binding_id = imported_progress
+    _obsolete_jump(imported_progress)
+    with transaction() as connection:
+        execute(connection, "UPDATE class_learning_cycles SET class_meeting_status='POSTPONED',planned_class_meeting_at=? "
+                "WHERE binding_id=? AND learning_cycle_index=3", (planned, binding_id))
+        report = calendar.collect_audit(connection, at=cycles._now())
+    proposal = next(row for row in report["repairs"] if row["binding_id"] == binding_id)
+    assert proposal["target_index"] == 3
+    assert calendar.apply_snapshot(report["snapshot_id"], at=cycles._now())["status"] == "REPAIRED"
+    current = cycles.get_class_learning_progress(user_id=admin, class_org_unit_id=class_id)["current_cycle"]
+    assert current["learning_cycle_index"] == 3 and current["class_meeting_status"] == "POSTPONED"
+    assert monthly.refresh_class(class_id)["status"] == "POSTPONED"
+    assert [row["cycle_status"] for row in _runtime(binding_id)] == ["OPEN", "UPCOMING", "UPCOMING", "UPCOMING"]
