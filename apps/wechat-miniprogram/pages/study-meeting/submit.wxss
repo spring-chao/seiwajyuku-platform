@@ -12,5 +12,18 @@
 .notice-card { border-left: 8rpx solid #d79a83; }
 .primary-button { margin-top: 24rpx; border-radius: 12rpx; background: #741f2b; color: #fff; font-size: 29rpx; }
 .error { color: #b33b44; }
-.study-photo { width: 100%; height: 360rpx; margin-top: 20rpx; border-radius: 16rpx; background: #fbf7f3; }
+.photo-preview { position: relative; margin-top: 22rpx; overflow: hidden; border: 2rpx solid #ebddd6; border-radius: 16rpx; background: #fbf7f3; }
+.study-photo { display: block; width: 100%; height: 380rpx; }
+.photo-preview-message { position: absolute; top: 0; left: 0; right: 0; height: 380rpx; display: flex; align-items: center; justify-content: center; padding: 24rpx; box-sizing: border-box; background: #fbf7f3; color: #806f6f; font-size: 26rpx; text-align: center; }
+.photo-preview-message.error { color: #b33b44; }
+.photo-preview-caption { padding: 14rpx 18rpx; background: #f6eeea; color: #741f2b; font-size: 24rpx; text-align: center; }
+.photo-empty { margin-top: 22rpx; padding: 54rpx 24rpx; border: 2rpx dashed #d9c4bb; border-radius: 16rpx; color: #806f6f; font-size: 27rpx; text-align: center; }
+.photo-status { display: inline-block; margin-top: 20rpx; padding: 8rpx 18rpx; border-radius: 10rpx; background: #f6eeea; color: #741f2b; font-size: 26rpx; font-weight: 600; }
+.photo-status.uploaded { background: #e9f4ed; color: #276248; }
+.photo-status.uploading { background: #fff3dc; color: #8c612a; }
+.photo-status.failed { background: #fcecec; color: #b33b44; }
+.photo-help, .photo-feedback { margin-top: 12rpx; font-size: 25rpx; line-height: 1.65; overflow-wrap: break-word; }
+.photo-help { color: #806f6f; }
+.photo-feedback { color: #b33b44; }
+.submit-feedback { margin-top: 24rpx; padding: 20rpx 24rpx; border-radius: 16rpx; background: #fff0e8; color: #943c28; font-size: 26rpx; line-height: 1.6; }
 .photo-button { margin-top: 22rpx; background: #f6eeea; color: #741f2b; font-size: 28rpx; }

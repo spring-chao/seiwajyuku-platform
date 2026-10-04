@@ -41,15 +41,26 @@
     <view class="section-card">
       <view class="section-title">一张学习合影</view>
       <view class="section-hint">拍一张，或从相册选择。仅用于学习记录核验，默认保留7天。</view>
-      <image wx:if="{{photoPath}}" class="study-photo" src="{{photoPath}}" mode="aspectFit" bindtap="previewPhoto" />
-      <button class="photo-button" bindtap="choosePhoto" loading="{{choosingPhoto}}" disabled="{{submitting || choosingPhoto || !evidenceEnabled}}">{{photoPath ? '重新选择合影' : '拍照 / 选择合影'}}</button>
+      <view wx:if="{{photoPath}}" class="photo-preview">
+        <image class="study-photo" src="{{photoPath}}" data-path="{{photoPath}}" mode="aspectFit" bindtap="previewPhoto" bindload="photoLoaded" binderror="photoLoadFailed" />
+        <view wx:if="{{!photoLoaded}}" class="photo-preview-message {{photoPreviewError ? 'error' : ''}}">{{photoPreviewError ? '合影预览失败，请重新选择图片' : '正在加载合影预览…'}}</view>
+        <view wx:if="{{photoLoaded}}" class="photo-preview-caption">{{submitting ? '正在提交，请稍候' : '点击合影查看大图，确认图片内容'}}</view>
+      </view>
+      <view wx:else class="photo-empty">{{choosingPhoto ? '正在处理合影，请稍候…' : '尚未选择合影'}}</view>
+      <view wx:if="{{photoPath}}" class="photo-status {{photoUploadState}}">
+        {{photoUploadState === 'uploading' ? '正在上传合影…' : (photoUploadState === 'uploaded' ? '合影上传成功' : (photoUploadState === 'failed' ? '合影上传失败' : '已选择合影 · 待上传'))}}
+      </view>
+      <view wx:if="{{photoPath && photoUploadState === 'selected'}}" class="photo-help">确认照片无误后，点击下方“提交本次学习会”，合影将随登记一起上传。</view>
+      <view wx:if="{{photoFeedback}}" class="photo-feedback" role="alert">{{photoFeedback}}</view>
+      <button class="photo-button" bindtap="choosePhoto" loading="{{choosingPhoto}}" disabled="{{submitting || choosingPhoto || !evidenceEnabled}}">{{choosingPhoto ? '正在处理合影…' : (photoPath ? '重新拍摄 / 选择合影' : '拍照 / 选择合影')}}</button>
       <view wx:if="{{!evidenceEnabled}}" class="feature-hint">合影功能尚未开启，请联系运营人员。</view>
     </view>
     <view class="section-card notice-card">
       <view class="section-title">本次登记</view>
       <view class="section-hint">本组 {{homeCount}} 人{{crossSummary}}。提交后即可完成本次学习会登记。</view>
     </view>
-    <button class="primary-button" loading="{{submitting}}" disabled="{{submitting || choosingPhoto || !evidenceEnabled}}" bindtap="submit">提交本次学习会</button>
+    <view wx:if="{{submitError}}" class="submit-feedback" role="alert">{{submitError}}</view>
+    <button class="primary-button" loading="{{submitting}}" disabled="{{submitting || choosingPhoto || !evidenceEnabled || photoPreviewError}}" bindtap="submit">{{submitting ? submitStage : (submitError ? '重试提交本次学习会' : '提交本次学习会')}}</button>
   </block>
   <view wx:if="{{!loading && assignment && assignment.current_cycle && !meetingPlanReady}}" class="state-card error">
     {{meetingPlanError || '当前学习周期内容配置尚未完成，请联系运营人员。'}}

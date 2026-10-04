@@ -123,8 +123,8 @@ test("one photo is compressed; retry reuses server draft and does not reupload",
 test("concurrent taps submit once and points are never sent by the leader", async () => {
   const { page, calls } = harness();
   page.data.evidenceEnabled = true;
-  page.data.photoPath = "/tmp/small.jpg";
   await page.loadContext();
+  await page.choosePhoto();
   page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: "content-1", completed: "yes" } } });
   await Promise.all([page.submit(), page.submit()]);
   const creates = calls.filter(item => item.path === "/api/v1/study-meetings");
