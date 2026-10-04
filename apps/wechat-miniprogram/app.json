@@ -21,7 +21,8 @@
     "pages/study-meeting/members",
     "pages/study-meeting/submit",
     "pages/study-meeting/result",
-    "pages/enrollment/index"
+    "pages/enrollment/index",
+    "pages/enrollment/rules"
   ],
   "window": {
     "navigationBarTitleText": "学长服务助手",

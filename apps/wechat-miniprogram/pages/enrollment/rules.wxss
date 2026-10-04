@@ -1,0 +1,34 @@
+page { background: #fbf7f3; color: #44342f; }
+.rules-document { height: 100vh; display: flex; flex-direction: column; }
+.document-scroll { flex: 1; height: 0; min-height: 0; }
+.document-content { padding: 32rpx 28rpx; }
+.document-kicker { color: #8d6557; font-size: 23rpx; }
+.document-title { margin-top: 14rpx; color: #762230; font-size: 42rpx; font-weight: 700; line-height: 1.4; }
+.document-introduction, .document-paragraph, .summary-item, .reading-note { font-size: 28rpx; line-height: 1.85; overflow-wrap: break-word; }
+.document-introduction { margin-top: 24rpx; color: #76655e; }
+.document-summary { margin-top: 28rpx; padding: 26rpx; background: #f5e9df; border-radius: 20rpx; }
+.summary-heading { font-size: 30rpx; color: #762230; font-weight: 700; }
+.summary-item { margin-top: 16rpx; font-size: 26rpx; }
+.document-nav { display: flex; flex-wrap: wrap; gap: 14rpx; margin: 28rpx 0; }
+.section-link { width: 100%; margin: 0; padding: 15rpx 22rpx; border-radius: 12rpx; background: #fff; color: #762230; font-size: 26rpx; line-height: 1.65; text-align: left; white-space: normal; }
+.document-section { margin-top: 24rpx; padding: 28rpx; background: #fff; border-radius: 20rpx; }
+.document-heading { font-size: 32rpx; font-weight: 700; color: #762230; line-height: 1.5; }
+.document-paragraph { margin-top: 20rpx; }
+.payment-details { margin-top: 24rpx; padding-top: 24rpx; border-top: 2rpx solid #eee3dd; font-size: 28rpx; line-height: 1.8; }
+.fee-highlight { font-weight: 700; color: #762230; }
+.payment-row { margin-top: 20rpx; overflow-wrap: break-word; }
+.payment-label { font-size: 24rpx; color: #8e7c74; }
+.copyable-text { color: #762230; text-decoration: underline; word-break: break-all; }
+.detail-hint { margin-top: 8rpx; color: #8e7c74; font-size: 23rpx; line-height: 1.6; }
+.document-warning, .section-note { margin-top: 24rpx; padding: 20rpx; background: #fff4e8; color: #825a36; border-radius: 12rpx; font-size: 26rpx; line-height: 1.75; }
+.points-list { margin-top: 28rpx; }
+.points-heading { font-size: 28rpx; font-weight: 700; }
+.points-row { display: flex; align-items: flex-start; gap: 20rpx; padding: 18rpx 0; border-bottom: 2rpx solid #f0e6e0; font-size: 26rpx; line-height: 1.65; }
+.points-label { flex: 1; min-width: 0; }
+.points-value { flex-shrink: 0; color: #762230; font-weight: 600; }
+.refund-section { border-left: 6rpx solid #c89470; }
+.reading-note { margin-top: 28rpx; padding: 0 10rpx; color: #76655e; font-size: 26rpx; }
+.contact-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12rpx 24rpx; margin-top: 20rpx; font-size: 28rpx; }
+.document-empty { flex: 1; padding: 48rpx 32rpx; font-size: 28rpx; line-height: 1.8; }
+.document-footer { flex-shrink: 0; padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom)); background: #fff; border-top: 2rpx solid #eee3dd; text-align: center; }
+.return-button { background: #762230; color: #fff; border-radius: 16rpx; font-size: 30rpx; }

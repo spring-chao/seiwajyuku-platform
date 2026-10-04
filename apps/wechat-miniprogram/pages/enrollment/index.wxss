@@ -649,6 +649,16 @@ page {
   color: #762230;
 }
 
+.joining-summary { margin-top: 24rpx; }
+.joining-summary-title { color: #675651; font-size: 27rpx; font-weight: 600; }
+.joining-summary-item { display: flex; align-items: flex-start; gap: 14rpx; margin-top: 18rpx; color: #75645d; font-size: 25rpx; line-height: 1.8; }
+.joining-summary-number { flex-shrink: 0; color: #762230; font-weight: 600; }
+.rules-detail-entry { display: flex; align-items: center; justify-content: space-between; gap: 14rpx; margin-top: 26rpx; padding: 24rpx 20rpx; border: 2rpx solid #e9d8cb; border-radius: 16rpx; background: #fbf5ee; }
+.rules-detail-entry > view { flex: 1; min-width: 0; }
+.rules-detail-title { color: #762230; font-size: 27rpx; font-weight: 600; line-height: 1.6; }
+.rules-detail-hint { margin-top: 8rpx; color: #96847b; font-size: 23rpx; line-height: 1.6; }
+.rules-detail-arrow { flex-shrink: 0; color: #762230; font-size: 44rpx; }
+
 .privacy-copy {
   margin-top: 12rpx;
   color: #a59791;

@@ -1,0 +1,45 @@
+<view class="rules-document">
+  <scroll-view wx:if="{{document}}" scroll-y class="document-scroll" scroll-into-view="{{activeSection}}" scroll-with-animation>
+    <view class="document-content">
+      <view class="document-kicker">申请前请阅读</view>
+      <view class="document-title">{{document.title}}</view>
+      <view class="document-introduction">{{document.introduction}}</view>
+      <view class="document-summary">
+        <view class="summary-heading">先了解这几件事</view>
+        <view wx:for="{{document.summary}}" wx:key="*this" class="summary-item">{{index + 1}}. {{item}}</view>
+      </view>
+      <view class="document-nav">
+        <button wx:for="{{document.sections}}" wx:key="id" class="section-link" data-section="{{item.id}}" bindtap="goToSection">{{item.title}}</button>
+      </view>
+      <view wx:for="{{document.sections}}" wx:key="id" wx:for-item="section" id="section-{{section.id}}" class="document-section {{section.id === 'refund' ? 'refund-section' : ''}}">
+        <view class="document-heading">{{section.title}}</view>
+        <view wx:for="{{section.paragraphs}}" wx:key="*this" class="document-paragraph">{{item}}</view>
+        <block wx:if="{{section.id === 'payment'}}">
+          <view wx:if="{{document.businessReady}}" class="payment-details">
+            <view wx:if="{{document.feeAmount}}" class="fee-highlight">学员费：{{document.feeAmount}} {{document.feeUnit}}</view>
+            <view wx:if="{{document.feeAmount}}" class="detail-hint">适用于首次入塾及年度续费</view>
+            <view wx:if="{{document.paymentInstructions}}" class="document-paragraph">{{document.paymentInstructions}}</view>
+            <view wx:if="{{document.payment.payeeName}}" class="payment-row"><view class="payment-label">收款户名</view><view>{{document.payment.payeeName}}</view></view>
+            <view wx:if="{{document.payment.bankName}}" class="payment-row"><view class="payment-label">开户行</view><view>{{document.payment.bankName}}</view></view>
+            <view wx:if="{{document.payment.bankAccount}}" class="payment-row"><view class="payment-label">收款账号</view><view class="copyable-text" data-value="{{document.payment.bankAccount}}" bindtap="copyPublicInfo">{{document.payment.bankAccount}}</view><view class="detail-hint">点击账号即可复制</view></view>
+          </view>
+          <view wx:else class="document-warning">当前塾的缴费和联系资料尚未配置，请先联系工作人员确认。</view>
+        </block>
+        <view wx:if="{{section.points && section.points.length}}" class="points-list">
+          <view class="points-heading">积分累计规则</view>
+          <view wx:for="{{section.points}}" wx:key="label" class="points-row"><view class="points-label">{{item.label}}</view><view class="points-value">{{item.points}} 分</view></view>
+        </view>
+        <view wx:if="{{section.note}}" class="section-note">{{section.note}}</view>
+      </view>
+      <view class="reading-note">{{document.readingNote}}</view>
+      <view wx:if="{{document.businessReady && (document.contacts.length || document.serviceAddress)}}" class="document-section">
+        <view class="document-heading">咨询与联系</view>
+        <view wx:for="{{document.contacts}}" wx:key="phone" class="contact-row"><text>{{item.name}}</text><text class="copyable-text" data-value="{{item.phone}}" bindtap="copyPublicInfo">{{item.phone}}</text></view>
+        <view wx:if="{{document.contacts.length}}" class="detail-hint">点击联系电话即可复制</view>
+        <view wx:if="{{document.serviceAddress}}" class="document-paragraph">服务地址：{{document.serviceAddress}}</view>
+      </view>
+    </view>
+  </scroll-view>
+  <view wx:else class="document-empty">请从入塾申请页点击守则链接，查看对应塾的完整说明。</view>
+  <view class="document-footer"><button class="return-button" bindtap="returnToForm">返回申请页</button><view class="detail-hint">阅读完成后，请在申请页自行勾选确认</view></view>
+</view>

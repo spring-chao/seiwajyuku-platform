@@ -1,4 +1,5 @@
 const app = getApp();
+const { enrollmentRulesDocument } = require("../../utils/enrollment-rules");
 
 const REQUIRED_FIELDS = [
   ["name", "姓名"],
@@ -175,7 +176,8 @@ Page({
     isRevenueCustom: false,
     isProfitCustom: false,
     rulesAcknowledged: false,
-    privacyConsent: false
+    privacyConsent: false,
+    joiningDocument: null
   },
 
   onLoad(options) {
@@ -236,7 +238,8 @@ Page({
         : (metadata.joining_notice ? [metadata.joining_notice] : []);
       this.setData({
         state: !metadata.target_shuku_locked && !selectedTargetId ? "selecting" : "ready",
-        formMeta: { ...this.data.formMeta, ...metadata, joining_rules: joiningRules },
+        formMeta: { ...this.data.formMeta, ...metadata, joining_rules: joiningRules, joining_rules_document: metadata.joining_rules_document || null },
+        joiningDocument: enrollmentRulesDocument({ ...metadata, joining_rules: joiningRules }),
         targetShukuOptions: targetOptions,
         selectedTargetShukuId: selectedTargetId,
         selectedTargetShukuName: selectedTargetName,
@@ -343,6 +346,16 @@ Page({
 
   toggleRules() {
     this.setData({ rulesAcknowledged: !this.data.rulesAcknowledged });
+  },
+
+  openJoiningRules() {
+    if (this.data.submitting || this.data.state !== "ready" || !this.data.joiningDocument) return;
+    const document = this.data.joiningDocument;
+    wx.navigateTo({
+      url: "/pages/enrollment/rules",
+      success: result => result.eventChannel.emit("joiningRules", document),
+      fail: () => wx.showToast({ title: "守则详情打开失败，请重试", icon: "none" })
+    });
   },
 
   togglePrivacy() {

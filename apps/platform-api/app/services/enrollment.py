@@ -21,6 +21,7 @@ from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
 from app.services.organization_policy import is_valid_member_primary_org
 from app.services.members import create_member
+from app.services.enrollment_rules import joining_rules_document
 from app.services.shuku_business_config import (
     ANNUAL_MEMBER_SERVICE_FEE_APPLIES_TO,
     normalize_fee_amount,
@@ -932,6 +933,7 @@ def get_public_enrollment_form(
     )
     target_options = _target_shuku_options()
     shuku_profile = _public_shuku_profile(target["id"] if target else None)
+    shuku_profile["joining_rules_document"] = joining_rules_document(target["id"] if target else None, shuku_profile)
     return {
         "title": "新学长入塾申请",
         "link_name": link["name"],
@@ -997,6 +999,7 @@ def get_public_enrollment_form(
         # Keep the most useful fields at the top level for older clients and
         # make the profile object the canonical source for new clients.
         "joining_rules": shuku_profile.get("joining_rules", list(COMMON_JOINING_RULES)),
+        "joining_rules_document": shuku_profile["joining_rules_document"],
         "joining_notice": shuku_profile.get("joining_notice"),
         "payment_instructions": shuku_profile.get("payment_instructions"),
         "payment": shuku_profile.get("payment"),
