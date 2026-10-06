@@ -24,9 +24,15 @@ class ParticipationHistoryImportScope:
     deadline_utc: datetime
 
 
-# Server-side approvals only. No machine import is enabled until one exact
-# frozen package has a separately approved scope and deadline.
-APPROVED_IMPORT_SCOPES: tuple[ParticipationHistoryImportScope, ...] = ()
+# USER-20261007-ONE-BUNDLE-HISTORY: approved frozen package only.
+# Successful apply closes further writes for this SHA; the deadline is UTC.
+APPROVED_IMPORT_SCOPES: tuple[ParticipationHistoryImportScope, ...] = (
+    ParticipationHistoryImportScope(
+        bundle_sha256="e431a047d3c91cbaa38fe8df7207527849a2abab4eaf9b8fbe8b81c438706d96",
+        verified_fact_count=7582,
+        deadline_utc=datetime(2026, 10, 8, 15, 59, 59, tzinfo=UTC),
+    ),
+)
 
 WORKBOOK_TABLES = {
     "learning_meetings", "class_study_days", "group_sessions",
