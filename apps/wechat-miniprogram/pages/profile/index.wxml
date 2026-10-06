@@ -32,8 +32,18 @@
     </view>
 
     <view class="section-card">
-      <view class="section-title">学习记录</view>
-      <view class="empty-copy">请进入“我的学习”查看已接入记录</view>
+      <view class="section-heading"><view class="section-title">学习记录</view><text wx:if="{{learningCount !== null}}" class="record-count">累计 {{learningCount}}次</text></view>
+      <view class="section-copy">学习会、班级学习日、小组学习会、开班和课程</view>
+      <view wx:if="{{learningErrorMessage}}" class="empty-copy error">{{learningErrorMessage}}</view>
+      <block wx:elif="{{recentLearning.length}}">
+        <view wx:for="{{recentLearning}}" wx:key="uiKey" class="participation-row">
+          <view class="participation-title">{{item.title}}</view>
+          <view class="volunteer-meta">{{item.occurredAtLabel}} · {{item.learning_type}}<text wx:if="{{item.status_name}}"> · {{item.status_name}}</text></view>
+          <view wx:if="{{item.scopeLabel}}" class="volunteer-meta">{{item.scopeLabel}}</view>
+        </view>
+      </block>
+      <view wx:else class="empty-copy">暂无学习记录</view>
+      <button class="plain-button" data-kind="learning" bindtap="openHistory">查看全部学习记录</button>
     </view>
 
     <view class="section-card">
@@ -43,8 +53,18 @@
     </view>
 
     <view class="section-card">
-      <view class="section-title">活动记录</view>
-      <view class="empty-copy">暂无活动记录</view>
+      <view class="section-heading"><view class="section-title">活动记录</view><text wx:if="{{activityCount !== null}}" class="record-count">累计 {{activityCount}}次</text></view>
+      <view class="section-copy">学习以外的其他活动</view>
+      <view wx:if="{{activityErrorMessage}}" class="empty-copy error">{{activityErrorMessage}}</view>
+      <block wx:elif="{{recentActivities.length}}">
+        <view wx:for="{{recentActivities}}" wx:key="uiKey" class="participation-row">
+          <view class="participation-title">{{item.title}}</view>
+          <view class="volunteer-meta">{{item.occurredAtLabel}} · {{item.learning_type}}<text wx:if="{{item.status_name}}"> · {{item.status_name}}</text></view>
+          <view wx:if="{{item.scopeLabel}}" class="volunteer-meta">{{item.scopeLabel}}</view>
+        </view>
+      </block>
+      <view wx:else class="empty-copy">暂无活动记录</view>
+      <button class="plain-button" data-kind="activity" bindtap="openHistory">查看全部活动记录</button>
     </view>
 
     <view class="section-card">

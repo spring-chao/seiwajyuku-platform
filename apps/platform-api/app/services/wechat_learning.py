@@ -1,12 +1,15 @@
-"""Privacy-safe learning facts for the bound member's mini-program view.
+"""Privacy-safe participation facts for the bound member's mini-program view.
 
-This module deliberately aggregates learning facts only.  It does not read
+This module aggregates participation facts into learning and activity views.
+It does not read
 ``attendance_score_records.final_points`` as credits, advance learning cycles,
 or write a credit ledger.  The formal credit model is a separate V1.1B phase.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import sqlite3
 from datetime import UTC, date, datetime
@@ -17,6 +20,8 @@ from app.services.learning_cycles import _active_binding, _cycle_at
 
 
 RECENT_LEARNING_LIMIT = 20
+MAX_HISTORY_PAGE_SIZE = 50
+LEARNING_CATEGORIES = ("学习会", "班级学习日", "小组学习会", "开班", "课程")
 
 _PUBLIC_LEARNING_RECORD_FIELDS = (
     "occurred_at",
@@ -29,13 +34,24 @@ _PUBLIC_LEARNING_RECORD_FIELDS = (
 )
 
 _LEARNING_TYPE_NAMES = {
-    "CLASS_MEETING": "班级学习会",
-    "CLASS_SESSION": "班级学习会",
+    "LEARNING_MEETING": "学习会",
+    "STUDY_MEETING": "学习会",
+    "CLASS_MEETING": "班级学习日",
+    "CLASS_SESSION": "班级学习日",
+    "CLASS_STUDY_DAY": "班级学习日",
     "GROUP_MEETING": "小组学习会",
     "GROUP_SESSION": "小组学习会",
-    "COURSE": "课程学习",
-    "STUDY_COURSE": "课程学习",
-    "SEMINAR": "专题学习",
+    "CLASS_OPENING": "开班",
+    "CLASS_OPEN": "开班",
+    "COURSE": "课程",
+    "STUDY_COURSE": "课程",
+    "班级学习会": "班级学习日",
+    "课程学习": "课程",
+    **{name: name for name in LEARNING_CATEGORIES},
+}
+
+_ACTIVITY_TYPE_NAMES = {
+    "SEMINAR": "专题活动",
     "NATIONAL_REPORT": "全国报告会",
     "CENTER_QUARTERLY_REPORT": "分中心报告会",
     "REPORT_MEETING": "报告会",
@@ -45,8 +61,13 @@ _LEARNING_TYPE_NAMES = {
     "READING_CHECKINS": "读书打卡",
     "READING_SHARE": "读书分享",
     "READING_SHARES": "读书分享",
-    "STAFF_TRAINING": "培训学习",
-    "BOARD_MEETING": "理事会学习",
+    "STAFF_TRAINING": "培训活动",
+    "BOARD_MEETING": "理事会",
+    "DIRECTORS_MEETING": "董事会",
+    "VOLUNTEER": "志工活动",
+    "VOLUNTEER_SERVICE": "志工活动",
+    "OTHER": "其他活动",
+    "OTHER_ACTIVITY": "其他活动",
 }
 
 _CYCLE_STATUS_NAMES = {
@@ -94,9 +115,22 @@ def _sort_datetime(value: Any) -> datetime:
     return parsed.astimezone(UTC)
 
 
-def _learning_type_name(activity_type: Any) -> str:
-    key = str(activity_type or "").strip().upper()
-    return _LEARNING_TYPE_NAMES.get(key, "学习活动")
+def _learning_type_name(activity_type: Any, title: Any = None) -> str:
+    """Apply the five-category learning definition; every other type is activity.
+
+    Only untyped/generic legacy facts can use an explicit learning name.  A
+    report, tour, reading or board-meeting type remains an activity even when
+    its title mentions a course or learning.
+    """
+    key = str(activity_type or "").strip().upper().replace("-", "_")
+    if key in _LEARNING_TYPE_NAMES:
+        return _LEARNING_TYPE_NAMES[key]
+    if key in {"", "OTHER", "UNKNOWN", "ACTIVITY"}:
+        name = str(title or "")
+        for keyword in ("小组学习会", "班级学习日", "开班", "课程", "学习会"):
+            if keyword in name:
+                return keyword
+    return _ACTIVITY_TYPE_NAMES.get(key, "其他活动")
 
 
 def _normalize_text(value: Any) -> str:
@@ -228,7 +262,7 @@ def _current_learning(connection, member_id: int) -> list[dict[str, Any]]:
 
 
 def _attendance_records(connection, member_id: int) -> list[dict[str, Any]]:
-    rows = execute(
+    rows = _optional_rows(
         connection,
         "SELECT DISTINCT eg.source_key, eg.external_group_id, eg.title, "
         "eg.activity_type, eg.event_date, class_org.name AS class_name, "
@@ -244,10 +278,10 @@ def _attendance_records(connection, member_id: int) -> list[dict[str, Any]]:
         "AND COALESCE(s.status, 'ACTIVE') NOT IN ('CANCELLED','DELETED') "
         "ORDER BY eg.event_date DESC, eg.source_key, eg.external_group_id",
         (member_id,),
-    ).fetchall()
+    )
     result: list[dict[str, Any]] = []
     for row in rows:
-        activity_name = _learning_type_name(row["activity_type"])
+        activity_name = _learning_type_name(row["activity_type"], row["title"])
         title = _as_text(row["title"]) or activity_name
         source_key = _as_text(row["source_key"]) or "attendance"
         external_id = _as_text(row["external_group_id"]) or "unknown"
@@ -340,7 +374,7 @@ def _legacy_activity_records(connection, member_id: int) -> list[dict[str, Any]]
     )
     result: list[dict[str, Any]] = []
     for row in rows:
-        activity_name = _learning_type_name(row.get("activity_type"))
+        activity_name = _learning_type_name(row.get("activity_type"), row.get("title"))
         unit_type = str(row.get("unit_type") or "").upper()
         class_name = _as_text(row.get("org_name")) if unit_type == "CLASS" else ""
         group_name = _as_text(row.get("org_name")) if unit_type == "GROUP" else ""
@@ -358,7 +392,7 @@ def _legacy_activity_records(connection, member_id: int) -> list[dict[str, Any]]
                 "title": title,
                 "class_name": class_name,
                 "group_name": group_name,
-                "source_type": "历史学习事实",
+                "source_type": "历史参与记录",
                 "source_id": f"history:{source_system}:{source_table}:{external_id}",
                 "status_name": _PARTICIPATION_STATUS_NAMES.get(status, "已记录"),
                 "_priority": 2,
@@ -371,7 +405,7 @@ def _dedupe_key(record: dict[str, Any]) -> tuple[str, ...] | None:
     occurred_at = _as_text(record.get("occurred_at"))
     learning_type = _normalize_text(record.get("learning_type"))
     title = _normalize_text(record.get("title"))
-    if not occurred_at or not learning_type or not title:
+    if not occurred_at or not title:
         source_type = _normalize_text(record.get("source_type"))
         source_id = _normalize_text(record.get("source_id"))
         return ("source", source_type, source_id) if source_type and source_id else None
@@ -388,22 +422,21 @@ def _coarse_dedupe_keys(record: dict[str, Any]) -> list[tuple[str, ...]]:
     """Build legacy-compatible keys when one or both org levels are known."""
 
     occurred_at = _as_text(record.get("occurred_at"))
-    learning_type = _normalize_text(record.get("learning_type"))
     title = _normalize_text(record.get("title"))
     class_name = _normalize_text(record.get("class_name"))
     group_name = _normalize_text(record.get("group_name"))
-    if not occurred_at or not learning_type or not title:
+    if not occurred_at or not title:
         return []
     keys: list[tuple[str, ...]] = []
     if class_name and not group_name:
-        keys.append(("coarse-class", occurred_at[:10], learning_type, title, class_name))
+        keys.append(("coarse-class", occurred_at[:10], title, class_name))
     if group_name and not class_name:
-        keys.append(("coarse-group", occurred_at[:10], learning_type, title, group_name))
+        keys.append(("coarse-group", occurred_at[:10], title, group_name))
     if class_name and group_name:
         keys.extend(
             [
-                ("coarse-class", occurred_at[:10], learning_type, title, class_name),
-                ("coarse-group", occurred_at[:10], learning_type, title, group_name),
+                ("coarse-class", occurred_at[:10], title, class_name),
+                ("coarse-group", occurred_at[:10], title, group_name),
             ]
         )
     return keys
@@ -413,8 +446,9 @@ def _deduplicate_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ordered = sorted(
         records,
         key=lambda item: (
-            _sort_datetime(item.get("occurred_at")),
+            str(item.get("occurred_at") or "")[:10],
             -int(item.get("_priority", 99)),
+            _sort_datetime(item.get("occurred_at")),
             str(item.get("source_id") or ""),
         ),
         reverse=True,
@@ -436,16 +470,110 @@ def _deduplicate_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
             seen.add(key)
         if priority < 2:
             structured_coarse_seen.update(coarse_keys)
-        result.append(
-            {
-                key: record[key]
-                for key in _PUBLIC_LEARNING_RECORD_FIELDS
-                if key in record
-            }
+        result.append(record)
+    return sorted(
+        result,
+        key=lambda item: (
+            _sort_datetime(item.get("occurred_at")),
+            -int(item.get("_priority", 99)),
+            str(item.get("source_id") or ""),
+        ),
+        reverse=True,
+    )
+
+
+def _public_record(record: dict[str, Any]) -> dict[str, Any]:
+    # Titles and organization labels can originate in legacy free text. Keep
+    # the public allowlist and mask a phone embedded in those labels as well.
+    return {
+        key: re.sub(
+            r"(?<!\d)(1\d{2})\d{4}(\d{4})(?!\d)", r"\1****\2",
+            _as_text(record.get(key)) or "",
         )
-        if len(result) >= RECENT_LEARNING_LIMIT:
-            break
-    return result
+        for key in _PUBLIC_LEARNING_RECORD_FIELDS
+    }
+
+
+def _participation_records(connection, member_id: int) -> list[dict[str, Any]]:
+    return _deduplicate_records([
+        *_attendance_records(connection, member_id),
+        *_study_meeting_records(connection, member_id),
+        *_legacy_activity_records(connection, member_id),
+    ])
+
+
+def _require_active_member(connection, member_id: int) -> None:
+    member = execute(
+        connection,
+        "SELECT id FROM members WHERE id=? AND status='ACTIVE' LIMIT 1",
+        (member_id,),
+    ).fetchone()
+    if not member:
+        raise ValueError("当前学员身份不可用")
+
+
+def _record_year(record: dict[str, Any]) -> int | None:
+    # Participation is assigned to its recorded calendar date, including
+    # events near a year boundary; converting it to UTC can change that year.
+    try:
+        return date.fromisoformat(str(record.get("occurred_at") or "")[:10]).year
+    except ValueError:
+        return None
+
+
+def get_member_participation_history(
+    member_id: int, *, year: int | None = None, kind: str = "learning",
+    page: int = 1, page_size: int = RECENT_LEARNING_LIMIT,
+) -> dict[str, Any]:
+    """Page one bound member's history, with counts over the selected year."""
+    if year is not None and (type(year) is not int or not 1900 <= year <= 9999):
+        raise ValueError("年份须为1900至9999之间的四位年份")
+    if kind not in {"learning", "activity"}:
+        raise ValueError("记录类型不可用")
+    if type(page) is not int or not 1 <= page <= 1_000_000:
+        raise ValueError("页码不可用")
+    if type(page_size) is not int or not 1 <= page_size <= MAX_HISTORY_PAGE_SIZE:
+        raise ValueError("每页记录数不可用")
+    connection = connect()
+    try:
+        _require_active_member(connection, member_id)
+        records = _participation_records(connection, member_id)
+    finally:
+        connection.close()
+    available_years = sorted(
+        {value for record in records if (value := _record_year(record)) is not None},
+        reverse=True,
+    )
+    selected = [record for record in records if year is None or _record_year(record) == year]
+    category_counts = dict.fromkeys(LEARNING_CATEGORIES, 0)
+    learning_count = 0
+    for record in selected:
+        category = record["learning_type"]
+        category_counts[category] = category_counts.get(category, 0) + 1
+        learning_count += category in LEARNING_CATEGORIES
+    matching = [
+        record for record in selected
+        if (record["learning_type"] in LEARNING_CATEGORIES) == (kind == "learning")
+    ]
+    public_records = [_public_record(record) for record in matching]
+    # Every page describes the same full public selection. This opaque digest
+    # lets the client refresh when facts change between pages, including an
+    # edit or replacement that leaves the total unchanged.
+    history_version = hashlib.sha256(json.dumps(
+        {"year": year, "kind": kind, "records": public_records},
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
+    offset = (page - 1) * page_size
+    return {
+        "records": public_records[offset:offset + page_size],
+        "total": len(matching), "page": page, "page_size": page_size,
+        "has_more": offset + page_size < len(matching),
+        "available_years": available_years,
+        "learning_count": learning_count,
+        "activity_count": len(selected) - learning_count,
+        "category_counts": category_counts,
+        "history_version": history_version,
+    }
 
 
 def get_member_learning_summary(member_id: int) -> dict[str, Any]:
@@ -453,22 +581,15 @@ def get_member_learning_summary(member_id: int) -> dict[str, Any]:
 
     connection = connect()
     try:
-        member = execute(
-            connection,
-            "SELECT id FROM members WHERE id=? AND status='ACTIVE' LIMIT 1",
-            (member_id,),
-        ).fetchone()
-        if not member:
-            raise ValueError("当前学员身份不可用")
+        _require_active_member(connection, member_id)
         current_learning = _current_learning(connection, member_id)
         records = [
-            *_attendance_records(connection, member_id),
-            *_study_meeting_records(connection, member_id),
-            *_legacy_activity_records(connection, member_id),
+            _public_record(record) for record in _participation_records(connection, member_id)
+            if record["learning_type"] in LEARNING_CATEGORIES
         ]
         return {
             "current_learning": current_learning,
-            "recent_learning": _deduplicate_records(records),
+            "recent_learning": records[:RECENT_LEARNING_LIMIT],
         }
     finally:
         connection.close()

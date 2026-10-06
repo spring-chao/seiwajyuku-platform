@@ -1,0 +1,41 @@
+<view class="page-shell">
+  <view class="hero-card">
+    <view class="eyebrow">我的成长档案</view>
+    <view class="hero-title">我的参与记录</view>
+    <view class="hero-copy">按年份查看自己参加的学习与活动。</view>
+  </view>
+
+  <view class="section-card">
+    <view class="kind-tabs">
+      <button class="kind-tab {{kind === 'learning' ? 'selected' : ''}}" data-kind="learning" bindtap="changeKind">学习记录<text wx:if="{{learningCount !== null}}"> · {{learningCount}}次</text></button>
+      <button class="kind-tab {{kind === 'activity' ? 'selected' : ''}}" data-kind="activity" bindtap="changeKind">活动记录<text wx:if="{{activityCount !== null}}"> · {{activityCount}}次</text></button>
+    </view>
+    <view class="year-options">
+      <button wx:for="{{yearOptions}}" wx:key="value" class="year-option {{year === item.value ? 'selected' : ''}}" data-year="{{item.value}}" bindtap="changeYear">{{item.label}}</button>
+    </view>
+    <view class="section-copy">{{kind === 'learning' ? '学习会、班级学习日、小组学习会、开班和课程' : '学习以外的其他活动'}}</view>
+  </view>
+
+  <view wx:if="{{total !== null}}" class="section-card">
+    <view class="section-title">{{yearLabel}} · {{kindName}} {{total}}次</view>
+    <view wx:if="{{categories.length}}" class="category-list">
+      <view wx:for="{{categories}}" wx:key="name" class="category-item"><text>{{item.name}}</text><text class="category-count">{{item.count}}次</text></view>
+    </view>
+  </view>
+
+  <view wx:if="{{noticeMessage}}" class="state-card notice">{{noticeMessage}}</view>
+  <view wx:if="{{errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <button wx:if="{{sessionMissing}}" class="primary-button" bindtap="openBinding">绑定我的学员身份</button>
+  <button wx:if="{{!sessionMissing && errorMessage && !records.length}}" class="plain-button" bindtap="reloadHistory">重新加载</button>
+  <button wx:if="{{refreshRequired && records.length}}" class="plain-button" bindtap="reloadHistory">重新加载记录</button>
+  <view wx:if="{{loading && !records.length}}" class="state-card">正在加载记录，请稍候…</view>
+  <view wx:if="{{!loading && !errorMessage && !records.length}}" class="state-card">{{yearLabel}}暂无{{kindName}}记录</view>
+
+  <view wx:for="{{records}}" wx:key="uiKey" class="section-card record-card">
+    <view class="record-title">{{item.title}}</view>
+    <view class="record-meta">{{item.occurredAtLabel}} · {{item.learning_type}}<text wx:if="{{item.status_name}}"> · {{item.status_name}}</text></view>
+    <view wx:if="{{item.scopeLabel}}" class="record-meta">{{item.scopeLabel}}</view>
+  </view>
+  <button wx:if="{{records.length && hasMore}}" class="plain-button" loading="{{loading}}" disabled="{{loading}}" bindtap="loadMore">{{errorMessage ? '重试加载' : '加载更多'}}</button>
+  <view wx:if="{{records.length && !hasMore && !sessionMissing && !refreshRequired}}" class="end-copy">已显示全部 {{total}} 条记录</view>
+</view>

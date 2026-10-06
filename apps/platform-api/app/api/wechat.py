@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,7 +24,9 @@ from app.services.volunteer_positions import (
     get_member_volunteer_history,
     get_member_volunteer_services,
 )
-from app.services.wechat_learning import get_member_learning_summary
+from app.services.wechat_learning import (
+    get_member_learning_summary, get_member_participation_history,
+)
 from app.services.wechat_credit_summary import (
     MemberCreditEntryNotFound, get_member_credit_summary,
     get_member_credit_entries, get_member_credit_entry,
@@ -201,6 +205,30 @@ def learning_summary(
     except WeChatIdentityError as exc:
         raise HTTPException(401, str(exc)) from exc
     except ValueError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/participation-history")
+def participation_history(
+    year: str | None = Query(default=None, min_length=4, max_length=4, pattern=r"^[1-9][0-9]{3}$"),
+    kind: Literal["learning", "activity"] = "learning",
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=20, ge=1, le=50),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    """Return participation belonging only to the bound session member."""
+    selected_year = int(year) if year is not None else None
+    if selected_year is not None and selected_year < 1900:
+        raise HTTPException(422, "年份须为1900至9999之间的四位年份")
+    token = _session_token(credentials)
+    try:
+        session = resolve_member_session(token)
+        data = get_member_participation_history(
+            session["member_id"], year=selected_year, kind=kind,
+            page=page, page_size=page_size,
+        )
+    except (WeChatIdentityError, ValueError) as exc:
         raise HTTPException(401, str(exc)) from exc
     return {"success": True, "data": data}
 

@@ -11,6 +11,7 @@ from app.services.iam import user_context
 
 
 SOURCE_SYSTEM = "seiwajyuku_system"
+WORKBOOK_SOURCE_SYSTEM = "activity_workbooks"
 BUNDLE_VERSION = 1
 MAX_FACTS = 200_000
 IMPORT_TYPE = "LEGACY_OPERATIONS_ACTIVITY_FACTS"
@@ -23,6 +24,13 @@ SOURCE_TABLES = {
     "study_tours": "STUDY_TOUR",
     "reading_checkins": "READING_CHECKIN",
     "reading_shares": "READING_SHARE",
+}
+WORKBOOK_SOURCE_TABLES = {
+    **SOURCE_TABLES,
+    "learning_meetings": "LEARNING_MEETING",
+    "class_study_days": "CLASS_STUDY_DAY",
+    "class_openings": "CLASS_OPENING",
+    "other_activities": "OTHER_ACTIVITY",
 }
 ALLOWED_STATUSES = {"PRESENT", "ABSENT", "COMPLETED", "RECORDED"}
 ALLOWED_FACT_KEYS = {
@@ -72,7 +80,10 @@ def _clean_text(value: Any, *, max_length: int, field: str) -> str | None:
     return text or None
 
 
-def _normalize_fact(raw: Any, index: int) -> dict[str, Any]:
+def _normalize_fact(
+    raw: Any, index: int, source_tables: dict[str, str] | None = None
+) -> dict[str, Any]:
+    source_tables = SOURCE_TABLES if source_tables is None else source_tables
     if not isinstance(raw, dict):
         raise ValueError(f"facts[{index}] 必须为对象")
     unexpected = set(raw) - ALLOWED_FACT_KEYS
@@ -86,7 +97,7 @@ def _normalize_fact(raw: Any, index: int) -> dict[str, Any]:
             f"facts[{index}] 含未定义字段: {', '.join(sorted(unexpected))}"
         )
     source_table = str(raw.get("source_table") or "").strip()
-    if source_table not in SOURCE_TABLES:
+    if source_table not in source_tables:
         raise ValueError(f"facts[{index}] source_table 不受支持")
     external_id = _clean_text(
         raw.get("external_id"), max_length=191, field=f"facts[{index}].external_id"
@@ -120,7 +131,7 @@ def _normalize_fact(raw: Any, index: int) -> dict[str, Any]:
         "source_table": source_table,
         "external_id": external_id,
         "member_code": member_code,
-        "activity_type": SOURCE_TABLES[source_table],
+        "activity_type": source_tables[source_table],
         "occurred_on": occurred_on,
         "participation_status": status,
         "title": _clean_text(raw.get("title"), max_length=255, field=f"facts[{index}].title"),
@@ -147,8 +158,12 @@ def parse_bundle(content: bytes) -> dict[str, Any]:
         )
     if payload.get("bundle_version") != BUNDLE_VERSION:
         raise ValueError(f"仅支持 bundle_version={BUNDLE_VERSION}")
-    if payload.get("source_system") != SOURCE_SYSTEM:
-        raise ValueError("source_system 必须为 seiwajyuku_system")
+    source_system = payload.get("source_system")
+    if not isinstance(source_system, str) or source_system not in {SOURCE_SYSTEM, WORKBOOK_SOURCE_SYSTEM}:
+        raise ValueError("source_system 必须为 seiwajyuku_system 或 activity_workbooks")
+    source_tables = (
+        WORKBOOK_SOURCE_TABLES if source_system == WORKBOOK_SOURCE_SYSTEM else SOURCE_TABLES
+    )
     privacy = payload.get("privacy_contract")
     expected_privacy = {
         "matching_key": "member_code",
@@ -160,7 +175,7 @@ def parse_bundle(content: bytes) -> dict[str, Any]:
         raise ValueError("privacy_contract 与统一平台隐私契约不一致")
     source_counts = payload.get("source_counts")
     if source_counts is not None:
-        if not isinstance(source_counts, dict) or set(source_counts) - set(SOURCE_TABLES):
+        if not isinstance(source_counts, dict) or set(source_counts) - set(source_tables):
             raise ValueError("source_counts 含未定义数据表")
         if any(
             isinstance(value, bool) or not isinstance(value, int) or value < 0
@@ -174,10 +189,10 @@ def parse_bundle(content: bytes) -> dict[str, Any]:
         raise ValueError("合并包不包含任何活动事实")
     if len(facts) > MAX_FACTS:
         raise ValueError(f"单个合并包最多包含 {MAX_FACTS} 条事实")
-    normalized = [_normalize_fact(raw, index) for index, raw in enumerate(facts)]
+    normalized = [_normalize_fact(raw, index, source_tables) for index, raw in enumerate(facts)]
     return {
         "bundle_version": BUNDLE_VERSION,
-        "source_system": SOURCE_SYSTEM,
+        "source_system": source_system,
         "generated_at": _clean_text(
             payload.get("generated_at"), max_length=64, field="generated_at"
         ),
@@ -260,7 +275,7 @@ def preview_bundle(content: bytes, source_name: str) -> dict[str, Any]:
         fetch_all(
             "SELECT source_table, external_id FROM member_activity_facts "
             "WHERE source_system=?",
-            (SOURCE_SYSTEM,),
+            (bundle["source_system"],),
         ),
     )
     return {
@@ -313,10 +328,14 @@ def apply_bundle(
                 connection,
                 "SELECT source_table, external_id FROM member_activity_facts "
                 "WHERE source_system=?",
-                (SOURCE_SYSTEM,),
+                (bundle["source_system"],),
             ).fetchall(),
         )
         summary = evaluated["summary"]
+        if bundle["source_system"] == WORKBOOK_SOURCE_SYSTEM and (
+            summary["missing_member_code"] or summary["unmatched_member"]
+        ):
+            raise ValueError("活动表存在未核验的学员编号，请先完成人员匹配后再正式导入")
         cursor = execute(
             connection,
             "INSERT INTO import_batches(import_type, source_name, source_sha256, status, "
@@ -351,7 +370,7 @@ def apply_bundle(
                 "title, duration_minutes, source_updated_at, import_batch_id, imported_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    SOURCE_SYSTEM,
+                    bundle["source_system"],
                     row["source_table"],
                     row["external_id"],
                     row["member_id"],

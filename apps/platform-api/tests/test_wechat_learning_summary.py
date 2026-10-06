@@ -271,11 +271,10 @@ def test_learning_summary_requires_bound_session_and_isolates_member() -> None:
         assert [item["title"] for item in records] == [
             "班级月度学习会",
             "小组学习会 · 经营十二条",
-            "八月读书分享",
         ]
         assert records[0]["source_type"] == "签到活动"
         assert records[1]["source_type"] == "小组学习会记录"
-        assert records[2]["source_type"] == "历史学习事实"
+        assert records[0]["learning_type"] == "班级学习日"
         assert all(item["status_name"] in {"已参加", "已完成", "已记录"} for item in records)
         assert all("final_points" not in item and "credit_points" not in item for item in records)
         assert all("member_id" not in item and "id" not in item for item in records)

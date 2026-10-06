@@ -8,6 +8,7 @@ const nodeRequire = createRequire(import.meta.url);
 const { resolveVolunteerServices } = nodeRequire(
   "../apps/wechat-miniprogram/utils/volunteer-services.js"
 );
+const participationHistory = nodeRequire("../apps/wechat-miniprogram/utils/participation-history.js");
 
 function read(relativePath) {
   return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
@@ -26,6 +27,10 @@ function harness({ member, services, history }) {
     if (path.endsWith("/me")) return { data: { member } };
     if (path.endsWith("/volunteer-services")) return { data: services };
     if (path.endsWith("/volunteer-history")) return { data: { appointments: history } };
+    if (path.includes("/participation-history?")) return { data: {
+      records: [], total: 0, learning_count: 0, activity_count: 0, has_more: false,
+      available_years: [], category_counts: {}
+    } };
     throw new Error(`unexpected request: ${path}`);
   };
   let page;
@@ -34,7 +39,7 @@ function harness({ member, services, history }) {
       page = definition;
     },
     getApp: () => app,
-    require: modulePath => modulePath.includes("volunteer-services")
+    require: modulePath => modulePath.includes("participation-history") ? participationHistory : modulePath.includes("volunteer-services")
       ? { resolveVolunteerServices }
       : { request },
     wx: { navigateTo() {}, reLaunch() {} }

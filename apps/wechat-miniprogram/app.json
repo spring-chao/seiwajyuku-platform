@@ -2,6 +2,7 @@
   "pages": [
     "pages/home/index",
     "pages/learning/index",
+    "pages/history/index",
     "pages/credits/index",
     "pages/credits/detail",
     "pages/scan/index",

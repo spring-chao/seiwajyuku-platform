@@ -1,0 +1,24 @@
+.page-shell { min-height: 100vh; box-sizing: border-box; padding: 28rpx 28rpx 48rpx; background: #fbf7f3; color: #3d2a2a; }
+.hero-card { padding: 42rpx 34rpx; border-radius: 28rpx; background: linear-gradient(135deg, #741f2b, #a84c52); color: #fff; box-shadow: 0 16rpx 34rpx rgba(116, 31, 43, .18); }
+.eyebrow { font-size: 24rpx; opacity: .82; letter-spacing: 2rpx; }
+.hero-title { margin-top: 16rpx; font-size: 50rpx; font-weight: 700; }
+.hero-copy { margin-top: 16rpx; line-height: 1.65; font-size: 27rpx; opacity: .92; }
+.section-card, .state-card { margin-top: 24rpx; padding: 28rpx; border-radius: 24rpx; background: #fff; box-shadow: 0 8rpx 24rpx rgba(80, 35, 35, .06); }
+.section-title { font-size: 32rpx; font-weight: 700; }
+.section-copy, .record-meta { margin-top: 14rpx; color: #806f6f; line-height: 1.6; font-size: 25rpx; }
+.kind-tabs { display: flex; gap: 12rpx; }
+.kind-tab { flex: 1; margin: 0; padding: 14rpx 8rpx; background: #f8f2ef; color: #806f6f; border-radius: 14rpx; font-size: 26rpx; line-height: 1.6; }
+.kind-tab::after, .year-option::after { border: none; }
+.kind-tab.selected { background: #741f2b; color: #fff; }
+.year-options { display: flex; flex-wrap: wrap; gap: 14rpx; margin-top: 24rpx; }
+.year-option { margin: 0; padding: 8rpx 24rpx; border-radius: 30rpx; background: #f8f2ef; color: #806f6f; font-size: 25rpx; line-height: 1.6; }
+.year-option.selected { background: #f7e6e5; color: #741f2b; font-weight: 700; }
+.category-list { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 20rpx; }
+.category-item { padding: 12rpx 18rpx; border-radius: 12rpx; background: #fff7f2; font-size: 24rpx; color: #806f6f; }
+.category-count { margin-left: 14rpx; color: #741f2b; font-weight: 700; }
+.record-title { color: #741f2b; font-size: 30rpx; font-weight: 700; line-height: 1.6; }
+.primary-button { margin-top: 24rpx; border-radius: 12rpx; background: #741f2b; color: #fff; font-size: 29rpx; }
+.plain-button { margin-top: 20rpx; border: 1rpx solid #d9c7c3; border-radius: 12rpx; color: #741f2b; background: #fff; font-size: 27rpx; }
+.end-copy { margin-top: 26rpx; text-align: center; color: #806f6f; font-size: 24rpx; }
+.error { color: #b33b44; }
+.notice { color: #741f2b; font-size: 25rpx; line-height: 1.6; }
