@@ -19,7 +19,10 @@ from app.core.settings import get_settings
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
-from app.services.organization_policy import is_valid_member_primary_org
+from app.services.organization_policy import (
+    SUZHOU_ROOT_ORG_UNIT_ID,
+    is_valid_member_primary_org,
+)
 from app.services.members import create_member
 from app.services.enrollment_rules import joining_rules_document
 from app.services.shuku_business_config import (
@@ -876,6 +879,12 @@ def _public_shuku_profile(target_shuku_org_unit_id: str | None) -> dict[str, Any
                 "sort_order": 0,
             }
         ]
+    # Correct the confirmed public display spelling without rewriting the
+    # business-owned profile or altering another shuku's contact identity.
+    if target_shuku_org_unit_id == SUZHOU_ROOT_ORG_UNIT_ID:
+        for item in contacts:
+            if item["name"] == "张玲嫒":
+                item["name"] = "张玲嫣"
     first_contact = contacts[0] if contacts else None
     contact = {
         "contact_name": first_contact.get("name")
