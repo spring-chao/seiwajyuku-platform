@@ -20,6 +20,7 @@ from app.api.volunteer_management import router as volunteer_management_router
 from app.api.staff_management import router as staff_management_router
 from app.api.integrations import router as integrations_router
 from app.api.legacy_operations import router as legacy_operations_router
+from app.api.participation_history_import import router as participation_history_import_router
 from app.api.member_care_actions import router as member_care_actions_router
 from app.api.member_care_management import router as member_care_management_router
 from app.api.imports import router as imports_router
@@ -256,6 +257,7 @@ app.include_router(members_router)
 app.include_router(followups_router)
 app.include_router(integrations_router)
 app.include_router(legacy_operations_router)
+app.include_router(participation_history_import_router)
 app.include_router(member_care_actions_router)
 app.include_router(member_care_management_router)
 app.include_router(checkin_rosters_router)

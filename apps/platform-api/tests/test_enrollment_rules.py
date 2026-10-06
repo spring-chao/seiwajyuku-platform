@@ -2,7 +2,9 @@ import json
 
 import pytest
 
+from app.services.enrollment import _public_shuku_profile
 from app.services.enrollment_rules import joining_rules_document
+from app.services.organization_policy import SUZHOU_ROOT_ORG_UNIT_ID
 
 
 @pytest.mark.parametrize("scope", [None, "", "org-wuxi", "org-changzhou", "synthetic-other"])
@@ -38,3 +40,36 @@ def test_missing_fee_is_not_invented_and_documents_are_independent():
     assert "4800" not in json.dumps(first, ensure_ascii=False)
     first["sections"][0]["paragraphs"].clear()
     assert joining_rules_document("org-suzhou", {})["sections"][0]["paragraphs"]
+
+
+@pytest.mark.parametrize("scope", [SUZHOU_ROOT_ORG_UNIT_ID, "org-wuxi"])
+@pytest.mark.parametrize("legacy_profile_contact", [False, True])
+def test_public_contact_spelling_is_scoped_and_preserves_configured_data(
+    monkeypatch, scope, legacy_profile_contact
+):
+    profile = {
+        "display_name": "苏州塾", "joining_notice": "测试加入说明",
+        "contact_name": "张玲嫒", "contact_phone": "SYNTHETIC-PRIMARY-CONTACT",
+    }
+    contact_rows = [
+        {"contact_name": "张玲嫒", "contact_phone": "SYNTHETIC-PRIMARY-CONTACT", "sort_order": 10},
+        {"contact_name": "测试第二联系人", "contact_phone": "SYNTHETIC-SECOND-CONTACT", "sort_order": 20},
+    ] if not legacy_profile_contact else []
+    def configured_profile(query, params):
+        return profile if "enrollment_shuku_profiles " in query else {}
+
+    monkeypatch.setattr("app.services.enrollment.fetch_one", configured_profile)
+    monkeypatch.setattr("app.services.enrollment.fetch_all", lambda query, params: contact_rows)
+
+    public_profile = _public_shuku_profile(scope)
+    expected_name = "张玲嫣" if scope == SUZHOU_ROOT_ORG_UNIT_ID else "张玲嫒"
+    assert public_profile["contacts"][0]["name"] == expected_name
+    assert public_profile["contact"]["contact_name"] == expected_name
+    assert public_profile["contacts"][0]["phone"] == "SYNTHETIC-PRIMARY-CONTACT"
+    assert public_profile["contact"]["contact_phone"] == "SYNTHETIC-PRIMARY-CONTACT"
+    assert profile["contact_name"] == "张玲嫒"
+    if not legacy_profile_contact:
+        assert contact_rows[0]["contact_name"] == "张玲嫒"
+        assert public_profile["contacts"][1] == {
+            "name": "测试第二联系人", "phone": "SYNTHETIC-SECOND-CONTACT", "sort_order": 20
+        }

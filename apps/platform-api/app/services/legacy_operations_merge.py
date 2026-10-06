@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -267,11 +268,21 @@ def _evaluate(
     }
 
 
-def preview_bundle(content: bytes, source_name: str) -> dict[str, Any]:
-    bundle = parse_bundle(content)
+def _require_known_member_codes(facts: list[dict[str, Any]], member_rows: list[Any]) -> None:
+    known_codes = {row["member_code"] for row in member_rows if row["member_code"]}
+    if any(not fact["member_code"] or fact["member_code"] not in known_codes for fact in facts):
+        raise ValueError("活动表存在未核验的学员编号，请先完成人员匹配后再正式导入")
+
+
+def _preview_parsed_bundle(
+    bundle: dict[str, Any], content: bytes, source_name: str, *, require_known_codes: bool = False
+) -> dict[str, Any]:
+    member_rows = fetch_all("SELECT id, member_code, org_unit_id FROM members")
+    if require_known_codes:
+        _require_known_member_codes(bundle["facts"], member_rows)
     evaluated = _evaluate(
         bundle["facts"],
-        fetch_all("SELECT id, member_code, org_unit_id FROM members"),
+        member_rows,
         fetch_all(
             "SELECT source_table, external_id FROM member_activity_facts "
             "WHERE source_system=?",
@@ -293,6 +304,10 @@ def preview_bundle(content: bytes, source_name: str) -> dict[str, Any]:
     }
 
 
+def preview_bundle(content: bytes, source_name: str) -> dict[str, Any]:
+    return _preview_parsed_bundle(parse_bundle(content), content, source_name)
+
+
 def apply_bundle(
     content: bytes,
     source_name: str,
@@ -307,23 +322,55 @@ def apply_bundle(
     if not actor or "integrations:manage" not in actor["permissions"]:
         raise PermissionError("缺少旧运营系统合并权限")
     bundle = parse_bundle(content)
+    return _apply_parsed_bundle(bundle, content, actor_user_id, reason)
+
+
+def _lock_service_import(connection, facts: list[dict[str, Any]]) -> str:
+    if isinstance(connection, sqlite3.Connection):
+        if not connection.in_transaction:
+            execute(connection, "BEGIN IMMEDIATE")
+        return ""
+    # The same frozen package always locks the same existing member first.
+    # A current read of its batch after this lock also handles all-duplicate packages.
+    code = min(fact["member_code"] for fact in facts)
+    member = execute(
+        connection, "SELECT id FROM members WHERE member_code=? FOR UPDATE", (code,)
+    ).fetchone()
+    if not member:
+        raise ValueError("活动表存在未核验的学员编号，请先完成人员匹配后再正式导入")
+    return " FOR UPDATE"
+
+
+def _apply_parsed_bundle(
+    bundle: dict[str, Any], content: bytes, actor_user_id: int | None, reason: str, *,
+    require_known_codes: bool = False, service_actor: bool = False,
+    service_deadline_utc: datetime | None = None,
+) -> dict[str, Any]:
     source_sha = bundle_sha256(content)
     stored_source_name = f"legacy-operations-{source_sha[:12]}.json"
     now = datetime.now(UTC).isoformat()
     with transaction() as connection:
+        lock_suffix = _lock_service_import(connection, bundle["facts"]) if service_actor else ""
+        if service_actor and (
+            service_deadline_utc is None or datetime.now(UTC) >= service_deadline_utc
+        ):
+            raise PermissionError("该冻结活动包的机器导入范围无效或已到期")
         existing_batch = execute(
             connection,
             "SELECT id FROM import_batches WHERE import_type=? AND source_sha256=? "
-            "AND status='APPLIED' ORDER BY id DESC LIMIT 1",
+            "AND status='APPLIED' ORDER BY id DESC LIMIT 1" + lock_suffix,
             (IMPORT_TYPE, source_sha),
         ).fetchone()
         if existing_batch:
             raise ValueError("该合并包已经执行，不能重复应用")
+        member_rows = execute(
+            connection, "SELECT id, member_code, org_unit_id FROM members"
+        ).fetchall()
+        if require_known_codes:
+            _require_known_member_codes(bundle["facts"], member_rows)
         evaluated = _evaluate(
             bundle["facts"],
-            execute(
-                connection, "SELECT id, member_code, org_unit_id FROM members"
-            ).fetchall(),
+            member_rows,
             execute(
                 connection,
                 "SELECT source_table, external_id FROM member_activity_facts "
@@ -385,13 +432,16 @@ def apply_bundle(
                     now,
                 ),
             )
+        audit_after = {"source_sha256": source_sha, **summary}
+        if service_actor:
+            audit_after.update({"actor_type": "SERVICE", "authentication": "INTEGRATION_API_KEY"})
         write_audit(
             connection,
             actor_user_id=actor_user_id,
-            action="legacy_operations.merge.apply",
+            action="integrations.participation_history.apply" if service_actor else "legacy_operations.merge.apply",
             resource_type="import_batch",
             resource_id=str(batch_id),
             purpose=reason,
-            after={"source_sha256": source_sha, **summary},
+            after=audit_after,
         )
     return {"batch_id": batch_id, **summary}
