@@ -379,24 +379,6 @@ Page({
     });
   },
 
-  copyPaymentAccount(event) {
-    const value = event && event.currentTarget && event.currentTarget.dataset.value;
-    if (!value) return;
-    wx.setClipboardData({
-      data: String(value),
-      success: () => wx.showToast({ title: "账号已复制", icon: "success" })
-    });
-  },
-
-  copyContactPhone(event) {
-    const value = event && event.currentTarget && event.currentTarget.dataset.phone;
-    if (!value) return;
-    wx.setClipboardData({
-      data: String(value),
-      success: () => wx.showToast({ title: "号码已复制", icon: "success" })
-    });
-  },
-
   validate() {
     const form = this.data.form;
     for (const [field, label] of REQUIRED_FIELDS) {

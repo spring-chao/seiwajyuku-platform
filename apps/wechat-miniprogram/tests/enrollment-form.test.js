@@ -79,8 +79,6 @@ assert.match(wxml, /catchtap="openJoiningRules"/);
 assert.match(detailWxml, /document\.feeAmount/);
 assert.match(detailWxml, /适用于首次入塾及年度续费/);
 assert.match(detailWxml, /document\.contacts/);
-assert.match(js, /copyPaymentAccount/);
-assert.match(js, /copyContactPhone/);
 assert.match(detailWxml, /bindtap="copyPublicInfo"/);
 assert.doesNotMatch(wxml, /class="copy-button"/);
 assert.doesNotMatch(wxml, /复制号码/);
