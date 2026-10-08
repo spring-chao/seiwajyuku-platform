@@ -56,11 +56,11 @@ from app.services.credit_settlement_batches import (
     approve_settlement_batch,
     close_settlement_batch,
     approve_historical_credit_batch,
-    dry_run_class_meeting_batch,
+    dry_run_class_meeting_batch as create_class_meeting_settlement_batch,
     dry_run_daily_reading_batch,
     dry_run_excellent_share_batch,
     dry_run_historical_credit_batches,
-    dry_run_study_meeting_batch,
+    dry_run_study_meeting_batch as create_study_meeting_settlement_batch,
     get_settlement_batch,
     list_settlement_batches,
     post_historical_credit_batch,
@@ -423,7 +423,7 @@ def study_meeting_batch_dry_run(
     user: dict = Depends(require_permission("plans:credit_settlement_manage")),
 ) -> dict:
     try:
-        return {"success": True, "data": dry_run_study_meeting_batch(
+        return {"success": True, "data": create_study_meeting_settlement_batch(
             actor_user_id=user["id"], session_id=session_id,
         )}
     except (ValueError, PermissionError) as exc:
@@ -436,7 +436,7 @@ def class_meeting_batch_dry_run(
     user: dict = Depends(require_permission("plans:credit_settlement_manage")),
 ) -> dict:
     try:
-        return {"success": True, "data": dry_run_class_meeting_batch(
+        return {"success": True, "data": create_class_meeting_settlement_batch(
             actor_user_id=user["id"], event_group_id=event_group_id,
         )}
     except (ValueError, PermissionError) as exc:

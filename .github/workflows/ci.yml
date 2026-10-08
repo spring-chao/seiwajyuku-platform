@@ -173,6 +173,7 @@ jobs:
           apps/platform-api/tests/test_mobile_record_idempotency.py
           apps/platform-api/tests/test_credit_settlement_batch_mysql.py
           apps/platform-api/tests/test_credit_lifecycle_acceptance.py
+          apps/platform-api/tests/test_credit_launch_http_acceptance.py
           apps/platform-api/tests/test_audit_serialization.py
           apps/platform-api/tests/test_class_meeting_batch_mysql.py
           apps/platform-api/tests/test_credit_activity_batch_mysql.py
@@ -273,7 +274,11 @@ jobs:
           apps/platform-api/tests/test_participation_history_import.py
           apps/platform-api/tests/test_legacy_operations_merge.py
           apps/platform-api/tests/test_wechat_participation_history.py
+          apps/platform-api/tests/test_r3_db_read_mysql.py
           -q --junitxml=c7-1-2-mysql.xml
+        env:
+          R3_ISOLATED_DB_READ_MYSQL: "1"
+          R3_ISOLATED_MYSQL_ROOT_PASSWORD: c7-ci-root
       - uses: actions/upload-artifact@v7
         if: always()
         with:
