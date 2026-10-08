@@ -173,6 +173,7 @@ jobs:
           apps/platform-api/tests/test_mobile_record_idempotency.py
           apps/platform-api/tests/test_credit_settlement_batch_mysql.py
           apps/platform-api/tests/test_credit_lifecycle_acceptance.py
+          apps/platform-api/tests/test_credit_launch_http_acceptance.py
           apps/platform-api/tests/test_audit_serialization.py
           apps/platform-api/tests/test_class_meeting_batch_mysql.py
           apps/platform-api/tests/test_credit_activity_batch_mysql.py
