@@ -170,6 +170,7 @@ jobs:
           apps/platform-api/tests/test_volunteer_position_model.py
           apps/platform-api/tests/test_study_meeting_attendees.py
           apps/platform-api/tests/test_wechat_learning_summary.py
+          apps/platform-api/tests/test_signin_management.py
           apps/platform-api/tests/test_mobile_record_idempotency.py
           apps/platform-api/tests/test_credit_settlement_batch_mysql.py
           apps/platform-api/tests/test_credit_lifecycle_acceptance.py
@@ -358,6 +359,31 @@ jobs:
           python -c "from app.services.iam import seed_iam; seed_iam()"
           ledger_after="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT COUNT(*) FROM learning_credit_entries;")"
           test "$ledger_before" = "$ledger_after"
+      - name: Verify 0068 entry code replay, guarded rollback and restore
+        run: |
+          set -euo pipefail
+          container="${{ job.services.mysql.id }}"
+          db="seiwajyuku_staging"
+          docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/mysql/0068_signin_management.sql
+          actor="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT MIN(id) FROM app_users;")"
+          test "$actor" != "NULL"
+          docker exec "$container" mysql -uroot -pci-root-password "$db" -e "INSERT INTO attendance_entry_tokens(token_hash,event_id,created_by,created_at,expires_at) VALUES(REPEAT('a',64),'CI-0068-GUARD',$actor,UTC_TIMESTAMP(),DATE_ADD(UTC_TIMESTAMP(),INTERVAL 2 DAY));"
+          if docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/rollback/mysql/0068_signin_management.down.sql; then
+            echo "ERROR: 0068 downgrade must refuse issued codes"
+            exit 1
+          fi
+          saved="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT COUNT(*) FROM attendance_entry_tokens WHERE event_id='CI-0068-GUARD';")"
+          test "$saved" = "1"
+          docker exec "$container" mysqldump -uroot -pci-root-password --single-transaction "$db" attendance_entry_tokens > entry-code-backup.sql
+          docker exec "$container" mysql -uroot -pci-root-password "$db" -e "DELETE FROM attendance_entry_tokens WHERE event_id='CI-0068-GUARD';"
+          docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/rollback/mysql/0068_signin_management.down.sql
+          dropped="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='attendance_entry_tokens';")"
+          test "$dropped" = "0"
+          docker exec -i "$container" mysql -uroot -pci-root-password "$db" < entry-code-backup.sql
+          restored="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT COUNT(*) FROM attendance_entry_tokens WHERE token_hash=REPEAT('a',64) AND event_id='CI-0068-GUARD' AND created_by=$actor;")"
+          test "$restored" = "1"
+          docker exec "$container" mysql -uroot -pci-root-password "$db" -e "INSERT INTO schema_migrations(version,applied_at) VALUES('0068_signin_management.sql',UTC_TIMESTAMP()); DELETE FROM attendance_entry_tokens WHERE event_id='CI-0068-GUARD';"
+          docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/mysql/0068_signin_management.sql
       - name: Dump staging database
         run: >-
           docker exec "${{ job.services.mysql.id }}"

@@ -12,6 +12,11 @@ Page({
     preview: null
   },
 
+  onLoad(options = {}) {
+    const route = String(options.return_checkin || "");
+    this._returnCheckin = /^\/pages\/checkin\/(?:events|index\?(?:token=[A-Za-z0-9_-]{16,32}|event_id=[A-Za-z0-9_][A-Za-z0-9_-]{0,127}))$/.test(route) ? route : "";
+  },
+
   onShow() { showPrivatePage(this); },
   onHide() { hidePrivatePage(this, { name: "", phone: "", preview: null, loading: false, unbinding: false }); },
   onUnload() { this.onHide(); },
@@ -73,7 +78,11 @@ Page({
         title: "身份已绑定",
         content: `${(data.member && data.member.name_masked) || name}：${identityText}。`,
         showCancel: false,
-        success: () => { if (current()) wx.navigateBack({ delta: 1 }); }
+        success: () => {
+          if (!current()) return;
+          if (this._returnCheckin) wx.redirectTo({ url: this._returnCheckin });
+          else wx.navigateBack({ delta: 1 });
+        }
       });
     } catch (error) {
       if (!current()) return;

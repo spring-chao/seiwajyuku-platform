@@ -344,7 +344,7 @@ def _upsert_record(
     )
 
 
-def sync_from_signin(cursor: str | None = None) -> dict[str, Any]:
+def sync_from_signin(cursor: str | None = None, *, event_id: str | None = None) -> dict[str, Any]:
     """Pull attendance data from the signin system.
 
     Returns sync summary with next cursor.
@@ -362,6 +362,8 @@ def sync_from_signin(cursor: str | None = None) -> dict[str, Any]:
         # Step 1: Pull sessions
         sessions_url = f"{base_url}/ops/v1/attendance/sessions"
         params = {"limit": 200}
+        if event_id:
+            params["event_id"] = event_id
         if cursor:
             params["cursor"] = cursor
 

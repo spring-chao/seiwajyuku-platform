@@ -39,6 +39,16 @@ Page({
     const current = beginPrivateRequest(this, "resolve");
     if (!current()) return;
     const target = classifyScanResult(result || {});
+    if (target === "activity") {
+      const { checkinTarget, checkinPath } = require("../../utils/checkin");
+      const activity = checkinTarget(result || {});
+      if (activity) {
+        wx.navigateTo({ url: checkinPath(activity) });
+      } else {
+        this.setData({ statusType: "error", statusMessage: "活动码缺少有效场次，请扫描现场活动签到码。", showScanAgain: true });
+      }
+      return;
+    }
     if (target === "enrollment") {
       if (app.globalData.memberSessionToken) {
         this.setData({ statusType: "info", statusMessage: "你已绑定正式学员身份，无需重复申请。", showScanAgain: true });

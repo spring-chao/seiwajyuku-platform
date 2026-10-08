@@ -34,6 +34,10 @@ class Settings:
     wechat_miniprogram_page: str = "pages/enrollment/index"
     signin_api_base_url: str = ""
     signin_service_api_key: str = ""
+    signin_platform_api_key: str = field(default="", repr=False)
+    signin_management_enabled: bool = False
+    signin_member_checkin_enabled: bool = False
+    signin_legacy_url: str = ""
     identity_authorization_enabled: bool = False
     identity_admin_writes_enabled: bool = False
     volunteer_service_invitations_enabled: bool = False
@@ -286,4 +290,8 @@ def get_settings() -> Settings:
         ),
         signin_api_base_url=os.getenv("SIGNIN_API_BASE_URL", "").strip(),
         signin_service_api_key=os.getenv("SIGNIN_SERVICE_API_KEY", "").strip(),
+        signin_platform_api_key=os.getenv("SIGNIN_PLATFORM_API_KEY", "").strip(),
+        signin_management_enabled=_bool("SIGNIN_MANAGEMENT_ENABLED"),
+        signin_member_checkin_enabled=_bool("SIGNIN_MEMBER_CHECKIN_ENABLED"),
+        signin_legacy_url=os.getenv("SIGNIN_LEGACY_URL", "").strip(),
     )

@@ -1,0 +1,16 @@
+.page-shell { min-height: 100vh; box-sizing: border-box; padding: 28rpx; background: #fbf7f3; color: #3d2a2a; }
+.hero-card { padding: 36rpx 30rpx; border-radius: 26rpx; background: linear-gradient(135deg, #741f2b, #a84c52); color: #fff; }
+.eyebrow { font-size: 24rpx; opacity: .82; }
+.hero-title { margin-top: 14rpx; font-size: 46rpx; font-weight: 700; }
+.hero-copy { margin-top: 14rpx; line-height: 1.6; font-size: 26rpx; }
+.section-card, .state-card { margin-top: 24rpx; padding: 28rpx; border-radius: 22rpx; background: #fff; }
+.section-title { font-size: 33rpx; font-weight: 700; line-height: 1.45; }
+.detail-line { margin-top: 14rpx; font-size: 27rpx; line-height: 1.6; word-break: break-all; }
+.section-hint { margin-top: 16rpx; color: #806f6f; line-height: 1.65; font-size: 25rpx; }
+.identity-name { margin-top: 18rpx; color: #741f2b; font-size: 35rpx; font-weight: 700; }
+.primary-button, .plain-button { margin-top: 22rpx; border-radius: 12rpx; font-size: 29rpx; }
+.primary-button { color: #fff; background: #741f2b; }
+.primary-button[disabled] { background: #b69b9f; color: #fff; }
+.plain-button { color: #741f2b; background: #fffaf7; border: 1rpx solid #d9c7c3; }
+.success { background: #ecf6ef; color: #2b6640; }
+.error { color: #b33b44; }

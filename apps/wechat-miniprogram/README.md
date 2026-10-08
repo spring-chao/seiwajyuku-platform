@@ -1,6 +1,6 @@
 # 学长服务助手小程序
 
-这是学长服务助手的微信原生小程序入口，不使用 `web-view`。未绑定身份时提供新学长信息登记；绑定正式学员后，首页收拢为“我的学习 / 我的成长”，志工学长另外看到“志工服务”。扫码能力保留为辅助路由，不再占用首页主入口。提交后继续调用现有平台 API，后台审核、收款确认、正式分中心和正式入册流程不变。
+这是学长服务助手的微信原生小程序入口。首页提供“今日签到”，绑定正式学员后提供“我的学习 / 我的成长”，志工学长另外看到“志工服务”。主要签到流程使用原生页面；姓名、团队和来宾备用流程保留现有 H5，可复制链接，也可在配置业务域名后通过 `web-view` 打开。后台审核、收款确认、正式分中心和正式入册流程不变。
 
 ## 当前正式发布配置
 
@@ -11,7 +11,7 @@
 
 ## 开发者工具 dev/test 配置
 
-- `app.js` 通过 `config.runtime.js` 选择运行配置；只有微信 `envVersion=develop` 时使用 `config.dev.js` 的本地测试 API（默认 `http://127.0.0.1:8000`）。
+- `app.js` 通过 `config.runtime.js` 选择运行配置；只有微信开发者工具中的 `envVersion=develop` 使用 `config.dev.js` 的本地测试 API（默认 `http://127.0.0.1:8000`）。手机预览默认仍使用正式网关。
 - trial/release 运行时继续使用 `config.js` 的正式 `/platform` 网关，不需要也不允许手工改动生产配置文件来测试本地流程。
 - 本地 API 必须使用 `APP_ENV=test`（或 `dev`）、`WECHAT_LOCAL_TEST_MODE=true`、`WECHAT_MEMBER_BINDING_ENABLED=true` 和 `WECHAT_STAFF_MOBILE_OPERATIONS_ENABLED=true`；生产环境严禁开启 `WECHAT_LOCAL_TEST_MODE`。
 - 在微信开发者工具的本地私有项目设置中关闭 URL 合法域名校验（不要提交该私有设置），并启动本地 API 后再编译开发版。
@@ -27,6 +27,21 @@
 ## 入口参数
 
 小程序码进入 `pages/enrollment/index`，使用 `scene` 携带当前有效入塾入口令牌。新建/轮换的令牌为短 URL-safe 随机值，适合放入微信小程序码；历史 H5 令牌仍由现有 API 兼容解析。
+
+活动签到码进入 `pages/checkin/index`，`scene` 携带活动/场次短令牌。原生页面也兼容 `?token=...` 或 `?event_id=...`；服务端始终验证实际活动状态、时间与报名记录。`pages/scan/index` 可以识别这种活动码。通用首页码 `scene=home` 保持打开首页。
+
+## 原生活动签到
+
+- 首页“今日签到”进入 `pages/checkin/events`，从 `/api/v1/wechat/checkin/events` 读取服务端当前可签到场次。
+- `/api/v1/wechat/checkin/context` 支持公开活动展示；有绑定凭证时，服务端解析本人身份及报名，前端只展示姓名与班级。
+- 未绑定时打开现有绑定页，`return_checkin` 只接受本地活动页面路径，绑定成功后恢复原活动短令牌或场次 ID。
+- 活动上下文有五分钟签名签到凭证时，直接向经过 HTTPS 域名与路径校验的签到引擎 `/native/v1/checkin/confirm` 提交 `{ticket}`。已预加载活动后平台临时停机仍可提交到场事实，参与同步失败留待重试；凭证只保存在当前页面内存，隐藏、离开或身份变更时清除。
+- 旧上下文没有签名凭证时，兼容 `/api/v1/wechat/checkin/confirm`，只提交 `event_id` 与可选 `token`。不接受前端提供姓名、手机号、会员 ID、会员编号或报名 ID 来确定签到身份。
+- 重复签到、关闭活动、时间限制、团队与外班规则仍由签到引擎判断。上午、下午、空巴分别使用不同 `event_id`。
+- 成功后展示 `SYNCED` 或 `PENDING`。同步待重试时仍显示签到成功，个人历史页进入时重新请求服务端事实，不生成本地参与记录。
+- `pages/checkin/legacy` 重新请求当前场次的服务端备用 HTTPS 链接，不接受路由中的任意链接；业务域名尚未配置或 `web-view` 失败时保留复制链接和现场协助说明。
+
+新增签到接口尚未发布时，不得把指向正式网关的手机预览当作已可验收版本。staging 预览应独立打包并明确使用实际隔离的 staging API，仓库正式 `config.js` 与 CI 校验仍保持生产配置。
 
 ## 绑定学员后的首页入口
 

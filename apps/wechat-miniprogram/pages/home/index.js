@@ -40,7 +40,16 @@ Page({
     bindingActionLabel: "绑定我的身份"
   },
 
-  onLoad(options = {}) { this._manageIdentity = options.manage_identity === "1"; },
+  onLoad(options = {}) {
+    this._manageIdentity = options.manage_identity === "1";
+    // Existing homepage codes keep scene=home. Activity codes can also arrive
+    // through a compatible homepage link without losing their activity token.
+    if (options.token || options.event_id || /^ci_/.test(String(options.scene || ""))) {
+      const { checkinTarget, checkinPath } = require("../../utils/checkin");
+      const target = checkinTarget(options);
+      if (target) wx.navigateTo({ url: checkinPath(target) });
+    }
+  },
 
   onShow() {
     this._homeVisible = true;
@@ -183,6 +192,8 @@ Page({
     if (this.data.identityState !== "bound") return;
     wx.navigateTo({ url: "/pages/learning/index" });
   },
+
+  openCheckin() { wx.navigateTo({ url: "/pages/checkin/events" }); },
 
   openProfile() {
     if (this.data.identityState !== "bound") return;

@@ -46,6 +46,8 @@ def environment() -> dict[str, str | bool]:
         # a CloudBase control-plane update from an instance that has actually
         # reloaded its runtime environment.
         "wechat_member_binding_enabled": settings.wechat_member_binding_enabled,
+        "signin_management_enabled": settings.signin_management_enabled,
+        "signin_member_checkin_enabled": settings.signin_member_checkin_enabled,
         "wechat_staff_mobile_operations_enabled": (
             settings.wechat_staff_mobile_operations_enabled
         ),

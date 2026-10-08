@@ -9,6 +9,10 @@
   <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
   <button wx:if="{{!loading && (errorMessage || (isVolunteer && serviceMessage))}}" class="plain-button" bindtap="loadHome">重新加载</button>
 
+  <view class="section-card" bindtap="openCheckin">
+    <view class="section-title">今日签到</view><view class="section-hint">选择现场活动与场次，或扫描活动签到码 →</view>
+  </view>
+
   <view wx:if="{{!loading && identityState !== 'unknown'}}" class="section-card">
     <view class="section-title">我的入口</view>
     <view wx:if="{{member || isEmployee}}" class="identity-card">
