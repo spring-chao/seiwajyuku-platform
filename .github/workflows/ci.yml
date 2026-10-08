@@ -174,11 +174,15 @@ jobs:
           apps/platform-api/tests/test_credit_settlement_batch_mysql.py
           apps/platform-api/tests/test_credit_lifecycle_acceptance.py
           apps/platform-api/tests/test_credit_launch_http_acceptance.py
+          apps/platform-api/tests/test_credit_single_migration_mysql.py
           apps/platform-api/tests/test_audit_serialization.py
           apps/platform-api/tests/test_class_meeting_batch_mysql.py
           apps/platform-api/tests/test_credit_activity_batch_mysql.py
           apps/platform-api/tests/test_historical_credit_batch_mysql.py
           -q --junitxml=b21-mysql.xml
+        env:
+          CREDIT_MIGRATION_ISOLATED_MYSQL: "1"
+          CREDIT_MIGRATION_ISOLATED_ROOT_PASSWORD: ci-b21-root
       - name: Verify 0042 guarded rollback on disposable test data
         run: |
           if docker exec -i "${{ job.services.mysql.id }}" mysql -uroot -pci-b21-root seiwajyuku_b21_test < migrations/rollback/mysql/0042_study_meeting_attendee_correction.down.sql; then

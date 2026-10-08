@@ -4,9 +4,6 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.core.settings import get_settings
-from app.db import connect, execute
-
 
 def _find_migration_root() -> Path:
     for parent in Path(__file__).resolve().parents:
@@ -106,6 +103,11 @@ def _split_mysql(script: str) -> list[str]:
 
 
 def run_migrations() -> list[str]:
+    # The SQL splitter is also used by offline bounded-migration planning.
+    # Importing that pure parser must not initialize application DB settings.
+    from app.core.settings import get_settings
+    from app.db import connect, execute
+
     settings = get_settings()
     dialect = "sqlite" if settings.database_url.startswith("sqlite") else "mysql"
     migration_dir = MIGRATION_ROOT / dialect
