@@ -45,6 +45,12 @@ def isolated_schema():
                 for path in sorted((migrator.ROOT / "migrations" / "mysql").glob("*.sql")):
                     if path.name[:4] > "0063":
                         break
+                    if path.name.startswith("0048_"):
+                        # Model the historical pre-existing DRAFT identity:
+                        # 0048 INSERT IGNORE must preserve it, leaving mapping
+                        # absent. A brand-new install instead publishes it and
+                        # is outside this bounded production recovery entry.
+                        cursor.execute("INSERT INTO learning_plan_credit_rule_versions(plan_key,version_label,status,based_on_version_label,created_at,updated_at) VALUES ('STANDARD_3Y_2026','2026.1','DRAFT','2026',UTC_TIMESTAMP(),UTC_TIMESTAMP())")
                     for statement in _split_mysql(path.read_text(encoding="utf-8")):
                         cursor.execute(statement)
                     cursor.execute(migrator.STAMP, (path.name,))
@@ -70,7 +76,10 @@ def isolated_schema():
 def approved_materials(tmp_path, schema, connect, version):
     connection = connect()
     try:
-        rows, _ = migrator.snapshot(connection)
+        rows, baseline = migrator.snapshot(connection)
+        # Report a fixed, safe refusal code for fixture setup failures before
+        # execute_one deliberately sanitizes database/driver exceptions.
+        migrator.preconditions(version, rows, baseline)
         with connection.cursor() as cursor:
             cursor.execute(migrator.ACCESS)
             principal = cursor.fetchone()["principal"]

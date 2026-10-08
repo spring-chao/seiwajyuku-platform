@@ -14,7 +14,7 @@
 
 本地 pytest：`test_credit_single_migration.py`、`test_credit_single_migration_mysql.py`、`test_migrations.py`、`test_r3_db_authorization.py`，结果 **75 passed, 2 skipped**。跳过的是需要显式隔离 MySQL 的两项，不能计为通过。
 
-远端 CI 尚待本提交执行；此记录不声称 MySQL 验证通过。
+首轮 PR CI（37811354577）：七项检查通过，study-meeting-mysql 为 113 passed、2 failed。新增两项均在写入前拒绝；原夹具以全新安装的 0048 PUBLISHED 状态运行，未构造该有限入口所要求的历史 DRAFT/无映射前置状态。夹具已在 0048 前显式构造历史草稿版本，保持原迁移 SQL 不变；修正后的远端验证待执行。
 
 ## 生产剩余条件
 
