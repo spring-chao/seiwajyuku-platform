@@ -15,8 +15,9 @@ def _base64(value: bytes) -> str:
 
 
 def create_ticket(event_id: str, member: dict, *, binding_id: int, token_version: int) -> str:
+    issued_at = int(time.time())
     payload = {"purpose": "MEMBER_CHECKIN", "event_id": event_id, "member": member,
-               "exp": int(time.time()) + 300, "binding_id": binding_id,
+               "iat": issued_at, "exp": issued_at + 300, "binding_id": binding_id,
                "token_version": token_version}
     encoded = _base64(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode())
     signature = _base64(hmac.new(get_settings().signin_platform_api_key.encode(), encoded.encode(), hashlib.sha256).digest())

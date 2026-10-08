@@ -1,12 +1,12 @@
 const app = getApp();
 const { request } = require("../../utils/request");
 const { sessionToken, beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
-const { checkinTarget, checkinPath, contextPath, targetQuery, displayEvent, fallbackUrl, engineConfirmUrl, directConfirm } = require("../../utils/checkin");
+const { checkinTarget, checkinPath, contextPath, targetQuery, displayEvent, fallbackUrl, engineConfirmUrl, directConfirm, platformRescueNotice } = require("../../utils/checkin");
 
 function empty() {
   return { event: null, member: null, registration: null, loading: false, confirming: false,
     canCheckin: false, alreadyChecked: false, bindingRequired: false, requiresFallback: false,
-    fallbackAvailable: false, historyKind: "activity", notice: "", errorMessage: "", result: null };
+    fallbackAvailable: false, historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null };
 }
 
 Page({
@@ -51,7 +51,7 @@ Page({
         current.acceptSession("");
         app.clearMemberSession();
         this.setData({ ...empty(), bindingRequired: true, notice: "绑定已失效，请重新绑定后继续签到。" });
-      } else this.setData({ errorMessage: error.message || "活动信息暂时无法加载，请重试。" });
+      } else this.setData({ errorMessage: error.message || "活动信息暂时无法加载，请重试。", rescueNotice: platformRescueNotice(error) });
     } finally { if (current()) this.setData({ loading: false }); }
   },
 
@@ -68,7 +68,7 @@ Page({
       let response;
       if (this._checkinTicket) {
         const engine = await directConfirm(this._engineConfirmUrl, this._checkinTicket);
-        response = { data: { status: engine.already ? "ALREADY_CHECKED_IN" : "CHECKED_IN",
+        response = { data: { status: engine.already === true ? "ALREADY_CHECKED_IN" : "CHECKED_IN",
           checked_at: engine.checked_at || (engine.data && engine.data.checked_at),
           sync_status: engine.sync_status === "SYNCED" ? "SYNCED" : "PENDING",
           message: engine.msg, event: this.data.event, history_kind: this.data.historyKind } };

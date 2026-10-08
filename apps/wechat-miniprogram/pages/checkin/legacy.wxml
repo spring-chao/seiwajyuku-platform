@@ -5,6 +5,7 @@
   <view class="section-card"><view class="section-title">保留原报名与实际参加人</view><view class="section-hint">团队报名会继续确认剩余名额和实际参加人；外班学长保留原班级。请按现场流程操作。</view><view class="section-hint">如果小程序内无法打开，可复制签到链接在微信或浏览器打开，也可请现场工作人员协助。</view></view>
   <view wx:if="{{loading}}" class="state-card">正在确认备用入口…</view>
   <view wx:if="{{errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <view wx:if="{{rescueNotice}}" class="section-card"><view class="section-title">现场备用签到</view><view class="section-hint">{{rescueNotice}}</view></view>
   <button wx:if="{{url}}" class="primary-button" bindtap="openWebview">打开原有签到流程</button>
   <button wx:if="{{url}}" class="plain-button" bindtap="copyLink">复制本场次签到链接</button>
   <button wx:if="{{errorMessage && !url}}" class="plain-button" bindtap="loadFallback">重试</button>

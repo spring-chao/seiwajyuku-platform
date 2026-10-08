@@ -27,6 +27,7 @@
     <button class="primary-button" bindtap="openBinding">绑定身份并继续签到</button>
   </view>
   <view wx:if="{{errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <view wx:if="{{rescueNotice}}" class="section-card"><view class="section-title">现场备用签到</view><view class="section-hint">{{rescueNotice}}</view></view>
   <button wx:if="{{errorMessage && !confirming}}" class="plain-button" bindtap="loadContext">重新确认活动</button>
   <view wx:if="{{fallbackAvailable && !loading}}" class="section-card">
     <view class="section-title">备用现场签到</view><view class="section-hint">团队报名、来宾或无法匹配报名时，可使用原有现场签到流程；也可联系工作人员协助。</view>

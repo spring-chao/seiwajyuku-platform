@@ -163,12 +163,17 @@ def confirm(payload: ConfirmPayload,
             "registration_id": registration_id,
         }, timeout=12)
         data = result.get("data") or {}
-        already = bool(result.get("already"))
+        if result.get("requires_fallback") or result.get("status") in {"NOT_REGISTERED", "TEAM_FALLBACK", "IDENTITY_CONFLICT"}:
+            raise signin_engine.SigninEngineError("当前报名需要备用签到或现场工作人员确认", 409)
+        already = result.get("already") is True
+        checked_at = result.get("checked_at") or data.get("checked_at")
+        if not already and not checked_at:
+            raise signin_engine.SigninEngineError("尚未确认实际签到记录，请重试", 502)
         event = lookup["event"]
         sync_status = "SYNCED" if result.get("sync_status") == "SYNCED" else "PENDING"
         return {"success": True, "data": {
             "status": "ALREADY_CHECKED_IN" if already else "CHECKED_IN",
-            "checked_at": result.get("checked_at") or data.get("checked_at"),
+            "checked_at": checked_at,
             "sync_status": sync_status, "message": result.get("msg") or ("已签到" if already else "签到成功"),
             "event": event, "history_kind": _kind(event),
         }}

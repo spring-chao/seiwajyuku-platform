@@ -344,12 +344,15 @@ def _upsert_record(
     )
 
 
-def sync_from_signin(cursor: str | None = None, *, event_id: str | None = None) -> dict[str, Any]:
+def sync_from_signin(cursor: str | None = None, *, event_id: str | None = None,
+                     registration_id: str | None = None) -> dict[str, Any]:
     """Pull attendance data from the signin system.
 
     Returns sync summary with next cursor.
     """
     settings = get_settings()
+    if registration_id and not event_id:
+        raise ValueError("报名增量必须指定所属活动")
     if not settings.signin_api_base_url or not settings.signin_service_api_key:
         raise ValueError("签到服务地址或密钥未配置 (SIGNIN_API_BASE_URL / SIGNIN_SERVICE_API_KEY)")
 
@@ -418,6 +421,8 @@ def sync_from_signin(cursor: str | None = None, *, event_id: str | None = None) 
                             "session_id": session_item.get("session_id"),
                             "limit": 500,
                         }
+                        if registration_id:
+                            rec_params["registration_id"] = registration_id
                         if records_cursor:
                             rec_params["cursor"] = records_cursor
                         rec_resp = client.get(

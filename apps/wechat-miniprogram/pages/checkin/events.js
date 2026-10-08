@@ -1,17 +1,17 @@
 const app = getApp();
 const { request } = require("../../utils/request");
 const { sessionToken, beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
-const { checkinTarget, checkinPath, displayEvent } = require("../../utils/checkin");
+const { checkinTarget, checkinPath, displayEvent, platformRescueNotice } = require("../../utils/checkin");
 
 Page({
-  data: { events: [], loading: false, bindingRequired: false, errorMessage: "" },
+  data: { events: [], loading: false, bindingRequired: false, errorMessage: "", rescueNotice: "" },
   onShow() { showPrivatePage(this); return this.loadEvents(); },
-  onHide() { hidePrivatePage(this, { events: [], loading: false, bindingRequired: false, errorMessage: "" }); },
+  onHide() { hidePrivatePage(this, { events: [], loading: false, bindingRequired: false, errorMessage: "", rescueNotice: "" }); },
   onUnload() { this.onHide(); },
 
   async loadEvents() {
     const current = beginPrivateRequest(this);
-    this.setData({ events: [], loading: false, bindingRequired: !sessionToken(), errorMessage: "" });
+    this.setData({ events: [], loading: false, bindingRequired: !sessionToken(), errorMessage: "", rescueNotice: "" });
     if (!sessionToken()) return;
     this.setData({ loading: true });
     try {
@@ -26,7 +26,7 @@ Page({
         current.acceptSession("");
         app.clearMemberSession();
         this.setData({ events: [], bindingRequired: true, errorMessage: "绑定已失效，请重新绑定。" });
-      } else this.setData({ errorMessage: error.message || "当前活动暂时无法加载，请重试。" });
+      } else this.setData({ errorMessage: error.message || "当前活动暂时无法加载，请重试。", rescueNotice: platformRescueNotice(error) });
     } finally { if (current()) this.setData({ loading: false }); }
   },
   openEvent(event) {

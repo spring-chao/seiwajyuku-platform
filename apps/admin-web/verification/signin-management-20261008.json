@@ -34,11 +34,71 @@
     "runtime_cdn_dependency": false
   },
   "ui_visual_validation": {
-    "status": "PENDING_LOCAL_SERVICE",
-    "frontend": "http://127.0.0.1:5184",
+    "passed": 11,
+    "browser": "Microsoft Edge fresh isolated context",
+    "fixture": "loopback-20261008-004",
+    "private_fixture_copied": false,
+    "production_requests": 0,
+    "status": "PASS",
+    "visual_review": "PASS: manually reviewed import, team rows, three-session editor and workspace, unconfigured code error",
     "api": "http://127.0.0.1:8765",
+    "frontend": "http://127.0.0.1:5184",
+    "observed_http_errors": [
+      {
+        "path": "/api/v1/operations/member-actions/today",
+        "status": 403
+      },
+      {
+        "path": "/api/v1/attendance/manage/events/muz1t9r3_773126fbc138/code",
+        "status": 502
+      }
+    ],
+    "data": "synthetic isolated fixtures only",
+    "evidence_directory": "outputs/signin-integration-20261007/ui-visual",
+    "expected_error_explanation": [
+      "403: original home member-actions endpoint is outside synthetic attendance-only role",
+      "502: WeChat QR provider is intentionally not configured in isolated service"
+    ],
+    "timezone": "Asia/Shanghai",
+    "signin_commit": "adb96116c7b190b9c49940a3897c39771d108aa8",
+    "viewport": [
+      1440,
+      1080
+    ],
+    "screenshots": [
+      "01-management-list.png",
+      "02-create-event.png",
+      "03-event-workspace.png",
+      "04-temporary-registration.png",
+      "05-late-filter.png",
+      "06-excel-preview.png",
+      "07-team-slots.png",
+      "08-three-session-editor.png",
+      "08b-three-session-times.png",
+      "09-code-unconfigured.png",
+      "10-three-session-workspace.png"
+    ],
+    "page_errors": 0,
     "engine": "http://127.0.0.1:8766",
-    "data": "synthetic isolated fixtures only"
+    "blocked_external_origins": [
+      "https://xiaoxian521.github.io"
+    ],
+    "limitations": [
+      "Real WeChat QR image and phone scan require authorized mini-program development or experience configuration"
+    ],
+    "actual_operations": [
+      "real login and RBAC menu",
+      "event list render",
+      "create ordinary future event with organization ID",
+      "temporary registration through actual engine",
+      "late status and filter",
+      "Excel preview and append preserving repeated team slots",
+      "team manual confirmation disabled",
+      "Excel download and row count",
+      "three class sessions created from trusted roster",
+      "session picker and develop code request",
+      "unconfigured WeChat error with download disabled"
+    ]
   },
   "production_operations": false,
   "source_sha256": {

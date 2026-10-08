@@ -1,4 +1,10 @@
 const CHECKIN_PAGE = "/pages/checkin/index";
+const PLATFORM_RESCUE_NOTICE = "平台暂时无法连接，签到系统仍可使用。请扫描现场备用签到码，或请工作人员帮助签到。";
+
+function platformRescueNotice(error) {
+  const status = Number(error && error.statusCode) || 0;
+  return status >= 400 && status < 500 ? "" : PLATFORM_RESCUE_NOTICE;
+}
 
 function decode(value) {
   try { return decodeURIComponent(String(value || "")); } catch (_) { return ""; }
@@ -89,10 +95,16 @@ function directConfirm(url, ticket) {
       data: { ticket },
       success(response) {
         const result = response.data || {};
-        if (response.statusCode >= 200 && response.statusCode < 300 && result.ok === true) {
+        const checkedAt = result.checked_at || (result.data && result.data.checked_at);
+        const hasReceipt = result.already === true || (typeof checkedAt === "string" && checkedAt.trim());
+        const fallback = result.requires_fallback === true || ["NOT_REGISTERED", "TEAM_FALLBACK"].includes(String(result.status || "").toUpperCase());
+        if (response.statusCode >= 200 && response.statusCode < 300 && result.ok === true && hasReceipt && !fallback) {
           resolve(result); return;
         }
-        const error = new Error(result.msg || result.detail || "签到结果暂未确认，请重试。");
+        const rejectedReceipt = response.statusCode >= 200 && response.statusCode < 300 && result.ok === true;
+        const message = rejectedReceipt ? (fallback ? "当前报名需要现场确认，请使用备用签到入口或联系工作人员。" : "签到结果暂未确认，请重试。")
+          : result.msg || result.detail || "签到结果暂未确认，请重试。";
+        const error = new Error(message);
         error.statusCode = response.statusCode;
         error.engineTicketError = response.statusCode === 401 || response.statusCode === 403;
         reject(error);
@@ -102,4 +114,4 @@ function directConfirm(url, ticket) {
   });
 }
 
-module.exports = { checkinTarget, targetQuery, checkinPath, contextPath, displayEvent, fallbackUrl, engineConfirmUrl, directConfirm };
+module.exports = { checkinTarget, targetQuery, checkinPath, contextPath, displayEvent, fallbackUrl, engineConfirmUrl, directConfirm, platformRescueNotice };

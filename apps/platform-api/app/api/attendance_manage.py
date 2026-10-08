@@ -114,7 +114,9 @@ def immediate_sync(payload: ImmediateSyncPayload,
     if settings.deployment_read_only or (settings.is_production and not settings.allow_production_mutations):
         raise HTTPException(403, "当前环境禁止新的签到同步写入")
     try:
-        result = sync_from_signin(event_id=payload.event_id)
+        result = sync_from_signin(event_id=payload.event_id, **(
+            {"registration_id": payload.registration_id} if payload.registration_id else {}
+        ))
     except Exception as exc:
         raise HTTPException(503, "签到已保存在签到引擎，参与记录等待重试同步") from exc
     if result["status"] != "SUCCESS" or not result["received_sessions"]:

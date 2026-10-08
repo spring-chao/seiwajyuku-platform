@@ -150,12 +150,43 @@ test("current expired session preserves rebinding action; stale expired session 
   const h = harness("checkin/index", async () => { throw Object.assign(new Error("expired"), { statusCode: 401 }); });
   h.page.onLoad({ event_id: 10 }); await h.page.onShow();
   assert.equal(h.app.globalData.personSessionToken, ""); assert.equal(h.page.data.bindingRequired, true); assert.equal(h.page.data.loading, false);
+  assert.equal(h.page.data.rescueNotice, "");
   const pending = deferred();
   const old = harness("checkin/index", () => pending.promise);
   old.page.onLoad({ event_id: 10 }); const load = old.page.onShow(); old.app.setPersonSession("account-b");
   pending.reject(Object.assign(new Error("expired"), { statusCode: 401 })); await load;
   assert.equal(old.app.globalData.personSessionToken, "account-b"); assert.equal(old.page.data.member, null);
 });
+
+for (const pageName of ["index", "events", "legacy"]) {
+  for (const failure of ["network", "503"]) {
+    test(`${pageName} initial ${failure} failure offers independent onsite rescue without guessing a URL or checkin success`, async () => {
+      let recovered = false;
+      const fallback = "https://signin.example.test/index.html?event_id=10";
+      const h = harness("checkin/" + pageName, async () => {
+        if (!recovered) throw Object.assign(new Error("synthetic platform outage"), { statusCode: failure === "503" ? 503 : undefined });
+        return pageName === "events" ? { data: { events: [{ event_id: 10, session_code: "MORNING" }] } }
+          : context(10, { fallback_url: fallback });
+      });
+      if (h.page.onLoad) h.page.onLoad({ event_id: 10, url: "https://untrusted.test/" });
+      await h.page.onShow();
+      assert.equal(h.page.data.rescueNotice, "平台暂时无法连接，签到系统仍可使用。请扫描现场备用签到码，或请工作人员帮助签到。");
+      assert.equal(h.page.data.loading, false);
+      if (pageName === "index") {
+        assert.equal(h.page.data.canCheckin, false); assert.equal(h.page.data.result, null);
+        assert.equal(h.page._checkinTicket, ""); await h.page.confirmCheckin();
+      } else if (pageName === "legacy") {
+        assert.equal(h.page.data.url, ""); h.page.copyLink(); assert.equal(h.copied.length, 0);
+      } else assert.equal(h.page.data.events.length, 0);
+      assert.equal(h.calls.length, 1);
+      recovered = true;
+      await h.page.onShow();
+      assert.equal(h.page.data.rescueNotice, "");
+      if (pageName === "legacy") { h.page.copyLink(); assert.equal(h.copied[0], fallback); }
+      h.page.onHide(); assert.equal(h.page.data.rescueNotice, "");
+    });
+  }
+}
 
 test("today entry requires binding and uses event IDs rather than guessed names", async () => {
   const unbound = harness("checkin/events", async () => { throw new Error("must not request"); }, "");
@@ -222,6 +253,27 @@ test("invalid engine response and network timeout never report successful checki
     assert.equal(h.page.data.result, null); assert.equal(h.page.data.alreadyChecked, false); assert.equal(h.page.data.confirming, false);
     assert.equal(h.calls.length, 1);
   }
+});
+
+for (const result of [{}, { status: "NOT_REGISTERED", checked_at: "synthetic-time" },
+  { status: "TEAM_FALLBACK", checked_at: "synthetic-time" }, { requires_fallback: true, checked_at: "synthetic-time" }]) {
+  test(`direct 200 ok without an attendance receipt or with ${result.status || (result.requires_fallback ? "fallback" : "no fact")} cannot claim checkin success`, async () => {
+    const h = harness("checkin/index", async () => ticketContext());
+    h.wx.request = options => options.success({ statusCode: 200, data: { ok: true, msg: "签到成功", sync_status: "SYNCED", ...result } });
+    h.page.onLoad({ event_id: 10 }); await h.page.onShow(); await h.page.confirmCheckin();
+    assert.equal(h.page.data.result, null); assert.equal(h.page.data.alreadyChecked, false);
+    assert.equal(h.page.data.confirming, false); assert.match(h.page.data.errorMessage, /结果暂未确认|备用签到入口/);
+    assert.doesNotMatch(h.page.data.errorMessage, /签到成功/);
+    assert.equal(h.calls.length, 1);
+  });
+}
+
+test("direct duplicate acknowledgement is an attendance receipt without inventing a checkin timestamp", async () => {
+  const h = harness("checkin/index", async () => ticketContext());
+  h.wx.request = options => options.success({ statusCode: 200, data: { ok: true, already: true, sync_status: "SYNCED" } });
+  h.page.onLoad({ event_id: 10 }); await h.page.onShow(); await h.page.confirmCheckin();
+  assert.equal(h.page.data.result.status, "ALREADY_CHECKED_IN");
+  assert.equal(h.page.data.result.checked_at, undefined); assert.equal(h.page.data.alreadyChecked, true);
 });
 
 for (const lifecycle of ["hide", "switch"]) {

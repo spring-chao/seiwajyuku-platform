@@ -10,6 +10,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 
 from app.core.security import create_token, hash_password
@@ -17,6 +18,7 @@ from app.db import execute, fetch_all, transaction
 from app.main import app
 from app.services import signin_engine
 from app.services.attendance_entry_codes import resolve_entry
+from app.services.attendance_sync import sync_from_signin
 from test_v12_mvp import _seed_group_leader_fixture
 
 
@@ -239,6 +241,7 @@ def test_context_ticket_is_signed_for_verified_identity_one_event_and_five_minut
         decode = lambda value: base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
         signed = json.loads(decode(encoded))
         assert signed["purpose"] == "MEMBER_CHECKIN" and signed["exp"] == 100300
+        assert signed["iat"] == 100000 and signed["exp"] - signed["iat"] == 300
         assert signed["event_id"] == "event-morning"
         assert signed["member"]["member_id"] == fixture["member_id"]
         assert signed["member"]["home_class_org_unit_id"] == fixture["class_id"]
@@ -262,3 +265,50 @@ def test_immediate_sync_keeps_retry_until_exact_registration_fact_is_saved():
             assert client.post("/api/v1/attendance/sync/immediate", headers=headers,
                                json={"event_id": "event-a", "registration_id": "reg-a"}).status_code == 200
             assert saved.call_args.args[1] == ("event-a", "reg-a")
+
+
+def test_registration_increment_writes_one_fact_and_unfiltered_fallback_keeps_full_roster():
+    fixture = _seed_group_leader_fixture()
+    event_id = "increment-" + fixture["suffix"]
+    target = "target-" + fixture["suffix"]
+    other = "other-" + fixture["suffix"]
+    source_records = [{"external_record_id": target, "member_id": fixture["member_id"],
+                       "attendance_status": "PRESENT", "checked_at": "2026-10-07T01:00:00Z"},
+                      {"external_record_id": other, "member_id": fixture["other_member_id"],
+                       "attendance_status": "ABSENT"}]
+    real_client = httpx.Client
+    def source(request):
+        assert request.headers["X-API-Key"] == ENV["SIGNIN_SERVICE_API_KEY"]
+        if request.url.path.endswith("/sessions"):
+            assert request.url.params["event_id"] == event_id
+            return httpx.Response(200, json={"items": [{"session_id": event_id, "external_session_id": event_id,
+                "session_code": "MORNING", "event_group": {"external_group_id": event_id,
+                "org_unit_id": fixture["class_id"], "event_date": "2026-10-07", "activity_type": "OTHER"}}]})
+        assert request.url.path.endswith("/records") and request.url.params["session_id"] == event_id
+        selected = request.url.params.get("registration_id")
+        return httpx.Response(200, json={"items": [row for row in source_records
+                                                  if not selected or row["external_record_id"] == selected]})
+    with patch.dict(os.environ, ENV), patch("app.services.attendance_sync.httpx.Client",
+            side_effect=lambda **kwargs: real_client(transport=httpx.MockTransport(source), **kwargs)):
+        first = sync_from_signin(event_id=event_id, registration_id=target)
+        assert first["status"] == "SUCCESS" and first["received_records"] == 1
+        saved = fetch_all("SELECT r.external_record_id,r.member_id FROM attendance_records r JOIN attendance_sessions s ON s.id=r.attendance_session_id WHERE s.external_session_id=?", (event_id,))
+        assert saved == [{"external_record_id": target, "member_id": fixture["member_id"]}]
+        fallback = sync_from_signin(event_id=event_id)
+        assert fallback["status"] == "SUCCESS" and fallback["received_records"] == 2
+        assert len(fetch_all("SELECT r.id FROM attendance_records r JOIN attendance_sessions s ON s.id=r.attendance_session_id WHERE s.external_session_id=?", (event_id,))) == 2
+    with pytest.raises(ValueError, match="所属活动"):
+        sync_from_signin(registration_id=target)
+
+
+def test_no_fact_receipt_never_returns_checkin_success_even_if_upstream_says_ok():
+    fixture = _seed_group_leader_fixture()
+    with patch.dict(os.environ, ENV), TestClient(app) as client:
+        headers = _bound(client, fixture)
+        lookup = {"ok": True, "event": _event(fixture), "registration": {"id": "reg-proof"}, "can_checkin": True}
+        for uncommitted, status in [({"ok": True, "status": "NOT_REGISTERED", "requires_fallback": True}, 409),
+                                     ({"ok": True, "sync_status": "PENDING"}, 502)]:
+            with patch.object(signin_engine, "engine_request", side_effect=[lookup, uncommitted]):
+                response = client.post("/api/v1/wechat/checkin/confirm", headers=headers, json={"event_id": "event-morning"})
+            assert response.status_code == status
+            assert "CHECKED_IN" not in response.text
