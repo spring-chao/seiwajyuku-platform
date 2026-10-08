@@ -41,7 +41,7 @@ def isolated_account():
         with root.cursor() as cursor:
             cursor.execute("SELECT DATABASE()")
             assert cursor.fetchone()[0] == url.database
-            cursor.execute(f"CREATE USER '{USER}'@'%' IDENTIFIED BY %s", (PASSWORD,))
+            cursor.execute("CREATE USER %s@%s IDENTIFIED BY %s", (USER, "%", PASSWORD))
             for table, columns in collector.APPROVED_COLUMNS.items():
                 selected = ",".join(f"`{column}`" for column in sorted(columns))
                 cursor.execute(f"GRANT SELECT ({selected}) ON `{url.database}`.`{table}` TO '{USER}'@'%'")
