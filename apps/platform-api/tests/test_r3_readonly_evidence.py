@@ -546,6 +546,22 @@ def test_db_derived_fields_and_drift(issuer, db_rows):
     )
 
 
+def test_settlement_schema_requires_its_own_migration_evidence(db_rows):
+    db_rows[db.QueryId.MIGRATION] = [
+        {"version": "0064_fix_credit_rule_mapping_and_binding_freeze.sql"},
+        {"version": "0065_learning_credit_history_import.sql"},
+        {"version": "0066_historical_credit_time_precision_review.sql"},
+    ]
+    assert db.derive_baseline(db_rows)["migration_status"] == {
+        "0064": "APPLIED", "0065": "APPLIED", "0066": "APPLIED",
+        "0067": "NOT_APPLIED",
+    }
+    db_rows[db.QueryId.MIGRATION].append(
+        {"version": "0067_learning_credit_settlement_batches.sql"}
+    )
+    assert db.derive_baseline(db_rows)["migration_status"]["0067"] == "APPLIED"
+
+
 def test_db_authorization_blocks_all_reads(issuer, db_rows):
     port = DbFixture(db_rows)
     a = db.DatabaseReadAdapter(

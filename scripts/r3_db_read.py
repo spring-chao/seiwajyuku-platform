@@ -42,9 +42,9 @@ SQL = MappingProxyType(
         QueryId.GENERIC_VERSION: f"SELECT id,status FROM learning_credit_rule_versions WHERE {GENERIC_FILTER}",
         QueryId.GENERIC_RULES: f"SELECT rule_key,settlement_model,points,cap_points,status FROM learning_credit_rules WHERE rule_version_id IN (SELECT id FROM learning_credit_rule_versions WHERE {GENERIC_FILTER}) ORDER BY rule_key",
         QueryId.MAPPING: "SELECT COUNT(*) AS count FROM learning_plan_credit_rule_mappings WHERE plan_key='standard-3y' AND plan_version_label='2026'",
-        QueryId.BINDING: "SELECT COUNT(*) AS count, COALESCE(SUM(b.credit_rule_version_id IS NOT NULL),0) AS generic_frozen, COALESCE(SUM(b.course_credit_rule_version_id IS NOT NULL),0) AS course_frozen FROM class_learning_bindings b JOIN learning_plan_versions p ON p.id=b.plan_version_id WHERE b.status='ACTIVE' AND p.plan_key='standard-3y' AND p.version_label='2026'",
+        QueryId.BINDING: "SELECT COUNT(*) AS count, CAST(COALESCE(SUM(b.credit_rule_version_id IS NOT NULL),0) AS UNSIGNED) AS generic_frozen, CAST(COALESCE(SUM(b.course_credit_rule_version_id IS NOT NULL),0) AS UNSIGNED) AS course_frozen FROM class_learning_bindings b JOIN learning_plan_versions p ON p.id=b.plan_version_id WHERE b.status='ACTIVE' AND p.plan_key='standard-3y' AND p.version_label='2026'",
         QueryId.LEDGER: "SELECT COUNT(*) AS count, COALESCE(SUM(points),0) AS points FROM learning_credit_entries",
-        QueryId.MIGRATION: "SELECT version FROM schema_migrations WHERE version IN ('0064_fix_credit_rule_mapping_and_binding_freeze.sql','0065_learning_credit_history_import.sql','0066_historical_credit_time_precision_review.sql') ORDER BY version",
+        QueryId.MIGRATION: "SELECT version FROM schema_migrations WHERE version IN ('0064_fix_credit_rule_mapping_and_binding_freeze.sql','0065_learning_credit_history_import.sql','0066_historical_credit_time_precision_review.sql','0067_learning_credit_settlement_batches.sql') ORDER BY version",
         QueryId.APPLY_AUDIT: "SELECT COUNT(*) AS count FROM audit_logs WHERE action='production.g5_4.course_rule_reconciliation.apply'",
         QueryId.PLACEHOLDER: f"SELECT (SELECT COUNT(*) FROM study_meeting_sessions WHERE course_key IN {PLACEHOLDERS}) + (SELECT COUNT(*) FROM study_meeting_courses WHERE course_key IN {PLACEHOLDERS}) + (SELECT COUNT(*) FROM study_meeting_course_completions c JOIN study_meeting_courses sc ON sc.id=c.study_meeting_course_id WHERE sc.course_key IN {PLACEHOLDERS}) + (SELECT COUNT(*) FROM learning_credit_entries WHERE rule_key IN {PLACEHOLDERS}) + (SELECT COUNT(*) FROM learning_plan_credit_rule_mappings WHERE generic_rule_version_id IN (SELECT id FROM learning_credit_rule_versions WHERE {GENERIC_FILTER}) OR course_credit_rule_version_id IN (SELECT id FROM learning_plan_credit_rule_versions WHERE {VERSION_FILTER})) AS count",
     }
@@ -164,7 +164,7 @@ def derive_baseline(rows):
             n: "APPLIED"
             if any(x.startswith(n + "_") for x in migrations)
             else "NOT_APPLIED"
-            for n in ("0064", "0065", "0066")
+            for n in ("0064", "0065", "0066", "0067")
         },
         "apply_audit_count": _count(
             _one(rows[QueryId.APPLY_AUDIT], ("count",))["count"]
