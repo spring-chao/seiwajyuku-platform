@@ -273,9 +273,8 @@ jobs:
           apps/platform-api/tests/test_participation_history_import.py
           apps/platform-api/tests/test_legacy_operations_merge.py
           apps/platform-api/tests/test_wechat_participation_history.py
+          apps/platform-api/tests/test_r3_db_read_mysql.py
           -q --junitxml=c7-1-2-mysql.xml
-      - name: Verify approved R3 collector with a column-scoped disposable account
-        run: python -m pytest apps/platform-api/tests/test_r3_db_read_mysql.py -q --junitxml=r3-db-read-mysql.xml
         env:
           R3_ISOLATED_DB_READ_MYSQL: "1"
           R3_ISOLATED_MYSQL_ROOT_PASSWORD: c7-ci-root
@@ -283,9 +282,7 @@ jobs:
         if: always()
         with:
           name: c7-1-2-mysql-results
-          path: |
-            c7-1-2-mysql.xml
-            r3-db-read-mysql.xml
+          path: c7-1-2-mysql.xml
           if-no-files-found: warn
 
   mysql-staging:
