@@ -15,11 +15,13 @@ from app.services.enrollment import (
     create_enrollment_link,
     disable_enrollment_link,
     enroll_application,
+    export_enrollment_visit_data,
     generate_wechat_miniprogram_code,
     get_active_enrollment_link,
     get_enrollment_application,
     get_public_enrollment_form,
     list_enrollment_applications,
+    list_active_enrollment_links,
     reject_enrollment_application,
     review_enrollment_application,
     rotate_enrollment_link,
@@ -107,6 +109,7 @@ class EnrollmentReviewPayload(BaseModel):
     email: str | None = Field(default=None, max_length=255)
     position: str | None = Field(default=None, max_length=255)
     referrer: str | None = Field(default=None, max_length=255)
+    referrer_org_unit_id: str | None = Field(default=None, max_length=64)
     invoice_info: str | None = Field(default=None, max_length=4000)
     invoice_type: str | None = Field(default=None, max_length=64)
     invoice_title: str | None = Field(default=None, max_length=500)
@@ -139,6 +142,12 @@ class EnrollmentReviewPayload(BaseModel):
     join_date: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
 
 
+class EnrollmentVisitExportPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    recipient: Literal["CLASS_TEACHER", "DIRECTOR"]
+    confirmed: Literal[True]
+
+
 class EnrollmentPaymentPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -163,7 +172,8 @@ class EnrollmentLinkPayload(BaseModel):
 class MiniProgramCodePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    raw_token: str = Field(
+    raw_token: str | None = Field(
+        default=None,
         min_length=1,
         max_length=32,
         pattern=r"^[A-Za-z0-9!#$&'()*+,/:;=?@._~-]+$",
@@ -259,6 +269,20 @@ def enrollment_application_detail(
     return {"success": True, "data": data}
 
 
+@router.post("/enrollment-applications/{application_id}/visit-image-data")
+def export_visit_image(
+    application_id: int,
+    payload: EnrollmentVisitExportPayload,
+    user: dict = Depends(require_permission("enrollment:review")),
+) -> dict:
+    try:
+        data = export_enrollment_visit_data(user["id"], application_id,
+            recipient=payload.recipient, confirmed=payload.confirmed)
+    except (PermissionError, ValueError) as exc:
+        raise _service_error(exc) from exc
+    return {"success": True, "data": data}
+
+
 @router.patch("/enrollment-applications/{application_id}/review")
 def review_application(
     application_id: int,
@@ -332,6 +356,13 @@ def active_link(
     _: dict = Depends(require_permission("enrollment:manage_link")),
 ) -> dict:
     return {"success": True, "data": get_active_enrollment_link()}
+
+
+@router.get("/enrollment-links")
+def active_links(
+    _: dict = Depends(require_permission("enrollment:manage_link")),
+) -> dict:
+    return {"success": True, "data": list_active_enrollment_links()}
 
 
 @router.post("/enrollment-links")

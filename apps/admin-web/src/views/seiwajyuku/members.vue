@@ -10,6 +10,7 @@ import {
   type UploadUserFile
 } from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
+import { createSectionLoader } from "@/utils/section-loader";
 import {
   createMember,
   getMemberEditProfile,
@@ -45,7 +46,7 @@ import {
   changeVolunteerAppointmentStatus,
   createVolunteerAppointment,
   getVolunteerAppointments,
-  getVolunteerMemberEditorCatalog,
+  getVolunteerEditorPositions,
   type VolunteerAppointment,
   type VolunteerPositionOption
 } from "@/api/volunteerManagement";
@@ -72,6 +73,11 @@ const originalGroupOrgUnitId = ref("");
 const financialFieldsEditable = ref(false);
 const editingMemberId = ref<number>();
 const volunteerAppointmentsLoading = ref(false);
+const volunteerAppointmentsLoaded = ref(false);
+const volunteerAppointmentsError = ref("");
+const volunteerCatalogLoading = ref(false);
+const volunteerCatalogError = ref("");
+const volunteerWorkspaceLoader = createSectionLoader();
 const volunteerHistoryExpanded = ref<string[]>([]);
 const memberVolunteerV2Appointments = ref<VolunteerAppointment[]>([]);
 const volunteerEditorCatalogPositions = ref<VolunteerPositionOption[]>([]);
@@ -105,9 +111,7 @@ const selectedShuku = ref("");
 const keyword = ref("");
 const classFilter = ref("");
 const groupFilter = ref("");
-const statusFilter = ref<"ACTIVE" | "SUSPENDED" | "INACTIVE" | "ALL">(
-  "ACTIVE"
-);
+const statusFilter = ref<"ACTIVE" | "SUSPENDED" | "INACTIVE" | "ALL">("ACTIVE");
 const currentPage = ref(1);
 const pageSize = ref(50);
 const totalMembers = ref(0);
@@ -306,14 +310,15 @@ const managementFilterOptions = computed(() =>
   memberOrgCatalog.value.management_units
     .filter(
       unit =>
-        !selectedShuku.value ||
-        unit.shuku_org_unit_id === selectedShuku.value
+        !selectedShuku.value || unit.shuku_org_unit_id === selectedShuku.value
     )
     .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"))
 );
 function isDescendantOf(orgId: string, ancestorId: string) {
   if (orgId === ancestorId) return true;
-  const byId = new Map(memberOrgCatalog.value.units.map(unit => [unit.id, unit]));
+  const byId = new Map(
+    memberOrgCatalog.value.units.map(unit => [unit.id, unit])
+  );
   const seen = new Set<string>();
   let current = byId.get(orgId);
   while (current?.parent_id && !seen.has(current.id)) {
@@ -331,14 +336,21 @@ const classFilterOptions = computed(() => {
     while (changed) {
       changed = false;
       memberOrgCatalog.value.units.forEach(unit => {
-        if (unit.parent_id && descendants.has(unit.parent_id) && !descendants.has(unit.id)) {
+        if (
+          unit.parent_id &&
+          descendants.has(unit.parent_id) &&
+          !descendants.has(unit.id)
+        ) {
           descendants.add(unit.id);
           changed = true;
         }
       });
     }
     memberOrgCatalog.value.classes.forEach(unit => {
-      if (descendants.has(unit.id) || (unit.shuku_org_unit_id || "") === selectedShuku.value) {
+      if (
+        descendants.has(unit.id) ||
+        (unit.shuku_org_unit_id || "") === selectedShuku.value
+      ) {
         allowed.add(unit.id);
       }
     });
@@ -346,7 +358,11 @@ const classFilterOptions = computed(() => {
     memberOrgCatalog.value.classes.forEach(unit => allowed.add(unit.id));
   }
   return memberOrgCatalog.value.classes
-    .filter(unit => allowed.has(unit.id) && (!selectedOrg.value || isDescendantOf(unit.id, selectedOrg.value)))
+    .filter(
+      unit =>
+        allowed.has(unit.id) &&
+        (!selectedOrg.value || isDescendantOf(unit.id, selectedOrg.value))
+    )
     .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 });
 const groupFilterOptions = computed(() => {
@@ -553,6 +569,7 @@ async function load() {
 }
 
 function openCreate() {
+  volunteerWorkspaceLoader.begin();
   editingMemberId.value = undefined;
   memberVolunteerV2Appointments.value = [];
   volunteerHistoryExpanded.value = [];
@@ -607,6 +624,11 @@ function openCreate() {
 }
 
 async function openEdit(row: any) {
+  volunteerWorkspaceLoader.begin();
+  volunteerAppointmentsLoaded.value = false;
+  volunteerAppointmentsError.value = "";
+  volunteerCatalogError.value = "";
+  volunteerEditorCatalogPositions.value = [];
   editingMemberId.value = row.id;
   memberVolunteerV2Appointments.value = [];
   volunteerHistoryExpanded.value = [];
@@ -1304,24 +1326,61 @@ function resetVolunteerEditorDefaults() {
 }
 
 async function loadMemberVolunteerWorkspace(memberId: number) {
+  if (editingMemberId.value !== memberId) return;
+  const run = volunteerWorkspaceLoader.begin();
   volunteerAppointmentsLoading.value = true;
-  try {
-    const [catalogResponse, appointmentResponse] = await Promise.all([
-      getVolunteerMemberEditorCatalog(),
-      getVolunteerAppointments({ member_id: memberId })
-    ]);
-    volunteerEditorCatalogPositions.value =
-      catalogResponse.data.positions || [];
-    memberVolunteerV2Appointments.value = appointmentResponse.data;
-    resetVolunteerEditorDefaults();
-  } catch (error) {
-    volunteerEditorCatalogPositions.value = [];
-    memberVolunteerV2Appointments.value = [];
-    if (canManage.value || canViewHistory.value)
-      ElMessage.warning(errorText(error));
-  } finally {
-    volunteerAppointmentsLoading.value = false;
-  }
+  volunteerCatalogLoading.value = true;
+  volunteerAppointmentsError.value = "";
+  volunteerCatalogError.value = "";
+  await Promise.all([
+    run(
+      getVolunteerEditorPositions,
+      catalogResponse => {
+        volunteerEditorCatalogPositions.value = (
+          catalogResponse.data || []
+        ).filter(
+          position =>
+            position.is_selectable && position.system_type !== "ACTIVITY"
+        );
+        resetVolunteerEditorDefaults();
+      },
+      error => {
+        const failure = error as {
+          code?: string;
+          response?: { status?: number };
+        };
+        const status = failure?.response?.status;
+        const reason = ["ECONNABORTED", "ETIMEDOUT"].includes(failure?.code)
+          ? "请求超时"
+          : status === 401
+            ? "登录已失效，请重新登录"
+            : status === 403
+              ? "没有读取岗位的权限"
+              : status
+                ? `服务暂不可用（HTTP ${status}）`
+                : "网络连接失败";
+        volunteerCatalogError.value = `志工岗位选项加载失败：${reason}。请重试后添加任职。`;
+      },
+      () => {
+        volunteerCatalogLoading.value = false;
+      }
+    ),
+    run(
+      () => getVolunteerAppointments({ member_id: memberId }),
+      response => {
+        memberVolunteerV2Appointments.value = response.data;
+        volunteerAppointmentsLoaded.value = true;
+      },
+      () => {
+        volunteerAppointmentsError.value = volunteerAppointmentsLoaded.value
+          ? "任职刷新失败，仍显示上次加载的记录，请重试。"
+          : "任职加载失败，请重试。";
+      },
+      () => {
+        volunteerAppointmentsLoading.value = false;
+      }
+    )
+  ]);
 }
 
 function rootOrgUnitId(startId: string) {
@@ -1381,7 +1440,14 @@ function onVolunteerServiceClassChange() {
 }
 
 async function addVolunteerAppointmentFromMember() {
-  if (!editingMemberId.value) return;
+  const memberId = editingMemberId.value;
+  if (
+    !memberId ||
+    volunteerEditorSaving.value ||
+    volunteerAppointmentsError.value ||
+    volunteerCatalogError.value
+  )
+    return;
   if (form.status !== "ACTIVE") {
     ElMessage.warning("只能为在册学长添加当前志工任职");
     return;
@@ -1396,13 +1462,13 @@ async function addVolunteerAppointmentFromMember() {
   volunteerEditorSaving.value = true;
   try {
     await createVolunteerAppointment({
-      member_id: editingMemberId.value,
+      member_id: memberId,
       service_target_org_unit_id:
         volunteerEditorForm.service_target_org_unit_id,
       position_key: volunteerEditorForm.position_key
     });
     ElMessage.success("志工任职已添加，不会影响其他当前任职");
-    await loadMemberVolunteerWorkspace(editingMemberId.value);
+    await loadMemberVolunteerWorkspace(memberId);
   } catch (error) {
     ElMessage.error(errorText(error));
   } finally {
@@ -1413,7 +1479,14 @@ async function addVolunteerAppointmentFromMember() {
 async function endVolunteerAppointmentFromMember(
   appointment: VolunteerAppointment
 ) {
-  if (!editingMemberId.value) return;
+  const memberId = editingMemberId.value;
+  if (
+    !memberId ||
+    volunteerEditorSaving.value ||
+    volunteerAppointmentsLoading.value ||
+    volunteerAppointmentsError.value
+  )
+    return;
   try {
     const appointmentLabel = volunteerAppointmentBusinessLabel(appointment);
     await ElMessageBox.confirm(
@@ -1425,9 +1498,10 @@ async function endVolunteerAppointmentFromMember(
         type: "warning"
       }
     );
+    if (editingMemberId.value !== memberId) return;
     await changeVolunteerAppointmentStatus(appointment.id, { status: "ENDED" });
     ElMessage.success("志工任职已结束，历史记录已保留");
-    await loadMemberVolunteerWorkspace(editingMemberId.value);
+    await loadMemberVolunteerWorkspace(memberId);
   } catch (error: any) {
     if (error === "cancel" || error === "close") return;
     ElMessage.error(errorText(error));
@@ -2014,9 +2088,7 @@ onMounted(async () => {
         </el-table>
 
         <h3 class="preview-section-title">
-          人工复核清单（{{
-            legacyVolunteerPreviewResult.manual_review_count
-          }}
+          人工复核清单（{{ legacyVolunteerPreviewResult.manual_review_count }}
           人）
         </h3>
         <el-table
@@ -2120,9 +2192,7 @@ onMounted(async () => {
             条
           </el-descriptions-item>
           <el-descriptions-item label="销售收入源数据" :span="2">
-            {{
-              memberRosterImportResult.sensitive.annual_sales_source_count
-            }}
+            {{ memberRosterImportResult.sensitive.annual_sales_source_count }}
             条
             <span
               v-if="
@@ -2673,7 +2743,12 @@ onMounted(async () => {
                     placement="top"
                   >
                     <el-tag
-                      :closable="canManage"
+                      :closable="
+                        canManage &&
+                        !volunteerEditorSaving &&
+                        !volunteerAppointmentsLoading &&
+                        !volunteerAppointmentsError
+                      "
                       size="large"
                       effect="plain"
                       :disable-transitions="true"
@@ -2683,12 +2758,47 @@ onMounted(async () => {
                     </el-tag>
                   </el-tooltip>
                 </div>
-                <span v-else class="volunteer-editor__empty"
+                <span
+                  v-else-if="
+                    volunteerAppointmentsLoaded && !volunteerAppointmentsError
+                  "
+                  class="volunteer-editor__empty"
                   >暂无当前志工任职</span
+                >
+                <span
+                  v-else-if="volunteerAppointmentsLoading"
+                  class="volunteer-editor__empty"
+                  >正在加载志工任职…</span
                 >
               </div>
 
-              <div v-if="canManage" class="volunteer-editor__add">
+              <el-alert
+                v-if="volunteerAppointmentsError || volunteerCatalogError"
+                :title="
+                  [volunteerAppointmentsError, volunteerCatalogError]
+                    .filter(Boolean)
+                    .join(' ')
+                "
+                type="warning"
+                :closable="false"
+                show-icon
+              >
+                <el-button
+                  link
+                  type="primary"
+                  :disabled="
+                    volunteerAppointmentsLoading || volunteerCatalogLoading
+                  "
+                  @click="loadMemberVolunteerWorkspace(editingMemberId)"
+                  >重新加载</el-button
+                >
+              </el-alert>
+
+              <div
+                v-if="canManage"
+                v-loading="volunteerCatalogLoading"
+                class="volunteer-editor__add"
+              >
                 <el-select
                   v-model="volunteerEditorForm.volunteer_type"
                   aria-label="志工类型"
@@ -2749,6 +2859,12 @@ onMounted(async () => {
                 <el-button
                   type="primary"
                   :loading="volunteerEditorSaving"
+                  :disabled="
+                    volunteerCatalogLoading ||
+                    Boolean(volunteerCatalogError) ||
+                    volunteerAppointmentsLoading ||
+                    Boolean(volunteerAppointmentsError)
+                  "
                   @click="addVolunteerAppointmentFromMember"
                   >添加任职</el-button
                 >
@@ -3320,10 +3436,9 @@ onMounted(async () => {
 }
 .volunteer-editor__add {
   display: grid;
-  grid-template-columns: 120px minmax(150px, 1fr) minmax(150px, 1fr) minmax(
-      150px,
-      1fr
-    ) auto;
+  grid-template-columns:
+    120px minmax(150px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr)
+    auto;
   gap: 8px;
   align-items: center;
 }

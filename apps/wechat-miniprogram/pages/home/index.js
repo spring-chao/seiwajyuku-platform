@@ -24,7 +24,6 @@ Page({
   data: {
     loading: true,
     unbinding: false,
-    portal: null,
     member: null,
     identities: null,
     isEmployee: false,
@@ -60,7 +59,7 @@ Page({
     this._homeVisible = false;
     this._homeVisibilityEpoch = (this._homeVisibilityEpoch || 0) + 1;
     this._homeLoadVersion = (this._homeLoadVersion || 0) + 1;
-    this.setData({ loading: false, unbinding: false, portal: null, member: null, identities: null, isEmployee: false,
+    this.setData({ loading: false, unbinding: false, member: null, identities: null, isEmployee: false,
       operationEntries: [], identityState: "unknown", canManageStudyMeeting: false,
       isVolunteer: false, volunteerRoles: [], displayRole: "", displayScope: "", serviceMessage: "" });
   },
@@ -74,7 +73,7 @@ Page({
       (app.globalData.personSessionToken || app.globalData.memberSessionToken || "") === token;
     this.setData({ loading: true, errorMessage: "", canManageStudyMeeting: false });
     const next = {
-      portal: null, member: null, identities: null, isEmployee: false, operationEntries: [], identityState: token ? "unknown" : "unbound",
+      member: null, identities: null, isEmployee: false, operationEntries: [], identityState: token ? "unknown" : "unbound",
       canManageStudyMeeting: false, isVolunteer: false, volunteerRoles: [],
       serviceMessage: "", displayRole: "", displayScope: "",
       bindingActionLabel: this.data.bindingActionLabel || "绑定我的身份"
@@ -88,7 +87,7 @@ Page({
         next.isEmployee = Boolean(next.identities && next.identities.operations && next.identities.operations.is_employee);
         if (!next.member && !next.isEmployee) throw new Error("当前没有可用的学长或工作人员身份，请联系工作人员。");
         next.identityState = "bound";
-        this.setData({ member: next.member, identities: next.identities, identityState: "bound", portal: null });
+        this.setData({ member: next.member, identities: next.identities, identityState: "bound" });
         next.displayScope = next.member
           ? `${next.member.class_name || "暂未关联班级"} · ${next.member.study_group_name || "暂未关联小组"}`
           : "工作人员移动运营身份已确认";
@@ -149,15 +148,6 @@ Page({
       }
     }
     if (!current()) return;
-    if (next.identityState === "unbound") {
-      try {
-        const portal = await request("/api/v1/public/portal");
-        next.portal = portal.data || {};
-      } catch (error) {
-        next.errorMessage = error.message || "入塾入口暂时无法加载，请重试。";
-      }
-    }
-    if (!current()) return;
     this.setData({ ...next, loading: false });
     // A staff-only person should land directly on the operational workbench.
     // A member/volunteer/staff composite keeps the combined entry page so the
@@ -169,18 +159,6 @@ Page({
     } else if (!isStaffOnly) {
       this._staffOnlyRedirected = false;
     }
-  },
-
-  openEnrollment() {
-    if (this.data.loading || this.data.identityState !== "unbound") return;
-    const entry = this.data.portal && this.data.portal.enrollment_entry;
-    if (!entry || !entry.handoff_token) {
-      wx.showToast({ title: "入塾入口暂未开放", icon: "none" });
-      return;
-    }
-    wx.navigateTo({
-      url: `/pages/enrollment/index?token=${encodeURIComponent(entry.handoff_token)}`
-    });
   },
 
   openBinding() {

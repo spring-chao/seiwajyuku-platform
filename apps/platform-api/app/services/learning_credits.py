@@ -39,6 +39,33 @@ class LearningCreditFeatureDisabled(LearningCreditError):
     """Formal posting is closed by the explicit deployment feature flag."""
 
 
+class LearningCreditSchemaUnavailable(LearningCreditError):
+    """A partial period-schema upgrade cannot be read safely."""
+
+
+def _ledger_read_source(connection: Any) -> str:
+    # Inspect columns without reading business rows or running a migration.
+    cursor = execute(connection, "SELECT * FROM learning_credit_entries WHERE 1=0")
+    columns = {column[0] for column in cursor.description}
+    period_columns = {"occurred_precision", "occurred_year", "occurred_month"}
+    present = columns & period_columns
+    if present == period_columns:
+        return "learning_credit_entries"
+    if present or "occurred_at" not in columns:
+        raise LearningCreditSchemaUnavailable("学分账本期间结构尚未就绪")
+    # The original ledger records exact dates. Project their year/month only
+    # for reads; never manufacture dates for later MONTH/YEAR entries.
+    if isinstance(connection, sqlite3.Connection):
+        year = "CAST(strftime('%Y',occurred_at) AS INTEGER)"
+        month = "CAST(strftime('%m',occurred_at) AS INTEGER)"
+    else:
+        year, month = "YEAR(occurred_at)", "MONTH(occurred_at)"
+    return (
+        "(SELECT *, 'EXACT_DATE' AS occurred_precision, "
+        f"{year} AS occurred_year, {month} AS occurred_month FROM learning_credit_entries)"
+    )
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -638,17 +665,23 @@ def list_credit_entries(
         placeholders = ",".join("?" for _ in allowed)
         conditions.append(f"e.class_org_unit_id IN ({placeholders})")
         params.extend(sorted(allowed))
-    rows = fetch_all(
-        "SELECT e.*, m.name AS member_name, reversal.id AS reversal_entry_id "
-        "FROM learning_credit_entries e "
-        "JOIN members m ON m.id=e.member_id "
-        "LEFT JOIN learning_credit_entries reversal ON reversal.reversal_of_entry_id=e.id "
-        "WHERE " + " AND ".join(conditions) +
-        " ORDER BY e.occurred_year DESC, (e.occurred_month IS NULL) ASC, "
-        "e.occurred_month DESC, e.occurred_at DESC, e.id DESC LIMIT 1000",
-        tuple(params),
-    )
-    return [_entry_payload(row) | {"member_name": row.get("member_name")} for row in rows]
+    connection = connect()
+    try:
+        source = _ledger_read_source(connection)
+        rows = execute(
+            connection,
+            "SELECT e.*, m.name AS member_name, reversal.id AS reversal_entry_id "
+            "FROM " + source + " e "
+            "JOIN members m ON m.id=e.member_id "
+            "LEFT JOIN learning_credit_entries reversal ON reversal.reversal_of_entry_id=e.id "
+            "WHERE " + " AND ".join(conditions) +
+            " ORDER BY e.occurred_year DESC, (e.occurred_month IS NULL) ASC, "
+            "e.occurred_month DESC, e.occurred_at DESC, e.id DESC LIMIT 1000",
+            tuple(params),
+        ).fetchall()
+    finally:
+        connection.close()
+    return [_entry_payload(row) for row in rows]
 
 
 def member_credit_summary(*, actor_user_id: int, member_id: int) -> dict[str, Any]:

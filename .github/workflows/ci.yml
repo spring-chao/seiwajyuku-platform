@@ -174,11 +174,16 @@ jobs:
           apps/platform-api/tests/test_mobile_record_idempotency.py
           apps/platform-api/tests/test_credit_settlement_batch_mysql.py
           apps/platform-api/tests/test_credit_lifecycle_acceptance.py
+          apps/platform-api/tests/test_credit_launch_http_acceptance.py
+          apps/platform-api/tests/test_credit_single_migration_mysql.py
           apps/platform-api/tests/test_audit_serialization.py
           apps/platform-api/tests/test_class_meeting_batch_mysql.py
           apps/platform-api/tests/test_credit_activity_batch_mysql.py
           apps/platform-api/tests/test_historical_credit_batch_mysql.py
           -q --junitxml=b21-mysql.xml
+        env:
+          CREDIT_MIGRATION_ISOLATED_MYSQL: "1"
+          CREDIT_MIGRATION_ISOLATED_ROOT_PASSWORD: ci-b21-root
       - name: Verify 0042 guarded rollback on disposable test data
         run: |
           if docker exec -i "${{ job.services.mysql.id }}" mysql -uroot -pci-b21-root seiwajyuku_b21_test < migrations/rollback/mysql/0042_study_meeting_attendee_correction.down.sql; then
@@ -270,11 +275,16 @@ jobs:
           apps/platform-api/tests/test_c7_1_1_mysql_reconciliation.py
           apps/platform-api/tests/test_g5_4_c3_2_production_apply.py
           apps/platform-api/tests/test_wechat_credit_legacy_schema.py
+          apps/platform-api/tests/test_admin_credit_legacy_schema.py
           apps/platform-api/tests/test_participation_workbook_import.py
           apps/platform-api/tests/test_participation_history_import.py
           apps/platform-api/tests/test_legacy_operations_merge.py
           apps/platform-api/tests/test_wechat_participation_history.py
+          apps/platform-api/tests/test_r3_db_read_mysql.py
           -q --junitxml=c7-1-2-mysql.xml
+        env:
+          R3_ISOLATED_DB_READ_MYSQL: "1"
+          R3_ISOLATED_MYSQL_ROOT_PASSWORD: c7-ci-root
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -384,6 +394,11 @@ jobs:
           test "$restored" = "1"
           docker exec "$container" mysql -uroot -pci-root-password "$db" -e "INSERT INTO schema_migrations(version,applied_at) VALUES('0068_signin_management.sql',UTC_TIMESTAMP()); DELETE FROM attendance_entry_tokens WHERE event_id='CI-0068-GUARD';"
           docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/mysql/0068_signin_management.sql
+      - name: Validate enrollment referral migration in disposable MySQL schemas
+        run: python -m pytest apps/platform-api/tests/test_enrollment_referrer_migration.py -q
+        env:
+          ENROLLMENT_MIGRATION_ISOLATED_MYSQL: "1"
+          ENROLLMENT_MIGRATION_ROOT_PASSWORD: ci-root-password
       - name: Dump staging database
         run: >-
           docker exec "${{ job.services.mysql.id }}"

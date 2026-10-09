@@ -19,6 +19,50 @@ const { createSectionLoader } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`
 );
 
+test("a failed volunteer catalog does not erase loaded appointments, and refresh failure preserves them", async () => {
+  const loader = createSectionLoader();
+  const run = loader.begin();
+  let appointments = [],
+    catalogError = false,
+    appointmentError = false;
+  await Promise.all([
+    run(
+      async () => {
+        throw new Error("catalog unavailable");
+      },
+      () => {},
+      () => {
+        catalogError = true;
+      }
+    ),
+    run(
+      async () => [{ id: 1, status: "ACTIVE" }],
+      value => {
+        appointments = value;
+      },
+      () => {
+        appointmentError = true;
+      }
+    )
+  ]);
+  assert.equal(catalogError, true);
+  assert.equal(appointmentError, false);
+  assert.deepEqual(appointments, [{ id: 1, status: "ACTIVE" }]);
+  await loader.begin()(
+    async () => {
+      throw new Error("refresh unavailable");
+    },
+    value => {
+      appointments = value;
+    },
+    () => {
+      appointmentError = true;
+    }
+  );
+  assert.equal(appointmentError, true);
+  assert.deepEqual(appointments, [{ id: 1, status: "ACTIVE" }]);
+});
+
 test("a fast section renders without waiting for slow sections", async () => {
   let finish,
     visible = "";
@@ -80,17 +124,21 @@ test("a superseded month cannot overwrite data, errors or loading for the new mo
 
 test("section failures stay local and settle their own loading state", async () => {
   const run = createSectionLoader().begin();
+  const requestError = Object.assign(new Error("unavailable"), {
+    code: "ECONNABORTED"
+  });
   let visible = null,
     error = false,
     loading = true;
   await run(
     async () => {
-      throw new Error("unavailable");
+      throw requestError;
     },
     value => {
       visible = value;
     },
-    () => {
+    failure => {
+      assert.equal(failure, requestError);
       error = true;
     },
     () => {

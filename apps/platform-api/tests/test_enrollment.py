@@ -65,6 +65,7 @@ class EnrollmentApplicationTests(unittest.TestCase):
     def setUp(self) -> None:
         with transaction() as connection:
             execute(connection, "DELETE FROM member_enrollment_submission_guards")
+            execute(connection, "DELETE FROM enrollment_application_referrer_centers")
             execute(connection, "DELETE FROM member_enrollment_applications")
             execute(connection, "DELETE FROM member_enrollment_links")
             execute(connection, "DELETE FROM enrollment_shuku_contacts")
@@ -114,6 +115,132 @@ class EnrollmentApplicationTests(unittest.TestCase):
         return self.client.post(
             f"/api/v1/public/enrollment/{token}", json=payload
         )
+
+    def _visit_actor_headers(self, roles, scopes=None):
+        username = "visit-" + uuid4().hex[:12]
+        password = secrets.token_urlsafe(24)
+        create_user(self.admin_id, username=username, display_name="走访导出测试员",
+            password=password, roles=roles,
+            scopes=scopes or [{"scope_type": "SUBTREE", "org_unit_id": "org-suzhou"}])
+        login = self.client.post("/api/v1/auth/login", json={"username": username, "password": password})
+        self.assertEqual(login.status_code, 200)
+        return {"Authorization": "Bearer " + login.json()["data"]["access_token"]}
+
+    def _visit_application(self):
+        _, token = self._create_link()
+        phone = _phone()
+        submitted = self._submit(token, phone)
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        return fetch_one("SELECT id FROM member_enrollment_applications WHERE phone_hash=?", (phone_hash(phone),))["id"], phone
+
+    def test_referrer_center_roundtrip_validation_and_atomic_failure(self):
+        application_id, _ = self._visit_application()
+        url = f"/api/v1/enrollment-applications/{application_id}/review"
+        saved = self.client.patch(url, headers=self.headers,
+            json={"decision": "SAVE", "referrer_org_unit_id": "enrollment-test-center"})
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(saved.json()["data"]["referrer_org_unit_id"], "enrollment-test-center")
+        read = self.client.get(url.removesuffix("/review"), headers=self.headers)
+        self.assertEqual(read.json()["data"]["referrer_org_unit_name"], "入塾申请测试分中心")
+        invalid = self.client.patch(url, headers=self.headers,
+            json={"decision": "SAVE", "name": "不应保存", "referrer_org_unit_id": "org-suzhou"})
+        self.assertEqual(invalid.status_code, 400)
+        row = fetch_one("SELECT name FROM member_enrollment_applications WHERE id=?", (application_id,))
+        self.assertEqual(row["name"], "申请测试学长")
+        cleared = self.client.patch(url, headers=self.headers,
+            json={"decision": "SAVE", "referrer_org_unit_id": None})
+        self.assertEqual(cleared.status_code, 200)
+        self.assertIsNone(cleared.json()["data"]["referrer_org_unit_id"])
+
+    def test_old_schema_preserves_detail_and_rejects_referrer_write(self):
+        application_id, _ = self._visit_application()
+        url = f"/api/v1/enrollment-applications/{application_id}"
+        with patch("app.services.enrollment._referrer_center", return_value=(False, None)):
+            read = self.client.get(url, headers=self.headers)
+            self.assertEqual(read.status_code, 200)
+            self.assertFalse(read.json()["data"]["referrer_center_available"])
+            saved = self.client.patch(url + "/review", headers=self.headers,
+                json={"decision": "SAVE", "referrer_org_unit_id": "enrollment-test-center", "name": "不应保存"})
+            self.assertEqual(saved.status_code, 400)
+        self.assertEqual(fetch_one("SELECT name FROM member_enrollment_applications WHERE id=?", (application_id,))["name"], "申请测试学长")
+
+    def test_visit_export_returns_complete_data_and_metadata_only_audit(self):
+        application_id, phone = self._visit_application()
+        headers = self._visit_actor_headers(["operations_admin"])
+        response = self.client.post(f"/api/v1/enrollment-applications/{application_id}/visit-image-data",
+            headers=headers, json={"recipient": "DIRECTOR", "confirmed": True})
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()["data"]
+        self.assertEqual(data["application"]["phone"], phone)
+        self.assertEqual(data["application"]["annual_sales"], "测试销售额区间")
+        self.assertEqual(data["application"]["invoice_tax_id"], "91320000TEST2026")
+        self.assertEqual(data["purpose"], "董事走访面聊")
+        audit = fetch_one("SELECT * FROM audit_logs WHERE action='enrollment.application.visit_image_export' AND resource_id=? ORDER BY id DESC", (str(application_id),))
+        self.assertIsNotNone(audit)
+        serialized = json.dumps(audit, ensure_ascii=False, default=str)
+        self.assertNotIn(phone, serialized)
+        self.assertNotIn("91320000TEST2026", serialized)
+        self.assertNotIn("测试销售额区间", serialized)
+
+    def test_visit_export_uses_enrollment_work_permission_and_keeps_scope_and_confirmation(self):
+        application_id, _ = self._visit_application()
+        url = f"/api/v1/enrollment-applications/{application_id}/visit-image-data"
+        request = {"recipient": "CLASS_TEACHER", "confirmed": True}
+        self.assertEqual(self.client.post(url, json=request).status_code, 401)
+        # Highest admin and enrollment staff need no extra export role.
+        self.assertEqual(self.client.post(url, headers=self.headers, json=request).status_code, 200)
+        for roles in (["data_security_admin"], ["read_only"], ["employee_operations_management"]):
+            headers = self._visit_actor_headers(roles)
+            self.assertEqual(self.client.post(url, headers=headers, json=request).status_code, 403)
+        headers = self._visit_actor_headers(["operations_admin"],
+            [{"scope_type": "SUBTREE", "org_unit_id": "enrollment-test-center"}])
+        self.assertEqual(self.client.post(url, headers=headers, json=request).status_code, 403)
+        full = self._visit_actor_headers(["operations_admin"])
+        self.assertEqual(self.client.post(url, headers=full, json={**request, "confirmed": False}).status_code, 422)
+        self.assertEqual(self.client.post(url, headers=full, json={**request, "recipient": "OTHER"}).status_code, 422)
+
+    def test_enrollment_staff_without_enterprise_grant_can_export_full_visit_data(self):
+        application_id, phone = self._visit_application()
+        assigned = self.client.patch(f"/api/v1/enrollment-applications/{application_id}/review",
+            headers=self.headers, json={"decision":"SAVE", "org_unit_id":"enrollment-test-center"})
+        self.assertEqual(assigned.status_code, 200)
+        review_role = "visit-review-" + uuid4().hex[:12]
+        now = datetime.now(UTC).isoformat()
+        with transaction() as connection:
+            execute(connection, "INSERT INTO roles(role_key,role_name,is_system,is_active,created_at,updated_at) VALUES (?,?,0,1,?,?)",
+                (review_role, "合成入塾资料专员", now, now))
+            for permission in ("enrollment:read", "enrollment:review"):
+                execute(connection, "INSERT INTO role_permissions(role_key,permission_key) VALUES (?,?)", (review_role, permission))
+        for role in ("regional_manager", "employee_operations_lead", "employee_development_management", review_role):
+            headers = self._visit_actor_headers([role], [{"scope_type":"SUBTREE", "org_unit_id":"enrollment-test-center"}])
+            detail = self.client.get(f"/api/v1/enrollment-applications/{application_id}", headers=headers)
+            if role == review_role:
+                self.assertFalse(detail.json()["data"]["financial_fields_visible"])
+            exported = self.client.post(f"/api/v1/enrollment-applications/{application_id}/visit-image-data",
+                headers=headers, json={"recipient":"CLASS_TEACHER", "confirmed":True})
+            self.assertEqual(exported.status_code, 200, exported.text)
+            data = exported.json()["data"]["application"]
+            self.assertEqual(data["phone"], phone)
+            self.assertEqual(data["annual_sales"], "测试销售额区间")
+            self.assertEqual(data["invoice_tax_id"], "91320000TEST2026")
+            self.assertTrue(data["financial_fields_visible"])
+            self.assertTrue(data["invoice_fields_visible"])
+
+    def test_referrer_selection_cannot_escape_reviewer_scope(self):
+        application_id, _ = self._visit_application()
+        url = f"/api/v1/enrollment-applications/{application_id}/review"
+        assigned = self.client.patch(url, headers=self.headers,
+            json={"decision": "SAVE", "org_unit_id": "enrollment-test-center"})
+        self.assertEqual(assigned.status_code, 200)
+        with transaction() as connection:
+            execute(connection, "INSERT INTO org_units(id,unit_code,name,unit_type,parent_id,is_active,created_at,updated_at) VALUES (?,?,?,?,?,1,?,?)",
+                ("visit-other-" + str(application_id), "VISIT_OTHER_" + str(application_id), "另一个测试中心", "REGIONAL_CENTER", "org-suzhou", "2026-10-09", "2026-10-09"))
+        headers = self._visit_actor_headers(["regional_manager"],
+            [{"scope_type": "SUBTREE", "org_unit_id": "enrollment-test-center"}])
+        denied = self.client.patch(url, headers=headers,
+            json={"decision": "SAVE", "referrer_org_unit_id": "visit-other-" + str(application_id)})
+        self.assertEqual(denied.status_code, 403)
+        self.assertIsNone(fetch_one("SELECT * FROM enrollment_application_referrer_centers WHERE application_id=?", (application_id,)))
 
     def test_public_form_has_no_organization_and_rejects_org_payload(self) -> None:
         _, token = self._create_link()
@@ -812,6 +939,8 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertEqual(call.kwargs["params"], {"access_token": "test-access-token"})
         self.assertEqual(call.kwargs["json"]["scene"], token)
         self.assertEqual(call.kwargs["json"]["page"], "pages/enrollment/index")
+        self.assertEqual(call.kwargs["json"]["env_version"], "release")
+        self.assertTrue(call.kwargs["json"]["check_path"])
         audit = fetch_one(
             "SELECT after_json FROM audit_logs "
             "WHERE action='enrollment.miniprogram_code.generate' "
@@ -819,6 +948,79 @@ class EnrollmentApplicationTests(unittest.TestCase):
         )
         self.assertIn("pages/enrollment/index", audit["after_json"])
         self.assertNotIn(token, audit["after_json"])
+
+    def test_dedicated_links_coexist_reuse_and_manage_independently(self) -> None:
+        generic_id, generic_token = self._create_link()
+        def create(scope):
+            response = self.client.post("/api/v1/enrollment-links", headers=self.headers,
+                json={"name": "合成测试专属入口", "target_shuku_org_unit_id": scope})
+            self.assertEqual(response.status_code, 200, response.text)
+            return response.json()["data"]
+        suzhou = create("org-suzhou")
+        wuxi = create("org-wuxi")
+        reused = create("org-suzhou")
+        self.assertEqual(reused["id"], suzhou["id"])
+        self.assertTrue(reused["reused"])
+        self.assertNotIn("raw_token", reused)
+        links = self.client.get("/api/v1/enrollment-links", headers=self.headers).json()["data"]
+        self.assertEqual({item["id"] for item in links}, {generic_id, suzhou["id"], wuxi["id"]})
+        self.assertNotIn("token_hash", json.dumps(links))
+        self.assertEqual(self.client.get("/api/v1/enrollment-links/active", headers=self.headers).json()["data"]["id"], generic_id)
+        for token in [generic_token, suzhou["raw_token"], wuxi["raw_token"]]:
+            self.assertEqual(self.client.get(f"/api/v1/public/enrollment/{token}").status_code, 200)
+        rotated = self.client.post(f"/api/v1/enrollment-links/{suzhou['id']}/rotate", headers=self.headers).json()["data"]
+        self.assertEqual(rotated["target_shuku_org_unit_id"], "org-suzhou")
+        self.assertEqual(self.client.get(f"/api/v1/public/enrollment/{suzhou['raw_token']}").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/v1/public/enrollment/{wuxi['raw_token']}").status_code, 200)
+        self.client.post(f"/api/v1/enrollment-links/{suzhou['id']}/disable", headers=self.headers)
+        self.assertEqual(self.client.get(f"/api/v1/public/enrollment/{generic_token}").status_code, 200)
+        self.assertEqual(self.client.get(f"/api/v1/public/enrollment/{wuxi['raw_token']}").status_code, 200)
+
+    def test_legacy_bound_slot_does_not_block_generic_or_other_shuku(self) -> None:
+        response = self.client.post("/api/v1/enrollment-links", headers=self.headers,
+            json={"name": "合成旧入口", "target_shuku_org_unit_id": "org-suzhou"})
+        legacy = response.json()["data"]
+        with transaction() as connection:
+            execute(connection, "UPDATE member_enrollment_links SET active_slot=1 WHERE id=?", (legacy["id"],))
+        self._create_link()
+        self.assertEqual(self.client.get(f"/api/v1/public/enrollment/{legacy['raw_token']}").status_code, 200)
+
+    def test_managed_code_redownload_is_stable_scoped_and_revocable(self) -> None:
+        from app.services.enrollment import _managed_enrollment_scene, get_public_portal
+        response = self.client.post("/api/v1/enrollment-links", headers=self.headers,
+            json={"name": "合成苏州入口", "target_shuku_org_unit_id": "org-suzhou"})
+        link_id = response.json()["data"]["id"]
+        self.assertFalse(get_public_portal()["enrollment_available"])
+        with patch.dict(os.environ, {"WECHAT_MINIPROGRAM_APP_ID": "test-app-id", "WECHAT_MINIPROGRAM_APP_SECRET": "test-app-secret"}), patch("app.services.enrollment.httpx.Client") as client_class:
+            client = client_class.return_value.__enter__.return_value
+            client.get.return_value = httpx.Response(200, json={"access_token": "synthetic-access"})
+            client.post.return_value = httpx.Response(200, content=b"synthetic-png", headers={"content-type": "image/png"})
+            for _ in range(2):
+                result = self.client.post(f"/api/v1/enrollment-links/{link_id}/mini-program-code", headers=self.headers, json={})
+                self.assertEqual(result.status_code, 200, result.text)
+            scenes = [call.kwargs["json"]["scene"] for call in client.post.call_args_list]
+        self.assertEqual(scenes[0], scenes[1])
+        scene = scenes[0]
+        self.assertLessEqual(len(scene), 32)
+        form = self.client.get(f"/api/v1/public/enrollment/{scene}").json()["data"]
+        self.assertTrue(form["target_shuku_locked"])
+        self.assertEqual(form["brand_region_name"], "苏州")
+        self.assertEqual(self.client.get(f"/api/v1/public/enrollment/{scene}", params={"target_shuku_org_unit_id": "org-wuxi"}).status_code, 404)
+        self.assertEqual(self._submit(scene, _phone(), target_shuku_org_unit_id="org-wuxi").status_code, 422)
+        self.assertEqual(self._submit(scene, _phone()).status_code, 200)
+        self.assertEqual(fetch_one("SELECT target_shuku_org_unit_id FROM member_enrollment_applications")["target_shuku_org_unit_id"], "org-suzhou")
+        changed = scene[:-2] + ("AA" if not scene.endswith("AA") else "BB")
+        self.assertEqual(self.client.get(f"/api/v1/public/enrollment/{changed}").status_code, 404)
+        unauthorized = self.client.post(f"/api/v1/enrollment-links/{link_id}/mini-program-code", json={})
+        self.assertIn(unauthorized.status_code, (401, 403))
+        self.client.post(f"/api/v1/enrollment-links/{link_id}/rotate", headers=self.headers)
+        self.assertEqual(self.client.get(f"/api/v1/public/enrollment/{scene}").status_code, 404)
+        current = fetch_one("SELECT id, token_hash FROM member_enrollment_links WHERE id=?", (link_id,))
+        new_scene = _managed_enrollment_scene(current)
+        self.assertNotEqual(new_scene, scene)
+        self.assertEqual(self.client.get(f"/api/v1/public/enrollment/{new_scene}").status_code, 200)
+        self.client.post(f"/api/v1/enrollment-links/{link_id}/disable", headers=self.headers)
+        self.assertEqual(self.client.get(f"/api/v1/public/enrollment/{new_scene}").status_code, 404)
 
     def test_public_submit_is_rate_limited_by_link_and_client_without_storing_ip(self) -> None:
         _, token = self._create_link()

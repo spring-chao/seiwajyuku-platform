@@ -2,7 +2,7 @@
   <view class="hero-card">
     <view class="eyebrow">学长服务</view>
     <view class="hero-title">{{identityState === 'bound' ? '欢迎回来' : '学长服务助手'}}</view>
-    <view class="hero-copy">{{identityState === 'bound' ? '学习服务从这里开始' : identityState === 'unbound' ? '新学长申请和学长服务，从这里开始' : '学长服务'}}</view>
+    <view class="hero-copy">{{identityState === 'bound' ? '学习服务从这里开始' : identityState === 'unbound' ? '绑定身份，开启您的学长服务' : '学长服务'}}</view>
   </view>
 
   <view wx:if="{{loading}}" class="state-card">正在加载，请稍候…</view>
@@ -34,12 +34,6 @@
     </view>
   </view>
 
-  <view wx:if="{{!loading && identityState === 'unbound'}}" class="section-card enrollment-card">
-    <view class="section-title">新学长入塾申请</view>
-    <view class="section-hint">公开申请只用于入塾审核，不会直接建立正式学员档案。</view>
-    <button class="secondary-button" bindtap="openEnrollment">填写申请</button>
-  </view>
-
   <view wx:if="{{!loading && (member || isEmployee)}}" class="entry-grid">
     <view wx:if="{{member}}" class="entry-card" bindtap="openLearning">
       <view class="entry-icon">学</view>
@@ -63,6 +57,5 @@
     </view>
   </view>
 
-  <view wx:if="{{!loading && identityState === 'unbound'}}" class="entry-hint">绑定后，系统会按您当前有效的人员身份显示可用入口。</view>
   <view class="footer-copy">页面只显示与你当前身份相关的服务；暂未开放的功能会明确提示。</view>
 </view>
