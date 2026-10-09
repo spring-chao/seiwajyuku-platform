@@ -205,7 +205,7 @@ def test_mysql_0064_keeps_target_guards_with_reused_keys(isolated_schema, damage
             else:
                 cursor.execute("DELETE FROM learning_credit_rules WHERE rule_key='DAILY_READING' AND rule_version_id IN (SELECT id FROM learning_credit_rule_versions WHERE rule_set_key='STANDARD_3Y_2026' AND version_label='2026.1')")
             path = migrator.ROOT / "migrations/mysql" / migrator.MIGRATIONS["0064"][0]
-            with pytest.raises(pymysql.err.IntegrityError) as failure:
+            with pytest.raises(pymysql.err.MySQLError) as failure:
                 for statement in _split_mysql(path.read_text(encoding="utf-8")):
                     cursor.execute(statement)
             assert failure.value.args[0] == 3819  # MySQL CHECK constraint violation.

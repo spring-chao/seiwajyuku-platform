@@ -12,7 +12,7 @@ def seed_unrelated_rules(execute):
     """An older policy can legitimately reuse keys with different values."""
     execute("INSERT INTO learning_plan_credit_rule_versions(plan_key,version_label,status,based_on_version_label,created_at,updated_at) VALUES ('LEGACY_SCOPE_TEST','0.9','DRAFT','2025','2025-01-01','2025-01-01')")
     execute("INSERT INTO learning_plan_credit_rules(rule_version_id,course_key,course_name,year_index,credit_points,status,source,aliases_json,created_at,updated_at) SELECT v.id,'Y1-SIX-DILIGENCES','旧版课程',3,999,'PENDING','BASELINE','[]','2025-01-01','2025-01-01' FROM learning_plan_credit_rule_versions v WHERE v.plan_key='LEGACY_SCOPE_TEST'")
-    execute("INSERT INTO learning_credit_rule_versions(rule_set_key,version_label,status,created_at,updated_at) VALUES ('LEGACY_SCOPE_TEST','0.9','DRAFT','2025-01-01','2025-01-01')")
+    execute("INSERT INTO learning_credit_rule_versions(rule_set_key,version_label,status,metadata_json,created_at,updated_at) VALUES ('LEGACY_SCOPE_TEST','0.9','DRAFT','{}','2025-01-01','2025-01-01')")
     execute("INSERT INTO learning_credit_rules(rule_version_id,rule_key,credit_type,settlement_model,credit_category,points,cap_points,rule_snapshot_json,status,created_at,updated_at) SELECT v.id,'DAILY_READING','DAILY_READING','MONTHLY_CAP','EXTENSION_ACTIVITY',999,999,'{}','DISABLED','2025-01-01','2025-01-01' FROM learning_credit_rule_versions v WHERE v.rule_set_key='LEGACY_SCOPE_TEST'")
 
 
