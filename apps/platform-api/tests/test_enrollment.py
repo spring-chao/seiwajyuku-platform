@@ -65,6 +65,7 @@ class EnrollmentApplicationTests(unittest.TestCase):
     def setUp(self) -> None:
         with transaction() as connection:
             execute(connection, "DELETE FROM member_enrollment_submission_guards")
+            execute(connection, "DELETE FROM enrollment_application_referrer_centers")
             execute(connection, "DELETE FROM member_enrollment_applications")
             execute(connection, "DELETE FROM member_enrollment_links")
             execute(connection, "DELETE FROM enrollment_shuku_contacts")
@@ -114,6 +115,105 @@ class EnrollmentApplicationTests(unittest.TestCase):
         return self.client.post(
             f"/api/v1/public/enrollment/{token}", json=payload
         )
+
+    def _visit_actor_headers(self, roles, scopes=None):
+        username = "visit-" + uuid4().hex[:12]
+        password = secrets.token_urlsafe(24)
+        create_user(self.admin_id, username=username, display_name="走访导出测试员",
+            password=password, roles=roles,
+            scopes=scopes or [{"scope_type": "ALL", "org_unit_id": None}])
+        login = self.client.post("/api/v1/auth/login", json={"username": username, "password": password})
+        self.assertEqual(login.status_code, 200)
+        return {"Authorization": "Bearer " + login.json()["data"]["access_token"]}
+
+    def _visit_application(self):
+        _, token = self._create_link()
+        phone = _phone()
+        submitted = self._submit(token, phone)
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        return fetch_one("SELECT id FROM member_enrollment_applications WHERE phone_hash=?", (phone_hash(phone),))["id"], phone
+
+    def test_referrer_center_roundtrip_validation_and_atomic_failure(self):
+        application_id, _ = self._visit_application()
+        url = f"/api/v1/enrollment-applications/{application_id}/review"
+        saved = self.client.patch(url, headers=self.headers,
+            json={"decision": "SAVE", "referrer_org_unit_id": "enrollment-test-center"})
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(saved.json()["data"]["referrer_org_unit_id"], "enrollment-test-center")
+        read = self.client.get(url.removesuffix("/review"), headers=self.headers)
+        self.assertEqual(read.json()["data"]["referrer_org_unit_name"], "入塾申请测试分中心")
+        invalid = self.client.patch(url, headers=self.headers,
+            json={"decision": "SAVE", "name": "不应保存", "referrer_org_unit_id": "org-suzhou"})
+        self.assertEqual(invalid.status_code, 400)
+        row = fetch_one("SELECT name FROM member_enrollment_applications WHERE id=?", (application_id,))
+        self.assertEqual(row["name"], "申请测试学长")
+        cleared = self.client.patch(url, headers=self.headers,
+            json={"decision": "SAVE", "referrer_org_unit_id": None})
+        self.assertEqual(cleared.status_code, 200)
+        self.assertIsNone(cleared.json()["data"]["referrer_org_unit_id"])
+
+    def test_old_schema_preserves_detail_and_rejects_referrer_write(self):
+        application_id, _ = self._visit_application()
+        url = f"/api/v1/enrollment-applications/{application_id}"
+        with patch("app.services.enrollment._referrer_center", return_value=(False, None)):
+            read = self.client.get(url, headers=self.headers)
+            self.assertEqual(read.status_code, 200)
+            self.assertFalse(read.json()["data"]["referrer_center_available"])
+            saved = self.client.patch(url + "/review", headers=self.headers,
+                json={"decision": "SAVE", "referrer_org_unit_id": "enrollment-test-center", "name": "不应保存"})
+            self.assertEqual(saved.status_code, 400)
+        self.assertEqual(fetch_one("SELECT name FROM member_enrollment_applications WHERE id=?", (application_id,))["name"], "申请测试学长")
+
+    def test_visit_export_returns_complete_data_and_metadata_only_audit(self):
+        application_id, phone = self._visit_application()
+        headers = self._visit_actor_headers(["operations_admin", "data_security_admin"])
+        response = self.client.post(f"/api/v1/enrollment-applications/{application_id}/visit-image-data",
+            headers=headers, json={"recipient": "DIRECTOR", "confirmed": True})
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()["data"]
+        self.assertEqual(data["application"]["phone"], phone)
+        self.assertEqual(data["application"]["annual_sales"], "测试销售额区间")
+        self.assertEqual(data["application"]["invoice_tax_id"], "91320000TEST2026")
+        self.assertEqual(data["purpose"], "董事走访面聊")
+        audit = fetch_one("SELECT * FROM audit_logs WHERE action='enrollment.application.visit_image_export' AND resource_id=? ORDER BY id DESC", (str(application_id),))
+        self.assertIsNotNone(audit)
+        serialized = json.dumps(audit, ensure_ascii=False, default=str)
+        self.assertNotIn(phone, serialized)
+        self.assertNotIn("91320000TEST2026", serialized)
+        self.assertNotIn("测试销售额区间", serialized)
+
+    def test_visit_export_requires_each_permission_and_scope_and_confirmation(self):
+        application_id, _ = self._visit_application()
+        url = f"/api/v1/enrollment-applications/{application_id}/visit-image-data"
+        request = {"recipient": "CLASS_TEACHER", "confirmed": True}
+        self.assertEqual(self.client.post(url, json=request).status_code, 401)
+        # system_admin deliberately has no sensitive export permission.
+        self.assertEqual(self.client.post(url, headers=self.headers, json=request).status_code, 403)
+        for roles in (["data_security_admin"], ["regional_manager", "data_security_admin"]):
+            headers = self._visit_actor_headers(roles)
+            self.assertEqual(self.client.post(url, headers=headers, json=request).status_code, 403)
+        headers = self._visit_actor_headers(["operations_admin", "data_security_admin"],
+            [{"scope_type": "SUBTREE", "org_unit_id": "enrollment-test-center"}])
+        self.assertEqual(self.client.post(url, headers=headers, json=request).status_code, 403)
+        full = self._visit_actor_headers(["operations_admin", "data_security_admin"])
+        self.assertEqual(self.client.post(url, headers=full, json={**request, "confirmed": False}).status_code, 422)
+        self.assertEqual(self.client.post(url, headers=full, json={**request, "recipient": "OTHER"}).status_code, 422)
+
+    def test_referrer_selection_cannot_escape_reviewer_scope(self):
+        application_id, _ = self._visit_application()
+        url = f"/api/v1/enrollment-applications/{application_id}/review"
+        assigned = self.client.patch(url, headers=self.headers,
+            json={"decision": "SAVE", "org_unit_id": "enrollment-test-center"})
+        self.assertEqual(assigned.status_code, 200)
+        with transaction() as connection:
+            execute(connection, "INSERT INTO org_units(id,unit_code,name,unit_type,parent_id,is_active,created_at,updated_at) VALUES (?,?,?,?,?,1,?,?)",
+                ("visit-other-" + str(application_id), "VISIT_OTHER_" + str(application_id), "另一个测试中心", "REGIONAL_CENTER", "org-suzhou", "2026-10-09", "2026-10-09"))
+        headers = self._visit_actor_headers(["regional_manager"],
+            [{"scope_type": "SUBTREE", "org_unit_id": "enrollment-test-center"}])
+        denied = self.client.patch(url, headers=headers,
+            json={"decision": "SAVE", "referrer_org_unit_id": "visit-other-" + str(application_id)})
+        self.assertEqual(denied.status_code, 403)
+        self.assertIsNone(fetch_one("SELECT * FROM enrollment_application_referrer_centers WHERE application_id=?", (application_id,)))
 
     def test_public_form_has_no_organization_and_rejects_org_payload(self) -> None:
         _, token = self._create_link()

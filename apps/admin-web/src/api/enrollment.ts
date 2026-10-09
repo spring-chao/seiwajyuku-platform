@@ -156,6 +156,9 @@ export type EnrollmentApplicationDetail = EnrollmentApplicationListItem & {
   has_enterprise_financial_data: boolean;
   financial_fields_visible: boolean;
   invoice_fields_visible: boolean;
+  referrer_center_available: boolean;
+  referrer_org_unit_id?: string | null;
+  referrer_org_unit_name?: string | null;
   rules_acknowledged: boolean;
   annual_sales?: string | null;
   profit_margin?: string | null;
@@ -164,6 +167,7 @@ export type EnrollmentApplicationDetail = EnrollmentApplicationListItem & {
 };
 
 export type EnrollmentReviewPayload = {
+  referrer_org_unit_id?: string | null;
   decision: "SAVE" | "APPROVE";
   review_note?: string;
   name?: string;
@@ -275,6 +279,23 @@ export const reviewEnrollmentApplication = (
     "patch",
     `/api/v1/enrollment-applications/${applicationId}/review`,
     { data }
+  );
+
+export type EnrollmentVisitData = {
+  application: EnrollmentApplicationDetail;
+  exported_at: string;
+  exported_by: string;
+  purpose: string;
+};
+
+export const exportEnrollmentVisitData = (
+  applicationId: number,
+  recipient: "CLASS_TEACHER" | "DIRECTOR"
+) =>
+  http.request<{ success: boolean; data: EnrollmentVisitData }>(
+    "post",
+    `/api/v1/enrollment-applications/${applicationId}/visit-image-data`,
+    { data: { recipient, confirmed: true } }
   );
 
 export const confirmEnrollmentPayment = (
