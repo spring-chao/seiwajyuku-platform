@@ -2,11 +2,12 @@ const app = getApp();
 const { request } = require("../../utils/request");
 const { sessionToken, beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
 const { checkinTarget, checkinPath, contextPath, targetQuery, displayEvent, fallbackUrl, engineConfirmUrl, directConfirm, platformRescueNotice } = require("../../utils/checkin");
+const { successCard } = require("../../utils/checkin-success");
 
 function empty() {
   return { event: null, member: null, registration: null, loading: false, confirming: false,
     canCheckin: false, alreadyChecked: false, bindingRequired: false, requiresFallback: false,
-    fallbackAvailable: false, guestName: "", guestAllowed: false, historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null };
+    fallbackAvailable: false, guestName: "", guestAllowed: false, historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null, successCard: null };
 }
 
 Page({
@@ -60,6 +61,10 @@ Page({
         requiresFallback: Boolean(data.requires_fallback), fallbackAvailable: Boolean(fallbackUrl(data.fallback_url)),
         historyKind: data.history_kind === "learning" ? "learning" : "activity",
         notice: data.notice || "" });
+      if (data.already_checked_in && data.receipt) {
+        const result = { status: "ALREADY_CHECKED_IN", receipt: data.receipt, checked_at: data.receipt.checked_at };
+        this.setData({ result, successCard: successCard(result, { event: data.event, member: data.member }) });
+      }
     } catch (error) {
       if (!current()) return;
       if (error.statusCode === 401) {
@@ -90,7 +95,7 @@ Page({
       if (!current()) return;
       const result = response.data || {};
       if (result.participant_type !== "GUEST" || !result.checked_at || !["CHECKED_IN", "ALREADY_CHECKED_IN"].includes(result.status)) throw new Error("签到结果暂未确认，请重试。");
-      this.setData({ result, alreadyChecked: true, guestAllowed: false, guestName: "",
+      this.setData({ result, successCard: successCard(result, { event: this.data.event, name }), alreadyChecked: true, guestAllowed: false, guestName: "",
         notice: result.message || "签到成功" });
     } catch (error) {
       if (current()) this.setData({ errorMessage: error.message || "签到暂时未完成，请重试。" });
@@ -113,7 +118,7 @@ Page({
         response = { data: { status: engine.already === true ? "ALREADY_CHECKED_IN" : "CHECKED_IN",
           checked_at: engine.checked_at || (engine.data && engine.data.checked_at),
           sync_status: engine.sync_status === "SYNCED" ? "SYNCED" : "PENDING",
-          message: engine.msg, event: this.data.event, history_kind: this.data.historyKind } };
+          message: engine.msg, receipt: engine.data, event: this.data.event, history_kind: this.data.historyKind } };
       } else {
         // Older contexts without a ticket retain the authenticated bridge.
         response = await request("/api/v1/wechat/checkin/confirm", { method: "POST", auth: true, data });
@@ -123,7 +128,7 @@ Page({
       if (!["CHECKED_IN", "ALREADY_CHECKED_IN"].includes(result.status)) throw new Error("签到结果暂未确认，请重试；重复确认不会重复签到。");
       if (result.event && String(result.event.event_id) !== String(eventId)) throw new Error("返回的场次不一致，请重新确认当前活动。");
       this._checkinTicket = ""; this._engineConfirmUrl = "";
-      this.setData({ result, alreadyChecked: true, canCheckin: false,
+      this.setData({ result, successCard: successCard(result, { event: this.data.event, member: this.data.member, registration: this.data.registration }), alreadyChecked: true, canCheckin: false,
         historyKind: result.history_kind === "learning" ? "learning" : "activity",
         notice: result.message || (result.status === "ALREADY_CHECKED_IN" ? "本场次已签到" : "签到成功") });
     } catch (error) {

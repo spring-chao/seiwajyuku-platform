@@ -113,6 +113,20 @@ def _kind(event: dict) -> str:
     return "learning" if category in LEARNING_CATEGORIES else "activity"
 
 
+def _receipt(raw: dict | None) -> dict:
+    """Preserve the original success display, with only attendee-facing fields."""
+    raw = raw if isinstance(raw, dict) else {}
+    fields = ("name", "group_num", "dinner_table_num", "show_group", "show_dinner_table",
+              "attendance_role", "home_class_name", "registered_name", "group_type", "group_value",
+              "class_name", "center", "group_name", "company", "multi_total", "multi_checked", "checked_at")
+    receipt = {key: raw[key] for key in fields if key in raw and isinstance(raw[key], (str, int, float, bool, type(None)))}
+    event = raw.get("event")
+    if isinstance(event, dict):
+        receipt["event"] = {key: event[key] for key in ("event_id", "name", "title", "event_date", "activity_type_name")
+                            if key in event and isinstance(event[key], (str, int))}
+    return receipt
+
+
 @router.get("/events")
 def events(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> dict:
     try:
@@ -152,6 +166,7 @@ def context(event_id: str | None = Query(default=None, min_length=1, max_length=
             "event": event, "member": {key: value for key, value in member.items() if key not in {"binding_id", "token_version"}} if member else None,
             "registration": signin_engine.redact(registration),
             "already_checked_in": already,
+            "receipt": _receipt(lookup.get("receipt")) if member and already else None,
             "can_checkin": bool(member and lookup.get("can_checkin", registration is not None) and not already),
             "requires_fallback": bool(lookup.get("requires_fallback")),
             "notice": (lookup.get("notice") or lookup.get("msg") or "") if member else "请输入您的姓名，确认本场活动签到。",
@@ -210,6 +225,7 @@ def guest_confirm(payload: GuestConfirmPayload) -> dict:
         return {"success": True, "data": {
             "status": "ALREADY_CHECKED_IN" if result.get("already") is True else "CHECKED_IN",
             "participant_type": "GUEST", "checked_at": checked_at,
+            "receipt": _receipt(result.get("data")),
             "message": result.get("msg") or "签到成功",
             "sync_status": "SYNCED" if result.get("sync_status") == "SYNCED" else "PENDING",
         }}
@@ -251,6 +267,7 @@ def confirm(payload: ConfirmPayload,
         return {"success": True, "data": {
             "status": "ALREADY_CHECKED_IN" if already else "CHECKED_IN",
             "checked_at": checked_at,
+            "receipt": _receipt(data),
             "sync_status": sync_status, "message": result.get("msg") or ("已签到" if already else "签到成功"),
             "event": event, "history_kind": _kind(event),
         }}

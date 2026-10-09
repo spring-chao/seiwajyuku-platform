@@ -31,6 +31,7 @@ function harness(name = "checkin/index", handler = async () => ({ data: {} }), t
     require(module) {
       if (module.endsWith("page-session")) return guard.exports;
       if (module.endsWith("checkin")) return checkinModule.exports;
+      if (module.endsWith("checkin-success")) return require("../utils/checkin-success");
       if (module.endsWith("scan")) return scan;
       if (module.endsWith("identity-session")) return { identityChangePending: () => false };
       return { request(url, options = {}) { calls.push({ url, options }); return handler(url, options); } };
@@ -328,6 +329,7 @@ test("guest sends only name, current scene and fresh WeChat login; duplicate tap
   assert.equal(h.page.data.alreadyChecked, true);
   assert.equal(h.page.data.guestName, "");
   assert.equal(h.page.data.member, null);
+  assert.equal(h.page.data.successCard.welcome, "欢迎 合成来宾学长！");
 });
 
 test("failed WeChat resume does not loop, offer guest entry or confirm an identity", async () => {

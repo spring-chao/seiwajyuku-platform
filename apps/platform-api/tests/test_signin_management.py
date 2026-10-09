@@ -361,6 +361,24 @@ def test_bound_member_cannot_claim_a_guest_or_overwrite_same_name_identity():
         request.assert_not_called()
 
 
+def test_guest_success_retains_legacy_receipt_fields_without_private_engine_data():
+    receipt = {"name": "已保存来宾", "group_num": 3, "dinner_table_num": 8, "show_group": "false",
+               "company": "合成企业", "checked_at": "2026-10-10T01:00:00Z",
+               "phone": "PRIVATE_PHONE_SENTINEL", "guest_id": "PRIVATE_GUEST_SENTINEL",
+               "event": {"event_id": "event-morning", "name": "合成学习会", "event_date": "2026-10-10",
+                         "activity_type_name": "班级学习会", "secret": "PRIVATE_EVENT_SENTINEL"}}
+    with patch.dict(os.environ, ENV), TestClient(app) as client, patch("app.api.wechat_checkin.exchange_wechat_code", return_value={"appid": "guest-test-app", "openid": "guest-receipt-test"}), patch.object(signin_engine, "engine_request", return_value={"ok": True, "already": True, "data": receipt}):
+        response = client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "再次填写姓名", "wx_login_code": "fresh-code"})
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["status"] == "ALREADY_CHECKED_IN"
+    assert data["receipt"]["name"] == "已保存来宾"
+    assert data["receipt"]["group_num"] == 3 and data["receipt"]["dinner_table_num"] == 8
+    assert data["receipt"]["show_group"] == "false"
+    assert data["receipt"]["event"]["activity_type_name"] == "班级学习会"
+    assert "PRIVATE_" not in response.text and "openid" not in response.text
+
+
 def test_guest_failure_and_missing_receipt_never_report_success():
     from app.services.wechat_identity import WeChatProviderError
     with patch.dict(os.environ, ENV), TestClient(app) as client, patch.object(signin_engine, "engine_request") as request:
