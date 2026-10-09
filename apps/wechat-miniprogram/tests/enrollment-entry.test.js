@@ -32,6 +32,27 @@ function metadata(scope, locked = true, ready = true) {
   };
 }
 
+for (const scene of ["synthetic-legacy-scene", "e2_ABCDEFGHIJKLMNOPQRSTUV"]) {
+  test(`scanning a dedicated code opens the locked form directly: ${scene}`, async () => {
+    const page = harness();
+    const calls = [];
+    page.request = async requestPath => {
+      calls.push(requestPath);
+      return { data: metadata("org-suzhou") };
+    };
+    const load = page.loadForm.bind(page);
+    let loaded;
+    page.loadForm = () => { loaded = load(); return loaded; };
+    page.onLoad({ scene: encodeURIComponent(scene) });
+    await loaded;
+    assert.deepEqual(calls, [`/api/v1/public/enrollment/${encodeURIComponent(scene)}`]);
+    assert.equal(page.data.state, "ready");
+    assert.equal(page.data.brandRegionName, "苏州");
+    assert.equal(page.data.targetShukuLocked, true);
+    assert.equal(page.data.form.target_shuku_org_unit_id, "org-suzhou");
+  });
+}
+
 test("a dedicated scene opens the form immediately and cannot change target", async () => {
   const page = harness();
   page.data.token = "synthetic-entry";

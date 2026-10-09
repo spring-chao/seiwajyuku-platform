@@ -7,9 +7,10 @@ import test from 'node:test';
 const nodeRequire = createRequire(import.meta.url);
 const { resolveVolunteerServices } = nodeRequire('../apps/wechat-miniprogram/utils/volunteer-services.js');
 const template = readFileSync(new URL('../apps/wechat-miniprogram/pages/home/index.wxml', import.meta.url), 'utf8');
-const enrollmentCondition = template.match(/wx:if="{{([^}]+)}}" class="section-card enrollment-card"/)[1];
+const identityCondition = template.match(/wx:if="{{([^}]+)}}" class="section-card"/)[1];
 const studyCondition = template.match(/wx:if="{{([^}]+)}}" class="primary-button" bindtap="openStudyMeeting"/)[1];
 const visible = (condition, data) => vm.runInNewContext(condition, data);
+const bindingVisible = data => visible(identityCondition, data) && !data.member && !data.isEmployee;
 const failure = statusCode => Object.assign(new Error('test failure'), { statusCode });
 const member = { member_id: 42, name_masked: '测*长', class_name: '测试班', study_group_name: '第一小组' };
 const assignment = position_name => ({
@@ -47,7 +48,7 @@ function harness({ bound = false, assignments = [], meError, serviceError, meRes
         : { data: { is_volunteer: assignments.length > 0, roles: assignments } };
     }
     if (path.endsWith('/revoke')) return { success: true, data: { revoked: true } };
-    return { data: { enrollment_entry: { handoff_token: 'synthetic-handoff' } } };
+    throw new Error(`unexpected request: ${path}`);
   };
   let page;
   const wx = { login: options => options.success({ code: 'synthetic-login' }), navigateTo: data => calls.push(data.url), showToast() {}, showModal: options => { page.modal = options; } };
@@ -67,14 +68,17 @@ function harness({ bound = false, assignments = [], meError, serviceError, meRes
   return { page, app, calls };
 }
 
-test('unbound sees binding and enrollment; original enrollment route is preserved', async () => {
+test('unbound home exposes binding without loading or opening an enrollment entry', async () => {
   const { page, calls } = harness();
   await page.loadHome();
   assert.equal(page.data.identityState, 'unbound');
-  assert.equal(visible(enrollmentCondition, page.data), true);
+  assert.equal(bindingVisible(page.data), true);
   assert.equal(visible(studyCondition, page.data), false);
-  page.openEnrollment();
-  assert.ok(calls.includes('/pages/enrollment/index?token=synthetic-handoff'));
+  assert.equal(page.data.errorMessage, '');
+  assert.deepEqual(calls, []);
+  assert.doesNotMatch(template, /enrollment-card|openEnrollment|新学长入塾申请|填写申请/);
+  page.openBinding();
+  assert.deepEqual(calls, ['/pages/identity/bind']);
 });
 
 for (const label of ['组长', '辅导员']) {
@@ -85,8 +89,7 @@ for (const label of ['组长', '辅导员']) {
     assert.equal(page.data.displayRole, label);
     assert.match(page.data.displayScope, /第一小组/);
     assert.equal(visible(studyCondition, page.data), true);
-    assert.equal(visible(enrollmentCondition, page.data), false);
-    page.openEnrollment();
+    assert.equal(bindingVisible(page.data), false);
     assert.equal(calls.includes('/api/v1/public/portal'), false);
     assert.equal(calls.some(path => path.includes('/pages/enrollment/')), false);
     page.openStudyMeeting();
@@ -101,15 +104,15 @@ for (const serviceError of [undefined, failure(403), failure(404), failure(500)]
     assert.equal(page.data.identityState, 'bound');
     assert.equal(page.data.member.member_id, 42);
     assert.ok(app.globalData.memberSessionToken);
-    assert.equal(visible(enrollmentCondition, page.data), false);
+    assert.equal(bindingVisible(page.data), false);
     assert.equal(visible(studyCondition, page.data), false);
     page.openStudyMeeting();
     assert.equal(calls.includes('/pages/study-meeting/index'), false);
   });
 }
 
-test('successful revoke clears capabilities and restores applicant entry', async () => {
-  const { page, app } = harness({ bound: true, assignments: [assignment('辅导员')] });
+test('successful revoke clears capabilities and restores only the binding entry', async () => {
+  const { page, app, calls } = harness({ bound: true, assignments: [assignment('辅导员')] });
   await page.loadHome();
   page.unbind();
   await page.modal.success({ confirm: true });
@@ -117,7 +120,8 @@ test('successful revoke clears capabilities and restores applicant entry', async
   assert.equal(app.globalData.memberSessionToken, '');
   assert.equal(page.data.displayRole, '');
   assert.equal(page.data.bindingActionLabel, '重新绑定我的身份');
-  assert.equal(visible(enrollmentCondition, page.data), true);
+  assert.equal(bindingVisible(page.data), true);
+  assert.equal(calls.includes('/api/v1/public/portal'), false);
   assert.equal(visible(studyCondition, page.data), false);
 });
 
@@ -127,7 +131,7 @@ test('401 clears revoked/expired session, network and server errors do not misid
     await page.loadHome();
     assert.equal(page.data.identityState, status === 401 ? 'unbound' : 'unknown');
     assert.equal(Boolean(app.globalData.memberSessionToken), status !== 401);
-    assert.equal(visible(enrollmentCondition, page.data), status === 401);
+    assert.equal(bindingVisible(page.data), status === 401);
   }
 });
 
@@ -140,7 +144,7 @@ test('identity resolves before context and slow old responses cannot resurrect r
   const loading = page.loadHome();
   await reached;
   assert.equal(page.data.identityState, 'bound');
-  assert.equal(visible(enrollmentCondition, page.data), false);
+  assert.equal(bindingVisible(page.data), false);
   page.unbind();
   await page.modal.success({ confirm: true });
   releaseService({ data: { is_volunteer: true, roles: [assignment('组长')] } });
