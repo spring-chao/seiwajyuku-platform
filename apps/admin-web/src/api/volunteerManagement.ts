@@ -119,6 +119,14 @@ export const getVolunteerMemberEditorCatalog = () =>
     };
   }>("get", `${base}/member-editor-catalog`);
 
+// The learner editor only needs position definitions. The full workspace
+// catalog also expands every service unit and is unnecessary for this selector.
+export const getVolunteerEditorPositions = () =>
+  http.request<{ success: boolean; data: VolunteerPositionOption[] }>(
+    "get",
+    "/api/v1/volunteer-position-catalog"
+  );
+
 export const getVolunteerAppointments = (params?: Record<string, unknown>) =>
   http.request<{ success: boolean; data: VolunteerAppointment[] }>(
     "get",

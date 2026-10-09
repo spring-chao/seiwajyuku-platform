@@ -90,7 +90,8 @@ test("member edit page supports compact multi-post volunteer maintenance", () =>
   assert.match(memberPage, /content="结束任职"/);
   assert.match(memberPage, /:closable="[\s\S]*?canManage &&/);
   assert.match(memberPage, /createVolunteerAppointment/);
-  assert.match(memberPage, /catalogResponse\.data\.positions \|\| \[\]/);
+  assert.match(memberPage, /getVolunteerEditorPositions/);
+  assert.doesNotMatch(memberPage, /getVolunteerMemberEditorCatalog/);
   assert.match(
     memberPage,
     /service_target_org_unit_id:\s*volunteerEditorForm\.service_target_org_unit_id/
