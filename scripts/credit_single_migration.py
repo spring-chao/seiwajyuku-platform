@@ -29,7 +29,7 @@ from r3_read_evidence import ReadFailure, fingerprint, verify_bundle
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "platform-api"))
 MIGRATIONS = {
-    "0064": ("0064_fix_credit_rule_mapping_and_binding_freeze.sql", "e915256233248a7759014cd5191dc575e0890204cfa3ec420dacdaeaedeab4dd"),
+    "0064": ("0064_fix_credit_rule_mapping_and_binding_freeze.sql", "92cfe506dfbd9f1c776b910823e0135017c1af0df3a05472c85d52f3a91519e7"),
     "0065": ("0065_learning_credit_history_import.sql", "1fdfd3d58eee4f061feb63e98549a96995dc6878c77cb5afc9f5d4fb8d49c483"),
     "0066": ("0066_historical_credit_time_precision_review.sql", "0fcd889e127f97e84997957542673d281a2e2c0d725121ab3ed0a5fc279ae4e4"),
     "0067": ("0067_learning_credit_settlement_batches.sql", "ff33fd77a20c231694ba24d6ab065bc771f42e30596963315e34cd555130eee9"),
