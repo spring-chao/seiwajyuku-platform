@@ -473,13 +473,25 @@ def _validate_target_shuku(
     return row
 
 
+def list_active_enrollment_links() -> list[dict[str, Any]]:
+    rows = fetch_all(
+        "SELECT l.id, l.name, l.status, l.created_by, l.created_at, l.updated_at, "
+        "l.target_shuku_org_unit_id, o.name AS target_shuku_name, "
+        "l.disabled_at, l.last_rotated_at FROM member_enrollment_links l "
+        "LEFT JOIN org_units o ON o.id=l.target_shuku_org_unit_id "
+        "WHERE l.status='ACTIVE' ORDER BY l.id DESC"
+    )
+    return [_link_public_metadata(row) for row in rows]
+
+
 def get_active_enrollment_link() -> dict[str, Any] | None:
     row = fetch_one(
         "SELECT l.id, l.name, l.status, l.created_by, l.created_at, l.updated_at, "
         "l.target_shuku_org_unit_id, o.name AS target_shuku_name, "
         "disabled_at, last_rotated_at FROM member_enrollment_links "
         "l LEFT JOIN org_units o ON o.id=l.target_shuku_org_unit_id "
-        "WHERE l.status='ACTIVE' ORDER BY l.id DESC LIMIT 1"
+        "WHERE l.status='ACTIVE' AND l.target_shuku_org_unit_id IS NULL "
+        "ORDER BY l.id DESC LIMIT 1"
     )
     return _link_public_metadata(row) if row else None
 
@@ -494,7 +506,8 @@ def get_public_portal() -> dict[str, Any]:
 
     link = fetch_one(
         "SELECT id, name, status, token_hash, updated_at FROM member_enrollment_links "
-        "WHERE status='ACTIVE' ORDER BY id DESC LIMIT 1"
+        "WHERE status='ACTIVE' AND target_shuku_org_unit_id IS NULL "
+        "ORDER BY id DESC LIMIT 1"
     )
     if not link:
         return {
@@ -532,23 +545,45 @@ def create_enrollment_link(
     if not cleaned_name:
         raise ValueError("二维码名称不能为空")
     with transaction() as connection:
+        # Serialize entry creation on the existing root row. Bound entries
+        # use NULL active_slot; slot 1 remains reserved for the generic entry.
+        # No schema change or production migration is required.
+        if isinstance(connection, sqlite3.Connection):
+            if not connection.in_transaction:
+                execute(connection, "BEGIN IMMEDIATE")
+        else:
+            execute(connection, "SELECT id FROM org_units WHERE id=? FOR UPDATE", ("org-jiangnan",)).fetchone()
         target = _validate_target_shuku(
             target_shuku_org_unit_id, connection=connection
         )
+        target_id = target["id"] if target else None
+        existing = _row_from_connection(
+            connection,
+            "SELECT l.*, o.name AS target_shuku_name FROM member_enrollment_links l "
+            "LEFT JOIN org_units o ON o.id=l.target_shuku_org_unit_id "
+            "WHERE l.status='ACTIVE' AND "
+            + ("l.target_shuku_org_unit_id=?" if target else "l.target_shuku_org_unit_id IS NULL")
+            + " ORDER BY l.id DESC LIMIT 1",
+            (target_id,) if target else (),
+        )
+        if existing:
+            return {**_link_public_metadata(existing), "reused": True}
+        # A pre-upgrade bound entry may still occupy the old global slot.
+        # Release only that technical slot; its token and status stay valid.
         execute(
             connection,
-            "UPDATE member_enrollment_links SET status='DISABLED', active_slot=NULL, "
-            "disabled_at=?, updated_at=? WHERE status='ACTIVE'",
-            (now, now),
+            "UPDATE member_enrollment_links SET active_slot=NULL "
+            "WHERE target_shuku_org_unit_id IS NOT NULL AND active_slot=1",
         )
         cursor = execute(
             connection,
             "INSERT INTO member_enrollment_links"
             "(name, token_hash, status, active_slot, created_by, created_at, updated_at, "
-            "target_shuku_org_unit_id) VALUES (?, ?, 'ACTIVE', 1, ?, ?, ?, ?)",
+            "target_shuku_org_unit_id) VALUES (?, ?, 'ACTIVE', ?, ?, ?, ?, ?)",
             (
                 cleaned_name,
                 _token_hash(raw_token),
+                None if target else 1,
                 actor_user_id,
                 now,
                 now,
@@ -586,7 +621,9 @@ def rotate_enrollment_link(actor_user_id: int, link_id: int) -> dict[str, Any]:
     with transaction() as connection:
         row = _row_from_connection(
             connection,
-            "SELECT id, name, status FROM member_enrollment_links WHERE id=?",
+            "SELECT l.id, l.name, l.status, l.target_shuku_org_unit_id, "
+            "o.name AS target_shuku_name FROM member_enrollment_links l "
+            "LEFT JOIN org_units o ON o.id=l.target_shuku_org_unit_id WHERE l.id=?",
             (link_id,),
         )
         if not row:
@@ -612,6 +649,8 @@ def rotate_enrollment_link(actor_user_id: int, link_id: int) -> dict[str, Any]:
         "name": row["name"],
         "status": "ACTIVE",
         "raw_token": raw_token,
+        "target_shuku_org_unit_id": row["target_shuku_org_unit_id"],
+        "target_shuku_name": row["target_shuku_name"],
         "last_rotated_at": now,
         "updated_at": now,
     }
@@ -646,15 +685,28 @@ def disable_enrollment_link(actor_user_id: int, link_id: int) -> dict[str, Any]:
 
 
 _MINIPROGRAM_SCENE_RE = re.compile(r"^[A-Za-z0-9!#$&'()*+,/:;=?@._~-]{1,32}$")
+_MANAGED_SCENE_RE = re.compile(r"^e([0-9a-f]{1,8})_([A-Za-z0-9_-]{22})$")
+
+
+def _managed_enrollment_scene(link: dict[str, Any]) -> str:
+    # Re-downloadable public capability, domain-separated from login tokens.
+    # Rotation changes token_hash and invalidates both raw and managed codes.
+    message = f"enrollment-code:v1:{link['id']}:{link['token_hash']}".encode()
+    digest = hmac.new(get_settings().jwt_secret.encode(), message, hashlib.sha256).digest()[:16]
+    signature = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    scene = f"e{int(link['id']):x}_{signature}"
+    if not _MANAGED_SCENE_RE.fullmatch(scene):
+        raise ValueError("小程序码入口编号超出支持范围")
+    return scene
 
 
 def generate_wechat_miniprogram_code(
-    actor_user_id: int, link_id: int, raw_token: str
+    actor_user_id: int, link_id: int, raw_token: str | None = None
 ) -> dict[str, Any]:
     settings = get_settings()
     if not settings.wechat_miniprogram_app_id or not settings.wechat_miniprogram_app_secret:
         raise ValueError("微信小程序 AppID 或 AppSecret 尚未配置")
-    if not _MINIPROGRAM_SCENE_RE.fullmatch(raw_token or ""):
+    if raw_token is not None and not _MINIPROGRAM_SCENE_RE.fullmatch(raw_token):
         raise ValueError("小程序码入口令牌格式无效，请先轮换入口")
 
     link = fetch_one(
@@ -664,8 +716,9 @@ def generate_wechat_miniprogram_code(
     )
     if not link or link["status"] != "ACTIVE":
         raise ValueError("入塾申请入口不存在或已停用")
-    if _token_hash(raw_token) != link["token_hash"]:
+    if raw_token is not None and _token_hash(raw_token) != link["token_hash"]:
         raise ValueError("当前浏览器中的入口令牌已失效，请轮换后重新生成")
+    scene = raw_token if raw_token is not None else _managed_enrollment_scene(link)
 
     try:
         with httpx.Client(timeout=20.0) as client:
@@ -690,8 +743,10 @@ def generate_wechat_miniprogram_code(
                 "https://api.weixin.qq.com/wxa/getwxacodeunlimit",
                 params={"access_token": access_token},
                 json={
-                    "scene": raw_token,
+                    "scene": scene,
                     "page": settings.wechat_miniprogram_page,
+                    "env_version": "release",
+                    "check_path": True,
                     "width": 430,
                 },
             )
@@ -708,6 +763,14 @@ def generate_wechat_miniprogram_code(
         raise ValueError(f"微信小程序码生成失败：{message}")
 
     with transaction() as connection:
+        current = _row_from_connection(
+            connection,
+            "SELECT token_hash, status FROM member_enrollment_links WHERE id=?"
+            + (" FOR UPDATE" if not isinstance(connection, sqlite3.Connection) else ""),
+            (link_id,),
+        )
+        if not current or current["status"] != "ACTIVE" or current["token_hash"] != link["token_hash"]:
+            raise ValueError("入口已更新或停用，请重新选择并生成小程序码")
         write_audit(
             connection,
             actor_user_id=actor_user_id,
@@ -740,6 +803,17 @@ def _resolve_public_link(token: str) -> dict[str, Any] | None:
     )
     if raw_link:
         return raw_link
+
+    managed = _MANAGED_SCENE_RE.fullmatch(token)
+    if managed:
+        link = fetch_one(
+            "SELECT id, name, token_hash, target_shuku_org_unit_id "
+            "FROM member_enrollment_links WHERE id=? AND status='ACTIVE' LIMIT 1",
+            (int(managed[1], 16),),
+        )
+        if link and hmac.compare_digest(token, _managed_enrollment_scene(link)):
+            return link
+        return None
 
     # Unified-home navigation uses a short-lived signed handoff.  It points
     # to the active link row rather than carrying the enrollment secret.  A
@@ -1001,6 +1075,7 @@ def get_public_enrollment_form(
         "target_shuku_options": target_options,
         "target_shuku_org_unit_id": target["id"] if target else None,
         "target_shuku_name": target["name"] if target else None,
+        "brand_region_name": target["name"].removesuffix("塾") if target else None,
         "target_shuku_locked": bool(locked_target_id),
         "business_config_status": shuku_profile["status"],
         "business_config_code": shuku_profile["code"],

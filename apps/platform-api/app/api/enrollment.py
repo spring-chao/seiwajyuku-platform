@@ -21,6 +21,7 @@ from app.services.enrollment import (
     get_enrollment_application,
     get_public_enrollment_form,
     list_enrollment_applications,
+    list_active_enrollment_links,
     reject_enrollment_application,
     review_enrollment_application,
     rotate_enrollment_link,
@@ -171,7 +172,8 @@ class EnrollmentLinkPayload(BaseModel):
 class MiniProgramCodePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    raw_token: str = Field(
+    raw_token: str | None = Field(
+        default=None,
         min_length=1,
         max_length=32,
         pattern=r"^[A-Za-z0-9!#$&'()*+,/:;=?@._~-]+$",
@@ -354,6 +356,13 @@ def active_link(
     _: dict = Depends(require_permission("enrollment:manage_link")),
 ) -> dict:
     return {"success": True, "data": get_active_enrollment_link()}
+
+
+@router.get("/enrollment-links")
+def active_links(
+    _: dict = Depends(require_permission("enrollment:manage_link")),
+) -> dict:
+    return {"success": True, "data": list_active_enrollment_links()}
 
 
 @router.post("/enrollment-links")
