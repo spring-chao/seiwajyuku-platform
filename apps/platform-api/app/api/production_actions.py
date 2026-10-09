@@ -11,6 +11,7 @@ from app.services.production_operations import (
     ProductionOperationError,
     REQUIRED_PERMISSION,
     apply_g5_4_course_rule_reconciliation,
+    preview_g5_4_course_rule_reconciliation,
 )
 
 
@@ -33,6 +34,19 @@ class G54CourseRuleApplyPayload(BaseModel):
 def _require_feature_enabled() -> None:
     if not get_settings().g5_4_production_rule_apply_enabled:
         raise HTTPException(404, {"code": "FEATURE_DISABLED", "message": "Not found"})
+
+
+@router.get("/g5-4-course-rule-reconciliation/preflight", include_in_schema=False)
+def preview_g5_4_course_rules(
+    actor: dict = Depends(require_permission(REQUIRED_PERMISSION)),
+) -> dict:
+    if "system_admin" not in actor.get("roles", []):
+        raise HTTPException(403, {"code": "PERMISSION_DENIED", "message": "无此操作权限"})
+    try:
+        result = preview_g5_4_course_rule_reconciliation(actor_user_id=int(actor["id"]))
+    except ProductionOperationError as exc:
+        raise HTTPException(exc.status_code, {"code": exc.code, "message": exc.message}) from exc
+    return {"success": True, "data": result}
 
 
 @router.post(

@@ -108,3 +108,30 @@ def test_production_action_is_not_exposed_in_openapi(monkeypatch) -> None:
     with TestClient(app) as client:
         schema = client.get("/openapi.json").json()
     assert "/api/v1/ops/production-actions/g5-4-course-rule-reconciliation/apply" not in schema["paths"]
+
+
+def test_preflight_requires_admin_and_permission_even_with_write_gate_closed(monkeypatch):
+    monkeypatch.setenv("G5_4_PRODUCTION_RULE_APPLY_ENABLED", "false")
+    calls = []
+    monkeypatch.setattr(production_actions, "preview_g5_4_course_rule_reconciliation",
+                        lambda **kwargs: calls.append(kwargs) or {"status": "BLOCKED"})
+    url = "/api/v1/ops/production-actions/g5-4-course-rule-reconciliation/preflight"
+    try:
+        for actor, status in (
+            ({"id": 9, "roles": ["system_admin"], "permissions": []}, 403),
+            ({"id": 9, "roles": ["operations_admin"], "permissions": [REQUIRED_PERMISSION]}, 403),
+            ({"id": 9, "roles": ["system_admin"], "permissions": [REQUIRED_PERMISSION]}, 200),
+        ):
+            app.dependency_overrides[current_user] = lambda: actor
+            with TestClient(app) as client:
+                response = client.get(url)
+            assert response.status_code == status
+        assert calls == [{"actor_user_id": 9}]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_preflight_without_login_is_rejected():
+    with TestClient(app) as client:
+        response = client.get("/api/v1/ops/production-actions/g5-4-course-rule-reconciliation/preflight")
+    assert response.status_code == 401
