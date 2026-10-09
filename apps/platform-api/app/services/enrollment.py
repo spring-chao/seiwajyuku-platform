@@ -473,13 +473,25 @@ def _validate_target_shuku(
     return row
 
 
+def list_active_enrollment_links() -> list[dict[str, Any]]:
+    rows = fetch_all(
+        "SELECT l.id, l.name, l.status, l.created_by, l.created_at, l.updated_at, "
+        "l.target_shuku_org_unit_id, o.name AS target_shuku_name, "
+        "l.disabled_at, l.last_rotated_at FROM member_enrollment_links l "
+        "LEFT JOIN org_units o ON o.id=l.target_shuku_org_unit_id "
+        "WHERE l.status='ACTIVE' ORDER BY l.id DESC"
+    )
+    return [_link_public_metadata(row) for row in rows]
+
+
 def get_active_enrollment_link() -> dict[str, Any] | None:
     row = fetch_one(
         "SELECT l.id, l.name, l.status, l.created_by, l.created_at, l.updated_at, "
         "l.target_shuku_org_unit_id, o.name AS target_shuku_name, "
         "disabled_at, last_rotated_at FROM member_enrollment_links "
         "l LEFT JOIN org_units o ON o.id=l.target_shuku_org_unit_id "
-        "WHERE l.status='ACTIVE' ORDER BY l.id DESC LIMIT 1"
+        "WHERE l.status='ACTIVE' AND l.target_shuku_org_unit_id IS NULL "
+        "ORDER BY l.id DESC LIMIT 1"
     )
     return _link_public_metadata(row) if row else None
 
@@ -494,7 +506,8 @@ def get_public_portal() -> dict[str, Any]:
 
     link = fetch_one(
         "SELECT id, name, status, token_hash, updated_at FROM member_enrollment_links "
-        "WHERE status='ACTIVE' ORDER BY id DESC LIMIT 1"
+        "WHERE status='ACTIVE' AND target_shuku_org_unit_id IS NULL "
+        "ORDER BY id DESC LIMIT 1"
     )
     if not link:
         return {
@@ -532,23 +545,45 @@ def create_enrollment_link(
     if not cleaned_name:
         raise ValueError("二维码名称不能为空")
     with transaction() as connection:
+        # Serialize entry creation on the existing root row. Bound entries
+        # use NULL active_slot; slot 1 remains reserved for the generic entry.
+        # No schema change or production migration is required.
+        if isinstance(connection, sqlite3.Connection):
+            if not connection.in_transaction:
+                execute(connection, "BEGIN IMMEDIATE")
+        else:
+            execute(connection, "SELECT id FROM org_units WHERE id=? FOR UPDATE", ("org-jiangnan",)).fetchone()
         target = _validate_target_shuku(
             target_shuku_org_unit_id, connection=connection
         )
+        target_id = target["id"] if target else None
+        existing = _row_from_connection(
+            connection,
+            "SELECT l.*, o.name AS target_shuku_name FROM member_enrollment_links l "
+            "LEFT JOIN org_units o ON o.id=l.target_shuku_org_unit_id "
+            "WHERE l.status='ACTIVE' AND "
+            + ("l.target_shuku_org_unit_id=?" if target else "l.target_shuku_org_unit_id IS NULL")
+            + " ORDER BY l.id DESC LIMIT 1",
+            (target_id,) if target else (),
+        )
+        if existing:
+            return {**_link_public_metadata(existing), "reused": True}
+        # A pre-upgrade bound entry may still occupy the old global slot.
+        # Release only that technical slot; its token and status stay valid.
         execute(
             connection,
-            "UPDATE member_enrollment_links SET status='DISABLED', active_slot=NULL, "
-            "disabled_at=?, updated_at=? WHERE status='ACTIVE'",
-            (now, now),
+            "UPDATE member_enrollment_links SET active_slot=NULL "
+            "WHERE target_shuku_org_unit_id IS NOT NULL AND active_slot=1",
         )
         cursor = execute(
             connection,
             "INSERT INTO member_enrollment_links"
             "(name, token_hash, status, active_slot, created_by, created_at, updated_at, "
-            "target_shuku_org_unit_id) VALUES (?, ?, 'ACTIVE', 1, ?, ?, ?, ?)",
+            "target_shuku_org_unit_id) VALUES (?, ?, 'ACTIVE', ?, ?, ?, ?, ?)",
             (
                 cleaned_name,
                 _token_hash(raw_token),
+                None if target else 1,
                 actor_user_id,
                 now,
                 now,
@@ -586,7 +621,9 @@ def rotate_enrollment_link(actor_user_id: int, link_id: int) -> dict[str, Any]:
     with transaction() as connection:
         row = _row_from_connection(
             connection,
-            "SELECT id, name, status FROM member_enrollment_links WHERE id=?",
+            "SELECT l.id, l.name, l.status, l.target_shuku_org_unit_id, "
+            "o.name AS target_shuku_name FROM member_enrollment_links l "
+            "LEFT JOIN org_units o ON o.id=l.target_shuku_org_unit_id WHERE l.id=?",
             (link_id,),
         )
         if not row:
@@ -612,6 +649,8 @@ def rotate_enrollment_link(actor_user_id: int, link_id: int) -> dict[str, Any]:
         "name": row["name"],
         "status": "ACTIVE",
         "raw_token": raw_token,
+        "target_shuku_org_unit_id": row["target_shuku_org_unit_id"],
+        "target_shuku_name": row["target_shuku_name"],
         "last_rotated_at": now,
         "updated_at": now,
     }
@@ -646,15 +685,28 @@ def disable_enrollment_link(actor_user_id: int, link_id: int) -> dict[str, Any]:
 
 
 _MINIPROGRAM_SCENE_RE = re.compile(r"^[A-Za-z0-9!#$&'()*+,/:;=?@._~-]{1,32}$")
+_MANAGED_SCENE_RE = re.compile(r"^e([0-9a-f]{1,8})_([A-Za-z0-9_-]{22})$")
+
+
+def _managed_enrollment_scene(link: dict[str, Any]) -> str:
+    # Re-downloadable public capability, domain-separated from login tokens.
+    # Rotation changes token_hash and invalidates both raw and managed codes.
+    message = f"enrollment-code:v1:{link['id']}:{link['token_hash']}".encode()
+    digest = hmac.new(get_settings().jwt_secret.encode(), message, hashlib.sha256).digest()[:16]
+    signature = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    scene = f"e{int(link['id']):x}_{signature}"
+    if not _MANAGED_SCENE_RE.fullmatch(scene):
+        raise ValueError("小程序码入口编号超出支持范围")
+    return scene
 
 
 def generate_wechat_miniprogram_code(
-    actor_user_id: int, link_id: int, raw_token: str
+    actor_user_id: int, link_id: int, raw_token: str | None = None
 ) -> dict[str, Any]:
     settings = get_settings()
     if not settings.wechat_miniprogram_app_id or not settings.wechat_miniprogram_app_secret:
         raise ValueError("微信小程序 AppID 或 AppSecret 尚未配置")
-    if not _MINIPROGRAM_SCENE_RE.fullmatch(raw_token or ""):
+    if raw_token is not None and not _MINIPROGRAM_SCENE_RE.fullmatch(raw_token):
         raise ValueError("小程序码入口令牌格式无效，请先轮换入口")
 
     link = fetch_one(
@@ -664,8 +716,9 @@ def generate_wechat_miniprogram_code(
     )
     if not link or link["status"] != "ACTIVE":
         raise ValueError("入塾申请入口不存在或已停用")
-    if _token_hash(raw_token) != link["token_hash"]:
+    if raw_token is not None and _token_hash(raw_token) != link["token_hash"]:
         raise ValueError("当前浏览器中的入口令牌已失效，请轮换后重新生成")
+    scene = raw_token if raw_token is not None else _managed_enrollment_scene(link)
 
     try:
         with httpx.Client(timeout=20.0) as client:
@@ -690,8 +743,10 @@ def generate_wechat_miniprogram_code(
                 "https://api.weixin.qq.com/wxa/getwxacodeunlimit",
                 params={"access_token": access_token},
                 json={
-                    "scene": raw_token,
+                    "scene": scene,
                     "page": settings.wechat_miniprogram_page,
+                    "env_version": "release",
+                    "check_path": True,
                     "width": 430,
                 },
             )
@@ -708,6 +763,14 @@ def generate_wechat_miniprogram_code(
         raise ValueError(f"微信小程序码生成失败：{message}")
 
     with transaction() as connection:
+        current = _row_from_connection(
+            connection,
+            "SELECT token_hash, status FROM member_enrollment_links WHERE id=?"
+            + (" FOR UPDATE" if not isinstance(connection, sqlite3.Connection) else ""),
+            (link_id,),
+        )
+        if not current or current["status"] != "ACTIVE" or current["token_hash"] != link["token_hash"]:
+            raise ValueError("入口已更新或停用，请重新选择并生成小程序码")
         write_audit(
             connection,
             actor_user_id=actor_user_id,
@@ -740,6 +803,17 @@ def _resolve_public_link(token: str) -> dict[str, Any] | None:
     )
     if raw_link:
         return raw_link
+
+    managed = _MANAGED_SCENE_RE.fullmatch(token)
+    if managed:
+        link = fetch_one(
+            "SELECT id, name, token_hash, target_shuku_org_unit_id "
+            "FROM member_enrollment_links WHERE id=? AND status='ACTIVE' LIMIT 1",
+            (int(managed[1], 16),),
+        )
+        if link and hmac.compare_digest(token, _managed_enrollment_scene(link)):
+            return link
+        return None
 
     # Unified-home navigation uses a short-lived signed handoff.  It points
     # to the active link row rather than carrying the enrollment secret.  A
@@ -1001,6 +1075,7 @@ def get_public_enrollment_form(
         "target_shuku_options": target_options,
         "target_shuku_org_unit_id": target["id"] if target else None,
         "target_shuku_name": target["name"] if target else None,
+        "brand_region_name": target["name"].removesuffix("塾") if target else None,
         "target_shuku_locked": bool(locked_target_id),
         "business_config_status": shuku_profile["status"],
         "business_config_code": shuku_profile["code"],
@@ -1505,14 +1580,38 @@ def _missing_enrollment_gates(row: dict[str, Any]) -> list[str]:
     return missing
 
 
-def get_enrollment_application(actor_user_id: int, application_id: int) -> dict[str, Any]:
+def _referrer_center(application_id: int) -> tuple[bool, dict[str, Any] | None]:
+    try:
+        return True, fetch_one(
+            "SELECT r.referrer_org_unit_id, o.name AS referrer_org_unit_name "
+            "FROM enrollment_application_referrer_centers r "
+            "JOIN org_units o ON o.id=r.referrer_org_unit_id WHERE r.application_id=?",
+            (application_id,),
+        )
+    except Exception as exc:
+        text = str(exc).lower()
+        if "enrollment_application_referrer_centers" in text and (
+            "no such table" in text or "doesn't exist" in text
+        ):
+            return False, None
+        raise
+
+
+def get_enrollment_application(
+    actor_user_id: int, application_id: int, *, for_visit_export: bool = False
+) -> dict[str, Any]:
     row = _application_row(application_id)
     if not row:
         raise ValueError("入塾申请不存在")
     _assert_application_scope(actor_user_id, row)
     user = user_context(actor_user_id) or {"permissions": []}
-    can_view_contact = "enrollment:read" in user["permissions"]
-    can_view_financial = "members:enterprise_view" in user["permissions"]
+    # Authorized 2026-10-09: complete visit images belong to enrollment work,
+    # without requiring separate enterprise-view or sensitive-export grants.
+    visit_reviewer = for_visit_export and "enrollment:review" in user["permissions"]
+    can_view_contact = "enrollment:read" in user["permissions"] or visit_reviewer
+    can_view_financial = (
+        "members:enterprise_view" in user["permissions"] or visit_reviewer
+    )
     can_view_payment_detail = (
         "enrollment:payment_confirm" in user["permissions"]
     )
@@ -1560,6 +1659,10 @@ def get_enrollment_application(actor_user_id: int, application_id: int) -> dict[
         )
         safe["invoice_info"] = row.get("invoice_info")
     safe["rules_acknowledged"] = bool(row.get("rules_acknowledged"))
+    ready, referrer_center = _referrer_center(application_id)
+    safe["referrer_center_available"] = ready
+    safe["referrer_org_unit_id"] = (referrer_center or {}).get("referrer_org_unit_id")
+    safe["referrer_org_unit_name"] = (referrer_center or {}).get("referrer_org_unit_name")
     safe["missing_gates"] = _missing_enrollment_gates(row)
     safe["can_enroll"] = (
         row["application_status"] != "ENROLLED" and not safe["missing_gates"]
@@ -1627,6 +1730,27 @@ def review_enrollment_application(
     if decision not in {"SAVE", "APPROVE"}:
         raise ValueError("审核动作无效")
     incoming = dict(updates)
+    referrer_changed = "referrer_org_unit_id" in incoming
+    referrer_id = _clean_optional(incoming.pop("referrer_org_unit_id", None))
+    if referrer_changed:
+        ready, _ = _referrer_center(application_id)
+        if not ready:
+            raise ValueError("推荐人分中心资料尚未就绪，请联系管理员完成升级")
+        if referrer_id:
+            center = fetch_one(
+                "SELECT unit_type, parent_id, is_active FROM org_units WHERE id=?",
+                (referrer_id,),
+            )
+            if not center or not center["is_active"] or not (
+                center["unit_type"] == "REGIONAL_CENTER"
+                or (center["unit_type"] == "OPERATING_UNIT" and referrer_id in {
+                    "org-wuxi-guidance-1", "org-wuxi-guidance-2"
+                })
+            ):
+                raise ValueError("推荐人所属分中心必须是有效的分中心或指导团")
+            allowed = accessible_org_ids(actor_user_id)
+            if allowed is not None and referrer_id not in allowed:
+                raise PermissionError("推荐人分中心不在当前组织授权范围内")
     unknown = set(incoming) - REVIEW_FIELDS - FINANCIAL_FIELDS
     if unknown:
         raise ValueError("包含不允许修改的申请字段")
@@ -1727,6 +1851,8 @@ def review_enrollment_application(
     assignments: list[str] = []
     params: list[Any] = []
     changed_fields = set(incoming) | financial_changes | invoice_input_fields
+    if referrer_changed:
+        changed_fields.add("referrer_org_unit_id")
     target_changed = (
         "target_shuku_org_unit_id" in incoming
         and incoming.get("target_shuku_org_unit_id")
@@ -1750,6 +1876,15 @@ def review_enrollment_application(
     params.append(now)
     params.append(application_id)
     with transaction() as connection:
+        if referrer_changed:
+            execute(connection, "DELETE FROM enrollment_application_referrer_centers WHERE application_id=?", (application_id,))
+            if referrer_id:
+                execute(
+                    connection,
+                    "INSERT INTO enrollment_application_referrer_centers "
+                    "(application_id, referrer_org_unit_id, updated_by, updated_at) VALUES (?, ?, ?, ?)",
+                    (application_id, referrer_id, actor_user_id, now),
+                )
         execute(
             connection,
             "UPDATE member_enrollment_applications SET "
@@ -1796,6 +1931,32 @@ def review_enrollment_application(
             },
         )
     return get_enrollment_application(actor_user_id, application_id)
+
+
+def export_enrollment_visit_data(
+    actor_user_id: int, application_id: int, *, recipient: str, confirmed: bool
+) -> dict[str, Any]:
+    user = user_context(actor_user_id) or {"permissions": []}
+    if "enrollment:review" not in user["permissions"]:
+        raise PermissionError("当前账号没有入塾资料处理权限")
+    if not confirmed or recipient not in {"CLASS_TEACHER", "DIRECTOR"}:
+        raise ValueError("请确认走访用途及接收人后导出")
+    # Share the detail scope check; the complete visit snapshot is authorized
+    # by enrollment processing rather than an additional export role.
+    data = get_enrollment_application(actor_user_id, application_id, for_visit_export=True)
+    exported_at = _now()
+    purpose = "班主任走访面聊" if recipient == "CLASS_TEACHER" else "董事走访面聊"
+    with transaction() as connection:
+        write_audit(
+            connection, actor_user_id=actor_user_id,
+            action="enrollment.application.visit_image_export",
+            resource_type="member_enrollment_application", resource_id=str(application_id),
+            org_unit_id=data.get("org_unit_id"), purpose=purpose,
+            after={"format": "PNG", "recipient": recipient, "unmasked": True},
+        )
+    return {"application": data, "exported_at": exported_at,
+            "exported_by": user.get("display_name") or user.get("username") or str(actor_user_id),
+            "purpose": purpose}
 
 
 def confirm_enrollment_payment(

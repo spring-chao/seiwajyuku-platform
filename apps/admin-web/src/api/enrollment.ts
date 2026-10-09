@@ -156,6 +156,9 @@ export type EnrollmentApplicationDetail = EnrollmentApplicationListItem & {
   has_enterprise_financial_data: boolean;
   financial_fields_visible: boolean;
   invoice_fields_visible: boolean;
+  referrer_center_available: boolean;
+  referrer_org_unit_id?: string | null;
+  referrer_org_unit_name?: string | null;
   rules_acknowledged: boolean;
   annual_sales?: string | null;
   profit_margin?: string | null;
@@ -164,6 +167,7 @@ export type EnrollmentApplicationDetail = EnrollmentApplicationListItem & {
 };
 
 export type EnrollmentReviewPayload = {
+  referrer_org_unit_id?: string | null;
   decision: "SAVE" | "APPROVE";
   review_note?: string;
   name?: string;
@@ -219,6 +223,7 @@ export type EnrollmentLink = {
   disabled_at?: string | null;
   last_rotated_at?: string | null;
   raw_token?: string;
+  reused?: boolean;
   target_shuku_org_unit_id?: string | null;
   target_shuku_name?: string | null;
 };
@@ -276,6 +281,23 @@ export const reviewEnrollmentApplication = (
     { data }
   );
 
+export type EnrollmentVisitData = {
+  application: EnrollmentApplicationDetail;
+  exported_at: string;
+  exported_by: string;
+  purpose: string;
+};
+
+export const exportEnrollmentVisitData = (
+  applicationId: number,
+  recipient: "CLASS_TEACHER" | "DIRECTOR"
+) =>
+  http.request<{ success: boolean; data: EnrollmentVisitData }>(
+    "post",
+    `/api/v1/enrollment-applications/${applicationId}/visit-image-data`,
+    { data: { recipient, confirmed: true } }
+  );
+
 export const confirmEnrollmentPayment = (
   applicationId: number,
   data: { payment_status: "PAID"; amount?: string; note?: string }
@@ -308,6 +330,12 @@ export const getActiveEnrollmentLink = () =>
     "/api/v1/enrollment-links/active"
   );
 
+export const getEnrollmentLinks = () =>
+  http.request<{ success: boolean; data: EnrollmentLink[] }>(
+    "get",
+    "/api/v1/enrollment-links"
+  );
+
 export const createEnrollmentLink = (
   name: string,
   target_shuku_org_unit_id?: string | null
@@ -332,10 +360,10 @@ export const disableEnrollmentLink = (linkId: number) =>
 
 export const generateEnrollmentMiniProgramCode = (
   linkId: number,
-  rawToken: string
+  rawToken?: string
 ) =>
   http.request<{ success: boolean; data: EnrollmentMiniProgramCode }>(
     "post",
     `/api/v1/enrollment-links/${linkId}/mini-program-code`,
-    { data: { raw_token: rawToken } }
+    { data: rawToken ? { raw_token: rawToken } : {} }
   );

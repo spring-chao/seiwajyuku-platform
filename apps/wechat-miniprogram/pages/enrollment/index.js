@@ -140,6 +140,7 @@ Page({
     selectedTargetShukuId: "",
     selectedTargetShukuName: "",
     targetShukuLocked: false,
+    brandRegionName: "",
     form: {
       name: "",
       target_shuku_org_unit_id: "",
@@ -243,6 +244,7 @@ Page({
         targetShukuOptions: targetOptions,
         selectedTargetShukuId: selectedTargetId,
         selectedTargetShukuName: selectedTargetName,
+        brandRegionName: metadata.brand_region_name || selectedTargetName.replace(/塾$/, ""),
         targetShukuLocked: Boolean(metadata.target_shuku_locked),
         "form.target_shuku_org_unit_id": selectedTargetId,
         industryOptions: metadata.industry_options || INDUSTRY_OPTIONS,
@@ -360,6 +362,18 @@ Page({
 
   togglePrivacy() {
     this.setData({ privacyConsent: !this.data.privacyConsent });
+  },
+
+  copyContactPhone(event) {
+    const document = this.data.joiningDocument;
+    if (this.data.state !== "ready" || !document || !document.businessReady) return;
+    const contact = document.contacts[Number(event.currentTarget.dataset.index)];
+    if (!contact || !contact.phone) return;
+    wx.setClipboardData({
+      data: contact.phone,
+      success: () => wx.showToast({ title: "联系电话已复制", icon: "success" }),
+      fail: () => wx.showToast({ title: "复制失败，请重试", icon: "none" })
+    });
   },
 
   openPrivacyContract() {
