@@ -32,3 +32,18 @@ test("signed ticket reaches the dedicated engine without the platform session or
   await assert.rejects(module.exports.directConfirm(url + "?redirect=other", "ticket", transport));
   assert.equal(calls.length, 2);
 });
+
+
+test("shared gateway posts only signed ticket to exact test engine without cloud association", async () => {
+  const calls = [], module = { exports: {} };
+  const transport = { apiTransport: "shared-gateway", signinEngineApiBase: "https://synthetic-gateway.net/stg_signin_20261009_70716ba4/api" };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../utils/checkin.js"), "utf8"), {
+    module, wx: { request(options) { calls.push(options); options.success({ statusCode: 200, data: { ok: true, checked_at: "2026-10-10T01:00:00Z" } }); } }
+  });
+  const url = transport.signinEngineApiBase + "/native/v1/checkin/confirm";
+  await module.exports.directConfirm(url, "synthetic.signed.ticket", transport);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].data)), { ticket: "synthetic.signed.ticket" });
+  assert.equal(calls[0].header.Authorization, undefined);
+  await assert.rejects(module.exports.directConfirm("https://synthetic-gateway.net/api/native/v1/checkin/confirm", "ticket", transport));
+  assert.equal(calls.length, 1);
+});

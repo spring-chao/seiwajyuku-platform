@@ -77,7 +77,7 @@ function fallbackUrl(value) {
 
 function engineConfirmUrl(value, apiBaseUrl, transport = {}) {
   const url = String(value || "");
-  if (transport.apiTransport === "cloudrun") {
+  if (["cloudrun", "shared-gateway"].includes(transport.apiTransport)) {
     const base = String(transport.signinEngineApiBase || "").replace(/\/$/, "");
     return /^https:\/\/[a-z0-9.-]+\/stg_signin_20\d{6}_[a-f0-9]{8}\/api$/i.test(base) &&
       url === base + "/native/v1/checkin/confirm" ? url : "";
@@ -127,6 +127,9 @@ function directConfirm(url, ticket, transport = {}) {
         catch (_) { fail(); }
       }, fail);
       return;
+    }
+    if (transport.apiTransport === "shared-gateway" && !engineConfirmUrl(url, transport.apiBaseUrl, transport)) {
+      fail(); return;
     }
     wx.request({ url, method: "POST", timeout: 15000, header: { "content-type": "application/json" },
       data: { ticket }, success, fail });

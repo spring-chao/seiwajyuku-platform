@@ -156,3 +156,25 @@ test("CLI requires the real API URL and new output directory and offers no uploa
     assert.equal(result.status, 1); assert.equal(result.stdout, "");
   }
 });
+
+
+test("shared gateway allows only explicit test namespace with unchanged domain validation", async t => {
+  const f = fixture(t);
+  const namespace = "stg_signin_20261009_70716ba4";
+  const host = "https://shengheshu-d2g2zyyl99f6c6fc2-1453587887.ap-shanghai.app.tcloudbase.com";
+  const base = host + "/" + namespace + "/platform";
+  const engine = host + "/" + namespace + "/api";
+  assert.equal(validateApiBase(base, [], namespace), base);
+  for (const invalid of [host + "/platform", host + "/api", host + "/stg_signin_20261009_70716ba5/platform", base + "/other", base + "?redirect=/platform"]) {
+    assert.throws(() => validateApiBase(invalid, [], namespace));
+  }
+  const result = await preparePreview({ apiBase: base, output: f.output, appRoot: f.app, repoRoot: f.repo,
+    verify: async () => verified(), sharedGatewayNamespace: namespace, signinEngineApiBase: engine });
+  assert.equal(result.api_transport, "shared-gateway");
+  assert.equal(result.urlCheck, true);
+  assert.match(readFileSync(join(f.output, "wechat-miniprogram/config.js"), "utf8"), /"apiTransport": "shared-gateway"/);
+  assert.match(readFileSync(join(f.app, "config.js"), "utf8"), /PRODUCTION/);
+  const other = fixture(t);
+  await assert.rejects(preparePreview({ apiBase: base, output: other.output, appRoot: other.app, repoRoot: other.repo,
+    verify: async () => verified(), sharedGatewayNamespace: namespace, signinEngineApiBase: host + "/api" }));
+});

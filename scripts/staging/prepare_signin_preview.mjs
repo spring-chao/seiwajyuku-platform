@@ -24,7 +24,7 @@ function loadConfig(file) {
   return module.exports;
 }
 
-export function validateApiBase(value, extraProductionHosts = []) {
+export function validateApiBase(value, extraProductionHosts = [], sharedGatewayNamespace = "") {
   let url;
   try { url = new URL(value); } catch { throw new Error("apiBase must be an actual isolated HTTPS API URL"); }
   const host = url.hostname.toLowerCase().replace(/\.$/, "");
@@ -37,15 +37,18 @@ export function validateApiBase(value, extraProductionHosts = []) {
     throw new Error("apiBase must use a real public HTTPS host, not a local or placeholder address");
   }
   const blocked = [...productionHosts, ...extraProductionHosts].map(item => item.toLowerCase().replace(/\.$/, ""));
-  if (blocked.some(item => host === item || host.endsWith("." + item))) throw new Error("Known production API hosts cannot be used for a preview");
+  const sharedTest = /^stg_signin_20\d{6}_[a-f0-9]{8}$/.test(sharedGatewayNamespace) &&
+    host === productionHosts[0] && url.pathname === "/" + sharedGatewayNamespace + "/platform";
+  if (sharedGatewayNamespace && !sharedTest) throw new Error("Shared gateway requires the exact dedicated test platform path");
+  if (!sharedTest && blocked.some(item => host === item || host.endsWith("." + item))) throw new Error("Known production API hosts cannot be used for a preview");
   url.hostname = host;
   return url.toString().replace(/\/$/, "");
 }
 
 // These endpoints expose runtime flags and readiness only. No auth, cookies,
 // business records, redirects, TLS bypass or upload operation is used here.
-export async function verifyStageApi(apiBase, fetchImpl = fetch) {
-  apiBase = validateApiBase(apiBase);
+export async function verifyStageApi(apiBase, fetchImpl = fetch, sharedGatewayNamespace = "") {
+  apiBase = validateApiBase(apiBase, [], sharedGatewayNamespace);
   async function read(path) {
     const response = await fetchImpl(apiBase + path, {
       method: "GET", credentials: "omit", redirect: "error", signal: AbortSignal.timeout(8000),
@@ -93,7 +96,13 @@ function sourceFiles(root) {
 }
 
 export async function preparePreview({ apiBase, output, appRoot = applicationRoot, repoRoot = repositoryRoot,
-  verify = verifyStageApi, cloudbaseEnvironment = "", cloudrunService = "", signinEngineApiBase = "", signinEngineFunction = "" } = {}) {
+  verify = verifyStageApi, cloudbaseEnvironment = "", cloudrunService = "", signinEngineApiBase = "", signinEngineFunction = "", sharedGatewayNamespace = "" } = {}) {
+  if (sharedGatewayNamespace) {
+    if (cloudbaseEnvironment || cloudrunService || signinEngineFunction ||
+        signinEngineApiBase !== "https://" + productionHosts[0] + "/" + sharedGatewayNamespace + "/api") {
+      throw new Error("Shared gateway preview requires matching test engine and platform paths");
+    }
+  }
   if (cloudbaseEnvironment || cloudrunService) {
     if (!/^[a-z0-9][a-z0-9-]{2,63}$/.test(cloudbaseEnvironment) ||
         !/^sj-signin-stg-20\d{6}-[a-f0-9]{8}$/.test(cloudrunService)) {
@@ -111,12 +120,12 @@ export async function preparePreview({ apiBase, output, appRoot = applicationRoo
   const sourceConfig = loadConfig(sourceConfigPath);
   if (sourceConfig.environment !== "PRODUCTION") throw new Error("Expected the preserved production source config");
   const sourceHost = new URL(sourceConfig.apiBaseUrl).hostname;
-  const stageBase = validateApiBase(apiBase, [sourceHost]);
+  const stageBase = validateApiBase(apiBase, [sourceHost], sharedGatewayNamespace);
   const target = newOutputPath(output, repoRoot, appRoot);
   const project = JSON.parse(readFileSync(join(appRoot, "project.config.json"), "utf8"));
   if (project.setting?.urlCheck !== true) throw new Error("Source project must already enable urlCheck");
   const files = sourceFiles(appRoot);
-  const runtime = await verify(stageBase);
+  const runtime = await verify(stageBase, undefined, sharedGatewayNamespace);
   const previewRoot = join(target, "wechat-miniprogram");
   mkdirSync(dirname(target), { recursive: true });
   mkdirSync(target);
@@ -124,7 +133,8 @@ export async function preparePreview({ apiBase, output, appRoot = applicationRoo
     uploaded: false, phone_acceptance: false, environment: "STAGING", apiBaseUrl: stageBase,
     urlCheck: true, source: appRoot, source_config_sha256: sha256(originalConfig), project: previewRoot,
     api_readiness: runtime, wechat_legal_domains_verified: false, cloudbase_database_isolation_verified: false,
-    api_transport: cloudrunService ? "cloudrun" : "request",
+    api_transport: cloudrunService ? "cloudrun" : sharedGatewayNamespace ? "shared-gateway" : "request",
+    shared_gateway_namespace: sharedGatewayNamespace || null,
     cloudbase_environment: cloudbaseEnvironment || null, cloudrun_service: cloudrunService || null,
     requires_external_validation: ["Test database and collection namespace isolation",
       cloudrunService ? "Mini-program association with CloudBase environment" : "WeChat request legal domain",
@@ -138,7 +148,8 @@ export async function preparePreview({ apiBase, output, appRoot = applicationRoo
       if (local === "config.js") content = Buffer.from("// Isolated preview artifact only; repository production config is preserved.\nmodule.exports = " +
         JSON.stringify({ ...sourceConfig, apiBaseUrl: stageBase, environment: "STAGING",
           sessionStorageKey: "seiwajyuku_signin_staging_session",
-          ...(cloudrunService ? { apiTransport: "cloudrun", cloudbaseEnvironment, cloudrunService, signinEngineApiBase, signinEngineFunction } : {}) }, null, 2) + ";\n");
+          ...(cloudrunService ? { apiTransport: "cloudrun", cloudbaseEnvironment, cloudrunService, signinEngineApiBase, signinEngineFunction } : {}),
+          ...(sharedGatewayNamespace ? { apiTransport: "shared-gateway", signinEngineApiBase } : {}) }, null, 2) + ";\n");
       if (local === "config.dev.js") content = Buffer.from("// Prepared preview uses the same verified test service on desktop and phone.\nmodule.exports = {};\n");
       if ([".js", ".json", ".wxml", ".wxss"].includes(extname(file))) {
         let text = content.toString("utf8").toLowerCase();
@@ -146,6 +157,7 @@ export async function preparePreview({ apiBase, output, appRoot = applicationRoo
         // configured test namespace. It is used to validate the signed engine
         // ticket destination; cloudFunction carries the actual phone request.
         if (local === "config.js" && cloudrunService) text = text.replace(signinEngineApiBase.toLowerCase(), "");
+        if (local === "config.js" && sharedGatewayNamespace) text = text.replace(stageBase.toLowerCase(), "").replace(signinEngineApiBase.toLowerCase(), "");
         if ([...productionHosts, sourceHost.toLowerCase()].some(host => text.includes(host))) {
           throw new Error("Preview source still references a known production endpoint: " + local);
         }
@@ -169,13 +181,14 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const options = {};
     for (let index = 0; index < args.length; index += 2) {
       const key = args[index];
-      if (!["--api-base", "--output", "--cloudbase-env", "--cloudrun-service", "--engine-api-base", "--engine-function"].includes(key) || !args[index + 1] || options[key]) throw new Error("Invalid preview preparation arguments");
+      if (!["--api-base", "--output", "--cloudbase-env", "--cloudrun-service", "--engine-api-base", "--engine-function", "--shared-gateway-namespace"].includes(key) || !args[index + 1] || options[key]) throw new Error("Invalid preview preparation arguments");
       options[key] = args[index + 1];
     }
     if (!options["--api-base"] || !options["--output"]) throw new Error("Usage: node scripts/staging/prepare_signin_preview.mjs --api-base <actual-isolated-HTTPS-API> --output <new-directory-outside-repo>");
     const manifest = await preparePreview({ apiBase: options["--api-base"], output: options["--output"],
       cloudbaseEnvironment: options["--cloudbase-env"], cloudrunService: options["--cloudrun-service"],
-      signinEngineApiBase: options["--engine-api-base"], signinEngineFunction: options["--engine-function"] });
+      signinEngineApiBase: options["--engine-api-base"], signinEngineFunction: options["--engine-function"],
+      sharedGatewayNamespace: options["--shared-gateway-namespace"] });
     console.log(JSON.stringify({ status: manifest.status, project: manifest.project, uploaded: false, phone_acceptance: false }));
   } catch (error) {
     console.error(error.message);
