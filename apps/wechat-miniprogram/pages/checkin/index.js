@@ -6,7 +6,7 @@ const { checkinTarget, checkinPath, contextPath, targetQuery, displayEvent, fall
 function empty() {
   return { event: null, member: null, registration: null, loading: false, confirming: false,
     canCheckin: false, alreadyChecked: false, bindingRequired: false, requiresFallback: false,
-    fallbackAvailable: false, historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null };
+    fallbackAvailable: false, guestName: "", guestAllowed: false, historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null };
 }
 
 Page({
@@ -25,12 +25,26 @@ Page({
       return;
     }
     const current = beginPrivateRequest(this, "context");
+    const hadSession = Boolean(sessionToken());
     this._checkinTicket = ""; this._engineConfirmUrl = "";
     this.setData({ ...empty(), loading: true });
     try {
-      const response = await request(contextPath(this._target), { auth: Boolean(sessionToken()) });
+      let response;
+      if (sessionToken()) response = await request(contextPath(this._target), { auth: true });
+      else {
+        const login = await new Promise((resolve, reject) => wx.login({ success: resolve, fail: reject }));
+        if (!current()) return;
+        if (!login.code) throw new Error("微信身份暂时无法确认，请重试。");
+        response = await request("/api/v1/wechat/checkin/entry", {
+          method: "POST", data: { ...this._target, wx_login_code: login.code }
+        });
+      }
       if (!current()) return;
       const data = response.data || {};
+      if (data.access_token) {
+        current.acceptSession(data.access_token);
+        app.setPersonSession(data.access_token);
+      }
       if (!data.event || !data.event.event_id) throw new Error("活动信息暂时不可用，请联系现场工作人员。");
       const ticket = typeof data.checkin_ticket === "string" ? data.checkin_ticket : "";
       if (ticket) {
@@ -41,7 +55,8 @@ Page({
       }
       this.setData({ event: displayEvent(data.event), member: data.member || null,
         registration: data.registration || null, canCheckin: Boolean(data.can_checkin && data.member),
-        alreadyChecked: Boolean(data.already_checked_in), bindingRequired: !data.member,
+        alreadyChecked: Boolean(data.already_checked_in), bindingRequired: false,
+        guestAllowed: Boolean(!data.member && data.guest_allowed),
         requiresFallback: Boolean(data.requires_fallback), fallbackAvailable: Boolean(fallbackUrl(data.fallback_url)),
         historyKind: data.history_kind === "learning" ? "learning" : "activity",
         notice: data.notice || "" });
@@ -50,9 +65,36 @@ Page({
       if (error.statusCode === 401) {
         current.acceptSession("");
         app.clearMemberSession();
-        this.setData({ ...empty(), bindingRequired: true, notice: "绑定已失效，请重新绑定后继续签到。" });
+        if (hadSession) return this.loadContext();
+        this.setData({ errorMessage: error.message || "微信身份暂时无法确认，请重试。" });
       } else this.setData({ errorMessage: error.message || "活动信息暂时无法加载，请重试。", rescueNotice: platformRescueNotice(error) });
     } finally { if (current()) this.setData({ loading: false }); }
+  },
+
+  inputGuestName(event) { this.setData({ guestName: event.detail.value }); },
+  async confirmGuest() {
+    if (this.data.confirming || !this.data.guestAllowed || this.data.alreadyChecked || !this.data.event) return;
+    const name = String(this.data.guestName || "").trim();
+    if (!name || name.length > 120 || /[\x00-\x1f\x7f]/.test(name)) {
+      this.setData({ errorMessage: "请填写有效姓名。" }); return;
+    }
+    const current = beginPrivateRequest(this, "confirm");
+    this.setData({ confirming: true, errorMessage: "" });
+    try {
+      const login = await new Promise((resolve, reject) => wx.login({ success: resolve, fail: reject }));
+      if (!current()) return;
+      if (!login.code) throw new Error("微信身份暂时无法确认，请重试。");
+      const response = await request("/api/v1/wechat/checkin/guest-confirm", {
+        method: "POST", data: { ...this._target, name, wx_login_code: login.code }
+      });
+      if (!current()) return;
+      const result = response.data || {};
+      if (result.participant_type !== "GUEST" || !result.checked_at || !["CHECKED_IN", "ALREADY_CHECKED_IN"].includes(result.status)) throw new Error("签到结果暂未确认，请重试。");
+      this.setData({ result, alreadyChecked: true, guestAllowed: false, guestName: "",
+        notice: result.message || "签到成功" });
+    } catch (error) {
+      if (current()) this.setData({ errorMessage: error.message || "签到暂时未完成，请重试。" });
+    } finally { if (current()) this.setData({ confirming: false }); }
   },
 
   async confirmCheckin() {

@@ -1,6 +1,5 @@
 <view class="page-shell">
-  <view class="hero-card"><view class="eyebrow">现场活动</view><view class="hero-title">今日签到</view><view class="hero-copy">选择活动与场次，或扫描现场活动码。</view></view>
-  <button class="plain-button" bindtap="openScan">扫描活动签到码</button>
+  <view class="hero-card"><view class="eyebrow">现场活动</view><view class="hero-title">今日签到</view><view class="hero-copy">使用微信扫一扫现场活动小程序码，即可进入对应场次签到。</view></view>
   <view wx:if="{{loading}}" class="state-card">正在加载当前活动…</view>
   <view wx:if="{{bindingRequired}}" class="section-card"><view class="section-title">绑定平台学员身份</view><view class="section-hint">绑定后可以自动识别本人报名，确认签到。</view><button class="primary-button" bindtap="openBinding">绑定身份并继续</button></view>
   <view wx:if="{{errorMessage}}" class="state-card error">{{errorMessage}}</view>

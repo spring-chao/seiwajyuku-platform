@@ -41,7 +41,7 @@ def wechat_code(token: str, env_version: str) -> tuple[bytes, str]:
                                    params={"access_token": access_token},
                                    json={"scene": token, "page": PAGE,
                                          "env_version": env_version,
-                                         "check_path": True, "width": 430})
+                                         "check_path": env_version == "release", "width": 430})
         mime = response.headers.get("content-type", "").split(";", 1)[0].strip()
         if response.status_code != 200 or mime not in {"image/png", "image/jpeg"}:
             raise SigninEngineError("小程序码生成失败，请确认对应小程序版本已包含签到页面", 502)

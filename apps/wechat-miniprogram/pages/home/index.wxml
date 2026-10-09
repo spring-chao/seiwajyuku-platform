@@ -10,7 +10,7 @@
   <button wx:if="{{!loading && (errorMessage || (isVolunteer && serviceMessage))}}" class="plain-button" bindtap="loadHome">重新加载</button>
 
   <view class="section-card" bindtap="openCheckin">
-    <view class="section-title">今日签到</view><view class="section-hint">选择现场活动与场次，或扫描活动签到码 →</view>
+    <view class="section-title">今日签到</view><view class="section-hint">用微信扫一扫现场活动小程序码，直接确认签到；也可查看当前场次 →</view>
   </view>
 
   <view wx:if="{{!loading && identityState !== 'unknown'}}" class="section-card">

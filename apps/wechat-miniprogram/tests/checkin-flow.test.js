@@ -90,11 +90,11 @@ test("duplicate acknowledgement shows already checked without generating a clien
   assert.equal(h.app.globalData.attendanceRecords, undefined);
 });
 
-test("anonymous context opens binding with activity token; binding returns to the same scene", async () => {
-  const h = harness("checkin/index", async () => context(10, { member: null, can_checkin: false, notice: "请先绑定" }), "");
+test("WeChat activity scene offers guest name entry and optional member binding returns to the same scene", async () => {
+  const h = harness("checkin/index", async () => context(10, { member: null, can_checkin: false, guest_allowed: true }), "");
   h.page.onLoad({ scene: "scene-token-123456789" }); await h.page.onShow();
-  assert.equal(h.calls[0].options.auth, false);
-  assert.equal(h.page.data.bindingRequired, true); h.page.openBinding();
+  assert.equal(h.calls[0].url, "/api/v1/wechat/checkin/entry");
+  assert.equal(h.page.data.guestAllowed, true); h.page.openBinding();
   assert.equal(h.navigations[0], "/pages/identity/bind?return_checkin=%2Fpages%2Fcheckin%2Findex%3Ftoken%3Dscene-token-123456789");
   const b = harness("identity/bind", async () => ({ data: { access_token: "bound", member: { name_masked: "测*" }, identities: { identity_kinds: ["MEMBER"] } } }), "");
   b.page.onLoad({ return_checkin: "/pages/checkin/index?token=scene-token-123456789" });
@@ -146,10 +146,11 @@ for (const lifecycle of ["hide", "switch"]) {
   });
 }
 
-test("current expired session preserves rebinding action; stale expired session cannot revoke new identity", async () => {
+test("current expired session attempts WeChat resume once; stale expired session cannot revoke new identity", async () => {
   const h = harness("checkin/index", async () => { throw Object.assign(new Error("expired"), { statusCode: 401 }); });
   h.page.onLoad({ event_id: 10 }); await h.page.onShow();
-  assert.equal(h.app.globalData.personSessionToken, ""); assert.equal(h.page.data.bindingRequired, true); assert.equal(h.page.data.loading, false);
+  assert.equal(h.app.globalData.personSessionToken, ""); assert.equal(h.calls.length, 2); assert.equal(h.page.data.loading, false);
+  assert.equal(h.page.data.guestAllowed, false); assert.equal(h.page.data.errorMessage, "expired");
   assert.equal(h.page.data.rescueNotice, "");
   const pending = deferred();
   const old = harness("checkin/index", () => pending.promise);
@@ -300,4 +301,46 @@ test("engine URL restricts HTTPS path and host before transmitting a ticket", as
   }
   for (const url of ["https://env.ap-shanghai.app.tcloudbase.com/native/v1/checkin/confirm", "https://env.service.tcloudbase.com/native/v1/checkin/confirm"])
     assert.equal(checkin.engineConfirmUrl(url, "https://stage.example.test/platform"), url);
+});
+
+
+test("external code restores bound identity without a binding form", async () => {
+  const h = harness("checkin/index", async () => context(10, { access_token: "restored-session" }), "");
+  h.page.onLoad({ scene: "external_scene_123456789" }); await h.page.onShow();
+  assert.equal(h.app.globalData.personSessionToken, "restored-session");
+  assert.equal(h.page.data.member.name, "合成学员");
+  assert.equal(h.page.data.canCheckin, true);
+  assert.equal(h.page.data.guestAllowed, false);
+  assert.equal(h.navigations.length, 0);
+});
+
+test("guest sends only name, current scene and fresh WeChat login; duplicate taps send once", async () => {
+  const pending = deferred();
+  const h = harness("checkin/index", async url => url.endsWith("guest-confirm") ? pending.promise : context(10, { member: null, can_checkin: false, guest_allowed: true }), "");
+  h.page.onLoad({ scene: "external_scene_123456789" }); await h.page.onShow();
+  await h.page.confirmGuest(); assert.equal(h.calls.length, 1);
+  h.page.inputGuestName({ detail: { value: "合成来宾" } });
+  const first = h.page.confirmGuest(); await h.page.confirmGuest();
+  assert.equal(h.calls.length, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls[1].options.data)), { token: "external_scene_123456789", name: "合成来宾", wx_login_code: "synthetic-login" });
+  pending.resolve({ data: { status: "CHECKED_IN", participant_type: "GUEST", checked_at: "2026-10-10T09:00:00+08:00", sync_status: "PENDING" } });
+  await first;
+  assert.equal(h.page.data.alreadyChecked, true);
+  assert.equal(h.page.data.guestName, "");
+  assert.equal(h.page.data.member, null);
+});
+
+test("failed WeChat resume does not loop, offer guest entry or confirm an identity", async () => {
+  const h = harness("checkin/index", async () => { throw Object.assign(new Error("身份暂不可用"), { statusCode: 401 }); }, "");
+  h.page.onLoad({ event_id: "test-event" }); await h.page.onShow();
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.page.data.guestAllowed, false);
+  assert.equal(h.page.data.canCheckin, false);
+});
+
+test("mini-program templates have no camera or scan buttons", () => {
+  for (const page of ["home/index", "checkin/events", "scan/index"]) {
+    const source = fs.readFileSync(path.join(root, "pages", page + ".wxml"), "utf8");
+    assert.doesNotMatch(source, /bindtap="(?:openScan|startScan|clearStatus)"|打开相机扫码|再扫一次/);
+  }
 });

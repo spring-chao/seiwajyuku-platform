@@ -33,6 +33,5 @@ Page({
     const target = checkinTarget({ event_id: event.currentTarget.dataset.eventId });
     if (target) wx.navigateTo({ url: checkinPath(target) });
   },
-  openBinding() { wx.navigateTo({ url: `/pages/identity/bind?return_checkin=${encodeURIComponent("/pages/checkin/events")}` }); },
-  openScan() { wx.navigateTo({ url: "/pages/scan/index" }); }
+  openBinding() { wx.navigateTo({ url: `/pages/identity/bind?return_checkin=${encodeURIComponent("/pages/checkin/events")}` }); }
 });

@@ -14,3 +14,4 @@
 .plain-button { color: #741f2b; background: #fffaf7; border: 1rpx solid #d9c7c3; }
 .success { background: #ecf6ef; color: #2b6640; }
 .error { color: #b33b44; }
+.name-input { margin: 24rpx 0; padding: 20rpx 24rpx; height: 48rpx; border: 1rpx solid #dfd2cb; border-radius: 12rpx; background: #fff; }

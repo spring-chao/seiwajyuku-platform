@@ -1,6 +1,8 @@
 """Native member check-in uses a verified WeChat identity, never a posted name."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,7 +13,10 @@ from app.core.settings import get_settings
 from app.db import fetch_one
 from app.services import signin_engine
 from app.services.attendance_entry_codes import resolve_entry
-from app.services.wechat_identity import resolve_member_session, WeChatIdentityError
+from app.services.wechat_identity import (
+    resolve_wechat_session, exchange_wechat_code, resume_wechat_binding,
+    WeChatIdentityError, WeChatProviderError,
+)
 from app.services.wechat_learning import _learning_type_name, LEARNING_CATEGORIES
 from app.services.native_checkin_ticket import create_ticket
 
@@ -26,6 +31,17 @@ class ConfirmPayload(BaseModel):
     token: str | None = Field(default=None, min_length=16, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")
 
 
+class EntryPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    event_id: str | None = Field(default=None, min_length=1, max_length=128)
+    token: str | None = Field(default=None, min_length=16, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")
+    wx_login_code: str = Field(min_length=1, max_length=512)
+
+
+class GuestConfirmPayload(EntryPayload):
+    name: str = Field(min_length=1, max_length=120)
+
+
 def _raise(exc: signin_engine.SigninEngineError) -> HTTPException:
     return HTTPException(exc.status_code, str(exc))
 
@@ -36,9 +52,11 @@ def _member(credentials: HTTPAuthorizationCredentials | None, *, required: bool 
             return None
         raise HTTPException(401, "请先绑定学员身份")
     try:
-        session = resolve_member_session(credentials.credentials)
+        session = resolve_wechat_session(credentials.credentials)
     except WeChatIdentityError as exc:
         raise HTTPException(401, str(exc)) from exc
+    if not session.get("member") and not required:
+        return None
     row = fetch_one("SELECT id, member_code, name FROM members WHERE id=? AND status='ACTIVE'", (session["member_id"],))
     if not row:
         raise HTTPException(401, "当前学员身份已失效")
@@ -136,10 +154,69 @@ def context(event_id: str | None = Query(default=None, min_length=1, max_length=
             "already_checked_in": already,
             "can_checkin": bool(member and lookup.get("can_checkin", registration is not None) and not already),
             "requires_fallback": bool(lookup.get("requires_fallback")),
-            "notice": lookup.get("notice") or lookup.get("msg") or ("请先绑定学员身份，再确认签到" if not member else ""),
+            "notice": (lookup.get("notice") or lookup.get("msg") or "") if member else "请输入您的姓名，确认本场活动签到。",
+            "guest_allowed": member is None,
             "fallback_url": _fallback(selected_id), "history_kind": _kind(event),
             "checkin_ticket": ticket, "engine_confirm_url": confirm_url,
         }}
+    except signin_engine.SigninEngineError as exc:
+        raise _raise(exc) from exc
+
+
+@router.post("/entry")
+def entry(payload: EntryPayload) -> dict:
+    """Scanning a code restores an existing binding without another form."""
+    try:
+        signin_engine.enabled(member=True)
+        selected_id = _event_id(payload.event_id, payload.token)
+        identity = exchange_wechat_code(payload.wx_login_code)
+        access_token = resume_wechat_binding(identity)
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=access_token) if access_token else None
+        result = context(event_id=selected_id, token=payload.token, credentials=credentials)
+        if access_token:
+            result["data"]["access_token"] = access_token
+        return result
+    except WeChatProviderError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except WeChatIdentityError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    except signin_engine.SigninEngineError as exc:
+        raise _raise(exc) from exc
+
+
+@router.post("/guest-confirm")
+def guest_confirm(payload: GuestConfirmPayload) -> dict:
+    try:
+        signin_engine.enabled(member=True, write=True)
+        selected_id = _event_id(payload.event_id, payload.token)
+        name = payload.name.strip()
+        if not name or any(ord(char) < 32 or ord(char) == 127 for char in name):
+            raise HTTPException(400, "请填写有效姓名")
+        identity = exchange_wechat_code(payload.wx_login_code)
+        access_token = resume_wechat_binding(identity)
+        if access_token and _member(HTTPAuthorizationCredentials(scheme="Bearer", credentials=access_token), required=False):
+            raise HTTPException(409, "当前微信已绑定塾生，请重新打开活动页确认本人签到")
+        # Name is descriptive only; separate WeChat accounts with the same name
+        # get distinct guest facts. Raw openid never leaves this service.
+        guest_id = hmac.new(get_settings().signin_platform_api_key.encode(),
+                            ("signin-guest\x1f" + str(identity["appid"]) + "\x1f" + str(identity["openid"])).encode(),
+                            hashlib.sha256).hexdigest()
+        result = signin_engine.engine_request("/ops/v1/guest-checkin/confirm", {
+            "event_id": selected_id, "guest_id": guest_id, "name": name,
+        }, timeout=12)
+        checked_at = result.get("checked_at") or (result.get("data") or {}).get("checked_at")
+        if not checked_at:
+            raise signin_engine.SigninEngineError("尚未确认实际签到记录，请重试", 502)
+        return {"success": True, "data": {
+            "status": "ALREADY_CHECKED_IN" if result.get("already") is True else "CHECKED_IN",
+            "participant_type": "GUEST", "checked_at": checked_at,
+            "message": result.get("msg") or "签到成功",
+            "sync_status": "SYNCED" if result.get("sync_status") == "SYNCED" else "PENDING",
+        }}
+    except WeChatProviderError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except WeChatIdentityError as exc:
+        raise HTTPException(401, str(exc)) from exc
     except signin_engine.SigninEngineError as exc:
         raise _raise(exc) from exc
 
