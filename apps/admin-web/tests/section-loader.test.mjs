@@ -124,17 +124,21 @@ test("a superseded month cannot overwrite data, errors or loading for the new mo
 
 test("section failures stay local and settle their own loading state", async () => {
   const run = createSectionLoader().begin();
+  const requestError = Object.assign(new Error("unavailable"), {
+    code: "ECONNABORTED"
+  });
   let visible = null,
     error = false,
     loading = true;
   await run(
     async () => {
-      throw new Error("unavailable");
+      throw requestError;
     },
     value => {
       visible = value;
     },
-    () => {
+    failure => {
+      assert.equal(failure, requestError);
       error = true;
     },
     () => {

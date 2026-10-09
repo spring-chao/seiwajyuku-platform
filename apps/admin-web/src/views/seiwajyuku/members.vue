@@ -46,7 +46,7 @@ import {
   changeVolunteerAppointmentStatus,
   createVolunteerAppointment,
   getVolunteerAppointments,
-  getVolunteerMemberEditorCatalog,
+  getVolunteerEditorPositions,
   type VolunteerAppointment,
   type VolunteerPositionOption
 } from "@/api/volunteerManagement";
@@ -1334,15 +1334,32 @@ async function loadMemberVolunteerWorkspace(memberId: number) {
   volunteerCatalogError.value = "";
   await Promise.all([
     run(
-      getVolunteerMemberEditorCatalog,
+      getVolunteerEditorPositions,
       catalogResponse => {
-        volunteerEditorCatalogPositions.value =
-          catalogResponse.data.positions || [];
+        volunteerEditorCatalogPositions.value = (
+          catalogResponse.data || []
+        ).filter(
+          position =>
+            position.is_selectable && position.system_type !== "ACTIVITY"
+        );
         resetVolunteerEditorDefaults();
       },
-      () => {
-        volunteerCatalogError.value =
-          "志工岗位选项加载失败，请重试后添加任职。";
+      error => {
+        const failure = error as {
+          code?: string;
+          response?: { status?: number };
+        };
+        const status = failure?.response?.status;
+        const reason = ["ECONNABORTED", "ETIMEDOUT"].includes(failure?.code)
+          ? "请求超时"
+          : status === 401
+            ? "登录已失效，请重新登录"
+            : status === 403
+              ? "没有读取岗位的权限"
+              : status
+                ? `服务暂不可用（HTTP ${status}）`
+                : "网络连接失败";
+        volunteerCatalogError.value = `志工岗位选项加载失败：${reason}。请重试后添加任职。`;
       },
       () => {
         volunteerCatalogLoading.value = false;
