@@ -15,6 +15,7 @@ from app.services.enrollment import (
     create_enrollment_link,
     disable_enrollment_link,
     enroll_application,
+    export_enrollment_visit_data,
     generate_wechat_miniprogram_code,
     get_active_enrollment_link,
     get_enrollment_application,
@@ -107,6 +108,7 @@ class EnrollmentReviewPayload(BaseModel):
     email: str | None = Field(default=None, max_length=255)
     position: str | None = Field(default=None, max_length=255)
     referrer: str | None = Field(default=None, max_length=255)
+    referrer_org_unit_id: str | None = Field(default=None, max_length=64)
     invoice_info: str | None = Field(default=None, max_length=4000)
     invoice_type: str | None = Field(default=None, max_length=64)
     invoice_title: str | None = Field(default=None, max_length=500)
@@ -137,6 +139,12 @@ class EnrollmentReviewPayload(BaseModel):
     target_shuku_org_unit_id: str | None = Field(default=None, max_length=64)
     org_unit_id: str | None = Field(default=None, max_length=64)
     join_date: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
+
+
+class EnrollmentVisitExportPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    recipient: Literal["CLASS_TEACHER", "DIRECTOR"]
+    confirmed: Literal[True]
 
 
 class EnrollmentPaymentPayload(BaseModel):
@@ -254,6 +262,20 @@ def enrollment_application_detail(
 ) -> dict:
     try:
         data = get_enrollment_application(user["id"], application_id)
+    except (PermissionError, ValueError) as exc:
+        raise _service_error(exc) from exc
+    return {"success": True, "data": data}
+
+
+@router.post("/enrollment-applications/{application_id}/visit-image-data")
+def export_visit_image(
+    application_id: int,
+    payload: EnrollmentVisitExportPayload,
+    user: dict = Depends(require_permission("exports:sensitive")),
+) -> dict:
+    try:
+        data = export_enrollment_visit_data(user["id"], application_id,
+            recipient=payload.recipient, confirmed=payload.confirmed)
     except (PermissionError, ValueError) as exc:
         raise _service_error(exc) from exc
     return {"success": True, "data": data}
