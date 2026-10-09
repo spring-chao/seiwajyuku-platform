@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api.auth import require_permission
 from app.services.learning_credits import (
     LearningCreditError,
+    LearningCreditSchemaUnavailable,
     credit_ledger_overview,
     dry_run_study_meeting_settlement,
     dry_run_study_meetings,
@@ -232,6 +233,8 @@ class SettlementActivityBatchPayload(BaseModel):
 def _error(exc: Exception) -> HTTPException:
     if isinstance(exc, PermissionError):
         return HTTPException(403, str(exc))
+    if isinstance(exc, LearningCreditSchemaUnavailable):
+        return HTTPException(503, {"code": "CREDIT_LEDGER_SCHEMA_UNAVAILABLE"})
     return HTTPException(400, str(exc))
 
 

@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
+import { creditSettlementErrorMessage } from "@/utils/creditSettlementError";
 import {
   approveSettlementBatch,
   closeSettlementBatch,
@@ -92,8 +93,7 @@ const periodLabel = (row: any) => {
   if (row.period_precision === "MONTH") return `${row.period_year}-${String(row.period_month || 0).padStart(2, "0")}`;
   return `${row.period_start || "?"} 至 ${row.period_end || "?"}`;
 };
-const errorMessage = (err: any, fallback: string) =>
-  err?.response?.data?.detail || err?.message || fallback;
+const errorMessage = creditSettlementErrorMessage;
 
 const loadBatches = async () => {
   loading.value = true;
@@ -461,7 +461,7 @@ onMounted(() => {
         <span>部分失败 {{ response.status_counts.PARTIAL_FAILED || 0 }}</span>
         <span>已入账 {{ response.status_counts.POSTED || 0 }}</span>
       </div>
-      <el-table v-loading="loading" :data="batches" row-key="id" empty-text="暂无可见结算批次">
+      <el-table v-loading="loading" :data="batches" row-key="id" :empty-text="error ? '批次读取失败，请重试' : response?.storage_available === false ? '结算批次结构尚未就绪' : '暂无可见结算批次'">
         <el-table-column prop="batch_no" label="批次号" min-width="230" show-overflow-tooltip />
         <el-table-column label="来源" width="125"><template #default="{ row }">{{ sourceLabel(row.source_type) }}</template></el-table-column>
         <el-table-column label="班级 / 期间" min-width="180"><template #default="{ row }">{{ row.class_name || "—" }}<br /><span class="muted">{{ periodLabel(row) }}</span></template></el-table-column>
@@ -516,7 +516,7 @@ onMounted(() => {
           <el-form-item><el-button type="primary" :loading="ledgerLoading" @click="loadLedger">查询</el-button></el-form-item>
         </el-form>
         <el-alert v-if="ledgerError" class="notice" :title="ledgerError" type="error" show-icon :closable="false" />
-        <el-table v-loading="ledgerLoading" :data="ledgerEntries" row-key="id" empty-text="没有符合筛选条件的正式账本记录">
+        <el-table v-loading="ledgerLoading" :data="ledgerEntries" row-key="id" :empty-text="ledgerError ? '账本明细读取失败，请重试' : '没有符合筛选条件的正式账本记录'">
           <el-table-column prop="id" label="账本 ID" width="100" />
           <el-table-column label="学员" min-width="145"><template #default="{ row }">{{ row.member_name }} <span class="muted">#{{ row.member_id }}</span></template></el-table-column>
           <el-table-column label="分值" width="100"><template #default="{ row }"><span :class="Number(row.points) < 0 ? 'negative-points' : ''">{{ Number(row.points).toFixed(2) }}</span></template></el-table-column>
