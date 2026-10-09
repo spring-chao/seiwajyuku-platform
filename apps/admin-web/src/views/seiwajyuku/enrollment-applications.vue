@@ -11,7 +11,7 @@ import {
   disableEnrollmentLink,
   enrollApplication,
   generateEnrollmentMiniProgramCode,
-  getActiveEnrollmentLink,
+  getEnrollmentLinks,
   getEnrollmentApplication,
   getEnrollmentApplications,
   rejectEnrollmentApplication,
@@ -37,6 +37,7 @@ const detail = ref<EnrollmentApplicationDetail>();
 const centers = ref<OrgUnit[]>([]);
 const orgUnits = ref<OrgUnit[]>([]);
 const activeLink = ref<EnrollmentLink | null>(null);
+const managedLinks = ref<EnrollmentLink[]>([]);
 const linkLoading = ref(false);
 const linkName = ref("学长服务助手-新学长信息登记");
 const linkTargetShuku = ref("");
@@ -167,7 +168,11 @@ const scopedCenters = computed(() => {
   while (changed) {
     changed = false;
     orgUnits.value.forEach(item => {
-      if (item.parent_id && allowed.has(item.parent_id) && !allowed.has(item.id)) {
+      if (
+        item.parent_id &&
+        allowed.has(item.parent_id) &&
+        !allowed.has(item.id)
+      ) {
         allowed.add(item.id);
         changed = true;
       }
@@ -378,15 +383,18 @@ function buildReviewPayload(
     payload.books_read = editForm.books_read.trim() || null;
     payload.enrollment_reason_philosophy =
       editForm.enrollment_reason_philosophy.trim() || null;
-    payload.enrollment_reason_change = editForm.enrollment_reason_change.trim() || null;
-    payload.enrollment_reason_other = editForm.enrollment_reason_other.trim() || null;
+    payload.enrollment_reason_change =
+      editForm.enrollment_reason_change.trim() || null;
+    payload.enrollment_reason_other =
+      editForm.enrollment_reason_other.trim() || null;
     payload.learning_years_goal = editForm.learning_years_goal.trim() || null;
     payload.learning_participation_goal =
       editForm.learning_participation_goal.trim() || null;
     payload.business_goal = editForm.business_goal.trim() || null;
     payload.other_goal = editForm.other_goal.trim() || null;
   }
-  if (editForm.goal_years.trim()) payload.goal_years = editForm.goal_years.trim();
+  if (editForm.goal_years.trim())
+    payload.goal_years = editForm.goal_years.trim();
   if (editForm.revenue_growth_target.trim()) {
     payload.revenue_growth_target = editForm.revenue_growth_target.trim();
   }
@@ -565,7 +573,7 @@ async function rememberRawToken(link: EnrollmentLink) {
     margin: 2,
     color: { dark: "#173f2f", light: "#ffffff" }
   });
-  await generateMiniProgramCode(link.raw_token, false);
+  await generateMiniProgramCode(false);
 }
 
 async function restoreRawUrl(link: EnrollmentLink | null) {
@@ -576,7 +584,10 @@ async function restoreRawUrl(link: EnrollmentLink | null) {
   if (!link) return;
   const saved = sessionStorage.getItem(`enrollment-public-url-${link.id}`);
   const savedToken = sessionStorage.getItem(`enrollment-raw-token-${link.id}`);
-  if (!saved && !savedToken) return;
+  if (!saved && !savedToken) {
+    await generateMiniProgramCode(false);
+    return;
+  }
   rawToken.value =
     savedToken ||
     (saved ? decodeURIComponent(saved.split("/enroll/").pop() || "") : "");
@@ -589,20 +600,20 @@ async function restoreRawUrl(link: EnrollmentLink | null) {
       color: { dark: "#173f2f", light: "#ffffff" }
     });
   }
-  if (rawToken.value) await generateMiniProgramCode(rawToken.value, false);
+  await generateMiniProgramCode(false);
 }
 
-async function generateMiniProgramCode(token = rawToken.value, notify = true) {
-  if (!activeLink.value || !token) return false;
+async function generateMiniProgramCode(notify = true) {
+  if (!activeLink.value) return false;
+  const linkId = activeLink.value.id;
   miniProgramQrLoading.value = true;
   try {
-    const response = await generateEnrollmentMiniProgramCode(
-      activeLink.value.id,
-      token
-    );
+    const response = await generateEnrollmentMiniProgramCode(linkId);
+    if (activeLink.value?.id !== linkId) return false;
     miniProgramQrDataUrl.value = response.data.image_data_url;
     return true;
   } catch (error: any) {
+    if (activeLink.value?.id !== linkId) return false;
     miniProgramQrDataUrl.value = "";
     if (notify) {
       ElMessage.warning(
@@ -619,14 +630,23 @@ async function loadActiveLink() {
   if (!canManageLink.value) return;
   linkLoading.value = true;
   try {
-    const response = await getActiveEnrollmentLink();
-    activeLink.value = response.data;
-    await restoreRawUrl(response.data);
+    const response = await getEnrollmentLinks();
+    managedLinks.value = response.data;
+    activeLink.value =
+      response.data.find(link => link.id === activeLink.value?.id) ||
+      response.data[0] ||
+      null;
+    await restoreRawUrl(activeLink.value);
   } catch (error: any) {
     ElMessage.error(errorText(error, "二维码状态加载失败"));
   } finally {
     linkLoading.value = false;
   }
+}
+
+async function selectManagedLink(id: number) {
+  activeLink.value = managedLinks.value.find(link => link.id === id) || null;
+  await restoreRawUrl(activeLink.value);
 }
 
 async function createLink() {
@@ -641,8 +661,17 @@ async function createLink() {
       linkTargetShuku.value || null
     );
     activeLink.value = response.data;
-    await rememberRawToken(response.data);
-    ElMessage.success("小程序码入口已创建，请立即下载并保存小程序码");
+    managedLinks.value = [
+      response.data,
+      ...managedLinks.value.filter(link => link.id !== response.data.id)
+    ];
+    if (response.data.raw_token) await rememberRawToken(response.data);
+    else await restoreRawUrl(response.data);
+    ElMessage.success(
+      response.data.reused
+        ? "该塾入口已存在，继续使用原二维码"
+        : "入口已创建，其他塾二维码继续有效"
+    );
   } catch (error: any) {
     ElMessage.error(errorText(error, "二维码创建失败"));
   } finally {
@@ -654,14 +683,18 @@ async function rotateLink() {
   if (!activeLink.value) return;
   try {
     await ElMessageBox.confirm(
-      "轮换后旧小程序码和 H5 入口都会立即失效。新入口只在本次生成后可见，请及时保存。",
+      "轮换后当前入口的旧小程序码和 H5 链接立即失效，其他塾入口不受影响。请重新下载并分发新码。",
       "轮换小程序码入口",
       { type: "warning", confirmButtonText: "确认轮换" }
     );
     linkLoading.value = true;
     sessionStorage.removeItem(`enrollment-public-url-${activeLink.value.id}`);
+    sessionStorage.removeItem(`enrollment-raw-token-${activeLink.value.id}`);
     const response = await rotateEnrollmentLink(activeLink.value.id);
     activeLink.value = response.data;
+    managedLinks.value = managedLinks.value.map(link =>
+      link.id === response.data.id ? response.data : link
+    );
     await rememberRawToken(response.data);
     ElMessage.success("小程序码入口已轮换，旧入口已失效");
   } catch (error: any) {
@@ -684,6 +717,10 @@ async function disableLink() {
     linkLoading.value = true;
     await disableEnrollmentLink(activeLink.value.id);
     sessionStorage.removeItem(`enrollment-public-url-${activeLink.value.id}`);
+    sessionStorage.removeItem(`enrollment-raw-token-${activeLink.value.id}`);
+    managedLinks.value = managedLinks.value.filter(
+      link => link.id !== activeLink.value?.id
+    );
     activeLink.value = null;
     rawPublicUrl.value = "";
     rawToken.value = "";
@@ -712,7 +749,7 @@ function downloadMiniProgramCode() {
   if (!miniProgramQrDataUrl.value) return;
   const anchor = document.createElement("a");
   anchor.href = miniProgramQrDataUrl.value;
-  anchor.download = "学长服务助手-新学长信息登记-小程序码.png";
+  anchor.download = `${activeLink.value?.target_shuku_name || "通用入口"}-新学长入塾-正式版小程序码.png`;
   anchor.click();
 }
 
@@ -750,14 +787,52 @@ onMounted(async () => {
       <template #header>
         <div class="card-header">
           <div>
-            <strong>微信小程序主入口</strong>
-            <span>日常使用小程序码；H5 仅保留为备用入口</span>
+            <strong>各塾入塾申请二维码</strong>
+            <span>专属码直接进入对应塾的登记表，各入口独立管理</span>
           </div>
           <el-tag :type="activeLink ? 'success' : 'info'">
             {{ activeLink ? "启用中" : "未创建" }}
           </el-tag>
         </div>
       </template>
+
+      <div class="link-create-form">
+        <el-input v-model="linkName" placeholder="入口名称" />
+        <el-select
+          v-model="linkTargetShuku"
+          clearable
+          filterable
+          placeholder="通用入口（新人选择申请塾）"
+        >
+          <el-option
+            v-for="item in targetShukuOptions"
+            :key="item.id"
+            :label="item.name"
+            :value="item.id"
+          />
+        </el-select>
+        <el-button
+          type="primary"
+          :disabled="miniProgramQrLoading"
+          @click="createLink"
+          >创建或查看入口</el-button
+        >
+      </div>
+      <el-select
+        v-if="managedLinks.length"
+        :model-value="activeLink?.id"
+        :disabled="miniProgramQrLoading"
+        class="managed-link-picker"
+        placeholder="选择要管理的入口"
+        @change="selectManagedLink"
+      >
+        <el-option
+          v-for="link in managedLinks"
+          :key="link.id"
+          :label="`${link.target_shuku_name || '通用入口'} · ${link.name}`"
+          :value="link.id"
+        />
+      </el-select>
 
       <div v-if="activeLink" class="link-layout">
         <div class="link-info">
@@ -776,8 +851,8 @@ onMounted(async () => {
           </el-descriptions>
           <template v-if="rawPublicUrl">
             <p class="secret-note">
-              原始入口只保存在当前浏览器会话中，服务端仅保存摘要。请及时下载小程序码；H5
-              链接仅作备用。
+              H5
+              备用链接仅保存在当前浏览器会话中；正式小程序码可随时重新生成和下载。
             </p>
             <el-input v-model="rawPublicUrl" readonly>
               <template #append>
@@ -787,8 +862,8 @@ onMounted(async () => {
           </template>
           <el-alert
             v-else
-            title="服务端不保存原始入口；如之前未保存，请轮换小程序码入口生成新码。"
-            type="warning"
+            title="正式小程序码可直接重新生成，无需轮换入口；H5 备用链接仅在创建或轮换时提供。"
+            type="info"
             :closable="false"
             show-icon
           />
@@ -801,11 +876,10 @@ onMounted(async () => {
               下载小程序码
             </el-button>
             <el-button
-              v-if="rawToken"
               :loading="miniProgramQrLoading"
               @click="generateMiniProgramCode()"
             >
-              生成小程序码
+              生成正式小程序码
             </el-button>
             <el-button v-if="qrDataUrl" @click="downloadFallbackQr">
               下载 H5 备用码
@@ -824,27 +898,7 @@ onMounted(async () => {
           <span>配置小程序 AppID 后生成主入口小程序码</span>
         </div>
       </div>
-      <el-empty v-else description="当前没有有效的入塾二维码">
-        <div class="link-create-form">
-          <el-input v-model="linkName" placeholder="入口名称" />
-          <el-select
-            v-model="linkTargetShuku"
-            clearable
-            filterable
-            placeholder="通用入口（新人自行选择申请塾）"
-          >
-            <el-option
-              v-for="item in targetShukuOptions"
-              :key="item.id"
-              :label="item.name"
-              :value="item.id"
-            />
-          </el-select>
-          <el-button type="primary" @click="createLink"
-            >创建小程序码入口</el-button
-          >
-        </div>
-      </el-empty>
+      <el-empty v-else description="请先创建通用入口或各塾专属入口" />
     </el-card>
 
     <el-card shadow="never" class="list-card">
@@ -1213,24 +1267,45 @@ onMounted(async () => {
                 />
                 <div class="form-grid">
                   <el-form-item label="发票抬头">
-                    <el-input v-model="editForm.invoice_title" :disabled="!canReview" />
+                    <el-input
+                      v-model="editForm.invoice_title"
+                      :disabled="!canReview"
+                    />
                   </el-form-item>
                   <el-form-item label="发票税号">
-                    <el-input v-model="editForm.invoice_tax_id" :disabled="!canReview" />
+                    <el-input
+                      v-model="editForm.invoice_tax_id"
+                      :disabled="!canReview"
+                    />
                   </el-form-item>
                 </div>
-                <div v-if="editForm.invoice_type === 'SPECIAL'" class="form-grid">
+                <div
+                  v-if="editForm.invoice_type === 'SPECIAL'"
+                  class="form-grid"
+                >
                   <el-form-item label="注册地址">
-                    <el-input v-model="editForm.invoice_registered_address" :disabled="!canReview" />
+                    <el-input
+                      v-model="editForm.invoice_registered_address"
+                      :disabled="!canReview"
+                    />
                   </el-form-item>
                   <el-form-item label="注册电话">
-                    <el-input v-model="editForm.invoice_phone" :disabled="!canReview" />
+                    <el-input
+                      v-model="editForm.invoice_phone"
+                      :disabled="!canReview"
+                    />
                   </el-form-item>
                   <el-form-item label="开户银行">
-                    <el-input v-model="editForm.invoice_bank" :disabled="!canReview" />
+                    <el-input
+                      v-model="editForm.invoice_bank"
+                      :disabled="!canReview"
+                    />
                   </el-form-item>
                   <el-form-item label="银行账号">
-                    <el-input v-model="editForm.invoice_account" :disabled="!canReview" />
+                    <el-input
+                      v-model="editForm.invoice_account"
+                      :disabled="!canReview"
+                    />
                   </el-form-item>
                 </div>
               </template>
@@ -1240,12 +1315,12 @@ onMounted(async () => {
             <div v-if="hasLegacyLearningFields" class="legacy-learning-panel">
               <div class="section-label">历史申请字段（仅历史有值时显示）</div>
               <el-form-item label="所读稻盛和夫著作">
-              <el-input
-                v-model="editForm.books_read"
-                type="textarea"
-                :rows="2"
-                :disabled="!canReview"
-              />
+                <el-input
+                  v-model="editForm.books_read"
+                  type="textarea"
+                  :rows="2"
+                  :disabled="!canReview"
+                />
               </el-form-item>
 
               <div class="form-grid">
@@ -1314,7 +1389,12 @@ onMounted(async () => {
               <div class="section-label">V1.1.1 结构化目标</div>
               <div class="form-grid">
                 <el-form-item label="计划学习年限">
-                  <el-select v-model="editForm.goal_years" :disabled="!canReview" clearable placeholder="可选">
+                  <el-select
+                    v-model="editForm.goal_years"
+                    :disabled="!canReview"
+                    clearable
+                    placeholder="可选"
+                  >
                     <el-option
                       v-for="option in goalYearOptions"
                       :key="option.value"
@@ -1324,7 +1404,12 @@ onMounted(async () => {
                   </el-select>
                 </el-form-item>
                 <el-form-item label="业绩提升目标">
-                  <el-select v-model="editForm.revenue_growth_target" :disabled="!canReview" clearable placeholder="可选">
+                  <el-select
+                    v-model="editForm.revenue_growth_target"
+                    :disabled="!canReview"
+                    clearable
+                    placeholder="可选"
+                  >
                     <el-option
                       v-for="option in growthTargetOptions"
                       :key="option.value"
@@ -1334,7 +1419,12 @@ onMounted(async () => {
                   </el-select>
                 </el-form-item>
                 <el-form-item label="利润提升目标">
-                  <el-select v-model="editForm.profit_growth_target" :disabled="!canReview" clearable placeholder="可选">
+                  <el-select
+                    v-model="editForm.profit_growth_target"
+                    :disabled="!canReview"
+                    clearable
+                    placeholder="可选"
+                  >
                     <el-option
                       v-for="option in growthTargetOptions"
                       :key="option.value"
@@ -1400,7 +1490,11 @@ onMounted(async () => {
           </el-form>
 
           <el-alert
-            :title="detail.rules_acknowledged ? '申请人已确认加入守则与缴费说明' : '申请人尚未确认加入守则与缴费说明（历史记录）'"
+            :title="
+              detail.rules_acknowledged
+                ? '申请人已确认加入守则与缴费说明'
+                : '申请人尚未确认加入守则与缴费说明（历史记录）'
+            "
             :type="detail.rules_acknowledged ? 'success' : 'warning'"
             :closable="false"
             show-icon
@@ -1586,6 +1680,11 @@ onMounted(async () => {
   gap: 10px;
   align-items: center;
   width: min(720px, 100%);
+}
+
+.managed-link-picker {
+  width: min(720px, 100%);
+  margin: 18px 0;
 }
 
 .qr-preview {

@@ -156,7 +156,7 @@ def test_portal_handoff_never_exposes_long_lived_token() -> None:
         response = client.get("/api/v1/public/portal")
         assert response.status_code == 200, response.text
         entry = response.json()["data"]["enrollment_entry"]
-        assert entry["handoff_token"] != link["raw_token"]
+        assert entry["handoff_token"] != link.get("raw_token")
         assert "raw_token" not in entry
         form = client.get(f"/api/v1/public/enrollment/{entry['handoff_token']}")
         assert form.status_code == 200, form.text

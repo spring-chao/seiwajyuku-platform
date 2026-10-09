@@ -219,6 +219,7 @@ export type EnrollmentLink = {
   disabled_at?: string | null;
   last_rotated_at?: string | null;
   raw_token?: string;
+  reused?: boolean;
   target_shuku_org_unit_id?: string | null;
   target_shuku_name?: string | null;
 };
@@ -308,6 +309,12 @@ export const getActiveEnrollmentLink = () =>
     "/api/v1/enrollment-links/active"
   );
 
+export const getEnrollmentLinks = () =>
+  http.request<{ success: boolean; data: EnrollmentLink[] }>(
+    "get",
+    "/api/v1/enrollment-links"
+  );
+
 export const createEnrollmentLink = (
   name: string,
   target_shuku_org_unit_id?: string | null
@@ -332,10 +339,10 @@ export const disableEnrollmentLink = (linkId: number) =>
 
 export const generateEnrollmentMiniProgramCode = (
   linkId: number,
-  rawToken: string
+  rawToken?: string
 ) =>
   http.request<{ success: boolean; data: EnrollmentMiniProgramCode }>(
     "post",
     `/api/v1/enrollment-links/${linkId}/mini-program-code`,
-    { data: { raw_token: rawToken } }
+    { data: rawToken ? { raw_token: rawToken } : {} }
   );

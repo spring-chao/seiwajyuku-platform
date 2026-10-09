@@ -18,49 +18,23 @@
     </view>
   </view>
   <scroll-view wx:if="{{state === 'ready' && !submitted}}" class="page-scroll" scroll-y>
-    <view class="hero-card">
+    <view class="hero-card compact-hero">
       <view class="hero-brand">
         <view class="brand-lockup">
-          <image class="brand-logo" src="/assets/shenghe-brand-logo-jiangnan.png" mode="aspectFit" />
+          <image class="brand-logo" src="/assets/shenghe-brand-logo.png" mode="aspectFit" />
+          <text class="brand-region">{{brandRegionName}}</text>
         </view>
         <view class="brand-slogan">提高心性 · 拓展经营</view>
       </view>
-      <view class="hero-divider"></view>
-      <view class="hero-meta">
-        <view class="eyebrow">学长服务助手</view>
-        <view class="hero-duration">约 3–5 分钟完成</view>
-      </view>
-      <view class="hero-title">{{formMeta.title}}</view>
-      <view class="hero-copy">{{formMeta.subtitle}}</view>
     </view>
 
-    <view class="target-shuku-card">
+    <view wx:if="{{!targetShukuLocked}}" class="target-shuku-card">
       <view class="card-kicker">申请加入</view>
       <view class="target-shuku-title">{{formMeta.target_shuku_name || '已选择申请塾'}} <text class="required-mark">*</text></view>
-      <view wx:if="{{targetShukuLocked}}" class="target-shuku-locked">
-        <view class="target-shuku-name">{{formMeta.target_shuku_name || '已指定塾'}}</view>
-        <view class="target-shuku-hint">本入口为塾专属登记码，申请塾已锁定</view>
-      </view>
-      <view wx:else class="target-shuku-locked">
+      <view class="target-shuku-locked">
         <view class="target-shuku-name">{{formMeta.target_shuku_name}}</view>
         <view class="target-shuku-hint">提交前可以更改申请塾，资料表主体不会改变。</view>
         <button class="plain-button" bindtap="changeTargetShuku">更改申请塾</button>
-      </view>
-    </view>
-
-    <view class="purpose-card">
-      <view class="card-kicker">登记前先了解</view>
-      <view class="purpose-title">这份资料会用于</view>
-      <view wx:for="{{purposeItems}}" wx:key="title" class="purpose-item">
-        <view class="purpose-number">{{index + 1}}</view>
-        <view class="purpose-content">
-          <view class="purpose-item-title">{{item.title}}</view>
-          <view class="purpose-item-copy">{{item.description}}</view>
-        </view>
-      </view>
-      <view class="warm-tip">
-        <view class="warm-tip-title">温馨提示</view>
-        <view>提交资料不代表已经正式入塾。工作人员审核资料、确认所属分中心及会费后，才会建立正式学员档案。本页面不进行任何转账或收费。</view>
       </view>
     </view>
 
@@ -241,13 +215,29 @@
         <view class="support-kicker">05 · 重要说明</view>
         <view class="section-title">加入守则与缴费说明</view>
       </view>
+      <view class="purpose-summary">
+        <view class="purpose-summary-title">这份资料会用于</view>
+        <view wx:for="{{purposeItems}}" wx:key="title" class="purpose-summary-item">
+          <view>{{item.title}}</view><view class="purpose-item-copy">{{item.description}}</view>
+        </view>
+      </view>
       <view class="joining-summary">
         <view class="joining-summary-title">申请前，请先了解</view>
         <view wx:for="{{joiningDocument.summary}}" wx:key="*this" class="joining-summary-item"><text class="joining-summary-number">{{index + 1}}</text><text>{{item}}</text></view>
       </view>
+      <view wx:if="{{joiningDocument.businessReady && (joiningDocument.contacts.length || joiningDocument.serviceAddress)}}" class="contact-card">
+        <view class="contact-card-title">咨询与联系</view>
+        <view wx:for="{{joiningDocument.contacts}}" wx:key="index" class="contact-line">
+          <text class="contact-name">{{item.name}}</text>
+          <button wx:if="{{item.phone}}" class="contact-phone" data-index="{{index}}" bindtap="copyContactPhone" aria-label="复制{{item.name}}联系电话">{{item.phone}}</button>
+        </view>
+        <view wx:if="{{joiningDocument.contacts.length}}" class="copy-hint">点击联系电话可复制</view>
+        <view wx:if="{{joiningDocument.serviceAddress}}" class="service-address"><view class="service-address-label">服务地址</view><view>{{joiningDocument.serviceAddress}}</view></view>
+      </view>
       <view class="rules-detail-entry" bindtap="openJoiningRules" role="button" aria-label="查看加入守则与缴费说明详情">
         <view><view class="rules-detail-title">《{{joiningDocument.title || '加入守则与缴费说明'}}》</view><view class="rules-detail-hint">点击查看条件、流程、缴费、学习与退费详情</view></view><text class="rules-detail-arrow">›</text>
       </view>
+      <view class="warm-tip">{{formMeta.notice}}</view>
       <view class="consent-row" bindtap="toggleRules">
         <view class="checkbox {{rulesAcknowledged ? 'checked' : ''}}">{{rulesAcknowledged ? '✓' : ''}}</view>
         <view>我已阅读并确认<text class="privacy-link" catchtap="openJoiningRules">《加入守则与缴费说明》</text></view>
@@ -266,8 +256,11 @@
       <view class="privacy-copy">{{formMeta.privacy_notice}}</view>
     </view>
 
-    <button class="submit-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="submit">提交入塾申请</button>
-    <view class="footer-copy">资料提交后，工作人员会审核并与您联系。请勿重复提交。</view>
+    <view class="submit-area">
+      <button class="submit-button" loading="{{submitting}}" disabled="{{submitting || !rulesAcknowledged || !privacyConsent}}" hover-class="submit-button-pressed" bindtap="submit">{{submitting ? '正在提交' : '提交入塾申请'}}</button>
+      <view wx:if="{{!rulesAcknowledged || !privacyConsent}}" class="submit-hint">请阅读并勾选以上两项确认</view>
+      <view class="footer-copy">提交后，工作人员将审核并与您联系</view>
+    </view>
   </scroll-view>
 
   <view wx:if="{{state === 'loading'}}" class="state-card">
