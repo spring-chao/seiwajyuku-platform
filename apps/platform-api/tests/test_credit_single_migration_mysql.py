@@ -17,6 +17,7 @@ from app.services.course_credit_canonical import canonical_rule_rows, expected_p
 from credit_migration_test_support import materials, sign
 import credit_single_migration as migrator
 from r3_read_evidence import ReadFailure
+from test_credit_mapping_migration_version_scope import seed_unrelated_rules
 
 
 pytestmark = pytest.mark.skipif(os.getenv("CREDIT_MIGRATION_ISOLATED_MYSQL") != "1",
@@ -97,6 +98,17 @@ def approved_materials(tmp_path, schema, connect, version):
 
 def test_mysql_each_approved_migration_is_individual_and_ledger_unchanged(isolated_schema, tmp_path):
     schema, connect = isolated_schema
+    # Reused keys in another policy used to make 0064 reject a valid target.
+    connection = connect()
+    try:
+        with connection.cursor() as cursor:
+            seed_unrelated_rules(cursor.execute)
+            cursor.execute("SELECT r.* FROM learning_plan_credit_rules r JOIN learning_plan_credit_rule_versions v ON v.id=r.rule_version_id WHERE v.plan_key='LEGACY_SCOPE_TEST'")
+            unrelated_course = cursor.fetchall()
+            cursor.execute("SELECT r.* FROM learning_credit_rules r JOIN learning_credit_rule_versions v ON v.id=r.rule_version_id WHERE v.rule_set_key='LEGACY_SCOPE_TEST'")
+            unrelated_generic = cursor.fetchall()
+    finally:
+        connection.close()
     for version in migrator.MIGRATIONS:
         stage = tmp_path / version
         stage.mkdir()
@@ -109,6 +121,10 @@ def test_mysql_each_approved_migration_is_individual_and_ledger_unchanged(isolat
             rows, after = migrator.snapshot(connection)
             assert after["migration_status"] == {n: "APPLIED" if n <= version else "NOT_APPLIED" for n in migrator.MIGRATIONS}
             with connection.cursor() as cursor:
+                cursor.execute("SELECT r.* FROM learning_plan_credit_rules r JOIN learning_plan_credit_rule_versions v ON v.id=r.rule_version_id WHERE v.plan_key='LEGACY_SCOPE_TEST'")
+                assert cursor.fetchall() == unrelated_course
+                cursor.execute("SELECT r.* FROM learning_credit_rules r JOIN learning_credit_rule_versions v ON v.id=r.rule_version_id WHERE v.rule_set_key='LEGACY_SCOPE_TEST'")
+                assert cursor.fetchall() == unrelated_generic
                 cursor.execute("SELECT COUNT(*) AS n FROM schema_migrations WHERE version=%s", (migrator.MIGRATIONS[version][0],))
                 assert cursor.fetchone()["n"] == 1
                 if version == "0067":
@@ -173,3 +189,32 @@ def test_mysql_first_ddl_persists_on_timeout_and_restart_cannot_replay(isolated_
     with pytest.raises(ReadFailure, match="MIGRATION_REPLAY_DISALLOWED"):
         migrator.execute_one(sign(grant), **args)
     assert attempts == [1]
+
+
+@pytest.mark.parametrize("damage", ["course", "generic", "missing_generic"])
+def test_mysql_0064_keeps_target_guards_with_reused_keys(isolated_schema, damage):
+    _, connect = isolated_schema
+    connection = connect()
+    try:
+        with connection.cursor() as cursor:
+            seed_unrelated_rules(cursor.execute)
+            if damage == "course":
+                cursor.execute("UPDATE learning_plan_credit_rules SET credit_points=999 WHERE course_key='Y1-SIX-DILIGENCES' AND rule_version_id IN (SELECT id FROM learning_plan_credit_rule_versions WHERE plan_key='STANDARD_3Y_2026' AND version_label='2026.1')")
+            elif damage == "generic":
+                cursor.execute("UPDATE learning_credit_rules SET points=999 WHERE rule_key='DAILY_READING' AND rule_version_id IN (SELECT id FROM learning_credit_rule_versions WHERE rule_set_key='STANDARD_3Y_2026' AND version_label='2026.1')")
+            else:
+                cursor.execute("DELETE FROM learning_credit_rules WHERE rule_key='DAILY_READING' AND rule_version_id IN (SELECT id FROM learning_credit_rule_versions WHERE rule_set_key='STANDARD_3Y_2026' AND version_label='2026.1')")
+            path = migrator.ROOT / "migrations/mysql" / migrator.MIGRATIONS["0064"][0]
+            with pytest.raises(pymysql.err.IntegrityError) as failure:
+                for statement in _split_mysql(path.read_text(encoding="utf-8")):
+                    cursor.execute(statement)
+            assert failure.value.args[0] == 3819  # MySQL CHECK constraint violation.
+            connection.rollback()
+            cursor.execute("SELECT status FROM learning_plan_credit_rule_versions WHERE plan_key='STANDARD_3Y_2026' AND version_label='2026.1'")
+            assert cursor.fetchone() == {"status": "DRAFT"}
+            cursor.execute("SELECT COUNT(*) AS n FROM learning_plan_credit_rule_mappings WHERE plan_key='standard-3y' AND plan_version_label='2026'")
+            assert cursor.fetchone()["n"] == 0
+            cursor.execute("SELECT COUNT(*) AS n FROM learning_credit_entries")
+            assert cursor.fetchone()["n"] == 0
+    finally:
+        connection.close()

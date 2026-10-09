@@ -92,11 +92,12 @@ WHERE v.plan_key='STANDARD_3Y_2026' AND v.version_label='2026.1';
 INSERT INTO g5_4_c0_guard
 SELECT COUNT(*)
 FROM g5_4_c0_expected_course_rules e
-LEFT JOIN learning_plan_credit_rules r
-  ON r.course_key=e.course_key
+-- Resolve the target version before matching keys: older policies may reuse
+-- these keys and must neither fail this guard nor satisfy a missing target row.
 LEFT JOIN learning_plan_credit_rule_versions v
-  ON v.id=r.rule_version_id
- AND v.plan_key='STANDARD_3Y_2026' AND v.version_label='2026.1'
+  ON v.plan_key='STANDARD_3Y_2026' AND v.version_label='2026.1'
+LEFT JOIN learning_plan_credit_rules r
+  ON r.rule_version_id=v.id AND r.course_key=e.course_key
 WHERE v.id IS NULL
    OR r.id IS NULL
    OR r.course_name<>e.course_name
@@ -125,10 +126,10 @@ WHERE v.rule_set_key='STANDARD_3Y_2026' AND v.version_label='2026.1'
 INSERT INTO g5_4_c0_guard
 SELECT COUNT(*)
 FROM g5_4_c0_expected_generic_rules e
-LEFT JOIN learning_credit_rules r ON r.rule_key=e.rule_key
 LEFT JOIN learning_credit_rule_versions v
-  ON v.id=r.rule_version_id
- AND v.rule_set_key='STANDARD_3Y_2026' AND v.version_label='2026.1'
+  ON v.rule_set_key='STANDARD_3Y_2026' AND v.version_label='2026.1'
+LEFT JOIN learning_credit_rules r
+  ON r.rule_version_id=v.id AND r.rule_key=e.rule_key
 WHERE v.id IS NULL
    OR r.id IS NULL
    OR r.settlement_model<>e.settlement_model
