@@ -273,7 +273,7 @@ def enrollment_application_detail(
 def export_visit_image(
     application_id: int,
     payload: EnrollmentVisitExportPayload,
-    user: dict = Depends(require_permission("exports:sensitive")),
+    user: dict = Depends(require_permission("enrollment:review")),
 ) -> dict:
     try:
         data = export_enrollment_visit_data(user["id"], application_id,
