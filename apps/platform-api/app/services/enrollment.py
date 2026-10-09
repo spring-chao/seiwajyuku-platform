@@ -1580,6 +1580,23 @@ def _missing_enrollment_gates(row: dict[str, Any]) -> list[str]:
     return missing
 
 
+def _referrer_center(application_id: int) -> tuple[bool, dict[str, Any] | None]:
+    try:
+        return True, fetch_one(
+            "SELECT r.referrer_org_unit_id, o.name AS referrer_org_unit_name "
+            "FROM enrollment_application_referrer_centers r "
+            "JOIN org_units o ON o.id=r.referrer_org_unit_id WHERE r.application_id=?",
+            (application_id,),
+        )
+    except Exception as exc:
+        text = str(exc).lower()
+        if "enrollment_application_referrer_centers" in text and (
+            "no such table" in text or "doesn't exist" in text
+        ):
+            return False, None
+        raise
+
+
 def get_enrollment_application(actor_user_id: int, application_id: int) -> dict[str, Any]:
     row = _application_row(application_id)
     if not row:
@@ -1635,6 +1652,10 @@ def get_enrollment_application(actor_user_id: int, application_id: int) -> dict[
         )
         safe["invoice_info"] = row.get("invoice_info")
     safe["rules_acknowledged"] = bool(row.get("rules_acknowledged"))
+    ready, referrer_center = _referrer_center(application_id)
+    safe["referrer_center_available"] = ready
+    safe["referrer_org_unit_id"] = (referrer_center or {}).get("referrer_org_unit_id")
+    safe["referrer_org_unit_name"] = (referrer_center or {}).get("referrer_org_unit_name")
     safe["missing_gates"] = _missing_enrollment_gates(row)
     safe["can_enroll"] = (
         row["application_status"] != "ENROLLED" and not safe["missing_gates"]
@@ -1702,6 +1723,27 @@ def review_enrollment_application(
     if decision not in {"SAVE", "APPROVE"}:
         raise ValueError("审核动作无效")
     incoming = dict(updates)
+    referrer_changed = "referrer_org_unit_id" in incoming
+    referrer_id = _clean_optional(incoming.pop("referrer_org_unit_id", None))
+    if referrer_changed:
+        ready, _ = _referrer_center(application_id)
+        if not ready:
+            raise ValueError("推荐人分中心资料尚未就绪，请联系管理员完成升级")
+        if referrer_id:
+            center = fetch_one(
+                "SELECT unit_type, parent_id, is_active FROM org_units WHERE id=?",
+                (referrer_id,),
+            )
+            if not center or not center["is_active"] or not (
+                center["unit_type"] == "REGIONAL_CENTER"
+                or (center["unit_type"] == "OPERATING_UNIT" and referrer_id in {
+                    "org-wuxi-guidance-1", "org-wuxi-guidance-2"
+                })
+            ):
+                raise ValueError("推荐人所属分中心必须是有效的分中心或指导团")
+            allowed = accessible_org_ids(actor_user_id)
+            if allowed is not None and referrer_id not in allowed:
+                raise PermissionError("推荐人分中心不在当前组织授权范围内")
     unknown = set(incoming) - REVIEW_FIELDS - FINANCIAL_FIELDS
     if unknown:
         raise ValueError("包含不允许修改的申请字段")
@@ -1802,6 +1844,8 @@ def review_enrollment_application(
     assignments: list[str] = []
     params: list[Any] = []
     changed_fields = set(incoming) | financial_changes | invoice_input_fields
+    if referrer_changed:
+        changed_fields.add("referrer_org_unit_id")
     target_changed = (
         "target_shuku_org_unit_id" in incoming
         and incoming.get("target_shuku_org_unit_id")
@@ -1825,6 +1869,15 @@ def review_enrollment_application(
     params.append(now)
     params.append(application_id)
     with transaction() as connection:
+        if referrer_changed:
+            execute(connection, "DELETE FROM enrollment_application_referrer_centers WHERE application_id=?", (application_id,))
+            if referrer_id:
+                execute(
+                    connection,
+                    "INSERT INTO enrollment_application_referrer_centers "
+                    "(application_id, referrer_org_unit_id, updated_by, updated_at) VALUES (?, ?, ?, ?)",
+                    (application_id, referrer_id, actor_user_id, now),
+                )
         execute(
             connection,
             "UPDATE member_enrollment_applications SET "
@@ -1871,6 +1924,31 @@ def review_enrollment_application(
             },
         )
     return get_enrollment_application(actor_user_id, application_id)
+
+
+def export_enrollment_visit_data(
+    actor_user_id: int, application_id: int, *, recipient: str, confirmed: bool
+) -> dict[str, Any]:
+    user = user_context(actor_user_id) or {"permissions": []}
+    if not {"enrollment:read", "members:enterprise_view", "exports:sensitive"}.issubset(user["permissions"]):
+        raise PermissionError("当前账号无完整走访资料导出权限")
+    if not confirmed or recipient not in {"CLASS_TEACHER", "DIRECTOR"}:
+        raise ValueError("请确认走访用途及接收人后导出")
+    # Scope and sensitive field checks are shared with the authorized detail read.
+    data = get_enrollment_application(actor_user_id, application_id)
+    exported_at = _now()
+    purpose = "班主任走访面聊" if recipient == "CLASS_TEACHER" else "董事走访面聊"
+    with transaction() as connection:
+        write_audit(
+            connection, actor_user_id=actor_user_id,
+            action="enrollment.application.visit_image_export",
+            resource_type="member_enrollment_application", resource_id=str(application_id),
+            org_unit_id=data.get("org_unit_id"), purpose=purpose,
+            after={"format": "PNG", "recipient": recipient, "unmasked": True},
+        )
+    return {"application": data, "exported_at": exported_at,
+            "exported_by": user.get("display_name") or user.get("username") or str(actor_user_id),
+            "purpose": purpose}
 
 
 def confirm_enrollment_payment(

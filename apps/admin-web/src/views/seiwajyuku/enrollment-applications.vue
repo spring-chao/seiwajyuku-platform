@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import dayjs from "dayjs";
 import QRCode from "qrcode";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
 import { getOrgUnits, type OrgUnit } from "@/api/seiwajyuku";
+import { renderVisitImages } from "@/utils/enrollmentVisitImage";
 import {
   confirmEnrollmentPayment,
   createEnrollmentLink,
   disableEnrollmentLink,
   enrollApplication,
+  exportEnrollmentVisitData,
   generateEnrollmentMiniProgramCode,
   getEnrollmentLinks,
   getEnrollmentApplication,
@@ -29,6 +31,12 @@ type StatusFilter = "ALL" | EnrollmentComputedStatus;
 const loading = ref(false);
 const detailLoading = ref(false);
 const actionLoading = ref(false);
+const imageDialogVisible = ref(false);
+const imageLoading = ref(false);
+const imageUrls = ref<string[]>([]);
+const imageRecipient = ref<"CLASS_TEACHER" | "DIRECTOR">("CLASS_TEACHER");
+const imageApplicationNo = ref("");
+const savedFormSnapshot = ref("");
 const rows = ref<EnrollmentApplicationListItem[]>([]);
 const query = ref("");
 const statusFilter = ref<StatusFilter>("ALL");
@@ -59,6 +67,11 @@ const canEnroll = computed(() =>
 );
 const canManageLink = computed(() =>
   permissions.value.includes("enrollment:manage_link")
+);
+const canExportVisit = computed(() =>
+  ["enrollment:read", "members:enterprise_view", "exports:sensitive"].every(
+    permission => permissions.value.includes(permission)
+  )
 );
 
 const industryOptions = [
@@ -127,6 +140,7 @@ const editForm = reactive({
   email: "",
   position: "",
   referrer: "",
+  referrer_org_unit_id: "",
   invoice_info: "",
   invoice_type: "",
   invoice_title: "",
@@ -297,6 +311,7 @@ function syncEditForm(value: EnrollmentApplicationDetail) {
     email: value.email || "",
     position: value.position || "",
     referrer: value.referrer || "",
+    referrer_org_unit_id: value.referrer_org_unit_id || "",
     invoice_info: value.invoice_info || "",
     invoice_type: value.invoice_type || "",
     invoice_title: value.invoice_title || "",
@@ -329,6 +344,7 @@ function syncEditForm(value: EnrollmentApplicationDetail) {
     join_date: value.join_date || "",
     review_note: value.review_note || ""
   });
+  savedFormSnapshot.value = JSON.stringify(editForm);
 }
 
 async function openDetail(row: unknown) {
@@ -356,7 +372,6 @@ function buildReviewPayload(
     name: editForm.name.trim(),
     gender: editForm.gender === "OTHER" ? undefined : editForm.gender || null,
     birthday: editForm.birthday || null,
-    district: editForm.district.trim() || null,
     political_status: editForm.political_status.trim() || null,
     social_role:
       editForm.political_status.trim() === "党员"
@@ -374,6 +389,9 @@ function buildReviewPayload(
     org_unit_id: editForm.org_unit_id || null,
     join_date: editForm.join_date || null
   };
+  if (detail.value?.referrer_center_available) {
+    payload.referrer_org_unit_id = editForm.referrer_org_unit_id || null;
+  }
   if (editForm.industry_category.trim() || editForm.industry.trim()) {
     payload.industry_category = editForm.industry_category.trim() || null;
     payload.industry_other = editForm.industry_other.trim() || null;
@@ -429,6 +447,62 @@ function buildReviewPayload(
     }
   }
   return payload;
+}
+
+function clearVisitImages() {
+  imageUrls.value.forEach(url => URL.revokeObjectURL(url));
+  imageUrls.value = [];
+}
+onUnmounted(clearVisitImages);
+watch(imageRecipient, clearVisitImages);
+watch(imageDialogVisible, visible => {
+  if (!visible) clearVisitImages();
+});
+watch(detailVisible, visible => {
+  if (!visible) imageDialogVisible.value = false;
+});
+
+function openVisitImage() {
+  if (!detail.value || !canExportVisit.value || actionLoading.value) return;
+  if (JSON.stringify(editForm) !== savedFormSnapshot.value) {
+    ElMessage.warning("资料有未保存的修改，请先保存资料再导出图片。");
+    return;
+  }
+  clearVisitImages();
+  imageDialogVisible.value = true;
+}
+
+async function generateVisitImage() {
+  if (!detail.value || imageLoading.value) return;
+  const applicationId = detail.value.id;
+  const recipient = imageRecipient.value;
+  imageLoading.value = true;
+  clearVisitImages();
+  try {
+    const response = await exportEnrollmentVisitData(applicationId, recipient);
+    const blobs = await renderVisitImages(response.data);
+    if (
+      !imageDialogVisible.value ||
+      detail.value?.id !== applicationId ||
+      imageRecipient.value !== recipient
+    )
+      return;
+    imageApplicationNo.value = response.data.application.application_no;
+    imageUrls.value = blobs.map(blob => URL.createObjectURL(blob));
+  } catch (error: any) {
+    ElMessage.error(errorText(error, error?.message || "走访资料图片生成失败"));
+  } finally {
+    imageLoading.value = false;
+  }
+}
+
+function downloadVisitImages() {
+  imageUrls.value.forEach((url, index) => {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${imageApplicationNo.value}-走访资料${imageUrls.value.length > 1 ? `-${index + 1}` : ""}.png`;
+    link.click();
+  });
 }
 
 async function saveReview(decision: "SAVE" | "APPROVE") {
@@ -1056,191 +1130,243 @@ onMounted(async () => {
           />
 
           <el-form label-position="top" class="review-form">
-            <div class="form-grid">
-              <el-form-item label="申请加入的塾">
-                <el-select
-                  v-model="editForm.target_shuku_org_unit_id"
-                  clearable
-                  filterable
-                  :disabled="!canReview"
-                  placeholder="历史申请请先选择"
-                >
-                  <el-option
-                    v-for="item in targetShukuOptions"
-                    :key="item.id"
-                    :label="item.name"
-                    :value="item.id"
+            <div class="profile-section">
+              <div class="section-label">基本资料</div>
+              <div class="form-grid">
+                <el-form-item label="姓名">
+                  <el-input v-model="editForm.name" :disabled="!canReview" />
+                </el-form-item>
+                <el-form-item label="手机号">
+                  <el-link
+                    :href="phoneHref(detail.phone)"
+                    type="primary"
+                    :underline="false"
+                  >
+                    {{ detail.phone || detail.phone_masked }}
+                  </el-link>
+                </el-form-item>
+                <el-form-item label="性别">
+                  <el-select
+                    v-if="editForm.gender !== 'OTHER'"
+                    v-model="editForm.gender"
+                    clearable
+                    :disabled="!canReview"
+                  >
+                    <el-option label="男" value="MALE" />
+                    <el-option label="女" value="FEMALE" />
+                  </el-select>
+                  <el-alert
+                    v-else
+                    title="其他（历史值）"
+                    type="info"
+                    :closable="false"
                   />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="姓名">
-                <el-input v-model="editForm.name" :disabled="!canReview" />
-              </el-form-item>
-              <el-form-item label="手机号">
-                <el-link
-                  :href="phoneHref(detail.phone)"
-                  type="primary"
-                  :underline="false"
+                </el-form-item>
+                <el-form-item label="生日">
+                  <el-date-picker
+                    v-model="editForm.birthday"
+                    type="date"
+                    value-format="YYYY-MM-DD"
+                    :disabled="!canReview"
+                  />
+                </el-form-item>
+                <el-form-item label="政治面貌">
+                  <el-select
+                    v-model="editForm.political_status"
+                    clearable
+                    :disabled="!canReview"
+                  >
+                    <el-option
+                      v-for="option in politicalOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item
+                  v-if="editForm.political_status === '党员'"
+                  label="党员承担的社会角色"
                 >
-                  {{ detail.phone || detail.phone_masked }}
-                </el-link>
-              </el-form-item>
-              <el-form-item label="性别">
-                <el-select
-                  v-if="editForm.gender !== 'OTHER'"
-                  v-model="editForm.gender"
-                  clearable
+                  <el-input
+                    v-model="editForm.social_role"
+                    :disabled="!canReview"
+                    maxlength="255"
+                    placeholder="如：人大代表、政协委员、行业协会职务（可选）"
+                  />
+                </el-form-item>
+                <el-form-item label="邮箱">
+                  <el-input v-model="editForm.email" :disabled="!canReview" />
+                </el-form-item>
+              </div>
+            </div>
+            <div class="profile-section">
+              <div class="section-label">推荐与入塾安排</div>
+              <div class="form-grid">
+                <el-form-item label="推荐人">
+                  <el-input
+                    v-model="editForm.referrer"
+                    :disabled="!canReview"
+                  />
+                </el-form-item>
+                <el-form-item label="推荐人所属分中心/指导团">
+                  <el-select
+                    v-model="editForm.referrer_org_unit_id"
+                    clearable
+                    filterable
+                    :disabled="!canReview || !detail.referrer_center_available"
+                    :placeholder="
+                      detail.referrer_center_available
+                        ? '请选择推荐人所属分中心'
+                        : '分中心资料待升级'
+                    "
+                  >
+                    <el-option
+                      v-for="center in centers"
+                      :key="center.id"
+                      :label="center.name"
+                      :value="center.id"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="申请加入的塾">
+                  <el-select
+                    v-model="editForm.target_shuku_org_unit_id"
+                    clearable
+                    filterable
+                    :disabled="!canReview"
+                    placeholder="历史申请请先选择"
+                  >
+                    <el-option
+                      v-for="item in targetShukuOptions"
+                      :key="item.id"
+                      :label="item.name"
+                      :value="item.id"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="正式归属分中心/指导团">
+                  <el-select
+                    v-model="editForm.org_unit_id"
+                    clearable
+                    filterable
+                    :disabled="!canReview"
+                    placeholder="正式入塾前必须选择"
+                  >
+                    <el-option
+                      v-for="center in scopedCenters"
+                      :key="center.id"
+                      :label="center.name"
+                      :value="center.id"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="入塾日期">
+                  <el-date-picker
+                    v-model="editForm.join_date"
+                    type="date"
+                    value-format="YYYY-MM-DD"
+                    :disabled="!canReview"
+                    placeholder="可在正式入塾前补充"
+                  />
+                </el-form-item>
+              </div>
+            </div>
+            <div class="profile-section">
+              <div class="section-label">企业资料</div>
+              <div class="form-grid">
+                <el-form-item label="企业名称">
+                  <el-input
+                    v-model="editForm.company_name"
+                    :disabled="!canReview"
+                  />
+                </el-form-item>
+                <el-form-item label="职务">
+                  <el-input
+                    v-model="editForm.position"
+                    :disabled="!canReview"
+                  />
+                </el-form-item>
+                <el-form-item label="公司地址">
+                  <el-input
+                    v-model="editForm.company_address"
+                    :disabled="!canReview"
+                  />
+                </el-form-item>
+                <el-form-item label="行业大类">
+                  <el-select
+                    v-model="editForm.industry_category"
+                    :disabled="!canReview"
+                    clearable
+                  >
+                    <el-option
+                      v-for="option in industryOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item
+                  v-if="editForm.industry_category === '其他'"
+                  label="其他行业"
+                >
+                  <el-input
+                    v-model="editForm.industry_other"
+                    :disabled="!canReview"
+                  />
+                </el-form-item>
+                <el-form-item label="员工人数">
+                  <el-input-number
+                    v-model="editForm.employee_count"
+                    :min="0"
+                    :max="10000000"
+                    :disabled="!canReview"
+                    controls-position="right"
+                  />
+                </el-form-item>
+              </div>
+              <el-form-item label="主要产品或服务">
+                <el-input
+                  v-model="editForm.company_products"
+                  type="textarea"
+                  :rows="2"
                   :disabled="!canReview"
-                >
-                  <el-option label="男" value="MALE" />
-                  <el-option label="女" value="FEMALE" />
-                </el-select>
+                />
+              </el-form-item>
+              <div class="enterprise-financial">
+                <div v-if="detail.financial_fields_visible" class="form-grid">
+                  <el-form-item label="年销售额（万）">
+                    <el-input
+                      v-model="editForm.annual_sales"
+                      :disabled="!canReview"
+                    />
+                  </el-form-item>
+                  <el-form-item label="利润率">
+                    <el-select
+                      v-model="editForm.profit_margin"
+                      :disabled="!canReview"
+                      clearable
+                    >
+                      <el-option
+                        v-for="option in profitMarginOptions"
+                        :key="option.value"
+                        :label="option.label"
+                        :value="option.value"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </div>
                 <el-alert
-                  v-else
-                  title="其他（历史值）"
+                  v-else-if="detail.has_enterprise_financial_data"
+                  title="申请人已填写财务资料；当前账号无企业敏感资料查看权限，精确值保持隐藏。"
                   type="info"
                   :closable="false"
+                  show-icon
                 />
-              </el-form-item>
-              <el-form-item label="生日">
-                <el-date-picker
-                  v-model="editForm.birthday"
-                  type="date"
-                  value-format="YYYY-MM-DD"
-                  :disabled="!canReview"
-                />
-              </el-form-item>
-              <el-form-item label="所在地区">
-                <el-input v-model="editForm.district" :disabled="!canReview" />
-              </el-form-item>
-              <el-form-item label="政治面貌">
-                <el-select
-                  v-model="editForm.political_status"
-                  clearable
-                  :disabled="!canReview"
-                >
-                  <el-option
-                    v-for="option in politicalOptions"
-                    :key="option.value"
-                    :label="option.label"
-                    :value="option.value"
-                  />
-                </el-select>
-              </el-form-item>
-              <el-form-item
-                v-if="editForm.political_status === '党员'"
-                label="党员承担的社会角色"
-              >
-                <el-input
-                  v-model="editForm.social_role"
-                  :disabled="!canReview"
-                  maxlength="255"
-                  placeholder="如：人大代表、政协委员、行业协会职务（可选）"
-                />
-              </el-form-item>
-              <el-form-item label="企业名称">
-                <el-input
-                  v-model="editForm.company_name"
-                  :disabled="!canReview"
-                />
-              </el-form-item>
-              <el-form-item label="职务">
-                <el-input v-model="editForm.position" :disabled="!canReview" />
-              </el-form-item>
-              <el-form-item label="邮箱">
-                <el-input v-model="editForm.email" :disabled="!canReview" />
-              </el-form-item>
-              <el-form-item label="推荐人">
-                <el-input v-model="editForm.referrer" :disabled="!canReview" />
-              </el-form-item>
-              <el-form-item label="公司地址">
-                <el-input
-                  v-model="editForm.company_address"
-                  :disabled="!canReview"
-                />
-              </el-form-item>
-              <el-form-item label="发票类型">
-                <el-select
-                  v-model="editForm.invoice_type"
-                  clearable
-                  :disabled="!canReview || !detail.invoice_fields_visible"
-                >
-                  <el-option
-                    v-for="option in invoiceOptions"
-                    :key="option.value"
-                    :label="option.label"
-                    :value="option.value"
-                  />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="行业大类">
-                <el-select
-                  v-model="editForm.industry_category"
-                  :disabled="!canReview"
-                  clearable
-                >
-                  <el-option
-                    v-for="option in industryOptions"
-                    :key="option.value"
-                    :label="option.label"
-                    :value="option.value"
-                  />
-                </el-select>
-              </el-form-item>
-              <el-form-item
-                v-if="editForm.industry_category === '其他'"
-                label="其他行业"
-              >
-                <el-input
-                  v-model="editForm.industry_other"
-                  :disabled="!canReview"
-                />
-              </el-form-item>
-              <el-form-item label="正式归属分中心/指导团">
-                <el-select
-                  v-model="editForm.org_unit_id"
-                  clearable
-                  filterable
-                  :disabled="!canReview"
-                  placeholder="正式入塾前必须选择"
-                >
-                  <el-option
-                    v-for="center in scopedCenters"
-                    :key="center.id"
-                    :label="center.name"
-                    :value="center.id"
-                  />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="员工人数">
-                <el-input-number
-                  v-model="editForm.employee_count"
-                  :min="0"
-                  :max="10000000"
-                  :disabled="!canReview"
-                  controls-position="right"
-                />
-              </el-form-item>
-              <el-form-item label="入塾日期">
-                <el-date-picker
-                  v-model="editForm.join_date"
-                  type="date"
-                  value-format="YYYY-MM-DD"
-                  :disabled="!canReview"
-                  placeholder="可在正式入塾前补充"
-                />
-              </el-form-item>
+                <p v-else class="muted">申请人未填写年销售额或利润率。</p>
+              </div>
             </div>
-
-            <el-form-item label="主要产品或服务">
-              <el-input
-                v-model="editForm.company_products"
-                type="textarea"
-                :rows="2"
-                :disabled="!canReview"
-              />
-            </el-form-item>
-
             <div class="invoice-detail">
               <div class="section-label">开票资料</div>
               <el-alert
@@ -1250,7 +1376,28 @@ onMounted(async () => {
                 :closable="false"
                 show-icon
               />
-              <template v-else-if="editForm.invoice_type !== 'NONE'">
+              <div class="form-grid">
+                <el-form-item label="发票类型">
+                  <el-select
+                    v-model="editForm.invoice_type"
+                    clearable
+                    :disabled="!canReview || !detail.invoice_fields_visible"
+                  >
+                    <el-option
+                      v-for="option in invoiceOptions"
+                      :key="option.value"
+                      :label="option.label"
+                      :value="option.value"
+                    />
+                  </el-select>
+                </el-form-item>
+              </div>
+              <template
+                v-if="
+                  detail.invoice_fields_visible &&
+                  editForm.invoice_type !== 'NONE'
+                "
+              >
                 <el-alert
                   v-if="editForm.invoice_info && !editForm.invoice_title"
                   title="这是历史申请的开票资料原文；保存前请按下方结构化字段核对。"
@@ -1309,7 +1456,9 @@ onMounted(async () => {
                   </el-form-item>
                 </div>
               </template>
-              <p v-else class="muted">申请人选择无需开票。</p>
+              <p v-if="editForm.invoice_type === 'NONE'" class="muted">
+                申请人选择无需开票。
+              </p>
             </div>
 
             <div v-if="hasLegacyLearningFields" class="legacy-learning-panel">
@@ -1386,7 +1535,7 @@ onMounted(async () => {
             </div>
 
             <div class="goal-panel">
-              <div class="section-label">V1.1.1 结构化目标</div>
+              <div class="section-label">学习期望</div>
               <div class="form-grid">
                 <el-form-item label="计划学习年限">
                   <el-select
@@ -1434,40 +1583,6 @@ onMounted(async () => {
                   </el-select>
                 </el-form-item>
               </div>
-            </div>
-
-            <div class="financial-detail">
-              <div class="section-label">企业敏感财务资料</div>
-              <div v-if="detail.financial_fields_visible" class="form-grid">
-                <el-form-item label="年销售额">
-                  <el-input
-                    v-model="editForm.annual_sales"
-                    :disabled="!canReview"
-                  />
-                </el-form-item>
-                <el-form-item label="利润率">
-                  <el-select
-                    v-model="editForm.profit_margin"
-                    :disabled="!canReview"
-                    clearable
-                  >
-                    <el-option
-                      v-for="option in profitMarginOptions"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
-                </el-form-item>
-              </div>
-              <el-alert
-                v-else-if="detail.has_enterprise_financial_data"
-                title="申请人已填写财务资料；当前账号无企业敏感资料查看权限，精确值保持隐藏。"
-                type="info"
-                :closable="false"
-                show-icon
-              />
-              <p v-else class="muted">申请人未填写年销售额或利润率。</p>
             </div>
 
             <el-form-item label="其他补充">
@@ -1544,6 +1659,11 @@ onMounted(async () => {
           </el-descriptions>
 
           <div class="drawer-actions">
+            <el-tooltip :disabled="canExportVisit" content="当前账号需同时具备入塾申请查看、企业资料查看和敏感导出权限">
+              <span><el-button
+                :disabled="!canExportVisit || detailLoading || actionLoading"
+                @click="openVisitImage">保存为图片</el-button></span>
+            </el-tooltip>
             <el-button
               v-if="
                 canReview &&
@@ -1604,12 +1724,62 @@ onMounted(async () => {
         </template>
       </div>
     </el-drawer>
+    <el-dialog
+      v-model="imageDialogVisible"
+      title="走访资料图片"
+      width="min(760px, 94vw)"
+      destroy-on-close
+    >
+      <p>图片完整显示已保存的资料，用于班主任或董事走访面聊。</p>
+      <el-radio-group
+        v-model="imageRecipient"
+        :disabled="imageLoading"
+        aria-label="走访资料接收人"
+      >
+        <el-radio-button value="CLASS_TEACHER">班主任</el-radio-button>
+        <el-radio-button value="DIRECTOR">董事</el-radio-button>
+      </el-radio-group>
+      <div class="visit-image-preview" v-loading="imageLoading">
+        <img
+          v-for="(url, index) in imageUrls"
+          :key="url"
+          :src="url"
+          :alt="`走访资料第${index + 1}张`"
+        />
+      </div>
+      <template #footer>
+        <el-button @click="imageDialogVisible = false">关闭</el-button>
+        <el-button
+          v-if="!imageUrls.length"
+          type="primary"
+          :loading="imageLoading"
+          @click="generateVisitImage"
+          >确认用途并生成图片</el-button
+        >
+        <el-button v-else type="primary" @click="downloadVisitImages"
+          >下载 PNG 图片</el-button
+        >
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped lang="scss">
 .enrollment-admin {
   padding: 20px;
+}
+
+.visit-image-preview {
+  margin-top: 18px;
+  min-height: 60px;
+  max-height: 60vh;
+  overflow: auto;
+  background: #f3f6f4;
+}
+.visit-image-preview img {
+  display: block;
+  width: 100%;
+  margin-bottom: 12px;
 }
 
 .page-heading,
@@ -1749,7 +1919,7 @@ onMounted(async () => {
   width: 100%;
 }
 
-.financial-detail,
+.profile-section,
 .goal-panel,
 .invoice-detail,
 .legacy-learning-panel,

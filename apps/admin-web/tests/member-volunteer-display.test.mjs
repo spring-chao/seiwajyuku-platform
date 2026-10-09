@@ -88,7 +88,7 @@ test("member edit page supports compact multi-post volunteer maintenance", () =>
   assert.match(memberPage, /添加任职/);
   assert.match(memberPage, /确认结束“\$\{appointmentLabel\}”任职吗/);
   assert.match(memberPage, /content="结束任职"/);
-  assert.match(memberPage, /:closable="canManage"/);
+  assert.match(memberPage, /:closable="[\s\S]*?canManage &&/);
   assert.match(memberPage, /createVolunteerAppointment/);
   assert.match(memberPage, /catalogResponse\.data\.positions \|\| \[\]/);
   assert.match(

@@ -368,6 +368,11 @@ jobs:
           python -c "from app.services.iam import seed_iam; seed_iam()"
           ledger_after="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT COUNT(*) FROM learning_credit_entries;")"
           test "$ledger_before" = "$ledger_after"
+      - name: Validate enrollment referral migration in disposable MySQL schemas
+        run: python -m pytest apps/platform-api/tests/test_enrollment_referrer_migration.py -q
+        env:
+          ENROLLMENT_MIGRATION_ISOLATED_MYSQL: "1"
+          ENROLLMENT_MIGRATION_ROOT_PASSWORD: ci-root-password
       - name: Dump staging database
         run: >-
           docker exec "${{ job.services.mysql.id }}"
