@@ -68,11 +68,7 @@ const canEnroll = computed(() =>
 const canManageLink = computed(() =>
   permissions.value.includes("enrollment:manage_link")
 );
-const canExportVisit = computed(() =>
-  ["enrollment:read", "members:enterprise_view", "exports:sensitive"].every(
-    permission => permissions.value.includes(permission)
-  )
-);
+const canExportVisit = canReview;
 
 const industryOptions = [
   { value: "制造业", label: "制造业" },
@@ -1659,11 +1655,12 @@ onMounted(async () => {
           </el-descriptions>
 
           <div class="drawer-actions">
-            <el-tooltip :disabled="canExportVisit" content="当前账号需同时具备入塾申请查看、企业资料查看和敏感导出权限">
-              <span><el-button
-                :disabled="!canExportVisit || detailLoading || actionLoading"
-                @click="openVisitImage">保存为图片</el-button></span>
-            </el-tooltip>
+            <el-button
+              v-if="canExportVisit"
+              :disabled="detailLoading || actionLoading"
+              @click="openVisitImage"
+              >保存为图片</el-button
+            >
             <el-button
               v-if="
                 canReview &&

@@ -1597,14 +1597,21 @@ def _referrer_center(application_id: int) -> tuple[bool, dict[str, Any] | None]:
         raise
 
 
-def get_enrollment_application(actor_user_id: int, application_id: int) -> dict[str, Any]:
+def get_enrollment_application(
+    actor_user_id: int, application_id: int, *, for_visit_export: bool = False
+) -> dict[str, Any]:
     row = _application_row(application_id)
     if not row:
         raise ValueError("入塾申请不存在")
     _assert_application_scope(actor_user_id, row)
     user = user_context(actor_user_id) or {"permissions": []}
-    can_view_contact = "enrollment:read" in user["permissions"]
-    can_view_financial = "members:enterprise_view" in user["permissions"]
+    # Authorized 2026-10-09: complete visit images belong to enrollment work,
+    # without requiring separate enterprise-view or sensitive-export grants.
+    visit_reviewer = for_visit_export and "enrollment:review" in user["permissions"]
+    can_view_contact = "enrollment:read" in user["permissions"] or visit_reviewer
+    can_view_financial = (
+        "members:enterprise_view" in user["permissions"] or visit_reviewer
+    )
     can_view_payment_detail = (
         "enrollment:payment_confirm" in user["permissions"]
     )
@@ -1930,12 +1937,13 @@ def export_enrollment_visit_data(
     actor_user_id: int, application_id: int, *, recipient: str, confirmed: bool
 ) -> dict[str, Any]:
     user = user_context(actor_user_id) or {"permissions": []}
-    if not {"enrollment:read", "members:enterprise_view", "exports:sensitive"}.issubset(user["permissions"]):
-        raise PermissionError("当前账号无完整走访资料导出权限")
+    if "enrollment:review" not in user["permissions"]:
+        raise PermissionError("当前账号没有入塾资料处理权限")
     if not confirmed or recipient not in {"CLASS_TEACHER", "DIRECTOR"}:
         raise ValueError("请确认走访用途及接收人后导出")
-    # Scope and sensitive field checks are shared with the authorized detail read.
-    data = get_enrollment_application(actor_user_id, application_id)
+    # Share the detail scope check; the complete visit snapshot is authorized
+    # by enrollment processing rather than an additional export role.
+    data = get_enrollment_application(actor_user_id, application_id, for_visit_export=True)
     exported_at = _now()
     purpose = "班主任走访面聊" if recipient == "CLASS_TEACHER" else "董事走访面聊"
     with transaction() as connection:

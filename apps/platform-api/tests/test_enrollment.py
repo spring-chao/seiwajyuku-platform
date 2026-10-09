@@ -121,7 +121,7 @@ class EnrollmentApplicationTests(unittest.TestCase):
         password = secrets.token_urlsafe(24)
         create_user(self.admin_id, username=username, display_name="走访导出测试员",
             password=password, roles=roles,
-            scopes=scopes or [{"scope_type": "ALL", "org_unit_id": None}])
+            scopes=scopes or [{"scope_type": "SUBTREE", "org_unit_id": "org-suzhou"}])
         login = self.client.post("/api/v1/auth/login", json={"username": username, "password": password})
         self.assertEqual(login.status_code, 200)
         return {"Authorization": "Bearer " + login.json()["data"]["access_token"]}
@@ -166,7 +166,7 @@ class EnrollmentApplicationTests(unittest.TestCase):
 
     def test_visit_export_returns_complete_data_and_metadata_only_audit(self):
         application_id, phone = self._visit_application()
-        headers = self._visit_actor_headers(["operations_admin", "data_security_admin"])
+        headers = self._visit_actor_headers(["operations_admin"])
         response = self.client.post(f"/api/v1/enrollment-applications/{application_id}/visit-image-data",
             headers=headers, json={"recipient": "DIRECTOR", "confirmed": True})
         self.assertEqual(response.status_code, 200, response.text)
@@ -182,22 +182,49 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertNotIn("91320000TEST2026", serialized)
         self.assertNotIn("测试销售额区间", serialized)
 
-    def test_visit_export_requires_each_permission_and_scope_and_confirmation(self):
+    def test_visit_export_uses_enrollment_work_permission_and_keeps_scope_and_confirmation(self):
         application_id, _ = self._visit_application()
         url = f"/api/v1/enrollment-applications/{application_id}/visit-image-data"
         request = {"recipient": "CLASS_TEACHER", "confirmed": True}
         self.assertEqual(self.client.post(url, json=request).status_code, 401)
-        # system_admin deliberately has no sensitive export permission.
-        self.assertEqual(self.client.post(url, headers=self.headers, json=request).status_code, 403)
-        for roles in (["data_security_admin"], ["regional_manager", "data_security_admin"]):
+        # Highest admin and enrollment staff need no extra export role.
+        self.assertEqual(self.client.post(url, headers=self.headers, json=request).status_code, 200)
+        for roles in (["data_security_admin"], ["read_only"], ["employee_operations_management"]):
             headers = self._visit_actor_headers(roles)
             self.assertEqual(self.client.post(url, headers=headers, json=request).status_code, 403)
-        headers = self._visit_actor_headers(["operations_admin", "data_security_admin"],
+        headers = self._visit_actor_headers(["operations_admin"],
             [{"scope_type": "SUBTREE", "org_unit_id": "enrollment-test-center"}])
         self.assertEqual(self.client.post(url, headers=headers, json=request).status_code, 403)
-        full = self._visit_actor_headers(["operations_admin", "data_security_admin"])
+        full = self._visit_actor_headers(["operations_admin"])
         self.assertEqual(self.client.post(url, headers=full, json={**request, "confirmed": False}).status_code, 422)
         self.assertEqual(self.client.post(url, headers=full, json={**request, "recipient": "OTHER"}).status_code, 422)
+
+    def test_enrollment_staff_without_enterprise_grant_can_export_full_visit_data(self):
+        application_id, phone = self._visit_application()
+        assigned = self.client.patch(f"/api/v1/enrollment-applications/{application_id}/review",
+            headers=self.headers, json={"decision":"SAVE", "org_unit_id":"enrollment-test-center"})
+        self.assertEqual(assigned.status_code, 200)
+        review_role = "visit-review-" + uuid4().hex[:12]
+        now = datetime.now(UTC).isoformat()
+        with transaction() as connection:
+            execute(connection, "INSERT INTO roles(role_key,role_name,is_system,is_active,created_at,updated_at) VALUES (?,?,0,1,?,?)",
+                (review_role, "合成入塾资料专员", now, now))
+            for permission in ("enrollment:read", "enrollment:review"):
+                execute(connection, "INSERT INTO role_permissions(role_key,permission_key) VALUES (?,?)", (review_role, permission))
+        for role in ("regional_manager", "employee_operations_lead", "employee_development_management", review_role):
+            headers = self._visit_actor_headers([role], [{"scope_type":"SUBTREE", "org_unit_id":"enrollment-test-center"}])
+            detail = self.client.get(f"/api/v1/enrollment-applications/{application_id}", headers=headers)
+            if role == review_role:
+                self.assertFalse(detail.json()["data"]["financial_fields_visible"])
+            exported = self.client.post(f"/api/v1/enrollment-applications/{application_id}/visit-image-data",
+                headers=headers, json={"recipient":"CLASS_TEACHER", "confirmed":True})
+            self.assertEqual(exported.status_code, 200, exported.text)
+            data = exported.json()["data"]["application"]
+            self.assertEqual(data["phone"], phone)
+            self.assertEqual(data["annual_sales"], "测试销售额区间")
+            self.assertEqual(data["invoice_tax_id"], "91320000TEST2026")
+            self.assertTrue(data["financial_fields_visible"])
+            self.assertTrue(data["invoice_fields_visible"])
 
     def test_referrer_selection_cannot_escape_reviewer_scope(self):
         application_id, _ = self._visit_application()
