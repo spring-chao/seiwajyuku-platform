@@ -45,7 +45,7 @@ test("cloud preview preserves production config and domain checks while selectin
     verify: async () => verified(), cloudbaseEnvironment: "synthetic-env",
     cloudrunService: "sj-signin-stg-20261009-70716ba4",
     signinEngineFunction: "checkinStg2026100970716ba4",
-    signinEngineApiBase: "https://stage.signin-fixture.net/stg_signin_20261009_70716ba4/api" });
+    signinEngineApiBase: "https://shengheshu-d2g2zyyl99f6c6fc2-1453587887.ap-shanghai.app.tcloudbase.com/stg_signin_20261009_70716ba4/api" });
   const config = readFileSync(join(f.output, "wechat-miniprogram/config.js"), "utf8");
   assert.match(config, /"apiTransport": "cloudrun"/);
   assert.match(config, /seiwajyuku_signin_staging_session/);

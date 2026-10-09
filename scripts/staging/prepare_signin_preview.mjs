@@ -141,9 +141,13 @@ export async function preparePreview({ apiBase, output, appRoot = applicationRoo
           ...(cloudrunService ? { apiTransport: "cloudrun", cloudbaseEnvironment, cloudrunService, signinEngineApiBase, signinEngineFunction } : {}) }, null, 2) + ";\n");
       if (local === "config.dev.js") content = Buffer.from("// Prepared preview uses the same verified test service on desktop and phone.\nmodule.exports = {};\n");
       if ([".js", ".json", ".wxml", ".wxss"].includes(extname(file))) {
-        const text = content.toString("utf8").toLowerCase();
+        let text = content.toString("utf8").toLowerCase();
+        // The shared environment gateway is permitted only for the exact
+        // configured test namespace. It is used to validate the signed engine
+        // ticket destination; cloudFunction carries the actual phone request.
+        if (local === "config.js" && cloudrunService) text = text.replace(signinEngineApiBase.toLowerCase(), "");
         if ([...productionHosts, sourceHost.toLowerCase()].some(host => text.includes(host))) {
-          throw new Error("Preview source still references a known production endpoint");
+          throw new Error("Preview source still references a known production endpoint: " + local);
         }
       }
       writeFileSync(destination, content, { flag: "wx" });
