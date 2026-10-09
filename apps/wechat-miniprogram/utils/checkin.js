@@ -75,8 +75,13 @@ function fallbackUrl(value) {
   return /^https:\/\/[A-Za-z0-9.-]+(?::\d+)?(?:\/[^\s]*)?$/.test(url) && !/[\u0000-\u0020]/.test(url) ? url : "";
 }
 
-function engineConfirmUrl(value, apiBaseUrl) {
+function engineConfirmUrl(value, apiBaseUrl, transport = {}) {
   const url = String(value || "");
+  if (transport.apiTransport === "cloudrun") {
+    const base = String(transport.signinEngineApiBase || "").replace(/\/$/, "");
+    return /^https:\/\/[a-z0-9.-]+\/stg_signin_20\d{6}_[a-f0-9]{8}\/api$/i.test(base) &&
+      url === base + "/native/v1/checkin/confirm" ? url : "";
+  }
   const match = url.match(/^https:\/\/([a-z0-9.-]+)(?::443)?(?:\/api)?\/native\/v1\/checkin\/confirm$/i);
   if (!match) return "";
   const host = match[1].toLowerCase();
@@ -87,13 +92,9 @@ function engineConfirmUrl(value, apiBaseUrl) {
   return sameHost || cloudbase ? url : "";
 }
 
-function directConfirm(url, ticket) {
+function directConfirm(url, ticket, transport = {}) {
   return new Promise((resolve, reject) => {
-    wx.request({ url, method: "POST", timeout: 15000, header: { "content-type": "application/json" },
-      // This short-lived credential is sent only to the validated engine URL.
-      // It must never be combined with a platform Authorization header.
-      data: { ticket },
-      success(response) {
+    const success = response => {
         const result = response.data || {};
         const checkedAt = result.checked_at || (result.data && result.data.checked_at);
         const hasReceipt = result.already === true || (typeof checkedAt === "string" && checkedAt.trim());
@@ -108,9 +109,27 @@ function directConfirm(url, ticket) {
         error.statusCode = response.statusCode;
         error.engineTicketError = response.statusCode === 401 || response.statusCode === 403;
         reject(error);
-      },
-      fail() { reject(new Error("暂未收到现场签到结果，请重试；重复确认不会重复签到。")); }
-    });
+    };
+    const fail = () => reject(new Error("暂未收到现场签到结果，请重试；重复确认不会重复签到。"));
+    if (transport.apiTransport === "cloudrun") {
+      if (!engineConfirmUrl(url, transport.apiBaseUrl, transport) ||
+          !/^checkinStg20\d{6}[a-f0-9]{8}$/.test(transport.signinEngineFunction || "") ||
+          !transport.cloudbaseEnvironment || !wx.cloud || typeof wx.cloud.callFunction !== "function") {
+        fail(); return;
+      }
+      // Direct engine calls stay independent of the platform container. Only
+      // the signed, short-lived ticket is sent; no platform session is added.
+      wx.cloud.callFunction({ config: { env: transport.cloudbaseEnvironment }, name: transport.signinEngineFunction,
+        data: { httpMethod: "POST", path: "/native/v1/checkin/confirm",
+          headers: { "content-type": "application/json" }, body: JSON.stringify({ ticket }) }
+      }).then(result => {
+        try { success({ statusCode: result.result.statusCode, data: JSON.parse(result.result.body) }); }
+        catch (_) { fail(); }
+      }, fail);
+      return;
+    }
+    wx.request({ url, method: "POST", timeout: 15000, header: { "content-type": "application/json" },
+      data: { ticket }, success, fail });
   });
 }
 

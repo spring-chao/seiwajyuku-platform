@@ -34,7 +34,7 @@ Page({
       if (!data.event || !data.event.event_id) throw new Error("活动信息暂时不可用，请联系现场工作人员。");
       const ticket = typeof data.checkin_ticket === "string" ? data.checkin_ticket : "";
       if (ticket) {
-        const url = engineConfirmUrl(data.engine_confirm_url, app.globalData.apiBaseUrl);
+        const url = engineConfirmUrl(data.engine_confirm_url, app.globalData.apiBaseUrl, app.globalData);
         if (!url || ticket.length > 8192 || !/^[A-Za-z0-9._-]+$/.test(ticket)) throw new Error("现场签到服务地址未确认，请联系工作人员。");
         // Keep the ticket outside render data and persistent application state.
         this._checkinTicket = ticket; this._engineConfirmUrl = url;
@@ -67,7 +67,7 @@ Page({
       if (this._target.token) data.token = this._target.token;
       let response;
       if (this._checkinTicket) {
-        const engine = await directConfirm(this._engineConfirmUrl, this._checkinTicket);
+        const engine = await directConfirm(this._engineConfirmUrl, this._checkinTicket, app.globalData);
         response = { data: { status: engine.already === true ? "ALREADY_CHECKED_IN" : "CHECKED_IN",
           checked_at: engine.checked_at || (engine.data && engine.data.checked_at),
           sync_status: engine.sync_status === "SYNCED" ? "SYNCED" : "PENDING",

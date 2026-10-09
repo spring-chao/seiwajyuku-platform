@@ -12,7 +12,9 @@ node scripts/staging/prepare_signin_preview.mjs --api-base '<实际隔离HTTPS�
 
 生成目录内`wechat-miniprogram`可导入开发者工具。副本固定`environment=STAGING`及`urlCheck=true`；不带测试目录、隐藏文件、私人开发工具配置。`preview-manifest.json`记录源配置/文件SHA-256、公开运行环境检查和`PREPARED_NOT_UPLOADED`，不会宣称已上传或已完成手机验收。失败副本保留`PREPARATION_FAILED`；不能拿它上传，重试必须换新目录。
 
-公共环境检查无法证明后端数据库或CloudBase连接独立。上传前仍需核验用户指定的独立CloudBase测试env、独立数据库、引擎与反向名册同步地址、两个HTTPS主机的微信request合法域名，以及真实绑定/签到/故障补传。脚本没有跳过检查、关闭域名校验、写入密钥或上传选项。所有服务密钥只在隔离后端私下注入。
+公共环境检查无法证明后端数据库或CloudBase连接隔离。上传前仍需核验测试数据库、专用集合命名空间、引擎与反向名册同步地址，以及真实绑定/签到/故障补传。共享标准版环境使用专用测试服务、测试库和集合前缀，仍共享资源配额。脚本没有跳过检查、关闭域名校验、写入密钥或上传选项。所有服务密钥只在测试后端私下注入。
+
+自有域名尚未就绪时，可使用 CloudBase 官方云调用。另传 `--cloudbase-env <已关联的环境>`、`--cloudrun-service sj-signin-stg-YYYYMMDD-xxxxxxxx`、`--engine-function checkinStgYYYYMMDDxxxxxxxx` 和 `--engine-api-base https://<环境网关>/stg_signin_YYYYMMDD_xxxxxxxx/api`。脚本要求服务、函数、网关命名空间匹配，且仍核验专用 HTTPS 平台的真实运行状态。平台请求走 `wx.cloud.callContainer`，预加载的签名签到票据直接走独立引擎 `wx.cloud.callFunction`；后者不发送平台会话。失败不会降级到生产接口或关闭域名校验。预览副本使用独立会话缓存，开发工具和手机连接同一测试服务。正式配置继续使用原请求方式。
 
 无真实隔离地址时，脚本的测试使用临时合成文件和注入的只读transport；这属于准备逻辑测试，不会生成可声称手机可用的现场预览。回归已纳入：
 

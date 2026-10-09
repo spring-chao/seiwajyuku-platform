@@ -1,4 +1,5 @@
 const app = getApp();
+let initializedCloudEnvironment = "";
 
 function request(path, options = {}) {
   const baseUrl = (app.globalData.apiBaseUrl || "").replace(/\/$/, "");
@@ -7,12 +8,7 @@ function request(path, options = {}) {
     headers.Authorization = `Bearer ${app.globalData.personSessionToken || app.globalData.memberSessionToken}`;
   }
   return new Promise((resolve, reject) => {
-    wx.request({
-      url: `${baseUrl}${path}`,
-      timeout: 20000,
-      ...options,
-      header: headers,
-      success(response) {
+    const success = response => {
         if (response.statusCode >= 200 && response.statusCode < 300) {
           resolve(response.data);
           return;
@@ -21,11 +17,32 @@ function request(path, options = {}) {
         const error = new Error(typeof detail === "string" ? detail : "服务暂时不可用，请稍后重试。");
         error.statusCode = response.statusCode;
         reject(error);
-      },
-      fail(error) {
-        reject(new Error(error.errMsg || "网络请求失败"));
+    };
+    const fail = error => reject(new Error(error.errMsg || "网络请求失败"));
+    if (app.globalData.apiTransport === "cloudrun") {
+      const environment = app.globalData.cloudbaseEnvironment;
+      const service = app.globalData.cloudrunService;
+      if (!environment || !service || !wx.cloud || typeof wx.cloud.callContainer !== "function") {
+        reject(new Error("云服务连接尚未就绪，请更新微信后重试。"));
+        return;
       }
-    });
+      try {
+        if (initializedCloudEnvironment !== environment) {
+          wx.cloud.init({ env: environment, traceUser: false });
+          initializedCloudEnvironment = environment;
+        }
+        // The service and environment come from the prepared runtime config.
+        // Callers cannot redirect an authenticated request to another service.
+        wx.cloud.callContainer({
+          config: { env: environment }, path,
+          method: options.method || "GET", data: options.data,
+          timeout: options.timeout || 20000,
+          header: { ...headers, "X-WX-SERVICE": service }
+        }).then(success, fail);
+      } catch (error) { fail(error); }
+      return;
+    }
+    wx.request({ url: `${baseUrl}${path}`, timeout: 20000, ...options, header: headers, success, fail });
   });
 }
 

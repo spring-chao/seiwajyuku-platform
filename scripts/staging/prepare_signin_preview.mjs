@@ -93,7 +93,19 @@ function sourceFiles(root) {
 }
 
 export async function preparePreview({ apiBase, output, appRoot = applicationRoot, repoRoot = repositoryRoot,
-  verify = verifyStageApi } = {}) {
+  verify = verifyStageApi, cloudbaseEnvironment = "", cloudrunService = "", signinEngineApiBase = "", signinEngineFunction = "" } = {}) {
+  if (cloudbaseEnvironment || cloudrunService) {
+    if (!/^[a-z0-9][a-z0-9-]{2,63}$/.test(cloudbaseEnvironment) ||
+        !/^sj-signin-stg-20\d{6}-[a-f0-9]{8}$/.test(cloudrunService)) {
+      throw new Error("Cloud transport requires an explicit environment and dedicated signin test service");
+    }
+    const suffix = cloudrunService.slice("sj-signin-stg-".length);
+    if (signinEngineFunction !== "checkinStg" + suffix.replace(/-/g, "") ||
+        !/^https:\/\/[a-z0-9.-]+\/stg_signin_20\d{6}_[a-f0-9]{8}\/api$/.test(signinEngineApiBase) ||
+        !signinEngineApiBase.endsWith("/stg_signin_" + suffix.replace(/-/g, "_") + "/api")) {
+      throw new Error("Cloud preview requires the matching test engine function and gateway namespace");
+    }
+  }
   const sourceConfigPath = join(appRoot, "config.js");
   const originalConfig = readFileSync(sourceConfigPath);
   const sourceConfig = loadConfig(sourceConfigPath);
@@ -112,8 +124,11 @@ export async function preparePreview({ apiBase, output, appRoot = applicationRoo
     uploaded: false, phone_acceptance: false, environment: "STAGING", apiBaseUrl: stageBase,
     urlCheck: true, source: appRoot, source_config_sha256: sha256(originalConfig), project: previewRoot,
     api_readiness: runtime, wechat_legal_domains_verified: false, cloudbase_database_isolation_verified: false,
-    requires_external_validation: ["Independent CloudBase environment and database configuration",
-      "Both platform and engine WeChat request legal domains", "Real phone, binding, native checkin and pending retry"], files: [] };
+    api_transport: cloudrunService ? "cloudrun" : "request",
+    cloudbase_environment: cloudbaseEnvironment || null, cloudrun_service: cloudrunService || null,
+    requires_external_validation: ["Test database and collection namespace isolation",
+      cloudrunService ? "Mini-program association with CloudBase environment" : "WeChat request legal domain",
+      "Real phone, binding, native checkin and pending retry"], files: [] };
   try {
     for (const file of files) {
       const local = relative(appRoot, file);
@@ -121,7 +136,10 @@ export async function preparePreview({ apiBase, output, appRoot = applicationRoo
       mkdirSync(dirname(destination), { recursive: true });
       let content = readFileSync(file);
       if (local === "config.js") content = Buffer.from("// Isolated preview artifact only; repository production config is preserved.\nmodule.exports = " +
-        JSON.stringify({ ...sourceConfig, apiBaseUrl: stageBase, environment: "STAGING" }, null, 2) + ";\n");
+        JSON.stringify({ ...sourceConfig, apiBaseUrl: stageBase, environment: "STAGING",
+          sessionStorageKey: "seiwajyuku_signin_staging_session",
+          ...(cloudrunService ? { apiTransport: "cloudrun", cloudbaseEnvironment, cloudrunService, signinEngineApiBase, signinEngineFunction } : {}) }, null, 2) + ";\n");
+      if (local === "config.dev.js") content = Buffer.from("// Prepared preview uses the same verified test service on desktop and phone.\nmodule.exports = {};\n");
       if ([".js", ".json", ".wxml", ".wxss"].includes(extname(file))) {
         const text = content.toString("utf8").toLowerCase();
         if ([...productionHosts, sourceHost.toLowerCase()].some(host => text.includes(host))) {
@@ -147,11 +165,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const options = {};
     for (let index = 0; index < args.length; index += 2) {
       const key = args[index];
-      if (!["--api-base", "--output"].includes(key) || !args[index + 1] || options[key]) throw new Error("Invalid preview preparation arguments");
+      if (!["--api-base", "--output", "--cloudbase-env", "--cloudrun-service", "--engine-api-base", "--engine-function"].includes(key) || !args[index + 1] || options[key]) throw new Error("Invalid preview preparation arguments");
       options[key] = args[index + 1];
     }
     if (!options["--api-base"] || !options["--output"]) throw new Error("Usage: node scripts/staging/prepare_signin_preview.mjs --api-base <actual-isolated-HTTPS-API> --output <new-directory-outside-repo>");
-    const manifest = await preparePreview({ apiBase: options["--api-base"], output: options["--output"] });
+    const manifest = await preparePreview({ apiBase: options["--api-base"], output: options["--output"],
+      cloudbaseEnvironment: options["--cloudbase-env"], cloudrunService: options["--cloudrun-service"],
+      signinEngineApiBase: options["--engine-api-base"], signinEngineFunction: options["--engine-function"] });
     console.log(JSON.stringify({ status: manifest.status, project: manifest.project, uploaded: false, phone_acceptance: false }));
   } catch (error) {
     console.error(error.message);

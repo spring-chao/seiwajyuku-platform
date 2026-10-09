@@ -38,6 +38,25 @@ function verified() {
   return { environment: "staging", production: false, health: "ok", fixture_only: true };
 }
 
+test("cloud preview preserves production config and domain checks while selecting a dedicated test service", async t => {
+  const f = fixture(t);
+  writeFileSync(join(f.app, "config.dev.js"), 'module.exports = {apiBaseUrl: "http://127.0.0.1:8000"};');
+  await preparePreview({ apiBase: stage, output: f.output, appRoot: f.app, repoRoot: f.repo,
+    verify: async () => verified(), cloudbaseEnvironment: "synthetic-env",
+    cloudrunService: "sj-signin-stg-20261009-70716ba4",
+    signinEngineFunction: "checkinStg2026100970716ba4",
+    signinEngineApiBase: "https://stage.signin-fixture.net/stg_signin_20261009_70716ba4/api" });
+  const config = readFileSync(join(f.output, "wechat-miniprogram/config.js"), "utf8");
+  assert.match(config, /"apiTransport": "cloudrun"/);
+  assert.match(config, /seiwajyuku_signin_staging_session/);
+  assert.doesNotMatch(readFileSync(join(f.output, "wechat-miniprogram/config.dev.js"), "utf8"), /127\.0\.0\.1/);
+  assert.match(readFileSync(join(f.app, "config.js"), "utf8"), /PRODUCTION/);
+  assert.equal(JSON.parse(readFileSync(join(f.output, "wechat-miniprogram/project.config.json"))).setting.urlCheck, true);
+  const other = fixture(t);
+  await assert.rejects(preparePreview({ apiBase: stage, output: other.output, appRoot: other.app, repoRoot: other.repo,
+    verify: async () => verified(), cloudbaseEnvironment: "synthetic-env", cloudrunService: "seiwajyuku-platform-api" }), /dedicated signin test service/);
+});
+
 test("preview rejects preserved production hosts and unsafe or placeholder URLs before any service access", async t => {
   const f = fixture(t); let requests = 0;
   for (const url of ["https://production.signin-fixture.net/platform", "https://production.signin-fixture.net./other",
