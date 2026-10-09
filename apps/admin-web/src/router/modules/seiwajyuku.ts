@@ -168,6 +168,16 @@ export default [
     },
     children: [
       {
+        path: "/operations/credit-readiness",
+        name: "CreditReadiness",
+        component: () => import("@/views/seiwajyuku/credit-readiness.vue"),
+        meta: {
+          title: "学分上线准备",
+          icon: "ep/coin",
+          auths: ["plans:production_rule_reconciliation_apply"]
+        }
+      },
+      {
         path: "/operations/class-learning-plans",
         name: "ClassLearningPlanManagement",
         component: () =>

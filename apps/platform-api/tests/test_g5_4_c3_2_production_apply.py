@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from decimal import Decimal
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -298,6 +299,66 @@ def _state_counts() -> tuple[int, int, int]:
             "WHERE action LIKE 'production.g5_4.course_rule_reconciliation.%'",
         )
     return int(rules["n"]), int(placeholders["n"]), int(audits["n"])
+
+
+def test_preflight_is_select_only_and_projects_no_audit_identities(approved_before_state, monkeypatch):
+    before = _state_counts()
+    statements = []
+    original = production_operations.execute
+    def read_only(connection, statement, params=()):
+        assert statement.lstrip().upper().startswith("SELECT ")
+        assert "FOR UPDATE" not in statement.upper()
+        statements.append(statement)
+        return original(connection, statement, params)
+    monkeypatch.setattr(production_operations, "execute", read_only)
+    preview = production_operations.preview_g5_4_course_rule_reconciliation(
+        actor_user_id=approved_before_state["actor_user_id"])
+    assert statements
+    assert preview["status"] == "READY"
+    assert preview["changes"] == {"KEEP": 7, "UPDATE": 4, "ADD": 14, "REMOVE_UNUSED_PLACEHOLDER": 3}
+    assert preview["apply_payload"]["expected_production_fingerprint"] == approved_before_state["production_fingerprint"]
+    assert preview["ledger"]["entry_count"] == 0
+    assert Decimal(preview["ledger"]["points"]) == 0
+    assert before == _state_counts()
+    public = json.dumps(preview)
+    assert "created_by" not in public and "updated_by" not in public and "aliases_json" not in public
+
+
+def test_preflight_remains_readable_with_gate_closed_and_cannot_authorize_apply(approved_before_state, monkeypatch):
+    monkeypatch.setenv("G5_4_PRODUCTION_RULE_APPLY_ENABLED", "false")
+    preview = production_operations.preview_g5_4_course_rule_reconciliation(
+        actor_user_id=approved_before_state["actor_user_id"])
+    assert preview["status"] == "BLOCKED"
+    assert preview["apply_payload"] is None
+    assert any(row["code"] == "FEATURE_DISABLED" for row in preview["blockers"])
+    assert _state_counts()[2] == 0
+
+
+def test_preflight_verifies_post_apply_snapshot(approved_before_state):
+    applied = apply_g5_4_course_rule_reconciliation(**_request(approved_before_state))
+    preview = production_operations.preview_g5_4_course_rule_reconciliation(
+        actor_user_id=approved_before_state["actor_user_id"])
+    assert applied["status"] == "APPLIED" and preview["status"] == "ALREADY_APPLIED"
+    assert preview["rule_count"] == 25 and preview["apply_payload"] is None
+
+
+def test_preflight_refuses_a_changed_reconciliation_scope(approved_before_state):
+    with transaction() as connection:
+        execute(connection, "UPDATE learning_plan_credit_rules SET credit_points=999 "
+                "WHERE rule_version_id=? AND course_key='Y1-SIX-DILIGENCES'",
+                (approved_before_state["version_id"],))
+    preview = production_operations.preview_g5_4_course_rule_reconciliation(
+        actor_user_id=approved_before_state["actor_user_id"])
+    assert preview["status"] == "BLOCKED" and preview["apply_payload"] is None
+    assert any(row["code"] == "RULE_STATE_UNEXPECTED" for row in preview["blockers"])
+    assert _state_counts()[2] == 0
+
+
+def test_preflight_rejects_inactive_or_nonadmin_database_identity(approved_before_state):
+    with pytest.raises(ProductionOperationError) as caught:
+        production_operations.preview_g5_4_course_rule_reconciliation(actor_user_id=99999999)
+    assert caught.value.code == "PERMISSION_DENIED"
+    assert _state_counts()[2] == 0
 
 
 def test_successful_atomic_apply_and_idempotent_repeat(approved_before_state: dict) -> None:
