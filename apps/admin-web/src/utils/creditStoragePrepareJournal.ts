@@ -1,6 +1,10 @@
 type StoragePort = Pick<Storage, "getItem" | "setItem">;
 export function creditStoragePrepareKey(version: string) {
-  if (!["0064", "0065", "0066", "0067"].includes(version)) {
+  if (
+    !["0064", "0065", "0066", "0067", "0064-alias-format-repair"].includes(
+      version
+    )
+  ) {
     throw new Error("不支持的结算存储准备步骤");
   }
   return `credit-storage-prepare-${version}`;

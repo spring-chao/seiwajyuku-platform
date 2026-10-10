@@ -28,3 +28,16 @@ test('storage persistence failure or unsupported step prevents dispatch', async 
   await assert.rejects(submit(storage, '0064', record, async () => assert.fail('sent')), /storage unavailable/);
   await assert.rejects(submit(storage, '0069', record, async () => assert.fail('sent')), /不支持/);
 });
+test('fixed alias format repair retains original attempt and has independent no-replay record', async () => {
+  const values = new Map([[key('0064'), JSON.stringify(record)]]);
+  const storage = { getItem: k => values.get(k) ?? null, setItem: (k, v) => values.set(k, v) };
+  let sent = 0;
+  await assert.rejects(submit(storage, '0064-alias-format-repair', record, async () => {
+    sent++;
+    assert.equal(values.size, 2);
+    throw new Error('response lost');
+  }), /response lost/);
+  await assert.rejects(submit(storage, '0064-alias-format-repair', record, async () => sent++), /已提交/);
+  await assert.rejects(submit(storage, '0064', record, async () => sent++), /已提交/);
+  assert.equal(sent, 1);
+});

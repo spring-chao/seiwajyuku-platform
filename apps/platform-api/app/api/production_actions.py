@@ -47,6 +47,18 @@ def credit_storage_prepare(migration_version: Literal["0064", "0065", "0066", "0
         raise HTTPException(exc.status_code, {"code": exc.code, "message": exc.message}) from exc
 
 
+@router.post('/credit-settlement-storage/0064/repair-alias-format', include_in_schema=False)
+def credit_storage_alias_format_repair(payload: CreditStoragePreparePayload,
+                                      actor: dict = Depends(require_permission(REQUIRED_PERMISSION))):
+    from app.services import credit_settlement_setup
+    try:
+        return {'success': True, 'data': credit_settlement_setup.prepare(
+            actor_user_id=int(actor['id']), migration_version='0064', repair_alias_format=True,
+            **payload.model_dump())}
+    except ProductionOperationError as exc:
+        raise HTTPException(exc.status_code, {'code': exc.code, 'message': exc.message}) from exc
+
+
 class G54CourseRuleApplyPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

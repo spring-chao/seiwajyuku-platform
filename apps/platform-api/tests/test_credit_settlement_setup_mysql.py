@@ -1,5 +1,6 @@
 """Fixed authenticated setup and persistent DDL interruption in disposable MySQL."""
 import os
+import json
 from unittest.mock import patch
 
 import pytest
@@ -117,3 +118,94 @@ def test_mysql_closed_gate_preflight_is_select_only_and_does_not_start_setup(set
     assert all(sql.startswith('SELECT') and 'FOR UPDATE' not in sql for sql in statements)
     with pytest.raises(ProductionOperationError):
         service.prepare(**request(state))
+
+
+def test_mysql_old_keep_alias_whitespace_fails_guard_then_bounded_repair_completes(setup_mysql):
+    connection = setup_mysql()
+    schema = execute(connection, 'SELECT DATABASE() AS name').fetchone()['name']
+    assert schema.startswith('credit_migration_ci_') and schema.replace('_', '').isalnum()
+    # Production legacy schema default is utf8mb3 while existing rule columns are utf8mb4.
+    execute(connection, f'ALTER DATABASE `{schema}` CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci')
+    rows = execute(connection, "SELECT id,aliases_json FROM learning_plan_credit_rules WHERE course_key IN ('Y1-HAPPINESS-ASSESSMENT','Y1-CLASS-SPEECH-DRAFT','Y1-ACCOUNTING-ANALYSIS-TASK') AND rule_version_id=(SELECT id FROM learning_plan_credit_rule_versions WHERE plan_key='STANDARD_3Y_2026' AND version_label='2026.1')").fetchall()
+    for row in rows:
+        execute(connection, 'UPDATE learning_plan_credit_rules SET aliases_json=? WHERE id=?', (json.dumps(json.loads(row['aliases_json']), ensure_ascii=False), row['id']))
+    connection.commit()
+    connection.close()
+    initial = service.preview(1)
+    assert len(initial['alias_format_repairs']) == 3 and not initial['can_repair_alias_format']
+    with pytest.raises(ProductionOperationError):
+        service.prepare(**request(initial), repair_alias_format=True)
+    with pytest.raises(ProductionOperationError, match='不会自动重试'):
+        service.prepare(**request(initial))
+    state = service.preview(1)
+    assert state['can_repair_alias_format'] and not state['can_prepare']
+    assert not state['stages'][0]['unrecorded_structure']
+    with pytest.raises(ProductionOperationError):
+        service.prepare(**request(state, expected_baseline_fingerprint='f' * 64), repair_alias_format=True)
+    assert service.prepare(**request(state), repair_alias_format=True)['status'] == 'RECORDED'
+    after = service.preview(1)
+    assert after['next_migration'] == '0065' and after['can_prepare']
+    assert after['bindings']['generic_frozen'] == after['bindings']['course_frozen'] == 20
+    assert not after['alias_format_repairs'] and after['ledger']['total'] == 0
+    with pytest.raises(ProductionOperationError):
+        service.prepare(**request(state), repair_alias_format=True)
+    connection = setup_mysql()
+    failure = execute(connection, "SELECT after_json FROM audit_logs WHERE action=? AND result='FAILED'", (service.ACTION + '.failure',)).fetchone()
+    assert json.loads(failure['after_json'])['mysql_error_code'] == 3819
+    assert execute(connection, "SELECT COUNT(*) AS n FROM audit_logs WHERE action=? AND result='STARTED'", (service.ACTION,)).fetchone()['n'] == 1
+    assert execute(connection, "SELECT COUNT(*) AS n FROM audit_logs WHERE action=? AND result='STARTED'", (service.FORMAT_ACTION,)).fetchone()['n'] == 1
+    connection.close()
+    for _ in range(3):
+        service.prepare(**request(service.preview(1)))
+    assert service.preview(1)['storage_ready']
+
+
+def test_mysql_format_repair_refuses_rule_damage_or_partial_schema(setup_mysql):
+    connection = setup_mysql()
+    execute(connection, "UPDATE learning_plan_credit_rules SET aliases_json='[\"幸福测评\", \"幸福测评表\"]' WHERE course_key='Y1-HAPPINESS-ASSESSMENT' AND rule_version_id=(SELECT id FROM learning_plan_credit_rule_versions WHERE plan_key='STANDARD_3Y_2026' AND version_label='2026.1')")
+    connection.commit()
+    connection.close()
+    with pytest.raises(ProductionOperationError):
+        service.prepare(**request(service.preview(1)))
+    assert service.preview(1)['can_repair_alias_format']
+    connection = setup_mysql()
+    execute(connection, "UPDATE learning_plan_credit_rules SET credit_points=999 WHERE course_key='Y1-SIX-DILIGENCES' AND rule_version_id=(SELECT id FROM learning_plan_credit_rule_versions WHERE plan_key='STANDARD_3Y_2026' AND version_label='2026.1')")
+    connection.commit()
+    connection.close()
+    state = service.preview(1)
+    assert not state['can_repair_alias_format']
+    with pytest.raises(ProductionOperationError):
+        service.prepare(**request(state), repair_alias_format=True)
+    connection = setup_mysql()
+    execute(connection, "UPDATE learning_plan_credit_rules SET credit_points=20 WHERE course_key='Y1-SIX-DILIGENCES' AND rule_version_id=(SELECT id FROM learning_plan_credit_rule_versions WHERE plan_key='STANDARD_3Y_2026' AND version_label='2026.1')")
+    execute(connection, 'CREATE TABLE g5_4_c0_rule_mapping_state(id INT PRIMARY KEY)')
+    connection.commit()
+    connection.close()
+    state = service.preview(1)
+    assert not state['can_repair_alias_format']
+    with pytest.raises(ProductionOperationError):
+        service.prepare(**request(state), repair_alias_format=True)
+
+
+def test_mysql_format_repair_unknown_result_retains_both_attempts_and_never_replays(setup_mysql):
+    connection = setup_mysql()
+    execute(connection, "UPDATE learning_plan_credit_rules SET aliases_json='[\"幸福测评\", \"幸福测评表\"]' WHERE course_key='Y1-HAPPINESS-ASSESSMENT' AND rule_version_id=(SELECT id FROM learning_plan_credit_rule_versions WHERE plan_key='STANDARD_3Y_2026' AND version_label='2026.1')")
+    connection.commit()
+    connection.close()
+    with pytest.raises(ProductionOperationError):
+        service.prepare(**request(service.preview(1)))
+    payload = request(service.preview(1))
+    original = service.execute
+    def interrupted(connection, sql, params=()):
+        if 'CREATE TABLE IF NOT EXISTS g5_4_c0_rule_mapping_state' in sql:
+            original(connection, sql, params)
+            raise TimeoutError('isolated repair interruption')
+        return original(connection, sql, params)
+    with patch.object(service, 'execute', side_effect=interrupted), pytest.raises(ProductionOperationError):
+        service.prepare(**payload, repair_alias_format=True)
+    state = service.preview(1)
+    assert not state['can_prepare'] and not state['can_repair_alias_format']
+    assert state['format_repair_attempts'] == state['first_stage_attempts'] == 1
+    assert state['ledger']['total'] == 0
+    with pytest.raises(ProductionOperationError):
+        service.prepare(**request(state), repair_alias_format=True)
