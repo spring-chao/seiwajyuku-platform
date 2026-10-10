@@ -58,7 +58,7 @@ def test_mysql_sequence_freezes_all_bindings_retains_ledger_and_rejects_replay(s
             service.prepare(**request(state))
     result = service.preview(1)
     assert result['storage_ready'] and not result['formal_ready']
-    assert result['bindings'] == {'total': 20, 'generic_frozen': 20, 'course_frozen': 20}
+    assert result['bindings'] == {'total': 20, 'generic_frozen': 20, 'course_frozen': 20, 'mismatched_frozen': 0}
     assert result['ledger']['total'] == 0
     for key in ('LEARNING_CREDIT_SETTLEMENT_ENABLED', 'LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED',
                 'LEARNING_CREDIT_BATCH_APPROVAL_ENABLED', 'LEARNING_CREDIT_BATCH_POST_ENABLED'):

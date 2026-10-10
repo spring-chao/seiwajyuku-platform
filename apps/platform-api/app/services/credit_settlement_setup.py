@@ -62,11 +62,17 @@ def _snapshot(connection):
     all_tables = {row["TABLE_NAME"] for row in _rows(connection, "SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema=DATABASE()")}
     columns = {row["COLUMN_NAME"] for row in _rows(connection, "SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='learning_credit_entries'")}
     attempts = {row["resource_id"] for row in _rows(connection, "SELECT resource_id FROM audit_logs WHERE action=? AND result='STARTED'", (ACTION,))}
+    generic_id = _one(connection, "SELECT id FROM learning_credit_rule_versions WHERE rule_set_key='STANDARD_3Y_2026' AND version_label='2026.1'")["id"]
     bindings = _one(connection,
         "SELECT COUNT(*) AS total, COALESCE(SUM(b.credit_rule_version_id IS NOT NULL),0) AS generic_frozen, "
-        "COALESCE(SUM(b.course_credit_rule_version_id IS NOT NULL),0) AS course_frozen "
+        "COALESCE(SUM(b.course_credit_rule_version_id IS NOT NULL),0) AS course_frozen, "
+        "COALESCE(SUM((b.credit_rule_version_id IS NOT NULL AND b.credit_rule_version_id<>?) OR "
+        "(b.course_credit_rule_version_id IS NOT NULL AND b.course_credit_rule_version_id<>?)),0) AS mismatched_frozen "
         "FROM class_learning_bindings b JOIN learning_plan_versions p ON p.id=b.plan_version_id "
-        "WHERE p.plan_key='standard-3y' AND p.version_label='2026'")
+        "WHERE p.plan_key='standard-3y' AND p.version_label='2026'", (generic_id, version["id"]))
+    mappings = _one(connection, "SELECT COUNT(*) AS total, COALESCE(SUM(status='ACTIVE' AND generic_rule_version_id=? "
+        "AND course_credit_rule_version_id=?),0) AS exact FROM learning_plan_credit_rule_mappings "
+        "WHERE plan_key='standard-3y' AND plan_version_label='2026'", (generic_id, version["id"]))
     fill = _one(connection,
         "SELECT COUNT(*) AS total FROM study_meeting_courses c JOIN study_meeting_sessions s ON s.id=c.study_meeting_session_id "
         "JOIN class_learning_cycles lc ON lc.id=s.learning_cycle_id JOIN class_learning_bindings b ON b.id=lc.binding_id "
@@ -80,7 +86,7 @@ def _snapshot(connection):
         stages.append({"version": key, "filename": name, "sha256": digest, "applied": name in markers,
                        "schema_present": len(present) == len(TABLES[key]) and (key != "0066" or {"occurred_precision", "occurred_year", "occurred_month"} <= columns),
                        "unrecorded_structure": name not in markers and bool(present or partial_period), "attempted": name in attempts})
-    baseline = {"stages": stages, "bindings": bindings, "course_references_to_fill": fill, "ledger": ledger,
+    baseline = {"stages": stages, "bindings": bindings, "mappings": mappings, "course_references_to_fill": fill, "ledger": ledger,
                 "rule_status": version["status"], "canonical_rules_ready": rules._is_already_applied(reconciliation),
                 "rule_fingerprint": reconciliation["production_fingerprint"], "rule_apply_audit_count": audit_count,
                 "dependency_ready": "schema_migrations" in all_tables and bool(_rows(connection, "SELECT version FROM schema_migrations WHERE version='0063_complete_changzhou_wuxi_fee_and_service_address.sql'"))}
@@ -104,7 +110,7 @@ def _snapshot(connection):
         if not stage["applied"] and (stage["attempted"] or stage["unrecorded_structure"]):
             blockers.append("存在未完成的存储准备记录；不会自动重试，请核验实际结构")
     if stages[0]["applied"]:
-        if version["status"] != "PUBLISHED" or bindings["total"] != bindings["generic_frozen"] or bindings["total"] != bindings["course_frozen"] or fill:
+        if version["status"] != "PUBLISHED" or bindings["total"] != bindings["generic_frozen"] or bindings["total"] != bindings["course_frozen"] or bindings["mismatched_frozen"] or mappings["total"] != 1 or mappings["exact"] != 1 or fill:
             blockers.append("规则发布、绑定冻结或课程引用未完整完成")
     elif version["status"] != "DRAFT" or bindings["generic_frozen"] or bindings["course_frozen"]:
         blockers.append("首次规则冻结基线不符合已确认范围")
@@ -202,5 +208,8 @@ def prepare(*, actor_user_id: int, migration_version: str, expected_release_comm
         _fail("固定存储准备核验失败；未开始执行", code="SETUP_PREFLIGHT_FAILED")
     finally:
         if locked:
-            execute(connection, "SELECT RELEASE_LOCK(?)", (rules.OPERATION_LOCK_NAME,))
+            try:
+                execute(connection, "SELECT RELEASE_LOCK(?)", (rules.OPERATION_LOCK_NAME,))
+            except Exception:
+                pass  # Closing the dedicated connection also releases its lock.
         connection.close()
