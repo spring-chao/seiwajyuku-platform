@@ -203,7 +203,7 @@ def test_study_meeting_batch_requires_separate_approval_gate_and_permission() ->
         with pytest.raises(LearningCreditError, match="批次审批尚未开启"):
             approve_study_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
         patch_env.setenv("LEARNING_CREDIT_BATCH_APPROVAL_ENABLED", "true")
-        with pytest.raises(PermissionError, match="无权审批"):
+        with patch("app.services.learning_credits.user_context", return_value={"permissions": []}), pytest.raises(PermissionError, match="无权审批"):
             approve_study_meeting_batch(actor_user_id=actor, batch_id=batch["id"])
         with patch(
             "app.services.learning_credits.user_context",

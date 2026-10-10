@@ -111,7 +111,8 @@ def get_member_credit_entries(
             (member_id, *_POSTED_STATUSES, anchor, limit + 1, offset),
         ).fetchall()
         entries = [{**_entry_display(dict(row)), "entry_ref": str(row["id"])} for row in rows[:limit]]
-        return {"entries": entries, "snapshot_id": str(anchor), "has_more": len(rows) > limit,
+        from app.services.credit_opening_balances import opening_summary
+        return {"entries": entries, "opening_balance": opening_summary(connection, member_id=member_id), "snapshot_id": str(anchor), "has_more": len(rows) > limit,
                 "next_offset": offset + len(entries)}
     finally:
         connection.close()
@@ -230,6 +231,8 @@ def get_member_credit_summary(member_id: int) -> dict[str, Any]:
         totals = {str(row["credit_category"]): _points(row["points"]) for row in category_rows}
         standard = Decimal(totals.get("STANDARD_LEARNING", "0.00"))
         extension = Decimal(totals.get("EXTENSION_ACTIVITY", "0.00"))
+        from app.services.credit_opening_balances import opening_summary
+        opening = opening_summary(connection, member_id=member_id)
 
         current_year = datetime.now(BUSINESS_TIMEZONE).year
         annual = execute(
@@ -247,7 +250,10 @@ def get_member_credit_summary(member_id: int) -> dict[str, Any]:
         ).fetchall()
         return {
             "current_year": current_year,
-            "total_points": _points(standard + extension),
+            "total_points": _points(standard + extension + Decimal(opening["total_points"])),
+            "opening_balance_points": opening["total_points"],
+            "opening_balance_cutoff_date": opening["cutoff_date"],
+            "has_opening_balance": opening["entry_count"] > 0,
             "current_year_points": _points(annual["points"]),
             "standard_learning_points": _points(standard),
             "extension_activity_points": _points(extension),

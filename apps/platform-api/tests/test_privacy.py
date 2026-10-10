@@ -354,8 +354,10 @@ class PrivacyIsolationTests(unittest.TestCase):
         )
 
     def test_sensitive_export_isolated_and_watermarked(self) -> None:
+        admin_job = create_sensitive_export(self.admin["id"], "系统管理员授权导出测试", True)
+        self.assertIn("敏感数据", download_sensitive_export(admin_job, self.admin["id"]))
         with self.assertRaises(PermissionError):
-            create_sensitive_export(self.admin["id"], "系统管理员越权测试", True)
+            create_sensitive_export(self.regional_user_id, "普通运营人员越权测试", True)
         with self.assertRaises(ValueError):
             create_sensitive_export(self.security_user_id, "安全复核导出", False)
         job_id = create_sensitive_export(

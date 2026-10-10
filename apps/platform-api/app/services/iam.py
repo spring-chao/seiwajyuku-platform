@@ -35,6 +35,7 @@ PERMISSIONS = {
     "plans:business_calendar_manage": ("维护年度工作日日历", "SENSITIVE"),
     "plans:credit_activity_fact_manage": ("维护每日读书与优秀分享事实", "SENSITIVE"),
     "plans:hq_reading_import_manage": ("导入总部每日读书并进行身份核验", "SENSITIVE"),
+    "plans:credit_opening_manage": ("上传、复核和入账已确认期初学分", "SENSITIVE"),
     "plans:historical_credit_import_manage": ("管理历史学分导入预览", "SENSITIVE"),
     "plans:production_rule_reconciliation_apply": ("执行生产课程规则原子收口", "SENSITIVE"),
     "study_meetings:courses_edit": ("修正已提交学习会课程", "SENSITIVE"),
@@ -64,13 +65,6 @@ PERMISSIONS = {
     "enrollment:manage_link": ("管理公开入塾申请二维码", "SENSITIVE"),
 }
 PASSWORD_MIN_LENGTH = 6
-_CREDIT_SETTLEMENT_PRIVILEGED_PERMISSIONS = {
-    "plans:credit_settlement_approve",
-    "plans:credit_settlement_post",
-    "plans:credit_settlement_reconcile",
-    "plans:credit_settlement_close",
-    "plans:credit_settlement_reverse",
-}
 CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS = frozenset({
     "credit_settlement_approver",
     "credit_settlement_poster",
@@ -79,10 +73,9 @@ CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS = frozenset({
     "credit_settlement_reverser",
 })
 ROLE_PERMISSIONS = {
-    # High-risk credit actions require an explicit capability assignment even
-    # for a system administrator; adding a permission to the catalog must not
-    # silently grant production ledger authority during IAM seed/sync.
-    "system_admin": set(PERMISSIONS) - {"exports:sensitive"} - _CREDIT_SETTLEMENT_PRIVILEGED_PERMISSIONS,
+    # User policy (2026-10-10): active system administrators have all backend
+    # capabilities. Account validity, organization scopes and audits still apply.
+    "system_admin": set(PERMISSIONS),
     "technical_admin": {
         "iam:manage", "org:read", "org:manage", "audit:read", "integrations:manage",
     },
@@ -137,6 +130,7 @@ ROLE_PERMISSIONS = {
         "followups:manage", "exports:normal",
     },
     "employee_learning_management": {
+        "plans:credit_opening_manage",
         "org:read", "plans:read", "members:read", "members:detail_view",
         "attendance:adjudicate",
     },
@@ -176,6 +170,7 @@ ROLE_PERMISSIONS = {
         "enrollment:enroll",
     },
     "ops_center_learning": {
+        "plans:credit_opening_manage",
         "org:read", "plans:read", "plans:credit_rules_manage", "plans:credit_settlement_preview", "plans:credit_settlement_manage", "plans:business_calendar_manage", "plans:credit_activity_fact_manage", "plans:hq_reading_import_manage", "plans:historical_credit_import_manage", "members:read", "members:detail_view",
         "followups:manage", "attendance:adjudicate",
     },
@@ -782,15 +777,13 @@ def user_context(user_id: int) -> dict | None:
                 tuple(roles),
             )
         ]
-        # This one-shot production operation must be usable before migration
-        # 0064, so it cannot depend on a later permission migration. Clean
-        # databases persist it through seed_iam(); an existing production
-        # system_admin receives the same code-defined capability without a
-        # bootstrap write. The endpoint and service still re-check the role.
+        # Apply the explicitly authorized administrator policy to existing
+        # databases without a blanket IAM seed or individual identity rewrite.
+        # roles above already require active, unexpired live assignments.
         if "system_admin" in roles:
             user["permissions"] = sorted(
                 set(user["permissions"])
-                | {"plans:production_rule_reconciliation_apply"}
+                | set(PERMISSIONS)
             )
     else:
         user["permissions"] = []
@@ -868,7 +861,7 @@ def _roles_with_permission(role_keys: list[str], permission: str) -> set[str]:
     if not role_keys:
         return set()
     placeholders = ",".join("?" for _ in role_keys)
-    return {
+    return ({"system_admin"} if "system_admin" in role_keys and permission in PERMISSIONS else set()) | {
         row["role_key"]
         for row in fetch_all(
             "SELECT DISTINCT rp.role_key FROM role_permissions rp "

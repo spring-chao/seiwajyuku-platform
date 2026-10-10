@@ -538,7 +538,7 @@ def test_historical_settlement_batch_approval_and_post_use_gated_append_only_pat
             )
             assert submitted["status"] == "PENDING_APPROVAL"
             patch_env.setenv("LEARNING_CREDIT_BATCH_APPROVAL_ENABLED", "true")
-            with pytest.raises(PermissionError, match="无权审批"):
+            with patch("app.services.learning_credits.user_context", return_value={"permissions": []}), pytest.raises(PermissionError, match="无权审批"):
                 approve_historical_credit_batch(actor_user_id=_admin_id(), batch_id=batch["id"])
             with patch(
                 "app.services.learning_credits.user_context",

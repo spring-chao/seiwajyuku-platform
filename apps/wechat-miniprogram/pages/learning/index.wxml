@@ -52,6 +52,7 @@
       <view wx:if="{{creditErrorMessage}}" class="empty-copy error">{{creditErrorMessage}}</view>
       <block wx:elif="{{creditSummary}}">
         <view class="credit-total">{{creditSummary.totalPointsLabel}}</view>
+        <view wx:if="{{creditSummary.has_opening_balance}}" class="learning-copy">含已确认期初余额 {{creditSummary.openingPointsLabel}}（截至 {{creditSummary.opening_balance_cutoff_date}}），与之后的学习学分分别记录。</view>
         <view class="learning-copy">本年度（{{creditSummary.current_year}}年）已入账 {{creditSummary.currentYearPointsLabel}}</view>
         <view class="learning-copy">标准学习 {{creditSummary.standardPointsLabel}} · 拓展活动 {{creditSummary.extensionPointsLabel}}</view>
         <view wx:if="{{creditEntries.length}}">
@@ -62,7 +63,7 @@
             <view class="credit-points">{{item.pointsLabel}}</view>
           </view>
         </view>
-        <view wx:else class="empty-copy">暂无正式入账记录。待审批或未入账提案不会计入总分。</view>
+        <view wx:else class="empty-copy">{{creditSummary.has_opening_balance ? '暂无后续学习入账记录。' : '暂无正式入账记录。'}}待审批的学分不会计入总分。</view>
         <button class="plain-button" bindtap="openCreditHistory">全部学分记录与详情</button>
       </block>
     </view>
