@@ -4,9 +4,16 @@ import { useRoute } from "vue-router";
 import {
   getCreditReadiness,
   applyCreditRules,
+  getCreditStorageReadiness,
+  prepareCreditStorage,
+  type CreditStorageReadiness,
   type CreditReadiness
 } from "@/api/credit-readiness";
 import { creditSettlementErrorMessage } from "@/utils/creditSettlementError";
+import {
+  creditStoragePrepareKey,
+  submitCreditStoragePrepareOnce
+} from "@/utils/creditStoragePrepareJournal";
 import {
   creditRuleApplyJournalKey,
   submitCreditRuleApplyOnce
@@ -30,6 +37,22 @@ const actionError = ref("");
 const outcome = ref("");
 const reason = ref("");
 const submitted = ref(false);
+const storage = ref<CreditStorageReadiness>();
+const storageError = ref("");
+const storageExecuting = ref(false);
+const storageReason = ref("");
+const storageOutcome = ref("");
+const storageAttempted = ref(false);
+const canPrepare = computed(
+  () =>
+    storage.value?.can_prepare &&
+    (!expectedCommit.value ||
+      storage.value.release_commit === expectedCommit.value) &&
+    !loading.value &&
+    !storageExecuting.value &&
+    !storageAttempted.value &&
+    storageReason.value.trim().length >= 8
+);
 try {
   submitted.value = sessionStorage.getItem(creditRuleApplyJournalKey) !== null;
 } catch {
@@ -70,6 +93,58 @@ async function refresh() {
     error.value = creditSettlementErrorMessage(err, "学分上线准备核验失败");
   } finally {
     loading.value = false;
+  }
+  storageError.value = "";
+  try {
+    storage.value = (await getCreditStorageReadiness()).data;
+    storageAttempted.value =
+      !!storage.value.next_migration &&
+      sessionStorage.getItem(
+        creditStoragePrepareKey(storage.value.next_migration)
+      ) !== null;
+  } catch (err) {
+    storageError.value = creditSettlementErrorMessage(err, "结算存储核验失败");
+    storage.value = undefined;
+  }
+}
+
+async function executeStorage() {
+  if (!canPrepare.value) return;
+  const snapshot = storage.value;
+  const stage = snapshot.stages.find(
+    item => item.version === snapshot.next_migration
+  );
+  if (!stage) return;
+  storageExecuting.value = true;
+  storageError.value = "";
+  try {
+    await submitCreditStoragePrepareOnce(
+      sessionStorage,
+      stage.version,
+      {
+        commit: snapshot.release_commit,
+        fingerprint: snapshot.baseline_fingerprint,
+        submitted_at: new Date().toISOString()
+      },
+      () => {
+        storageAttempted.value = true;
+        return prepareCreditStorage(stage.version, {
+          expected_release_commit: snapshot.release_commit,
+          expected_baseline_fingerprint: snapshot.baseline_fingerprint,
+          expected_migration_sha256: stage.sha256,
+          execution_reason: storageReason.value.trim()
+        });
+      }
+    );
+    storageOutcome.value = `${stage.version} 已完成，正在核验下一步。`;
+  } catch (err) {
+    storageError.value = creditSettlementErrorMessage(
+      err,
+      "执行结果需要核验，不会自动重试。请刷新核验。"
+    );
+  } finally {
+    storageExecuting.value = false;
+    await refresh();
   }
 }
 
@@ -193,14 +268,15 @@ onMounted(refresh);
           :closable="false"
           show-icon
         />
-        <el-alert
-          v-for="blocker in state.blockers"
-          :key="blocker.code + blocker.message"
-          :title="blocker.message"
-          type="warning"
-          :closable="false"
-          show-icon
-        />
+        <template v-if="state.status !== 'ALREADY_APPLIED'"
+          ><el-alert
+            v-for="blocker in state.blockers"
+            :key="blocker.code + blocker.message"
+            :title="blocker.message"
+            type="warning"
+            :closable="false"
+            show-icon
+        /></template>
         <p>
           已登记升级：{{
             state.applied_migrations.length
@@ -251,6 +327,88 @@ onMounted(refresh);
             @click="executeRules"
             >执行课程规则收口</el-button
           >
+        </el-form>
+      </template>
+    </el-card>
+    <el-card shadow="never" style="margin-top: 16px">
+      <template #header><strong>结算数据库准备与启用状态</strong></template>
+      <p>
+        课程规则收口后，依次准备规则绑定、历史来源、期间结构和结算批次。每次只执行一个固定升级，不自动重试，不写入学分。
+      </p>
+      <el-alert
+        v-if="storageError"
+        :title="storageError"
+        type="error"
+        :closable="false"
+        show-icon
+      />
+      <el-alert
+        v-if="storageOutcome"
+        :title="storageOutcome"
+        type="success"
+        :closable="false"
+        show-icon
+      />
+      <template v-if="storage">
+        <el-alert
+          v-if="storage.formal_ready"
+          title="日常学习正式结算已开启，可按业务记录计算、复核并入账。"
+          type="success"
+          :closable="false"
+          show-icon
+        />
+        <el-alert
+          v-else-if="storage.storage_ready"
+          title="结算数据库已就绪，等待发布启用结算配置。"
+          type="success"
+          :closable="false"
+          show-icon
+        />
+        <el-alert
+          v-for="blocker in storage.blockers"
+          :key="blocker"
+          :title="blocker"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+        <el-table :data="storage.stages">
+          <el-table-column prop="version" label="升级步骤" width="130" />
+          <el-table-column prop="filename" label="固定存储脚本" />
+          <el-table-column label="状态" width="130"
+            ><template #default="{ row }">{{
+              row.applied ? "已完成" : "待完成"
+            }}</template></el-table-column
+          >
+        </el-table>
+        <p>
+          规则绑定：{{ storage.bindings.generic_frozen }} /
+          {{ storage.bindings.total }}；课程绑定：{{
+            storage.bindings.course_frozen
+          }}
+          / {{ storage.bindings.total }}；待补课程引用：{{
+            storage.course_references_to_fill
+          }}。
+        </p>
+        <el-form v-if="storage.next_migration" label-position="top">
+          <el-form-item label="存储准备原因"
+            ><el-input
+              v-model="storageReason"
+              type="textarea"
+              :maxlength="1000"
+              placeholder="填写本次准备原因，至少 8 个字"
+              :disabled="storageExecuting"
+          /></el-form-item>
+          <el-button
+            type="primary"
+            :disabled="!canPrepare"
+            :loading="storageExecuting"
+            @click="executeStorage"
+            >准备 {{ storage.next_migration }} 结算存储</el-button
+          >
+          <p v-if="storageAttempted">
+            本步骤已提交，请刷新核验结果；不重复发送。
+          </p>
         </el-form>
       </template>
     </el-card>

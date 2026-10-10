@@ -18,6 +18,35 @@ from app.services.production_operations import (
 router = APIRouter(prefix="/api/v1/ops/production-actions", tags=["production-actions"])
 
 
+class CreditStoragePreparePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_release_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    expected_baseline_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_migration_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    execution_reason: str = Field(min_length=8, max_length=1000)
+
+
+@router.get("/credit-settlement-storage/preflight", include_in_schema=False)
+def credit_storage_preflight(actor: dict = Depends(require_permission(REQUIRED_PERMISSION))):
+    from app.services import credit_settlement_setup
+    try:
+        return {"success": True, "data": credit_settlement_setup.preview(int(actor["id"]))}
+    except ProductionOperationError as exc:
+        raise HTTPException(exc.status_code, {"code": exc.code, "message": exc.message}) from exc
+
+
+@router.post("/credit-settlement-storage/{migration_version}/prepare", include_in_schema=False)
+def credit_storage_prepare(migration_version: Literal["0064", "0065", "0066", "0067"],
+                           payload: CreditStoragePreparePayload,
+                           actor: dict = Depends(require_permission(REQUIRED_PERMISSION))):
+    from app.services import credit_settlement_setup
+    try:
+        return {"success": True, "data": credit_settlement_setup.prepare(
+            actor_user_id=int(actor["id"]), migration_version=migration_version, **payload.model_dump())}
+    except ProductionOperationError as exc:
+        raise HTTPException(exc.status_code, {"code": exc.code, "message": exc.message}) from exc
+
+
 class G54CourseRuleApplyPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

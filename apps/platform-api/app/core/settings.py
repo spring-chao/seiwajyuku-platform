@@ -75,6 +75,7 @@ class Settings:
     learning_credit_historical_post_enabled: bool = False
     learning_credit_opening_balance_enabled: bool = False
     credit_opening_setup_enabled: bool = False
+    credit_settlement_setup_enabled: bool = False
     g5_4_production_rule_apply_enabled: bool = False
     agent_client_id: str = ""
     agent_client_secret: str = ""
@@ -262,6 +263,7 @@ def get_settings() -> Settings:
         ),
         learning_credit_opening_balance_enabled=_bool("LEARNING_CREDIT_OPENING_BALANCE_ENABLED"),
         credit_opening_setup_enabled=_bool("CREDIT_OPENING_SETUP_ENABLED"),
+        credit_settlement_setup_enabled=_bool("CREDIT_SETTLEMENT_SETUP_ENABLED"),
         agent_client_id=os.getenv("AGENT_CLIENT_ID", "").strip(),
         agent_client_secret=os.getenv("AGENT_CLIENT_SECRET", "").strip(),
         agent_allowed_channels=tuple(
