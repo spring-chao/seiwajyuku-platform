@@ -38,8 +38,12 @@ class EntryPayload(BaseModel):
     wx_login_code: str = Field(min_length=1, max_length=512)
 
 
-class GuestConfirmPayload(EntryPayload):
+class GuestLookupPayload(EntryPayload):
     name: str = Field(min_length=1, max_length=120)
+
+
+class GuestConfirmPayload(GuestLookupPayload):
+    candidate_token: str | None = Field(default=None, max_length=2048)
 
 
 def _raise(exc: signin_engine.SigninEngineError) -> HTTPException:
@@ -169,7 +173,7 @@ def context(event_id: str | None = Query(default=None, min_length=1, max_length=
             "receipt": _receipt(lookup.get("receipt")) if member and already else None,
             "can_checkin": bool(member and lookup.get("can_checkin", registration is not None) and not already),
             "requires_fallback": bool(lookup.get("requires_fallback")),
-            "notice": (lookup.get("notice") or lookup.get("msg") or "") if member else "请输入您的姓名，确认本场活动签到。",
+            "notice": (lookup.get("notice") or lookup.get("msg") or "") if member else "请输入报名姓名，核对本场报名信息后确认签到。",
             "guest_allowed": member is None,
             "fallback_url": _fallback(selected_id), "history_kind": _kind(event),
             "checkin_ticket": ticket, "engine_confirm_url": confirm_url,
@@ -199,26 +203,46 @@ def entry(payload: EntryPayload) -> dict:
         raise _raise(exc) from exc
 
 
+@router.post("/guest-lookup")
+def guest_lookup(payload: GuestLookupPayload) -> dict:
+    return _registration_name_request(payload, confirm=False)
+
+
 @router.post("/guest-confirm")
 def guest_confirm(payload: GuestConfirmPayload) -> dict:
+    return _registration_name_request(payload, confirm=True)
+
+
+def _registration_name_request(payload: GuestLookupPayload, *, confirm: bool) -> dict:
     try:
-        signin_engine.enabled(member=True, write=True)
+        signin_engine.enabled(member=True, write=confirm)
         selected_id = _event_id(payload.event_id, payload.token)
         name = payload.name.strip()
         if not name or any(ord(char) < 32 or ord(char) == 127 for char in name):
             raise HTTPException(400, "请填写有效姓名")
+        if confirm and not payload.candidate_token:
+            raise HTTPException(409, "请先查询并核对本场报名信息，再确认签到")
         identity = exchange_wechat_code(payload.wx_login_code)
         access_token = resume_wechat_binding(identity)
         if access_token and _member(HTTPAuthorizationCredentials(scheme="Bearer", credentials=access_token), required=False):
             raise HTTPException(409, "当前微信已绑定塾生，请重新打开活动页确认本人签到")
-        # Name is descriptive only; separate WeChat accounts with the same name
-        # get distinct guest facts. Raw openid never leaves this service.
+        # The selection is bound to this WeChat account and existing enrollment.
+        # Raw openid never leaves this service; this path never creates slots.
         guest_id = hmac.new(get_settings().signin_platform_api_key.encode(),
                             ("signin-guest\x1f" + str(identity["appid"]) + "\x1f" + str(identity["openid"])).encode(),
                             hashlib.sha256).hexdigest()
-        result = signin_engine.engine_request("/ops/v1/guest-checkin/confirm", {
-            "event_id": selected_id, "guest_id": guest_id, "name": name,
-        }, timeout=12)
+        engine_payload = {"event_id": selected_id, "guest_id": guest_id, "name": name}
+        if confirm:
+            engine_payload["candidate_token"] = payload.candidate_token
+        result = signin_engine.engine_request("/ops/v1/guest-checkin/" + ("confirm" if confirm else "lookup"),
+                                              engine_payload, timeout=12)
+        if not confirm:
+            fields = {"registration_id", "name", "registered_name", "class_name", "group_name",
+                      "center", "company", "checked_in", "checked_at", "candidate_token"}
+            return {"success": True, "data": {"status": result.get("status"),
+                "message": result.get("msg"),
+                "candidates": [{key: value for key, value in row.items() if key in fields}
+                               for row in result.get("candidates", [])]}}
         checked_at = result.get("checked_at") or (result.get("data") or {}).get("checked_at")
         if not checked_at:
             raise signin_engine.SigninEngineError("尚未确认实际签到记录，请重试", 502)

@@ -23,9 +23,16 @@
     <view class="result-info"><view wx:for="{{successCard.lines}}" wx:key="index">{{item}}</view></view>
   </view>
   <view wx:if="{{guestAllowed && !loading && !alreadyChecked}}" class="section-card">
-    <view class="section-title">填写姓名签到</view><view class="section-hint">来宾填写姓名即可参加本场活动。</view>
+    <view class="section-title">核对报名签到</view><view class="section-hint">请先查询本场报名信息，核对后确认签到。未报名请联系现场工作人员。</view>
     <input class="name-input" placeholder="请输入您的姓名" maxlength="120" value="{{guestName}}" bindinput="inputGuestName" disabled="{{confirming}}" />
-    <button class="primary-button" loading="{{confirming}}" disabled="{{confirming}}" bindtap="confirmGuest">确认签到</button>
+    <button class="primary-button" loading="{{confirming}}" disabled="{{confirming}}" bindtap="lookupGuest">查询报名信息</button>
+    <view wx:for="{{nameCandidates}}" wx:key="registration_id" class="section-card">
+      <view class="identity-name">{{item.registered_name || item.name}}</view>
+      <view class="detail-line">{{item.class_name}}{{item.group_name ? ' · ' + item.group_name : ''}}</view>
+      <view wx:if="{{item.company || item.center}}" class="detail-line">{{item.company || item.center}}</view>
+      <view wx:if="{{item.checked_in}}" class="section-hint">此报名已签到，确认后查看原签到结果。</view>
+      <button class="primary-button" loading="{{confirming}}" disabled="{{confirming}}" data-index="{{index}}" bindtap="confirmGuest">确认本人报名并签到</button>
+    </view>
     <button class="plain-button" bindtap="openBinding">我是塾生，绑定我的身份</button>
   </view>
   <view wx:if="{{errorMessage}}" class="state-card error">{{errorMessage}}</view>

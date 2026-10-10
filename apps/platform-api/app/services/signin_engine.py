@@ -13,6 +13,7 @@ import httpx
 from app.core.settings import get_settings
 from app.db import fetch_one
 from app.services.iam import accessible_org_ids
+from app.services.attendance_registration_identity import enrich_registration_payload
 
 
 OPERATIONS = {
@@ -185,8 +186,16 @@ def management_request(operation: str, payload: dict, *, user: dict) -> dict:
                            or operation == "upload" and not payload.get("event_id"))
     if any(key in payload for key in ("actor", "allowed_org_unit_ids", "admin_token", "password", "api_key")):
         raise SigninEngineError("请求包含不可提交的授权字段", 400)
+    identity_verified = operation in {"registration", "upload_preview", "upload", "import_preview", "import_apply"}
+    if identity_verified:
+        if operation != "registration" and (not isinstance(payload.get("attendees", []), list)
+                or len(payload.get("attendees", [])) > 5000
+                or any(not isinstance(row, dict) for row in payload.get("attendees", []))):
+            raise SigninEngineError("报名表格式无效或超过5000条，请重新上传", 400)
+        payload = enrich_registration_payload(operation, payload)
     data = engine_request("/ops/v1/manage/" + operation, {
         "payload": payload,
+        **({"registration_identity_verified": True} if identity_verified else {}),
         "actor": {"id": user["id"], "permissions": permissions},
         "allowed_org_unit_ids": allowed,
     })
