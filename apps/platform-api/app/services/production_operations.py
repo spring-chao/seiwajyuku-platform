@@ -17,7 +17,7 @@ from typing import Any
 
 from app.core.build_info import get_build_info
 from app.core.settings import get_settings
-from app.db import execute, transaction
+from app.db import connect, execute, transaction
 from app.services.audit import write_audit
 from app.services.course_credit_canonical import (
     CANONICAL_PLAN_KEY,
@@ -68,8 +68,8 @@ def _is_sqlite(connection: Any) -> bool:
     return isinstance(connection, sqlite3.Connection)
 
 
-def _locking(statement: str, connection: Any) -> str:
-    return statement if _is_sqlite(connection) else f"{statement} FOR UPDATE"
+def _locking(statement: str, connection: Any, *, lock: bool = True) -> str:
+    return statement if not lock or _is_sqlite(connection) else f"{statement} FOR UPDATE"
 
 
 def _rows(connection: Any, statement: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
@@ -122,14 +122,14 @@ def _verify_actor(connection: Any, actor_user_id: int) -> None:
         _fail("PERMISSION_DENIED", "仅 system_admin 可执行该生产操作", status_code=403)
 
 
-def _read_version(connection: Any) -> dict[str, Any]:
+def _read_version(connection: Any, *, lock: bool = True) -> dict[str, Any]:
     rows = _rows(
         connection,
         _locking(
             "SELECT id, plan_key, version_label, status, based_on_version_label, "
             "created_by, created_at, updated_at FROM learning_plan_credit_rule_versions "
             "WHERE plan_key=? AND version_label=?",
-            connection,
+            connection, lock=lock,
         ),
         (CANONICAL_PLAN_KEY, CANONICAL_VERSION_LABEL),
     )
@@ -138,7 +138,7 @@ def _read_version(connection: Any) -> dict[str, Any]:
     return rows[0]
 
 
-def _read_rules(connection: Any, version_id: int) -> list[dict[str, Any]]:
+def _read_rules(connection: Any, version_id: int, *, lock: bool = True) -> list[dict[str, Any]]:
     return _rows(
         connection,
         _locking(
@@ -146,19 +146,19 @@ def _read_rules(connection: Any, version_id: int) -> list[dict[str, Any]]:
             "credit_points, status, source, aliases_json, created_by, updated_by, "
             "created_at, updated_at FROM learning_plan_credit_rules "
             "WHERE rule_version_id=? ORDER BY course_key, id",
-            connection,
+            connection, lock=lock,
         ),
         (version_id,),
     )
 
 
-def _verify_generic_rules(connection: Any) -> None:
+def _verify_generic_rules(connection: Any, *, lock: bool = True) -> None:
     versions = _rows(
         connection,
         _locking(
             "SELECT id, status FROM learning_credit_rule_versions "
             "WHERE rule_set_key=? AND version_label=?",
-            connection,
+            connection, lock=lock,
         ),
         (CANONICAL_PLAN_KEY, CANONICAL_VERSION_LABEL),
     )
@@ -169,7 +169,7 @@ def _verify_generic_rules(connection: Any) -> None:
         _locking(
             "SELECT rule_key, settlement_model, points, cap_points, status "
             "FROM learning_credit_rules WHERE rule_version_id=? ORDER BY rule_key",
-            connection,
+            connection, lock=lock,
         ),
         (versions[0]["id"],),
     )
@@ -226,13 +226,13 @@ def _verify_mapping_and_bindings(connection: Any) -> dict[str, int]:
     return summary
 
 
-def _read_ledger(connection: Any) -> dict[str, Any]:
+def _read_ledger(connection: Any, *, lock: bool = True) -> dict[str, Any]:
     row = _row(
         connection,
         _locking(
             "SELECT COUNT(*) AS entry_count, COALESCE(SUM(points), 0) AS points "
             "FROM learning_credit_entries",
-            connection,
+            connection, lock=lock,
         ),
     )
     return {"entry_count": int(row["entry_count"]), "points": _decimal(row["points"])}
@@ -308,6 +308,100 @@ def _is_already_applied(reconciliation: dict[str, Any]) -> bool:
         and reconciliation["extra_count"] == 0
         and reconciliation["conflict_count"] == 0
     )
+
+
+def preview_g5_4_course_rule_reconciliation(*, actor_user_id: int) -> dict[str, Any]:
+    """Read a bounded launch preflight without locks, audit writes, or gate changes.
+
+    This is a display snapshot, not an execution grant. APPLY rechecks its
+    existing guards and both fingerprints while holding the operation lock.
+    Only semantic rule fields are returned; actor/timestamp before-images stay
+    on the server for the existing transactional audit.
+    """
+    settings = get_settings()
+    connection = connect()
+    try:
+        _verify_actor(connection, actor_user_id)
+        version = _read_version(connection, lock=False)
+        rules = _read_rules(connection, int(version["id"]), lock=False)
+        references = _reference_counts(connection, int(version["id"]))
+        reconciliation = reconcile_course_rules(
+            version=version, production_rules=rules,
+            policy=load_canonical_policy(), reference_counts=references,
+        )
+        ledger = _read_ledger(connection, lock=False)
+        migrations = _rows(connection, "SELECT version FROM schema_migrations WHERE "
+                           "version LIKE '0064_%' OR version LIKE '0065_%' OR "
+                           "version LIKE '0066_%' OR version LIKE '0067_%' ORDER BY version")
+        blockers = []
+        bindings = None
+        for check in (lambda: _verify_generic_rules(connection, lock=False),
+                      lambda: _verify_followup_migrations_not_applied(connection)):
+            try:
+                check()
+            except ProductionOperationError as exc:
+                blockers.append({"code": exc.code, "message": exc.message})
+        try:
+            bindings = _verify_mapping_and_bindings(connection)
+        except ProductionOperationError as exc:
+            blockers.append({"code": exc.code, "message": exc.message})
+        if ledger["entry_count"] != 0 or ledger["points"] != 0:
+            blockers.append({"code": "LEDGER_NOT_EMPTY", "message": "正式账本已存在记录，不能执行首次规则收口"})
+        already_applied = _is_already_applied(reconciliation)
+        counts = _change_counts(reconciliation["plan"])
+        if not already_applied and (
+            version["status"] != "DRAFT" or version.get("based_on_version_label") != "2026"
+            or len(rules) != EXPECTED_BEFORE_RULE_COUNT or counts != EXPECTED_CHANGE_COUNTS
+            or reconciliation["extra_count"] or reconciliation["conflict_count"]
+        ):
+            blockers.append({"code": "RULE_STATE_UNEXPECTED", "message": "实际差异不符合固定的首次规则收口范围"})
+        gates = {
+            "rule_apply_enabled": settings.g5_4_production_rule_apply_enabled,
+            "settlement_enabled": settings.learning_credit_settlement_enabled,
+            "deployment_read_only": settings.deployment_read_only,
+            "allow_production_mutations": settings.allow_production_mutations,
+        }
+        if not gates["rule_apply_enabled"]:
+            blockers.append({"code": "FEATURE_DISABLED", "message": "规则收口执行开关尚未开启"})
+        if gates["settlement_enabled"]:
+            blockers.append({"code": "SETTLEMENT_ENABLED", "message": "规则收口期间正式结算开关必须关闭"})
+        if gates["deployment_read_only"] or not gates["allow_production_mutations"]:
+            blockers.append({"code": "PRODUCTION_MUTATIONS_DISABLED", "message": "当前部署不允许生产写入"})
+        release_commit = str(get_build_info().get("commit_sha") or "")
+        if len(release_commit) != 40 or any(c not in "0123456789abcdef" for c in release_commit):
+            blockers.append({"code": "RELEASE_COMMIT_MISMATCH", "message": "当前构建缺少完整提交标识"})
+        if settings.app_env not in {"production", "test"}:
+            blockers.append({"code": "ENVIRONMENT_NOT_ALLOWED", "message": "当前环境不允许执行生产规则收口"})
+        ready = not blockers and not already_applied
+        fields = ("course_key", "course_name", "year_index", "credit_points", "status", "source", "aliases")
+        return {
+            "status": "ALREADY_APPLIED" if already_applied else "READY" if ready else "BLOCKED",
+            "checked_at": datetime.now(UTC).isoformat(),
+            "release_commit": release_commit,
+            "version": {key: version[key] for key in ("id", "plan_key", "version_label", "status")},
+            "rule_count": len(rules), "target_rule_count": EXPECTED_RULE_COUNT,
+            "production_fingerprint": reconciliation["production_fingerprint"],
+            "canonical_fingerprint": reconciliation["canonical_fingerprint"],
+            "changes": counts, "bindings": bindings,
+            "ledger": {"entry_count": ledger["entry_count"], "points": str(ledger["points"])},
+            "applied_migrations": [row["version"] for row in migrations],
+            "feature_gates": gates, "blockers": blockers,
+            "plan": [{"course_key": item["course_key"], "action": item["action"],
+                      "before": {k: item["before"].get(k) for k in fields} if isinstance(item.get("before"), dict) else None,
+                      "after": {k: item["after"].get(k) for k in fields} if isinstance(item.get("after"), dict) else None}
+                     for item in reconciliation["plan"]],
+            "apply_payload": {
+                "expected_release_commit": release_commit,
+                "expected_production_fingerprint": reconciliation["production_fingerprint"],
+                "expected_canonical_fingerprint": reconciliation["canonical_fingerprint"],
+                "expected_course_rule_version_id": int(version["id"]),
+                "expected_course_rule_status": "DRAFT", "expected_rule_count": 14,
+                "expected_placeholder_keys": sorted(UNUSED_PLACEHOLDER_KEYS),
+            } if ready else None,
+        }
+    finally:
+        connection.rollback()
+        connection.close()
 
 
 def _write_plan(

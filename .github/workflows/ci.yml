@@ -176,6 +176,8 @@ jobs:
           apps/platform-api/tests/test_credit_lifecycle_acceptance.py
           apps/platform-api/tests/test_credit_launch_http_acceptance.py
           apps/platform-api/tests/test_credit_single_migration_mysql.py
+          apps/platform-api/tests/test_credit_opening_balances.py
+          apps/platform-api/tests/test_credit_opening_setup_mysql.py
           apps/platform-api/tests/test_audit_serialization.py
           apps/platform-api/tests/test_class_meeting_batch_mysql.py
           apps/platform-api/tests/test_credit_activity_batch_mysql.py

@@ -127,7 +127,7 @@ export default [
         meta: {
           title: "学分结算工作台",
           icon: "ep/coin",
-          auths: ["plans:credit_settlement_manage"]
+          auths: ["plans:credit_settlement_manage", "plans:credit_opening_manage"]
         }
       }
     ]
@@ -177,6 +177,16 @@ export default [
       rank: 5
     },
     children: [
+      {
+        path: "/operations/credit-readiness",
+        name: "CreditReadiness",
+        component: () => import("@/views/seiwajyuku/credit-readiness.vue"),
+        meta: {
+          title: "学分上线准备",
+          icon: "ep/coin",
+          auths: ["plans:production_rule_reconciliation_apply"]
+        }
+      },
       {
         path: "/operations/class-learning-plans",
         name: "ClassLearningPlanManagement",

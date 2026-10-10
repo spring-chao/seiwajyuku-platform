@@ -107,6 +107,7 @@ Page({
             totalPointsLabel: `${summary.total_points || "0.00"}分`,
             currentYearPointsLabel: `${summary.current_year_points || "0.00"}分`,
             standardPointsLabel: `${summary.standard_learning_points || "0.00"}分`,
+            openingPointsLabel: `${summary.opening_balance_points || "0.00"}分`,
             extensionPointsLabel: `${summary.extension_activity_points || "0.00"}分`
           },
           creditEntries

@@ -11,6 +11,7 @@ import {
   type UserResult,
   type RefreshTokenResult,
   getLogin,
+  getCurrentUser,
   refreshTokenApi
 } from "@/api/user";
 import { useMultiTagsStoreHook } from "./multiTags";
@@ -74,6 +75,28 @@ export const useUserStore = defineStore("pure-user", {
           .catch(error => {
             reject(error);
           });
+      });
+    },
+    /** Update capabilities after a release without forcing a new login. */
+    async refreshAuthorization() {
+      const previous = storageLocal().getItem<DataInfo<number>>(userKey);
+      const result = await getCurrentUser();
+      const current = storageLocal().getItem<DataInfo<number>>(userKey);
+      if (
+        !result.success ||
+        !current ||
+        current.username !== previous?.username ||
+        current.refreshToken !== previous?.refreshToken
+      )
+        return;
+      this.SET_ROLES(result.data.roles);
+      this.SET_PERMS(result.data.permissions);
+      this.SET_NICKNAME(result.data.display_name);
+      storageLocal().setItem(userKey, {
+        ...current,
+        roles: result.data.roles,
+        permissions: result.data.permissions,
+        nickname: result.data.display_name
       });
     },
     /** 前端登出（不调用接口） */

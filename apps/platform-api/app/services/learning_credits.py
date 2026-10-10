@@ -729,11 +729,19 @@ def member_credit_summary(*, actor_user_id: int, member_id: int) -> dict[str, An
             " GROUP BY occurred_precision ORDER BY occurred_precision",
             tuple(period_params),
         )
+    from app.services.credit_opening_balances import opening_summary
+    connection = connect()
+    try:
+        opening = opening_summary(connection, member_id=member_id, allowed=allowed)
+    finally:
+        connection.close()
     return {
         "member_id": member_id,
         "standard_learning_points": standard,
         "extension_activity_points": extension,
-        "total_points": standard + extension,
+        "total_points": standard + extension + float(opening["total_points"]),
+        "opening_balance_points": opening["total_points"],
+        "opening_balance_cutoff_date": opening["cutoff_date"],
         "period_breakdown": [
             {
                 "occurred_precision": str(row["occurred_precision"]),
@@ -779,9 +787,19 @@ def credit_ledger_overview(*, actor_user_id: int) -> dict[str, Any]:
         "FROM learning_credit_entries WHERE " + where + " GROUP BY credit_type ORDER BY credit_type",
         tuple(params),
     )
+    from app.services.credit_opening_balances import opening_summary
+    connection = connect()
+    try:
+        opening = opening_summary(connection, allowed=allowed)
+    finally:
+        connection.close()
+    if opening["entry_count"]:
+        categories.append({"credit_category": "OPENING_BALANCE", "entry_count": opening["entry_count"], "points": opening["total_points"]})
+        credit_types.append({"credit_type": "CONFIRMED_OPENING_BALANCE", "entry_count": opening["entry_count"], "points": opening["total_points"]})
     return {
-        "entry_count": int(totals["entry_count"]),
-        "total_points": format(Decimal(str(totals["total_points"] or 0)), ".2f"),
+        "entry_count": int(totals["entry_count"]) + opening["entry_count"],
+        "total_points": format(Decimal(str(totals["total_points"] or 0)) + Decimal(opening["total_points"]), ".2f"),
+        "opening_balance_points": opening["total_points"],
         "categories": [
             {
                 "credit_category": str(row["credit_category"]),
@@ -805,6 +823,9 @@ def _insert_entry(connection, item: dict[str, Any], *, status: str, actor_user_i
     now = _db_timestamp(connection)
     posted_at = now if status == "POSTED" else None
     occurred_at, occurred_precision, occurred_year, occurred_month = _occurrence_fields(item)
+    if status == "POSTED":
+        from app.services.credit_opening_balances import guard_regular_post
+        guard_regular_post(connection, item, (occurred_at, occurred_precision, occurred_year, occurred_month))
     try:
         cursor = execute(
             connection,
