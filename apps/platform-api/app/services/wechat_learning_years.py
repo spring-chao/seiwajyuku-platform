@@ -96,7 +96,7 @@ def learning_year_summary(connection, member_id, opening):
         dated = execute(connection,
             "SELECT e.points,COALESCE(original.rule_snapshot_json,e.rule_snapshot_json) AS snapshot, "
             "COALESCE(original.class_org_unit_id,e.class_org_unit_id) AS class_id, "
-            "COALESCE(original.occurred_at,e.occurred_at) AS occurred_at," + precision + " AS precision "
+            "COALESCE(original.occurred_at,e.occurred_at) AS occurred_at," + precision + " AS time_precision "
             "FROM learning_credit_entries e LEFT JOIN learning_credit_entries original "
             "ON original.id=e.reversal_of_entry_id AND original.member_id=e.member_id "
             "AND original.status IN ('POSTED','REVERSED') "
@@ -111,7 +111,7 @@ def learning_year_summary(connection, member_id, opening):
                 continue
             binding = execute(connection, 'SELECT * FROM class_learning_bindings WHERE id=? AND class_org_unit_id=?',
                               (snapshot['binding_id'], row['class_id'])).fetchone()
-            if not binding or not complete_progress(int(binding['id'])) or row['precision'] != 'EXACT_DATE':
+            if not binding or not complete_progress(int(binding['id'])) or row['time_precision'] != 'EXACT_DATE':
                 continue
             try:
                 # These facts explicitly retain the original Shanghai business
