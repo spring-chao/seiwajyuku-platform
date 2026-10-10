@@ -28,7 +28,7 @@ def school():
             row = execute(c, "INSERT INTO class_learning_cycles(binding_id,class_org_unit_id,learning_cycle_index,plan_cycle_id,opened_at,class_meeting_status,group_meeting_policy,cycle_status,created_at,updated_at) VALUES (?,?,?, ?,?,'PLANNED','REQUIRED','OPEN',?,?)",
                           (binding['id'], f['class_id'], index, plan.lastrowid, opened, base.isoformat(), base.isoformat()))
             ids.append(int(row.lastrowid))
-    return {**f, 'cycles': ids, 'base': base}
+    return {**f, 'cycles': ids, 'base': base, 'binding_id': int(binding['id'])}
 
 
 def held(f, count):
@@ -39,13 +39,13 @@ def held(f, count):
                     ('HELD' if actual else 'PLANNED', actual, cid))
 
 
-def credit(f, cycle, points, *, member=None, original=None, status='POSTED'):
+def credit(f, cycle, points, *, member=None, original=None, status='POSTED', snapshot=None):
     with transaction() as c:
         return _insert_entry(c, {
             'member_id': member or f['member_id'], 'credit_category': 'STANDARD_LEARNING', 'credit_type': 'CLASS_MEETING_SCORE',
             'points': points, 'source_type': 'REVERSAL' if original else 'CLASS_MEETING', 'source_id': uuid4().hex,
             'class_org_unit_id': f['class_id'], 'learning_cycle_id': cycle,
-            'rule_key': 'TEST', 'rule_version': 'TEST', 'rule_snapshot': {}, 'occurred_at': '2024-01-01',
+            'rule_key': 'TEST', 'rule_version': 'TEST', 'rule_snapshot': snapshot or {}, 'occurred_at': '2024-01-01',
             'idempotency_key': uuid4().hex, 'reversal_of_entry_id': original,
         }, status=status, actor_user_id=None)
 
@@ -115,3 +115,25 @@ def test_resumed_history_without_first_learning_days_does_not_invent_year_one(sc
     result = get_member_credit_summary(school['member_id'])
     assert result['current_learning_year'] is None
     assert result['current_learning_year_points'] is None
+
+
+def test_reading_facts_use_frozen_binding_and_business_date_with_boundary_ambiguity(school):
+    held(school, 12)
+    boundary = (school['base'] + timedelta(days=12 * 31)).date()
+    for offset, points in [(-1, '3.75'), (0, '9.50'), (1, '2.75')]:
+        credit(school, None, points, snapshot={'binding_id': school['binding_id'], 'occurred_on': (boundary + timedelta(days=offset)).isoformat()})
+    result = get_member_credit_summary(school['member_id'])
+    assert values(result) == {1: '3.75', 2: '2.75', 3: '0.00'}
+    assert result['current_learning_year_points'] == '2.75'
+    assert result['unallocated_learning_year_points'] == '9.50'
+
+
+def test_reading_reversal_uses_same_member_original_and_rejects_wrong_binding_scope(school):
+    held(school, 12)
+    snapshot = {'binding_id': school['binding_id'], 'occurred_on': '2024-01-10'}
+    original = credit(school, None, '8.25', snapshot=snapshot)
+    credit(school, None, '-8.25', original=original['id'])
+    credit(school, None, '1.25', snapshot={**snapshot, 'binding_id': school['binding_id'] + 100000000})
+    result = get_member_credit_summary(school['member_id'])
+    assert values(result) == {1: '0.00', 2: '0.00', 3: '0.00'}
+    assert result['unallocated_learning_year_points'] == '1.25'
