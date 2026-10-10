@@ -117,7 +117,7 @@ export default [
         meta: {
           title: "学分结算工作台",
           icon: "ep/coin",
-          auths: ["plans:credit_settlement_manage"]
+          auths: ["plans:credit_settlement_manage", "plans:credit_opening_manage"]
         }
       }
     ]

@@ -55,10 +55,10 @@ class IamIsolationTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.client_context.__exit__(None, None, None)
 
-    def test_admin_does_not_inherit_sensitive_export(self) -> None:
+    def test_admin_has_all_backend_capabilities(self) -> None:
         response = self.client.get("/api/v1/me", headers=self.admin_headers)
         self.assertEqual(response.status_code, 200)
-        self.assertNotIn("exports:sensitive", response.json()["data"]["permissions"])
+        self.assertTrue(set(PERMISSIONS).issubset(response.json()["data"]["permissions"]))
         for permission in {
             "plans:credit_settlement_approve",
             "plans:credit_settlement_post",
@@ -66,7 +66,27 @@ class IamIsolationTests(unittest.TestCase):
             "plans:credit_settlement_close",
             "plans:credit_settlement_reverse",
         }:
-            self.assertNotIn(permission, response.json()["data"]["permissions"])
+            self.assertIn(permission, response.json()["data"]["permissions"])
+
+    def test_existing_admin_capabilities_do_not_depend_on_old_seed_grants(self) -> None:
+        from app.services import iam
+        admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+        original = iam.fetch_all
+        def without_capability_rows(sql, params=()):
+            return [] if "FROM role_permissions rp" in sql else original(sql, params)
+        with patch.object(iam, "fetch_all", side_effect=without_capability_rows):
+            response = self.client.get("/api/v1/me", headers=self.admin_headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(set(PERMISSIONS).issubset(response.json()["data"]["permissions"]))
+            self.assertIsNone(iam.accessible_org_ids(admin["id"], "plans:credit_settlement_post"))
+        uid = create_user(admin["id"], username="expired-admin-test", display_name="测试管理员", password="test-only-admin-password", roles=["system_admin"], scopes=[{"scope_type": "UNIT", "org_unit_id": "class-a"}])
+        self.assertEqual(iam.accessible_org_ids(uid, "plans:credit_settlement_post"), {"class-a"})
+        with transaction() as connection:
+            execute(connection, "UPDATE user_roles SET valid_until='2000-01-01' WHERE user_id=?", (uid,))
+        self.assertEqual(user_context(uid)["permissions"], [])
+        with transaction() as connection:
+            execute(connection, "UPDATE app_users SET is_active=0 WHERE id=?", (uid,))
+        self.assertIsNone(user_context(uid))
 
     def test_credit_actions_have_narrow_assignable_roles(self) -> None:
         manage = "plans:credit_settlement_manage"
@@ -85,7 +105,7 @@ class IamIsolationTests(unittest.TestCase):
         }
         elevated = {approve, post, reconcile, close, reverse}
         self.assertTrue(elevated.issubset(PERMISSIONS))
-        self.assertTrue(all(elevated.isdisjoint(grants) for role, grants in ROLE_PERMISSIONS.items() if role not in dedicated_roles))
+        self.assertTrue(all(elevated.isdisjoint(grants) for role, grants in ROLE_PERMISSIONS.items() if role not in dedicated_roles | {"system_admin"}))
         self.assertEqual(ROLE_PERMISSIONS["credit_settlement_approver"], {manage, preview, approve})
         self.assertEqual(ROLE_PERMISSIONS["credit_settlement_poster"], {manage, preview, post})
         self.assertEqual(ROLE_PERMISSIONS["credit_settlement_reconciler"], {manage, reconcile})

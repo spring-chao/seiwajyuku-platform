@@ -107,3 +107,21 @@ test("credit pages are registered and summary contract remains separate", () => 
     for (const extension of ["js", "json", "wxml", "wxss"]) assert.ok(fs.existsSync(path.join(root, "pages/credits", `${name}.${extension}`)));
   }
 });
+
+test("opening balance is separate from event pagination and clears with private history", async () => {
+  let finish, count = 0;
+  const { p, app } = page("index", () => {
+    if (++count === 1) return Promise.resolve({ data: { entries: [], opening_balance: { entry_count: 1, total_points: "0.00", cutoff_date: "2001-08-31" }, next_offset: 0, snapshot_id: "0", has_more: true } });
+    return new Promise(resolve => { finish = resolve; });
+  });
+  await p.onShow();
+  assert.equal(p.data.openingBalance.total_points, "0.00");
+  assert.equal(p.data.nextOffset, 0);
+  const pending = p.loadMore();
+  app.globalData.memberSessionToken = "another-account";
+  finish({ data: { entries: [], opening_balance: { entry_count: 1, total_points: "999.00" }, has_more: false } });
+  await pending;
+  assert.equal(p.data.openingBalance, null);
+  p.onHide();
+  assert.equal(p.data.openingBalance, null);
+});

@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
 import { creditSettlementErrorMessage } from "@/utils/creditSettlementError";
+import CreditOpeningBalances from "./components/CreditOpeningBalances.vue";
 import {
   approveSettlementBatch,
   closeSettlementBatch,
@@ -38,6 +39,7 @@ const canPost = computed(() => permissions.value.includes("plans:credit_settleme
 const canReconcile = computed(() => permissions.value.includes("plans:credit_settlement_reconcile"));
 const canClose = computed(() => permissions.value.includes("plans:credit_settlement_close"));
 const canReverse = computed(() => permissions.value.includes("plans:credit_settlement_reverse"));
+const canManageOpening = computed(() => permissions.value.includes("plans:credit_opening_manage") || permissions.value.includes("plans:historical_credit_import_manage"));
 const canManageHistory = computed(() => permissions.value.includes("plans:historical_credit_import_manage"));
 const canReadLedger = computed(() => permissions.value.includes("plans:credit_settlement_preview"));
 const loading = ref(false);
@@ -96,6 +98,7 @@ const periodLabel = (row: any) => {
 const errorMessage = creditSettlementErrorMessage;
 
 const loadBatches = async () => {
+  if (!canManage.value) return;
   loading.value = true;
   error.value = "";
   try {
@@ -160,7 +163,8 @@ const refreshLedger = async () => {
 
 const categoryLabel = (category: string) => ({
   STANDARD_LEARNING: "标准学习",
-  EXTENSION_ACTIVITY: "拓展活动"
+  EXTENSION_ACTIVITY: "拓展活动",
+  OPENING_BALANCE: "已确认期初余额"
 }[category] || category);
 
 const openDetail = async (batch: any) => {
@@ -377,29 +381,16 @@ onMounted(() => {
       <div class="page-header">
         <div>
           <div class="page-title">学分结算工作台</div>
-          <div class="page-subtitle">事实冻结 → DRY-RUN → 独立审批 → 正式入账。阻塞项保留在批次中，不会混入已批准提案。</div>
+          <div class="page-subtitle">已有累计学分，请使用下方 Excel 导入；日常学习活动按业务记录结算。正式入账后，小程序展示学长自己的学分。</div>
         </div>
-        <el-button :loading="loading" @click="loadBatches">刷新</el-button>
+        <el-button v-if="canManage" :loading="loading" @click="loadBatches">刷新</el-button>
       </div>
-      <el-alert
-        v-if="response && !response.storage_available"
-        class="notice"
-        type="warning"
-        show-icon
-        :closable="false"
-        title="结算批次表尚不可用；当前页面只读，所有批次动作均关闭。"
-      />
-      <el-alert
-        v-else-if="response && (!gate('post_enabled') || !gate('settlement_enabled'))"
-        class="notice"
-        type="info"
-        show-icon
-        :closable="false"
-        title="正式入账开关当前关闭。页面不会尝试开启开关；仅能执行已授权且已启用的阶段。"
-      />
-      <el-alert v-if="error" class="notice" :title="error" type="error" show-icon :closable="false" />
     </el-card>
 
+    <CreditOpeningBalances v-if="canManageOpening" @posted="refreshLedger" />
+    <el-collapse v-if="canManage" class="activity-settlement">
+      <el-collapse-item title="日常学习活动结算（按活动、课程记录计算）" name="activity">
+        <el-alert v-if="error" class="notice" :title="error" type="error" show-icon :closable="false" />
     <el-card shadow="never" class="dry-run-card">
       <template #header><div class="section-title">生成结算 DRY-RUN</div></template>
       <el-alert
@@ -475,10 +466,12 @@ onMounted(() => {
       </el-table>
     </el-card>
 
+      </el-collapse-item>
+    </el-collapse>
     <el-card shadow="never" class="ledger-card">
       <template #header>
         <div class="section-header">
-          <div><span class="section-title">正式学分账本</span><span class="muted">只读查询；冲销仅追加负分记录，原记录不变</span></div>
+          <div><span class="section-title">正式学分总览</span><span class="muted">期初余额见上方导入记录，下表展示学习活动入账明细</span></div>
           <el-button v-if="canReadLedger" :loading="ledgerLoading || overviewLoading" @click="refreshLedger">刷新账本</el-button>
         </div>
       </template>

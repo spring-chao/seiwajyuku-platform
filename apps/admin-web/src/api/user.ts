@@ -121,3 +121,7 @@ export const refreshTokenApi = async (data?: {
     }
   };
 };
+
+/** Refresh live backend capabilities for existing browser sessions. */
+export const getCurrentUser = () =>
+  http.request<MeResponse>("get", "/api/v1/me", { timeout: 20000 });

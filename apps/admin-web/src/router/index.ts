@@ -5,6 +5,7 @@ import NProgress from "@/utils/progress";
 import { buildHierarchyTree } from "@/utils/tree";
 import remainingRouter from "./modules/remaining";
 import { useMultiTagsStoreHook } from "@/store/modules/multiTags";
+import { useUserStoreHook } from "@/store/modules/user";
 import { usePermissionStoreHook } from "@/store/modules/permission";
 import {
   isUrl,
@@ -119,7 +120,11 @@ const whiteList = ["/login"];
 
 const { VITE_HIDE_HOME } = import.meta.env;
 
-router.beforeEach((to: ToRouteType, _from, next) => {
+let authorizationUser = "";
+let authorizationRefresh: Promise<void> | undefined;
+
+router.beforeEach(async (to: ToRouteType, _from, next) => {
+  if (!Cookies.get(multipleTabsKey)) authorizationUser = "";
   to.meta.loaded = loadedPaths.has(to.path);
 
   if (!to.meta.loaded) {
@@ -133,7 +138,7 @@ router.beforeEach((to: ToRouteType, _from, next) => {
       handleAliveRoute(to);
     }
   }
-  const userInfo = storageLocal().getItem<DataInfo<number>>(userKey);
+  let userInfo = storageLocal().getItem<DataInfo<number>>(userKey);
   const externalLink = isUrl(to?.name as string);
   if (!externalLink) {
     to.matched.some(item => {
@@ -152,11 +157,31 @@ router.beforeEach((to: ToRouteType, _from, next) => {
     whiteList.includes(to.fullPath) ? next(_from.fullPath) : next();
   }
   if (Cookies.get(multipleTabsKey) && userInfo) {
+    if (authorizationUser !== userInfo.username) {
+      try {
+        authorizationRefresh ??= useUserStoreHook()
+          .refreshAuthorization()
+          .finally(() => {
+            authorizationRefresh = undefined;
+          });
+        await authorizationRefresh;
+        userInfo = storageLocal().getItem<DataInfo<number>>(userKey);
+        if (!userInfo || !Cookies.get(multipleTabsKey))
+          return next({ path: "/login" });
+        authorizationUser = userInfo.username;
+      } catch {
+        // Cached UI may remain visible during a transient outage; every
+        // backend action still rechecks current identity and capabilities.
+      }
+    }
     // 无权限跳转403页面
     const routeAuths = to.meta?.auths as string[] | undefined;
-    const hasRoutePermission = Array.isArray(routeAuths) && routeAuths.length
-      ? routeAuths.some(permission => userInfo?.permissions?.includes(permission))
-      : !to.meta?.roles || isOneOfArray(to.meta?.roles, userInfo?.roles);
+    const hasRoutePermission =
+      Array.isArray(routeAuths) && routeAuths.length
+        ? routeAuths.some(permission =>
+            userInfo?.permissions?.includes(permission)
+          )
+        : !to.meta?.roles || isOneOfArray(to.meta?.roles, userInfo?.roles);
     if (!hasRoutePermission) {
       return next({ path: "/access-denied" });
     }
