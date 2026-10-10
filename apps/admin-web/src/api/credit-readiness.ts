@@ -64,6 +64,7 @@ export type CreditStorageReadiness = {
   blockers: string[];
   next_migration: string | null;
   can_prepare: boolean;
+  can_repair_alias_format: boolean;
   storage_ready: boolean;
   formal_ready: boolean;
   settlement_gates: Record<string, boolean>;
@@ -82,12 +83,19 @@ export const prepareCreditStorage = (
     expected_baseline_fingerprint: string;
     expected_migration_sha256: string;
     execution_reason: string;
-  }
+  },
+  repairAliasFormat = false
 ) =>
   http.request<{
     success: true;
     data: { status: "RECORDED"; migration_version: string };
-  }>("post", `${storageEndpoint}/${version}/prepare`, { data, timeout: 60000 });
+  }>(
+    "post",
+    repairAliasFormat
+      ? `${storageEndpoint}/0064/repair-alias-format`
+      : `${storageEndpoint}/${version}/prepare`,
+    { data, timeout: 60000 }
+  );
 
 // Both calls use the normal authenticated client and one fixed API operation.
 // A deployment route token may target a verified candidate; no alternate host,

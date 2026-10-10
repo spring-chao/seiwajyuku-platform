@@ -43,6 +43,17 @@ const storageExecuting = ref(false);
 const storageReason = ref("");
 const storageOutcome = ref("");
 const storageAttempted = ref(false);
+const formatRepairAttempted = ref(false);
+const canRepairFormat = computed(
+  () =>
+    storage.value?.can_repair_alias_format &&
+    (!expectedCommit.value ||
+      storage.value.release_commit === expectedCommit.value) &&
+    !loading.value &&
+    !storageExecuting.value &&
+    !formatRepairAttempted.value &&
+    storageReason.value.trim().length >= 8
+);
 const canPrepare = computed(
   () =>
     storage.value?.can_prepare &&
@@ -102,14 +113,18 @@ async function refresh() {
       sessionStorage.getItem(
         creditStoragePrepareKey(storage.value.next_migration)
       ) !== null;
+    formatRepairAttempted.value =
+      sessionStorage.getItem(
+        creditStoragePrepareKey("0064-alias-format-repair")
+      ) !== null;
   } catch (err) {
     storageError.value = creditSettlementErrorMessage(err, "结算存储核验失败");
     storage.value = undefined;
   }
 }
 
-async function executeStorage() {
-  if (!canPrepare.value) return;
+async function executeStorage(repairAliasFormat = false) {
+  if (repairAliasFormat ? !canRepairFormat.value : !canPrepare.value) return;
   const snapshot = storage.value;
   const stage = snapshot.stages.find(
     item => item.version === snapshot.next_migration
@@ -120,20 +135,25 @@ async function executeStorage() {
   try {
     await submitCreditStoragePrepareOnce(
       sessionStorage,
-      stage.version,
+      repairAliasFormat ? "0064-alias-format-repair" : stage.version,
       {
         commit: snapshot.release_commit,
         fingerprint: snapshot.baseline_fingerprint,
         submitted_at: new Date().toISOString()
       },
       () => {
-        storageAttempted.value = true;
-        return prepareCreditStorage(stage.version, {
-          expected_release_commit: snapshot.release_commit,
-          expected_baseline_fingerprint: snapshot.baseline_fingerprint,
-          expected_migration_sha256: stage.sha256,
-          execution_reason: storageReason.value.trim()
-        });
+        if (repairAliasFormat) formatRepairAttempted.value = true;
+        else storageAttempted.value = true;
+        return prepareCreditStorage(
+          stage.version,
+          {
+            expected_release_commit: snapshot.release_commit,
+            expected_baseline_fingerprint: snapshot.baseline_fingerprint,
+            expected_migration_sha256: stage.sha256,
+            execution_reason: storageReason.value.trim()
+          },
+          repairAliasFormat
+        );
       }
     );
     storageOutcome.value = `${stage.version} 已完成，正在核验下一步。`;
@@ -403,12 +423,29 @@ onMounted(refresh);
             type="primary"
             :disabled="!canPrepare"
             :loading="storageExecuting"
-            @click="executeStorage"
+            @click="executeStorage(false)"
             >准备 {{ storage.next_migration }} 结算存储</el-button
           >
           <p v-if="storageAttempted">
             本步骤已提交，请刷新核验结果；不重复发送。
           </p>
+          <template v-if="storage.can_repair_alias_format">
+            <p>
+              已核验 0064 尚未创建持久结构，差异仅为课程别名 JSON
+              格式。修复保留原始开始记录和全部规则内容，再按原固定脚本完成准备。
+            </p>
+            <el-button
+              type="primary"
+              :disabled="!canRepairFormat"
+              :loading="storageExecuting"
+              @click="executeStorage(true)"
+            >
+              修复别名格式并完成 0064
+            </el-button>
+            <p v-if="formatRepairAttempted">
+              格式修复已提交，请刷新核验；不重复发送。
+            </p>
+          </template>
         </el-form>
       </template>
     </el-card>

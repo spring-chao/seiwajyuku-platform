@@ -14,6 +14,7 @@ def test_unauthenticated_storage_preparation_is_rejected():
     with TestClient(app) as client:
         assert client.get(BASE + '/preflight').status_code == 401
         assert client.post(BASE + '/0064/prepare', json={}).status_code == 401
+        assert client.post(BASE + '/0064/repair-alias-format', json={}).status_code == 401
 
 
 def test_no_permission_cannot_read_or_prepare_storage():
@@ -22,6 +23,7 @@ def test_no_permission_cannot_read_or_prepare_storage():
         with TestClient(app) as client:
             assert client.get(BASE + '/preflight').status_code == 403
             assert client.post(BASE + '/0064/prepare', json={}).status_code == 403
+            assert client.post(BASE + '/0064/repair-alias-format', json={}).status_code == 403
     finally:
         app.dependency_overrides.clear()
 
@@ -36,6 +38,8 @@ def test_extra_sql_and_nonallowlisted_migration_never_reach_service(monkeypatch)
         with TestClient(app) as client:
             assert client.post(BASE + '/0064/prepare', json={**payload, 'sql': 'SELECT 1'}).status_code == 422
             assert client.post(BASE + '/0069/prepare', json=payload).status_code == 422
+            assert client.post(BASE + '/0064/repair-alias-format', json={**payload, 'sql': 'SELECT 1'}).status_code == 422
+            assert client.post(BASE + '/0064/prepare', json={**payload, 'repair_alias_format': True}).status_code == 422
         prepare.assert_not_called()
     finally:
         app.dependency_overrides.clear()

@@ -29,6 +29,8 @@ TABLES = {
     "0067": {"learning_credit_settlement_batches", "learning_credit_settlement_batch_items"},
 }
 ACTION = "production.credit_settlement.setup"
+FORMAT_ACTION = ACTION + ".0064_alias_format_repair"
+UNFINISHED = "存在未完成的存储准备记录；不会自动重试，请核验实际结构"
 
 
 def _fail(message, code="SETUP_NOT_READY", status_code=409):
@@ -45,6 +47,36 @@ def _one(connection, sql, params=()):
 
 def _hash(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+
+
+def _alias_format_repairs(connection, version_id):
+    """Only JSON whitespace/escaping; alias contents and their order must match."""
+    expected = {r['course_key']: r['aliases'] for r in load_canonical_policy()['rules']}
+    result = []
+    for row in _rows(connection, "SELECT id,course_key,aliases_json FROM learning_plan_credit_rules WHERE rule_version_id=? ORDER BY course_key", (version_id,)):
+        raw = row['aliases_json']
+        try:
+            value = json.loads(raw)
+        except (TypeError, ValueError):
+            return []
+        if row['course_key'] not in expected or value != expected[row['course_key']]:
+            return []
+        canonical = json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+        if raw != canonical:
+            result.append({'id': row['id'], 'course_key': row['course_key'], 'before': raw, 'after': canonical})
+    return result
+
+
+def _can_repair_alias_format(baseline, blockers):
+    return (blockers == [UNFINISHED] and baseline['rule_status'] == 'DRAFT'
+            and baseline['canonical_rules_ready'] and baseline['rule_apply_audit_count'] == 1
+            and baseline['ledger']['total'] == 0 and baseline['mappings']['total'] == 0
+            and baseline['bindings']['generic_frozen'] == baseline['bindings']['course_frozen'] == 0
+            and all(not s['applied'] and not s['unrecorded_structure'] for s in baseline['stages'])
+            and baseline['stages'][0]['attempted']
+            and all(not s['attempted'] for s in baseline['stages'][1:])
+            and baseline['format_repair_attempts'] == 0 and baseline['first_stage_attempts'] == 1
+            and bool(baseline['alias_format_repairs']))
 
 
 def _snapshot(connection):
@@ -90,6 +122,9 @@ def _snapshot(connection):
                 "rule_status": version["status"], "canonical_rules_ready": rules._is_already_applied(reconciliation),
                 "rule_fingerprint": reconciliation["production_fingerprint"], "rule_apply_audit_count": audit_count,
                 "dependency_ready": "schema_migrations" in all_tables and bool(_rows(connection, "SELECT version FROM schema_migrations WHERE version='0063_complete_changzhou_wuxi_fee_and_service_address.sql'"))}
+    baseline['alias_format_repairs'] = _alias_format_repairs(connection, version['id'])
+    baseline['first_stage_attempts'] = _one(connection, "SELECT COUNT(*) AS n FROM audit_logs WHERE action=? AND resource_id=? AND result='STARTED'", (ACTION, MIGRATIONS['0064'][0]))['n']
+    baseline['format_repair_attempts'] = _one(connection, "SELECT COUNT(*) AS n FROM audit_logs WHERE action=? AND result='STARTED'", (FORMAT_ACTION,))['n']
     blockers = []
     try:
         rules._verify_generic_rules(connection, lock=False)
@@ -108,7 +143,7 @@ def _snapshot(connection):
         elif missing_seen or not stage["schema_present"]:
             blockers.append("迁移登记与实际结构不一致，请核验后做前向修复")
         if not stage["applied"] and (stage["attempted"] or stage["unrecorded_structure"]):
-            blockers.append("存在未完成的存储准备记录；不会自动重试，请核验实际结构")
+            blockers.append(UNFINISHED)
     if stages[0]["applied"]:
         if version["status"] != "PUBLISHED" or bindings["total"] != bindings["generic_frozen"] or bindings["total"] != bindings["course_frozen"] or bindings["mismatched_frozen"] or mappings["total"] != 1 or mappings["exact"] != 1 or fill:
             blockers.append("规则发布、绑定冻结或课程引用未完整完成")
@@ -138,6 +173,7 @@ def preview(actor_user_id: int):
                 **baseline, "ledger": {"total": baseline["ledger"]["total"], "points": str(baseline["ledger"]["points"])},
                 "blockers": blockers, "next_migration": next_stage["version"] if next_stage else None,
                 "can_prepare": bool(next_stage) and not blockers, "storage_ready": storage_ready,
+                "can_repair_alias_format": setup_enabled and _can_repair_alias_format(baseline, blockers),
                 "settlement_gates": gates, "formal_ready": storage_ready and all(gates.values())}
     finally:
         connection.rollback()
@@ -145,7 +181,10 @@ def preview(actor_user_id: int):
 
 
 def prepare(*, actor_user_id: int, migration_version: str, expected_release_commit: str,
-            expected_baseline_fingerprint: str, expected_migration_sha256: str, execution_reason: str):
+            expected_baseline_fingerprint: str, expected_migration_sha256: str, execution_reason: str,
+            repair_alias_format: bool = False):
+    if repair_alias_format and migration_version != '0064':
+        _fail("格式修复仅允许尚未创建持久结构的 0064")
     if migration_version not in MIGRATIONS:
         _fail("不是允许的固定结算迁移")
     settings = get_settings()
@@ -165,6 +204,7 @@ def prepare(*, actor_user_id: int, migration_version: str, expected_release_comm
     connection = connect()
     reserved = False
     locked = False
+    statement_index = None
     try:
         rules._verify_actor(connection, actor_user_id)
         if isinstance(connection, sqlite3.Connection):
@@ -173,18 +213,29 @@ def prepare(*, actor_user_id: int, migration_version: str, expected_release_comm
         if not locked:
             _fail("另一个规则或迁移操作正在执行")
         baseline, blockers = _snapshot(connection)
-        if blockers:
+        if repair_alias_format and not _can_repair_alias_format(baseline, blockers):
+            _fail("实际结构或规则不符合固定别名格式修复条件；不重跑已完成或部分执行的迁移")
+        if blockers and not repair_alias_format:
             _fail("；".join(blockers))
         next_stage = next((s for s in baseline["stages"] if not s["applied"]), None)
         if not next_stage or next_stage["version"] != migration_version or _hash(baseline) != expected_baseline_fingerprint:
             _fail("迁移顺序或实时基线已变化，请刷新核验；已登记迁移不会重跑")
-        write_audit(connection, actor_user_id=actor_user_id, action=ACTION, resource_type="schema_migration", resource_id=name,
+        operation_action = FORMAT_ACTION if repair_alias_format else ACTION
+        write_audit(connection, actor_user_id=actor_user_id, action=operation_action, resource_type="schema_migration", resource_id=name,
                     purpose=execution_reason.strip(), result="STARTED", after={"commit": commit, "sha256": digest,
                     "baseline_fingerprint": expected_baseline_fingerprint, "bindings": baseline["bindings"],
-                    "course_references_to_fill": baseline["course_references_to_fill"]})
+                    "course_references_to_fill": baseline["course_references_to_fill"],
+                    "alias_format_repairs": baseline['alias_format_repairs'] if repair_alias_format else []})
         connection.commit()
         reserved = True
-        for statement in _split_mysql(content.decode("utf-8")):
+        if repair_alias_format:
+            for row in baseline['alias_format_repairs']:
+                cursor = execute(connection, "UPDATE learning_plan_credit_rules SET aliases_json=? WHERE id=? AND aliases_json=?", (row['after'], row['id'], row['before']))
+                if cursor.rowcount != 1:
+                    _fail("课程别名格式发生变化，需要核验实际状态")
+            write_audit(connection, actor_user_id=actor_user_id, action=FORMAT_ACTION + '.normalize', resource_type='course_credit_rules', resource_id=name, purpose=execution_reason.strip(), before=baseline['alias_format_repairs'], after={'semantic_change': False})
+            connection.commit()
+        for statement_index, statement in enumerate(_split_mysql(content.decode("utf-8")), start=1):
             execute(connection, statement)
         after_ledger = _one(connection, "SELECT COUNT(*) AS total, COALESCE(SUM(points),0) AS points FROM learning_credit_entries")
         if after_ledger != baseline["ledger"]:
@@ -194,7 +245,7 @@ def prepare(*, actor_user_id: int, migration_version: str, expected_release_comm
         after, after_blockers = _snapshot(connection)
         if after_blockers:
             _fail("迁移后不变量核验未通过，请核验实际结果")
-        write_audit(connection, actor_user_id=actor_user_id, action=ACTION + ".complete", resource_type="schema_migration", resource_id=name,
+        write_audit(connection, actor_user_id=actor_user_id, action=operation_action + ".complete", resource_type="schema_migration", resource_id=name,
                     purpose=execution_reason.strip(), after={"commit": commit, "sha256": digest, "ledger_delta": 0,
                     "bindings": after["bindings"], "course_references_to_fill": after["course_references_to_fill"]})
         connection.commit()
@@ -202,6 +253,12 @@ def prepare(*, actor_user_id: int, migration_version: str, expected_release_comm
     except Exception as error:
         connection.rollback()
         if reserved:
+            try:
+                numeric_code = error.args[0] if error.args and isinstance(error.args[0], int) else None
+                write_audit(connection, actor_user_id=actor_user_id, action=operation_action + '.failure', resource_type='schema_migration', resource_id=name, result='FAILED', after={'statement_index': statement_index, 'error_type': type(error).__name__, 'mysql_error_code': numeric_code})
+                connection.commit()
+            except Exception:
+                connection.rollback()
             _fail("执行结果需要核验；已保留开始记录，不会自动重试或回退", code="SETUP_OUTCOME_UNKNOWN")
         if isinstance(error, rules.ProductionOperationError):
             raise
