@@ -204,11 +204,54 @@ function harness(api = async () => ({ ok: true })) {
   });
   vm.runInContext(
     output +
-      "\nglobalThis.state = { selected, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, rosterOptionId, code, codeEvent, codeVersion }; globalThis.actions = { selectEvent, previewImport, applyImport, saveEditor, createCode };",
+      "\nglobalThis.state = { selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, rosterOptionId, code, codeEvent, codeVersion, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, previewCreation };",
     context
   );
   return { state: context.state, actions: context.actions, calls };
 }
+
+test("opening activity management is visible before slow details finish and survives a read error", async () => {
+  let reject;
+  const pending = new Promise((_, fail) => {
+    reject = fail;
+  });
+  const h = harness(() => pending);
+  const opening = h.actions.selectEvent({
+    event_id: "draft-1",
+    name: "待确认活动",
+    lifecycle_status: "DRAFT"
+  });
+  assert.equal(h.state.workspaceVisible.value, true);
+  assert.equal(h.state.detailLoading.value, true);
+  assert.equal(h.state.activeEventId.value, "draft-1");
+  reject(new Error("活动详情暂时不可用"));
+  await opening;
+  assert.equal(h.state.workspaceVisible.value, true);
+  assert.equal(h.state.detailLoading.value, false);
+  assert.match(h.state.error.value, /暂时不可用/);
+  assert.equal(
+    h.calls.some(call => call.operation === "event_lifecycle_update"),
+    false
+  );
+});
+
+test("the draft row confirmation uses the selected activity and preserves the existing lifecycle operation", async () => {
+  const h = harness(async operation =>
+    operation === "admin_events" ? { items: [] } : {}
+  );
+  await h.actions.confirmEvent({
+    event_id: "draft-2",
+    name: "待确认活动",
+    lifecycle_status: "DRAFT"
+  });
+  assert.equal(h.state.workspaceVisible.value, true);
+  const writes = h.calls.filter(
+    call => call.operation === "event_lifecycle_update"
+  );
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].payload.event_id, "draft-2");
+  assert.equal(writes[0].payload.lifecycle_status, "CONFIRMED");
+});
 
 test("a name-only edit preserves legacy organization ownership and does not submit protected time fields", async () => {
   const h = harness();
@@ -375,4 +418,89 @@ test("ordinary creation without a verified organization sends no write; QR uses 
   await h.actions.createCode();
   assert.equal(h.calls[0].payload.eventId, "afternoon-event");
   assert.equal(h.state.code.value.event_id, "afternoon-event");
+});
+
+function configureOrdinaryCreation(h) {
+  Object.assign(h.state.editor, {
+    event_name: "隔离报名活动",
+    event_date: "2026-10-11",
+    activity_type: "course",
+    checkin_start_at: "2026-10-11T08:00",
+    checkin_end_at: "2026-10-11T18:00"
+  });
+  h.state.regionId.value = "isolated-center";
+}
+
+test("ordinary creation requires a roster and uses the original signed upload preview before saving", async () => {
+  const h = harness(async operation =>
+    operation === "upload_preview"
+      ? { ok: true, preview_token: "signed-preview", preview_issued_at: 123 }
+      : { ok: true }
+  );
+  configureOrdinaryCreation(h);
+  await h.actions.saveEditor();
+  assert.match(h.state.error.value, /上传报名表格/);
+  assert.equal(h.calls.length, 0);
+  h.state.creationAttendees.value = [
+    { name: "合成报名联系人" },
+    { name: "合成报名联系人" }
+  ];
+  await h.actions.previewCreation();
+  assert.equal(h.calls[0].operation, "upload_preview");
+  assert.equal(h.calls[0].payload.attendees.length, 2);
+  await h.actions.saveEditor();
+  const write = h.calls.find(call => call.operation === "upload");
+  assert.ok(write);
+  assert.equal(write.payload.preview_token, "signed-preview");
+  assert.equal(write.payload.attendees.length, 2);
+  assert.equal(
+    h.calls.some(call => call.operation === "create_event"),
+    false
+  );
+});
+
+test("creation rejects a preview after activity metadata or roster changes", async () => {
+  for (const mutate of [
+    h => (h.state.editor.event_name = "修改名称"),
+    h => h.state.creationAttendees.value.push({ name: "新增报名" })
+  ]) {
+    const h = harness(async () => ({
+      ok: true,
+      preview_token: "old-preview",
+      preview_issued_at: 123
+    }));
+    configureOrdinaryCreation(h);
+    h.state.creationAttendees.value = [{ name: "合成报名" }];
+    await h.actions.previewCreation();
+    mutate(h);
+    await h.actions.saveEditor();
+    assert.match(h.state.error.value, /重新核对/);
+    assert.equal(
+      h.calls.some(call => call.operation === "upload"),
+      false
+    );
+  }
+});
+
+test("group study meetings are absent from new activity choices and cannot be created here", async () => {
+  const h = harness();
+  assert.equal(
+    h.state.editorActivityTypes.value.some(
+      ([value]) => value === "group_meeting"
+    ),
+    false
+  );
+  configureOrdinaryCreation(h);
+  h.state.editor.activity_type = "group_meeting";
+  await h.actions.saveEditor();
+  assert.match(h.state.error.value, /辅导员/);
+  assert.equal(h.calls.length, 0);
+  // Historical activity labels remain available when editing existing events.
+  h.state.editingId.value = "historical";
+  assert.equal(
+    h.state.editorActivityTypes.value.some(
+      ([value]) => value === "group_meeting"
+    ),
+    true
+  );
 });
