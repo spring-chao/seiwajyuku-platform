@@ -11,7 +11,7 @@ function page(name, request) {
     clearMemberSession() { this.globalData.memberSessionToken = ""; this.cleared = true; } };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../pages/credits", `${name}.js`), "utf8"), {
     Page: value => { instance = value; }, getApp: () => app,
-    require: () => ({ request }), wx: { navigateTo: value => navigation.push(value.url) }
+    require: name => name.endsWith('credit-display') ? require('../utils/credit-display') : ({ request }), wx: { navigateTo: value => navigation.push(value.url) }
   });
   instance.setData = value => Object.assign(instance.data, value);
   return { p: instance, app, navigation };

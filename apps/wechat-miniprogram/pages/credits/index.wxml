@@ -4,7 +4,7 @@
     <view class="hero-copy">仅展示正式账本。冲销以负数抵扣，原记录保留；新入账记录刷新后显示。</view>
   </view>
   <view wx:if="{{openingBalance}}" class="section-card">
-    <view class="learning-name">已确认期初余额 · {{openingBalance.total_points}}分</view>
+    <view class="learning-name">已确认期初余额 · {{openingBalance.pointsLabel}}</view>
     <view class="learning-copy">统计截至 {{openingBalance.cutoff_date}}。保留累计原值，后续学习另行入账。</view>
   </view>
   <view wx:for="{{entries}}" wx:key="entry_ref" class="section-card" bindtap="openEntry" data-ref="{{item.entry_ref}}">

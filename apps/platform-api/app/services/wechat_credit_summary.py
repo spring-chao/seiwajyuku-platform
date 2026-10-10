@@ -11,6 +11,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.db import connect, execute
+from app.services.wechat_learning_years import learning_year_summary
 
 
 BUSINESS_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -249,6 +250,7 @@ def get_member_credit_summary(member_id: int) -> dict[str, Any]:
             (member_id, *_POSTED_STATUSES, RECENT_CREDIT_LIMIT),
         ).fetchall()
         return {
+            **learning_year_summary(connection, member_id, opening),
             "current_year": current_year,
             "total_points": _points(standard + extension + Decimal(opening["total_points"])),
             "opening_balance_points": opening["total_points"],

@@ -11,6 +11,10 @@
 .learning-row { margin-top: 18rpx; padding: 20rpx; border-radius: 16rpx; background: #fff7f2; }
 .learning-name { color: #741f2b; font-size: 30rpx; font-weight: 700; }
 .credit-total { margin-top: 16rpx; color: #741f2b; font-size: 52rpx; font-weight: 700; }
+.credit-years { margin-top: 24rpx; border-top: 1rpx solid #f0e5e1; }
+.credit-year { display: flex; align-items: center; justify-content: space-between; padding: 20rpx 0; color: #806f6f; font-size: 28rpx; border-bottom: 1rpx solid #f0e5e1; }
+.credit-year-current { color: #741f2b; font-weight: 700; }
+.credit-current-badge { padding: 4rpx 14rpx; border-radius: 16rpx; background: #fff1e9; font-size: 22rpx; }
 .credit-entry { position: relative; padding-right: 140rpx; }
 .credit-points { position: absolute; top: 22rpx; right: 20rpx; color: #741f2b; font-size: 28rpx; font-weight: 700; }
 .primary-button { margin-top: 24rpx; border-radius: 12rpx; background: #741f2b; color: #fff; font-size: 29rpx; }

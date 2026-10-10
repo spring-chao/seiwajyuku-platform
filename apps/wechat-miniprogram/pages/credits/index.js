@@ -1,5 +1,6 @@
 const app = getApp();
 const { request } = require("../../utils/request");
+const { pointsLabel } = require("../../utils/credit-display");
 const session = () => app.globalData.personSessionToken || app.globalData.memberSessionToken || "";
 
 Page({
@@ -28,10 +29,10 @@ Page({
       if (!current()) return;
       const data = response.data || {};
       const entries = (data.entries || []).map(item => ({
-        ...item, pointsLabel: `${Number(item.points) > 0 ? "+" : ""}${item.points}分`
+        ...item, pointsLabel: pointsLabel(item.points, true)
       }));
       const seen = new Set(this.data.entries.map(item => item.entry_ref));
-      this.setData({ openingBalance: data.opening_balance?.entry_count ? data.opening_balance : null, entries: this.data.entries.concat(entries.filter(item => !seen.has(item.entry_ref))),
+      this.setData({ openingBalance: data.opening_balance?.entry_count ? { ...data.opening_balance, pointsLabel: pointsLabel(data.opening_balance.total_points) } : null, entries: this.data.entries.concat(entries.filter(item => !seen.has(item.entry_ref))),
         hasMore: data.has_more === true, nextOffset: data.next_offset, snapshotId: data.snapshot_id });
     } catch (error) {
       if (!current()) return;

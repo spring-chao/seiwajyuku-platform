@@ -277,6 +277,7 @@ jobs:
           apps/platform-api/tests/test_c7_1_1_mysql_reconciliation.py
           apps/platform-api/tests/test_g5_4_c3_2_production_apply.py
           apps/platform-api/tests/test_wechat_credit_legacy_schema.py
+          apps/platform-api/tests/test_wechat_learning_year_credits.py
           apps/platform-api/tests/test_admin_credit_legacy_schema.py
           apps/platform-api/tests/test_participation_workbook_import.py
           apps/platform-api/tests/test_participation_history_import.py
