@@ -35,6 +35,7 @@ const busy = ref(false);
 const error = ref("");
 const events = ref<ManagedEvent[]>([]);
 const selected = ref<ManagedEvent | null>(null);
+const workspaceVisible = ref(false);
 const activeEventId = ref("");
 const page = ref(1);
 const hasMore = ref(false);
@@ -226,6 +227,7 @@ async function loadEvents(reset = false) {
 }
 async function selectEvent(item: any) {
   selected.value = item;
+  workspaceVisible.value = true;
   personFilter.value = "all";
   personKeyword.value = "";
   await switchSession(
@@ -235,6 +237,10 @@ async function selectEvent(item: any) {
       item
     ).event_id
   );
+}
+async function confirmEvent(item: any) {
+  await selectEvent(item);
+  await changeLifecycle("CONFIRMED");
 }
 async function refreshDetail(quiet = false) {
   if (!activeEventId.value || detailLoading.value) return;
@@ -732,6 +738,7 @@ onMounted(async () => {
   timer = setInterval(() => {
     if (
       autoRefresh.value &&
+      workspaceVisible.value &&
       activeEventId.value &&
       !busy.value &&
       !document.hidden
@@ -871,10 +878,16 @@ onUnmounted(() => {
                 .join(" / ")
             }}</template></el-table-column
           >
-          <el-table-column label="管理" width="95"
+          <el-table-column label="管理" width="200" fixed="right"
             ><template #default="{ row }"
+              ><el-button
+                v-if="permission('update') && row.lifecycle_status === 'DRAFT'"
+                type="primary"
+                :disabled="busy"
+                @click.stop="confirmEvent(row)"
+                >确认活动</el-button
               ><el-button type="primary" link @click.stop="selectEvent(row)"
-                >现场工作区</el-button
+                >管理活动</el-button
               ></template
             ></el-table-column
           >
@@ -899,6 +912,12 @@ onUnmounted(() => {
         </div>
       </el-card>
 
+      <el-drawer
+        v-model="workspaceVisible"
+        title="活动签到管理"
+        size="min(1200px, 96vw)"
+        :close-on-click-modal="false"
+      >
       <el-card v-if="selected" shadow="never" v-loading="detailLoading">
         <template #header
           ><div class="heading">
@@ -919,6 +938,15 @@ onUnmounted(() => {
             </div>
           </div></template
         >
+        <el-alert
+          v-if="currentEvent?.lifecycle_status === 'DRAFT'"
+          title="活动当前为草稿。核对活动与场次信息后，点击“确认活动”，再生成签到码。"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="notice"
+        />
+        <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" class="notice" />
         <div class="session-picker">
           <el-button
             v-for="session in sessions"
@@ -953,9 +981,10 @@ onUnmounted(() => {
             v-if="
               permission('update') && currentEvent?.lifecycle_status === 'DRAFT'
             "
+            type="primary"
             :disabled="busy"
             @click="changeLifecycle('CONFIRMED')"
-            >确认举办</el-button
+            >确认活动</el-button
           >
           <el-button
             v-if="
@@ -1209,7 +1238,7 @@ onUnmounted(() => {
                 label="实际签到人数" /></el-table></el-collapse-item
         ></el-collapse>
       </el-card>
-      <el-empty v-else description="选择一个活动，打开现场工作区" />
+      </el-drawer>
     </template>
 
     <el-dialog

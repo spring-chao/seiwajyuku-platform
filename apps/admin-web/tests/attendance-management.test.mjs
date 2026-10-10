@@ -204,11 +204,37 @@ function harness(api = async () => ({ ok: true })) {
   });
   vm.runInContext(
     output +
-      "\nglobalThis.state = { selected, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, rosterOptionId, code, codeEvent, codeVersion }; globalThis.actions = { selectEvent, previewImport, applyImport, saveEditor, createCode };",
+      "\nglobalThis.state = { selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, rosterOptionId, code, codeEvent, codeVersion }; globalThis.actions = { selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode };",
     context
   );
   return { state: context.state, actions: context.actions, calls };
 }
+
+test("opening activity management is visible before slow details finish and survives a read error", async () => {
+  let reject;
+  const pending = new Promise((_, fail) => { reject = fail; });
+  const h = harness(() => pending);
+  const opening = h.actions.selectEvent({ event_id: "draft-1", name: "待确认活动", lifecycle_status: "DRAFT" });
+  assert.equal(h.state.workspaceVisible.value, true);
+  assert.equal(h.state.detailLoading.value, true);
+  assert.equal(h.state.activeEventId.value, "draft-1");
+  reject(new Error("活动详情暂时不可用"));
+  await opening;
+  assert.equal(h.state.workspaceVisible.value, true);
+  assert.equal(h.state.detailLoading.value, false);
+  assert.match(h.state.error.value, /暂时不可用/);
+  assert.equal(h.calls.some(call => call.operation === "event_lifecycle_update"), false);
+});
+
+test("the draft row confirmation uses the selected activity and preserves the existing lifecycle operation", async () => {
+  const h = harness(async operation => operation === "admin_events" ? { items: [] } : {});
+  await h.actions.confirmEvent({ event_id: "draft-2", name: "待确认活动", lifecycle_status: "DRAFT" });
+  assert.equal(h.state.workspaceVisible.value, true);
+  const writes = h.calls.filter(call => call.operation === "event_lifecycle_update");
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].payload.event_id, "draft-2");
+  assert.equal(writes[0].payload.lifecycle_status, "CONFIRMED");
+});
 
 test("a name-only edit preserves legacy organization ownership and does not submit protected time fields", async () => {
   const h = harness();
