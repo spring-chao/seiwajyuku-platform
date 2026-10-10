@@ -315,21 +315,37 @@ test("external code restores bound identity without a binding form", async () =>
   assert.equal(h.navigations.length, 0);
 });
 
-test("guest sends only name, current scene and fresh WeChat login; duplicate taps send once", async () => {
+test("name scan first verifies enrollment, then confirms the selected original slot exactly once", async () => {
   const pending = deferred();
-  const h = harness("checkin/index", async url => url.endsWith("guest-confirm") ? pending.promise : context(10, { member: null, can_checkin: false, guest_allowed: true }), "");
+  const h = harness("checkin/index", async url => url.endsWith("guest-confirm") ? pending.promise : url.endsWith("guest-lookup") ? {data:{status:"REGISTERED",candidates:[{registration_id:"slot-a",name:"合成报名人",company:"合成企业",candidate_token:"private-selection"}]}} : context(10, { member: null, can_checkin: false, guest_allowed: true }), "");
   h.page.onLoad({ scene: "external_scene_123456789" }); await h.page.onShow();
   await h.page.confirmGuest(); assert.equal(h.calls.length, 1);
-  h.page.inputGuestName({ detail: { value: "合成来宾" } });
-  const first = h.page.confirmGuest(); await h.page.confirmGuest();
-  assert.equal(h.calls.length, 2);
-  assert.deepEqual(JSON.parse(JSON.stringify(h.calls[1].options.data)), { token: "external_scene_123456789", name: "合成来宾", wx_login_code: "synthetic-login" });
+  h.page.inputGuestName({ detail: { value: "合成报名人" } });
+  await h.page.lookupGuest();
+  assert.equal(h.page.data.alreadyChecked,false);
+  assert.equal(h.page.data.nameCandidates[0].company,"合成企业");
+  assert(!JSON.stringify(h.page.data).includes("private-selection"));
+  const action = {currentTarget:{dataset:{index:0}}};
+  const first = h.page.confirmGuest(action); await h.page.confirmGuest(action);
+  assert.equal(h.calls.length, 3);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls[2].options.data)), { token: "external_scene_123456789", name: "合成报名人",candidate_token:"private-selection", wx_login_code: "synthetic-login" });
   pending.resolve({ data: { status: "CHECKED_IN", participant_type: "GUEST", checked_at: "2026-10-10T09:00:00+08:00", sync_status: "PENDING" } });
   await first;
   assert.equal(h.page.data.alreadyChecked, true);
   assert.equal(h.page.data.guestName, "");
-  assert.equal(h.page.data.member, null);
-  assert.equal(h.page.data.successCard.welcome, "欢迎 合成来宾学长！");
+  assert.equal(h.page.data.successCard.welcome, "欢迎 合成报名人学长！");
+});
+
+test("unregistered names and edited selections cannot confirm or report success", async () => {
+  const h = harness("checkin/index", async url => url.endsWith("guest-lookup") ? {data:{status:"NOT_REGISTERED",candidates:[],message:"没有报名"}} : context(10,{member:null,guest_allowed:true}), "");
+  h.page.onLoad({event_id:"test-event"}); await h.page.onShow();
+  h.page.inputGuestName({detail:{value:"未报名"}}); await h.page.lookupGuest();
+  await h.page.confirmGuest({currentTarget:{dataset:{index:0}}});
+  assert.equal(h.calls.length,2); assert.equal(h.page.data.result,null);
+  h.page._nameSelections=[{name:"未报名",token:"private-selection"}];
+  h.page.inputGuestName({detail:{value:"修改姓名"}});
+  await h.page.confirmGuest({currentTarget:{dataset:{index:0}}});
+  assert.equal(h.calls.length,2);
 });
 
 test("failed WeChat resume does not loop, offer guest entry or confirm an identity", async () => {

@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import hmac
 from fastapi import APIRouter, Header, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.settings import get_settings
 from app.db import transaction
 from app.services.audit import write_audit
+from app.services.attendance_registration_identity import registration_identities
 from app.services.checkin_rosters import (
     cross_class_members,
     roster_integrity_summary,
@@ -24,6 +26,36 @@ from app.services.checkin_rosters import (
 
 
 router = APIRouter(prefix="/api/v1/checkin-rosters", tags=["checkin-rosters"])
+
+
+class RegistrationIdentityRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    registration_id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=120)
+    phone: str = Field(max_length=32)
+
+
+class RegistrationIdentityPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    event_id: str = Field(min_length=1, max_length=128)
+    rows: list[RegistrationIdentityRow] = Field(max_length=5000)
+
+
+@router.post("/registration-identities")
+def registration_identity_lookup(payload: RegistrationIdentityPayload,
+                                 x_api_key: str | None = Header(default=None)) -> dict:
+    _verify_api_key(x_api_key)
+    rows = [row.model_dump() for row in payload.rows]
+    matches = registration_identities(rows)
+    with transaction() as connection:
+        write_audit(connection, actor_user_id=None,
+                    action="integrations.checkin_roster.registration_identity",
+                    resource_type="signin_event", resource_id=payload.event_id,
+                    purpose="报名姓名和手机号核对在册学员",
+                    after={"row_count": len(rows), "matched_count": sum(bool(m) for m in matches)})
+    return {"success": True, "data": {"source": "PLATFORM_ACTIVE_NAME_PHONE",
+        "matches": [{"registration_id": row["registration_id"], **match}
+                    for row, match in zip(rows, matches) if match]}}
 
 
 def _verify_api_key(x_api_key: str | None = Header(default=None)) -> None:

@@ -335,19 +335,19 @@ def test_guest_uses_provider_identity_and_never_posts_or_resolves_member_by_name
         return {"ok": True, "checked_at": "2026-10-10T01:00:00Z", "sync_status": "PENDING"}
     with patch.dict(os.environ, ENV), TestClient(app) as client, patch("app.api.wechat_checkin.exchange_wechat_code", return_value={"appid": "guest-test-app", "openid": "guest-test-openid"}), patch.object(signin_engine, "engine_request", side_effect=engine):
         for code in ["first-code", "second-code"]:
-            response = client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "  合成访客  ", "wx_login_code": code})
+            response = client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "  合成访客  ", "wx_login_code": code, "candidate_token": "isolated-selection"})
             assert response.status_code == 200, response.text
             assert response.json()["data"]["participant_type"] == "GUEST"
             assert response.json()["data"]["sync_status"] == "PENDING"
             assert "openid" not in response.text
         assert calls[0] == calls[1]
         assert calls[0][0] == "/ops/v1/guest-checkin/confirm"
-        assert set(calls[0][1]) == {"event_id", "guest_id", "name"}
+        assert set(calls[0][1]) == {"event_id", "guest_id", "name", "candidate_token"}
         assert len(calls[0][1]["guest_id"]) == 64
         assert calls[0][1]["name"] == "合成访客"
         assert "guest-test-openid" not in str(calls)
         assert client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "访客", "wx_login_code": "code", "member_id": 1}).status_code == 422
-        assert client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": " ", "wx_login_code": "code"}).status_code == 400
+        assert client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": " ", "wx_login_code": "code", "candidate_token": "isolated-selection"}).status_code == 400
         assert len(calls) == 2
 
 
@@ -356,7 +356,7 @@ def test_bound_member_cannot_claim_a_guest_or_overwrite_same_name_identity():
     with patch.dict(os.environ, ENV), TestClient(app) as client:
         _bound(client, fixture)
         with patch("app.api.wechat_checkin.exchange_wechat_code", return_value={"appid": "isolated-checkin-test", "openid": "isolated-checkin-" + fixture["suffix"]}), patch.object(signin_engine, "engine_request") as request:
-            response = client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "合成来宾", "wx_login_code": "fresh-code"})
+            response = client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "合成来宾", "wx_login_code": "fresh-code", "candidate_token": "isolated-selection"})
         assert response.status_code == 409
         request.assert_not_called()
 
@@ -368,7 +368,7 @@ def test_guest_success_retains_legacy_receipt_fields_without_private_engine_data
                "event": {"event_id": "event-morning", "name": "合成学习会", "event_date": "2026-10-10",
                          "activity_type_name": "班级学习会", "secret": "PRIVATE_EVENT_SENTINEL"}}
     with patch.dict(os.environ, ENV), TestClient(app) as client, patch("app.api.wechat_checkin.exchange_wechat_code", return_value={"appid": "guest-test-app", "openid": "guest-receipt-test"}), patch.object(signin_engine, "engine_request", return_value={"ok": True, "already": True, "data": receipt}):
-        response = client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "再次填写姓名", "wx_login_code": "fresh-code"})
+        response = client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "再次填写姓名", "wx_login_code": "fresh-code", "candidate_token": "isolated-selection"})
     assert response.status_code == 200, response.text
     data = response.json()["data"]
     assert data["status"] == "ALREADY_CHECKED_IN"
@@ -383,10 +383,10 @@ def test_guest_failure_and_missing_receipt_never_report_success():
     from app.services.wechat_identity import WeChatProviderError
     with patch.dict(os.environ, ENV), TestClient(app) as client, patch.object(signin_engine, "engine_request") as request:
         with patch("app.api.wechat_checkin.exchange_wechat_code", side_effect=WeChatProviderError("微信身份服务暂时不可用")):
-            assert client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "合成来宾", "wx_login_code": "code"}).status_code == 503
+            assert client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "合成来宾", "wx_login_code": "code", "candidate_token": "isolated-selection"}).status_code == 503
         request.assert_not_called()
         with patch("app.api.wechat_checkin.exchange_wechat_code", return_value={"appid": "guest-test-app", "openid": "guest-no-receipt"}):
             request.return_value = {"ok": True}
-            assert client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "合成来宾", "wx_login_code": "code"}).status_code == 502
+            assert client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "合成来宾", "wx_login_code": "code", "candidate_token": "isolated-selection"}).status_code == 502
         with patch.dict(os.environ, {"DEPLOYMENT_READ_ONLY": "true"}):
-            assert client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "合成来宾", "wx_login_code": "code"}).status_code == 403
+            assert client.post("/api/v1/wechat/checkin/guest-confirm", json={"event_id": "event-morning", "name": "合成来宾", "wx_login_code": "code", "candidate_token": "isolated-selection"}).status_code == 403
