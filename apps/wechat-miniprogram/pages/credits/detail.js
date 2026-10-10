@@ -1,5 +1,6 @@
 const app = getApp();
 const { request } = require("../../utils/request");
+const { pointsLabel } = require("../../utils/credit-display");
 const session = () => app.globalData.personSessionToken || app.globalData.memberSessionToken || "";
 
 Page({
@@ -17,7 +18,7 @@ Page({
       const response = await request(`/api/v1/wechat/credit-entries/${encodeURIComponent(this._entryRef)}`, { auth: true });
       if (!current()) return;
       const entry = response.data || {};
-      this.setData({ entry: { ...entry, pointsLabel: `${Number(entry.points) > 0 ? "+" : ""}${entry.points}分` } });
+      this.setData({ entry: { ...entry, pointsLabel: pointsLabel(entry.points, true) } });
     } catch (error) {
       if (!current()) return;
       if (error.statusCode === 401) app.clearMemberSession();

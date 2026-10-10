@@ -34,6 +34,7 @@ function harness(pageName, respond) {
     require(name) {
       if (name.includes("participation-history")) return historyUtils;
       if (name.includes("volunteer-services")) return { resolveVolunteerServices };
+      if (name.includes("credit-display")) return require('../utils/credit-display');
       return { request(url, options) { calls.push({ url, options }); return Promise.resolve().then(() => respond(url, calls.length)); } };
     }
   });
@@ -330,7 +331,7 @@ test("learning history stays visible when current schedules fail and volunteers 
   assert.equal(h.page.data.learningCount, 8);
   assert.match(h.page.data.currentLearningErrorMessage, /暂时无法加载/);
   assert.equal(h.page.data.canManageStudyMeeting, false);
-  assert.equal(h.page.data.creditSummary.totalPointsLabel, "3.00分");
+  assert.equal(h.page.data.creditSummary.totalPointsLabel, "3分");
   h.page.openStudyMeeting();
   assert.equal(h.navigations.length, 0);
   h.page.openLearningHistory();
