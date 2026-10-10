@@ -68,7 +68,7 @@ def _tables(connection) -> set[str]:
     if isinstance(connection, sqlite3.Connection):
         rows = execute(connection, "SELECT name AS table_name FROM sqlite_master WHERE type='table'").fetchall()
     else:
-        rows = execute(connection, "SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE()").fetchall()
+        rows = execute(connection, "SELECT table_name AS table_name FROM information_schema.tables WHERE table_schema=DATABASE()").fetchall()
     return {r["table_name"] for r in rows} & set(TABLES)
 
 
