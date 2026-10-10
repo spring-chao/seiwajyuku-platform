@@ -11,6 +11,15 @@ from app.services.wechat_learning import _current_relations, _optional_rows, _no
 def learning_year_summary(connection, member_id, opening):
     now = datetime.now(UTC)
     cache = {}
+    progress_cache = {}
+
+    def complete_progress(binding_id):
+        if binding_id not in progress_cache:
+            row = execute(connection,
+                "SELECT MIN(learning_cycle_index) AS first_index FROM class_learning_cycles WHERE binding_id=?",
+                (binding_id,)).fetchone()
+            progress_cache[binding_id] = row['first_index'] == 1
+        return progress_cache[binding_id]
 
     def held_days(binding_id):
         if binding_id not in cache:
@@ -38,7 +47,7 @@ def learning_year_summary(connection, member_id, opening):
     for class_id in classes:
         binding = _active_binding(connection, class_id)
         cycle = _cycle_at(connection, int(binding["id"]), _now_for_database(connection)) if binding else None
-        if not cycle:
+        if not cycle or not complete_progress(int(binding['id'])):
             current_years.add(None)
             continue
         count = len(held_days(int(binding["id"])))
@@ -60,7 +69,7 @@ def learning_year_summary(connection, member_id, opening):
     totals = {1: Decimal(0), 2: Decimal(0), 3: Decimal(0)}
     allocated_count = 0
     for row in rows:
-        if not row["cycle_id"] or not row["binding_id"]:
+        if not row["cycle_id"] or not row["binding_id"] or not complete_progress(int(row['binding_id'])):
             continue
         days = held_days(int(row["binding_id"]))
         position = next((i for i, (_, cid) in enumerate(days) if cid == int(row["cycle_id"])), None)

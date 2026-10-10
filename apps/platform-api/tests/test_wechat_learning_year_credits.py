@@ -106,3 +106,12 @@ def test_unconfirmed_or_future_learning_days_do_not_advance_year(school):
     result = get_member_credit_summary(school['member_id'])
     assert result['current_learning_year'] == 1
     assert result['current_learning_year_completed_days'] == 11
+
+
+def test_resumed_history_without_first_learning_days_does_not_invent_year_one(school):
+    # A configured cycle number cannot prove how many actual days were held.
+    with transaction() as c:
+        execute(c, 'UPDATE class_learning_cycles SET learning_cycle_index=100 WHERE id=?', (school['cycles'][0],))
+    result = get_member_credit_summary(school['member_id'])
+    assert result['current_learning_year'] is None
+    assert result['current_learning_year_points'] is None
