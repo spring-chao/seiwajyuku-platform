@@ -51,10 +51,18 @@
       <view class="section-title">我的学分</view>
       <view wx:if="{{creditErrorMessage}}" class="empty-copy error">{{creditErrorMessage}}</view>
       <block wx:elif="{{creditSummary}}">
-        <view class="credit-total">{{creditSummary.totalPointsLabel}}</view>
-        <view wx:if="{{creditSummary.has_opening_balance}}" class="learning-copy">含已确认期初余额 {{creditSummary.openingPointsLabel}}（截至 {{creditSummary.opening_balance_cutoff_date}}），与之后的学习学分分别记录。</view>
-        <view class="learning-copy">本年度（{{creditSummary.current_year}}年）已入账 {{creditSummary.currentYearPointsLabel}}</view>
-        <view class="learning-copy">标准学习 {{creditSummary.standardPointsLabel}} · 拓展活动 {{creditSummary.extensionPointsLabel}}</view>
+        <view class="learning-copy">当前 · {{creditSummary.currentLearningYearLabel}}</view>
+        <view class="credit-total">{{creditSummary.currentLearningYearPointsLabel}}</view>
+        <view wx:if="{{creditSummary.hasLearningYearProgress}}" class="learning-copy">本学年已完成 {{creditSummary.current_learning_year_completed_days}} / 12 次学习日</view>
+        <view class="learning-copy">每 12 次学习日进入下一学年，新学年学分从 0 开始，往年学分保留。</view>
+        <view class="credit-years">
+          <view wx:for="{{creditSummary.learningYears}}" wx:key="yearIndex" class="credit-year {{item.isCurrent ? 'credit-year-current' : ''}}">
+            <text>{{item.label}}学分：{{item.pointsLabel}}</text><text wx:if="{{item.isCurrent}}" class="credit-current-badge">当前</text>
+          </view>
+        </view>
+        <view wx:if="{{creditSummary.has_unallocated_learning_year_credits}}" class="learning-copy">另有 {{creditSummary.unallocatedPointsLabel}} 学分待补充年度归属。以上显示已明确归属的学分。</view>
+        <view wx:if="{{creditSummary.has_opening_balance}}" class="learning-copy">已确认历史累计学分 {{creditSummary.openingPointsLabel}}（截至 {{creditSummary.opening_balance_cutoff_date}}），待补充年度明细。</view>
+        <view class="learning-copy">全部累计学分 {{creditSummary.totalPointsLabel}}</view>
         <view wx:if="{{creditEntries.length}}">
           <view wx:for="{{creditEntries}}" wx:key="uiKey" class="learning-row credit-entry">
             <view class="learning-name">{{item.credit_type_label}}</view>

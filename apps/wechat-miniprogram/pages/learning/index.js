@@ -1,6 +1,7 @@
 const app = getApp();
 const { request } = require("../../utils/request");
 const { historyPath, readHistory } = require("../../utils/participation-history");
+const { pointsLabel, creditSummaryDisplay } = require("../../utils/credit-display");
 const session = () => app.globalData.personSessionToken || app.globalData.memberSessionToken || "";
 
 Page({
@@ -99,17 +100,10 @@ Page({
         const creditEntries = (summary.recent_entries || []).map((item, index) => ({
           ...item,
           uiKey: `${item.period_display || "period"}-${item.credit_type_label || "credit"}-${index}`,
-          pointsLabel: `${Number(item.points) > 0 ? "+" : ""}${String(item.points || "0.00")}分`
+          pointsLabel: pointsLabel(item.points, true)
         }));
         this.setData({
-          creditSummary: {
-            ...summary,
-            totalPointsLabel: `${summary.total_points || "0.00"}分`,
-            currentYearPointsLabel: `${summary.current_year_points || "0.00"}分`,
-            standardPointsLabel: `${summary.standard_learning_points || "0.00"}分`,
-            openingPointsLabel: `${summary.opening_balance_points || "0.00"}分`,
-            extensionPointsLabel: `${summary.extension_activity_points || "0.00"}分`
-          },
+          creditSummary: creditSummaryDisplay(summary),
           creditEntries
         });
       } else this.setData({ creditErrorMessage: "正式学分暂时无法加载，请重试。" });
