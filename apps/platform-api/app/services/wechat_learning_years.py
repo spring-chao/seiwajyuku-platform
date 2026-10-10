@@ -1,6 +1,8 @@
 """Read-only credit years: twelve confirmed class learning days per year."""
-from datetime import UTC, datetime
+import json
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from app.db import execute
 from app.services.learning_cycle_schedule import parse_utc_datetime
@@ -87,6 +89,47 @@ def learning_year_summary(connection, member_id, opening):
         allocated_count += int(row["entry_count"])
     if current:
         totals.setdefault(current, Decimal(0))
+    # Reading/share facts record a frozen binding and a business date, rather
+    # than a cycle FK. Attribute only periods wholly within one learning year.
+    if {'learning_cycle_id', 'reversal_of_entry_id', 'rule_snapshot_json', 'class_org_unit_id'} <= columns:
+        precision = 'COALESCE(original.occurred_precision,e.occurred_precision)' if 'occurred_precision' in columns else "'EXACT_DATE'"
+        dated = execute(connection,
+            "SELECT e.points,COALESCE(original.rule_snapshot_json,e.rule_snapshot_json) AS snapshot, "
+            "COALESCE(original.class_org_unit_id,e.class_org_unit_id) AS class_id, "
+            "COALESCE(original.occurred_at,e.occurred_at) AS occurred_at," + precision + " AS time_precision "
+            "FROM learning_credit_entries e LEFT JOIN learning_credit_entries original "
+            "ON original.id=e.reversal_of_entry_id AND original.member_id=e.member_id "
+            "AND original.status IN ('POSTED','REVERSED') "
+            "WHERE e.member_id=? AND e.status IN ('POSTED','REVERSED') "
+            "AND COALESCE(e.learning_cycle_id,original.learning_cycle_id) IS NULL", (member_id,)).fetchall()
+        for row in dated:
+            try:
+                snapshot = json.loads(row['snapshot'] or '{}')
+            except (ValueError, TypeError, RecursionError):
+                continue
+            if not isinstance(snapshot, dict) or type(snapshot.get('binding_id')) is not int:
+                continue
+            binding = execute(connection, 'SELECT * FROM class_learning_bindings WHERE id=? AND class_org_unit_id=?',
+                              (snapshot['binding_id'], row['class_id'])).fetchone()
+            if not binding or not complete_progress(int(binding['id'])) or row['time_precision'] != 'EXACT_DATE':
+                continue
+            try:
+                # These facts explicitly retain the original Shanghai business
+                # date. A bare calendar year/month never fabricates a date.
+                occurred = date.fromisoformat(str(snapshot.get('occurred_on') or '')[:10])
+            except ValueError:
+                continue
+            start = datetime.combine(occurred, time.min, ZoneInfo('Asia/Shanghai')).astimezone(UTC)
+            end = start + timedelta(days=1)
+            if start > now or parse_utc_datetime(binding['started_at']) >= end:
+                continue
+            days = held_days(int(binding['id']))
+            year = sum(at <= start for at, _ in days) // 12 + 1
+            last_year = sum(at < end for at, _ in days) // 12 + 1
+            if year != last_year:
+                continue  # Date-only fact straddles an annual boundary: unknown.
+            totals[year] = totals.get(year, Decimal(0)) + Decimal(str(row['points']))
+            allocated_count += 1
     ledger = execute(connection,
         "SELECT COUNT(*) AS entry_count,COALESCE(SUM(points),0) AS points "
         "FROM learning_credit_entries WHERE member_id=? AND status IN ('POSTED','REVERSED')",
