@@ -89,6 +89,16 @@ export default [
     },
     children: [
       {
+        path: "/operations/checkin-management",
+        name: "CheckinManagement",
+        component: () => import("@/views/seiwajyuku/checkin-management.vue"),
+        meta: {
+          title: "签到现场管理",
+          icon: "ep/checked",
+          auths: ["attendance:view"]
+        }
+      },
+      {
         path: "/operations/activities",
         name: "ActivityAdmin",
         component: () => import("@/views/seiwajyuku/activities.vue"),

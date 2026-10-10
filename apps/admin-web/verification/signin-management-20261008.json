@@ -1,0 +1,111 @@
+{
+  "user_date": "2026-10-08",
+  "scope": "admin-web local code and isolated validation",
+  "source_frozen": true,
+  "checks": [
+    {
+      "command": "pnpm typecheck",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "pnpm test",
+      "exit_code": 0,
+      "files": 8,
+      "tests": 26,
+      "passed": 26,
+      "failed": 0,
+      "new_behavior_tests": 10,
+      "result": "PASS"
+    },
+    {
+      "command": "pnpm build:staging",
+      "exit_code": 0,
+      "modules": 2147,
+      "duration_seconds": 59.02,
+      "artifact_size_mb": 3.51,
+      "result": "PASS"
+    }
+  ],
+  "spreadsheet_dependency": {
+    "version": "0.20.2",
+    "source": "https://cdn.sheetjs.com/xlsx-0.20.2/xlsx-0.20.2.tgz",
+    "integrity": "sha512-+nKZ39+nvK7Qq6i0PvWWRA4j/EkfWOtkP/YhMtupm+lJIiHxUrgTr1CcKv1nBk1rHtkRRQ3O2+Ih/q/sA+FXZA==",
+    "runtime_cdn_dependency": false
+  },
+  "ui_visual_validation": {
+    "passed": 11,
+    "browser": "Microsoft Edge fresh isolated context",
+    "fixture": "loopback-20261008-004",
+    "private_fixture_copied": false,
+    "production_requests": 0,
+    "status": "PASS",
+    "visual_review": "PASS: manually reviewed import, team rows, three-session editor and workspace, unconfigured code error",
+    "api": "http://127.0.0.1:8765",
+    "frontend": "http://127.0.0.1:5184",
+    "observed_http_errors": [
+      {
+        "path": "/api/v1/operations/member-actions/today",
+        "status": 403
+      },
+      {
+        "path": "/api/v1/attendance/manage/events/muz1t9r3_773126fbc138/code",
+        "status": 502
+      }
+    ],
+    "data": "synthetic isolated fixtures only",
+    "evidence_directory": "outputs/signin-integration-20261007/ui-visual",
+    "expected_error_explanation": [
+      "403: original home member-actions endpoint is outside synthetic attendance-only role",
+      "502: WeChat QR provider is intentionally not configured in isolated service"
+    ],
+    "timezone": "Asia/Shanghai",
+    "signin_commit": "adb96116c7b190b9c49940a3897c39771d108aa8",
+    "viewport": [
+      1440,
+      1080
+    ],
+    "screenshots": [
+      "01-management-list.png",
+      "02-create-event.png",
+      "03-event-workspace.png",
+      "04-temporary-registration.png",
+      "05-late-filter.png",
+      "06-excel-preview.png",
+      "07-team-slots.png",
+      "08-three-session-editor.png",
+      "08b-three-session-times.png",
+      "09-code-unconfigured.png",
+      "10-three-session-workspace.png"
+    ],
+    "page_errors": 0,
+    "engine": "http://127.0.0.1:8766",
+    "blocked_external_origins": [
+      "https://xiaoxian521.github.io"
+    ],
+    "limitations": [
+      "Real WeChat QR image and phone scan require authorized mini-program development or experience configuration"
+    ],
+    "actual_operations": [
+      "real login and RBAC menu",
+      "event list render",
+      "create ordinary future event with organization ID",
+      "temporary registration through actual engine",
+      "late status and filter",
+      "Excel preview and append preserving repeated team slots",
+      "team manual confirmation disabled",
+      "Excel download and row count",
+      "three class sessions created from trusted roster",
+      "session picker and develop code request",
+      "unconfigured WeChat error with download disabled"
+    ]
+  },
+  "production_operations": false,
+  "source_sha256": {
+    "src/api/attendance-management.ts": "8a73de3dadb1350f711167407793a45ca2da1f683a1c244e22dffaf25a91ee1a",
+    "src/utils/attendanceManagement.mjs": "e9d02c7904878aa9f4992fc323b6e3e98961032eee418a36298af890310197f5",
+    "src/utils/attendanceImportParser.mjs": "fdffa2108e1f6a46b75fbe2f6cfbbee774d6207938dce71dda00f34b15089c8f",
+    "src/views/seiwajyuku/checkin-management.vue": "93f7cc23c5b47cad27d8308436e2ddd392485fac77c95cc6cae78539ac331191",
+    "tests/attendance-management.test.mjs": "37c9a870a2094777fb0f331eab333bc0c7eda605a36a92f9de6694bb5432d182"
+  }
+}

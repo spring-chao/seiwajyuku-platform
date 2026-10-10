@@ -777,6 +777,23 @@ def resolve_wechat_session(token: str) -> dict[str, Any]:
     }
 
 
+def resume_wechat_binding(identity: dict[str, Any]) -> str | None:
+    """Resume only the binding selected by a fresh official WeChat login."""
+    appid, openid = identity.get("appid"), identity.get("openid")
+    if not appid or not openid:
+        raise WeChatProviderError("微信身份服务暂时不可用，请稍后重试")
+    row = fetch_one(
+        "SELECT id, token_version FROM wechat_member_bindings "
+        "WHERE appid=? AND openid=? AND status='VERIFIED' LIMIT 1",
+        (str(appid), str(openid)),
+    )
+    if not row:
+        return None
+    token = _binding_token(int(row["id"]), int(row["token_version"]))
+    resolve_wechat_session(token)
+    return token
+
+
 def resolve_member_session(token: str) -> dict[str, Any]:
     """Resolve a member-only endpoint session from the generic credential."""
 

@@ -25,6 +25,7 @@ function classifyScanResult(result) {
     }
   }
   const kind = String(payload && (payload.type || payload.scene || payload.kind) || "").toLowerCase();
+  if (/^ci_[A-Za-z0-9_-]+$/.test(String(result && result.scene || ""))) return "activity";
   if (/(study[_-]?meeting|group[_-]?meeting|学习会|小组学习)/i.test(`${kind} ${joined}`)) return "study-meeting";
   if (/(enrollment|enroll|入塾|新学长)/i.test(`${kind} ${joined}`)) return "enrollment";
   if (/(activity|checkin|签到|活动)/i.test(`${kind} ${joined}`)) return "activity";

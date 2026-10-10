@@ -35,6 +35,8 @@ class SystemApiTests(unittest.TestCase):
                 "volunteer_service_invitations_enabled": True,
                 "member_service_signal_feedback_enabled": True,
                 "wechat_member_binding_enabled": False,
+                "signin_management_enabled": False,
+                "signin_member_checkin_enabled": False,
                 "wechat_staff_mobile_operations_enabled": False,
                 "wechat_local_test_mode": False,
                 "learning_cycle_monthly_refresh_enabled": False,

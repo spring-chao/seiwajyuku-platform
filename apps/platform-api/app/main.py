@@ -10,6 +10,8 @@ from app.agent_mcp import MCP_MOUNT_PATH, MCP_PATH, mcp_http_app, mcp_server
 from app.api.auth import router as auth_router
 from app.api.agent import authenticate_agent_headers, router as agent_router
 from app.api.attendance import router as attendance_router
+from app.api.attendance_manage import router as attendance_manage_router
+from app.api.wechat_checkin import router as wechat_checkin_router
 from app.api.checkin_rosters import router as checkin_rosters_router
 from app.api.class_roster_preflight import router as class_roster_preflight_router
 from app.api.class_roster_org_import import router as class_roster_org_import_router
@@ -264,4 +266,6 @@ app.include_router(member_care_actions_router)
 app.include_router(member_care_management_router)
 app.include_router(checkin_rosters_router)
 app.include_router(attendance_router)
+app.include_router(attendance_manage_router)
+app.include_router(wechat_checkin_router)
 app.mount(MCP_MOUNT_PATH, mcp_http_app)

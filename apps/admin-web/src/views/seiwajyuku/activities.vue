@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import dayjs from "dayjs";
 import { ElMessage } from "element-plus";
+import { hasPerms } from "@/utils/auth";
 import {
   getAttendanceActivityRows,
   getAttendanceEventGroupDetail,
@@ -363,6 +364,9 @@ async function downloadDetailRecords() {
         <span>展示已从签到系统同步的活动、场次和真实签到记录。</span>
       </div>
       <div class="head-filters">
+        <router-link v-if="hasPerms('attendance:view')" to="/operations/checkin-management">
+          <el-button type="primary">签到现场管理</el-button>
+        </router-link>
         <el-date-picker
           v-model="month"
           type="month"

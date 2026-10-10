@@ -1,0 +1,38 @@
+<view class="page-shell">
+  <view wx:if="{{!result}}" class="hero-card"><view class="eyebrow">现场活动</view><view class="hero-title">活动签到</view><view class="hero-copy">确认当前场次，记录您的参与。</view></view>
+  <view wx:if="{{loading}}" class="state-card">正在确认活动与身份…</view>
+  <view wx:if="{{event && !result}}" class="section-card">
+    <view class="section-title">{{event.title}}</view>
+    <view class="detail-line">{{event.event_date}} · {{event.session_name}}</view>
+    <view wx:if="{{event.checkin_start_at || event.checkin_open_at}}" class="detail-line">签到开始：{{event.checkin_start_at || event.checkin_open_at}}</view>
+    <view wx:if="{{event.checkin_end_at || event.checkin_close_at}}" class="detail-line">签到截止：{{event.checkin_end_at || event.checkin_close_at}}</view>
+    <view class="section-hint">各场次分别签到，上午签到不会代替下午或空巴签到。</view>
+  </view>
+  <view wx:if="{{member && !result}}" class="section-card">
+    <view class="section-title">本人</view><view class="identity-name">{{member.name || member.name_masked}}</view>
+    <view class="detail-line">{{member.class_name || '暂未关联班级'}}{{member.group_name ? ' · ' + member.group_name : ''}}</view>
+    <view wx:if="{{registration.registered_name}}" class="section-hint">报名记录：{{registration.registered_name}}</view>
+    <button wx:if="{{canCheckin && !alreadyChecked}}" class="primary-button" loading="{{confirming}}" disabled="{{confirming || loading}}" bindtap="confirmCheckin">确认本人签到</button>
+  </view>
+  <view wx:if="{{!result && (notice || alreadyChecked)}}" class="state-card {{alreadyChecked ? 'success' : ''}}">{{notice || '本场次已签到'}}</view>
+  <button wx:if="{{member && alreadyChecked && !result}}" class="plain-button" bindtap="openHistory">查看我的参与记录</button>
+  <view wx:if="{{result && successCard}}" class="result-card">
+    <view class="check-icon">✅</view>
+    <view class="welcome">{{successCard.welcome}}</view>
+    <view wx:for="{{successCard.seats}}" wx:key="*this" class="seat-item">{{item}}</view>
+    <view class="result-info"><view wx:for="{{successCard.lines}}" wx:key="index">{{item}}</view></view>
+  </view>
+  <view wx:if="{{guestAllowed && !loading && !alreadyChecked}}" class="section-card">
+    <view class="section-title">填写姓名签到</view><view class="section-hint">来宾填写姓名即可参加本场活动。</view>
+    <input class="name-input" placeholder="请输入您的姓名" maxlength="120" value="{{guestName}}" bindinput="inputGuestName" disabled="{{confirming}}" />
+    <button class="primary-button" loading="{{confirming}}" disabled="{{confirming}}" bindtap="confirmGuest">确认签到</button>
+    <button class="plain-button" bindtap="openBinding">我是塾生，绑定我的身份</button>
+  </view>
+  <view wx:if="{{errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <view wx:if="{{rescueNotice}}" class="section-card"><view class="section-title">现场备用签到</view><view class="section-hint">{{rescueNotice}}</view></view>
+  <button wx:if="{{errorMessage && !confirming}}" class="plain-button" bindtap="loadContext">重新确认活动</button>
+  <view wx:if="{{fallbackAvailable && !loading && !result}}" class="section-card">
+    <view class="section-title">备用现场签到</view><view class="section-hint">团队报名、来宾或无法匹配报名时，可使用原有现场签到流程；也可联系工作人员协助。</view>
+    <button class="plain-button" bindtap="openFallback">姓名 / 团队 / 来宾签到</button>
+  </view>
+</view>

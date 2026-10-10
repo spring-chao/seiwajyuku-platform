@@ -1,0 +1,12 @@
+<view class="page-shell">
+  <view class="hero-card"><view class="eyebrow">现场活动</view><view class="hero-title">今日签到</view><view class="hero-copy">使用微信扫一扫现场活动小程序码，即可进入对应场次签到。</view></view>
+  <view wx:if="{{loading}}" class="state-card">正在加载当前活动…</view>
+  <view wx:if="{{bindingRequired}}" class="section-card"><view class="section-title">绑定平台学员身份</view><view class="section-hint">绑定后可以自动识别本人报名，确认签到。</view><button class="primary-button" bindtap="openBinding">绑定身份并继续</button></view>
+  <view wx:if="{{errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <view wx:if="{{rescueNotice}}" class="section-card"><view class="section-title">现场备用签到</view><view class="section-hint">{{rescueNotice}}</view></view>
+  <button wx:if="{{!loading && !bindingRequired}}" class="plain-button" bindtap="loadEvents">刷新活动</button>
+  <view wx:if="{{!loading && !bindingRequired && !errorMessage && !events.length}}" class="state-card">当前没有可签到的活动。请扫描现场活动码，或联系工作人员。</view>
+  <view wx:for="{{events}}" wx:key="event_id" class="section-card" data-event-id="{{item.event_id}}" bindtap="openEvent">
+    <view class="section-title">{{item.title}}</view><view class="detail-line">{{item.event_date}} · {{item.session_name}}</view><view class="section-hint">进入本场次签到 →</view>
+  </view>
+</view>

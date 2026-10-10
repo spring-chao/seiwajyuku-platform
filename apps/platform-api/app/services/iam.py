@@ -57,6 +57,14 @@ PERMISSIONS = {
     "integrations:manage": ("管理数据集成", "SENSITIVE"),
     "attendance:sync": ("同步签到出勤数据", "SENSITIVE"),
     "attendance:adjudicate": ("出勤裁定", "SENSITIVE"),
+    "attendance:view": ("查看现场活动与签到", "INTERNAL"),
+    "attendance:create": ("创建签到活动与场次", "SENSITIVE"),
+    "attendance:update": ("修改签到活动", "SENSITIVE"),
+    "attendance:manage": ("管理现场签到与报名", "SENSITIVE"),
+    "attendance:status": ("标记签到迟到与请假", "SENSITIVE"),
+    "attendance:import": ("导入签到名单", "SENSITIVE"),
+    "attendance:export": ("导出脱敏签到明细", "INTERNAL"),
+    "attendance:code": ("生成活动签到小程序码", "SENSITIVE"),
     "enrollment:read": ("查看新学长入塾申请", "INTERNAL"),
     "enrollment:unassigned_review": ("查看未分配组织的入塾申请", "SENSITIVE"),
     "enrollment:review": ("审核新学长入塾申请", "SENSITIVE"),
@@ -261,6 +269,7 @@ ROLE_PERMISSIONS["employee_operations_lead"] = set(
     ROLE_PERMISSIONS["operations_admin"]
 )
 ROLE_NAMES = {
+    "attendance_operator": "活动签到运营",
     "system_admin": "系统管理员",
     "technical_admin": "系统技术管理员",
     "data_security_admin": "数据安全管理员（最高权限）",
@@ -299,6 +308,10 @@ ROLE_NAMES = {
     "volunteer_group_leader": "组长志工",
     "volunteer_group_committee": "组委志工",
     "volunteer_activity": "专项活动志工",
+}
+ROLE_PERMISSIONS["attendance_operator"] = {
+    "attendance:view", "attendance:create", "attendance:update", "attendance:manage",
+    "attendance:status", "attendance:import", "attendance:export", "attendance:code",
 }
 
 # These keys are the only business roles selectable through the ordinary
