@@ -88,6 +88,17 @@ let detailSequence = 0;
 
 const editorVisible = ref(false);
 const editingId = ref("");
+const editorActivityTypes = computed(() =>
+  activityTypes.filter(
+    ([value]) => value !== "group_meeting" || Boolean(editingId.value)
+  )
+);
+const creationAttendees = ref<any[]>([]);
+const creationFilename = ref("");
+const creationGroupField = ref("");
+const creationQuality = ref<any>(null);
+const creationPreview = ref<EngineResult | null>(null);
+const creationPreviewFingerprint = ref("");
 const editor = reactive<Record<string, any>>({
   event_name: "",
   event_date: "",
@@ -143,6 +154,7 @@ const codeVisible = ref(false);
 const code = ref<AttendanceCode | null>(null);
 const codeVersion = ref<"develop" | "trial" | "release">("develop");
 const codeEvent = ref<ManagedEvent | null>(null);
+const codeError = ref("");
 const codeImage = computed(() =>
   code.value?.image_base64
     ? `data:${code.value.mime_type || "image/png"};base64,${code.value.image_base64}`
@@ -327,6 +339,7 @@ function setDateDefaults() {
   }
 }
 async function openEditor(item?: ManagedEvent) {
+  if (busy.value) return;
   editingId.value = item?.event_id || "";
   rosterOptionId.value = "";
   regionId.value = item?.org_unit_id || "";
@@ -335,6 +348,7 @@ async function openEditor(item?: ManagedEvent) {
   rosterSource.value = "";
   importAttendees.value = [];
   preview.value = null;
+  resetCreationImport();
   Object.assign(editor, {
     event_name: item?.name || "",
     event_date: item?.event_date || dayjs().format("YYYY-MM-DD"),
@@ -410,6 +424,8 @@ async function saveEditor() {
   await perform(async () => {
     if (!editor.event_name.trim()) throw new Error("请填写活动名称");
     if (!editor.event_date) throw new Error("请填写活动日期");
+    if (!editingId.value && editor.activity_type === "group_meeting")
+      throw new Error("小组学习会请由辅导员在学习会入口安排");
     let operation: AttendanceManagementOperation;
     let payload: Record<string, any>;
     if (!editingId.value && editor.activity_type === "class_meeting") {
@@ -460,7 +476,21 @@ async function saveEditor() {
             delete payload[key];
         }
       } else {
-        operation = "create_event";
+        if (!permission("import"))
+          throw new Error("当前账号没有导入报名名单的权限");
+        if (!creationAttendees.value.length)
+          throw new Error("请上传报名表格并核对导入预览");
+        if (
+          !creationPreview.value ||
+          creationPreviewFingerprint.value !== JSON.stringify(creationPayload())
+        )
+          throw new Error("活动信息或报名表已变化，请重新核对导入预览");
+        operation = "upload";
+        payload = {
+          ...creationPayload(),
+          preview_token: creationPreview.value.preview_token,
+          preview_issued_at: creationPreview.value.preview_issued_at
+        };
       }
     }
     const result = await manageAttendance(operation, payload);
@@ -468,6 +498,58 @@ async function saveEditor() {
     editorVisible.value = false;
     await loadEvents(true);
     if (editingId.value) await refreshDetail();
+  });
+}
+function resetCreationImport() {
+  creationAttendees.value = [];
+  creationFilename.value = "";
+  creationGroupField.value = "";
+  creationQuality.value = null;
+  creationPreview.value = null;
+  creationPreviewFingerprint.value = "";
+}
+async function parseExcelFile(file: File) {
+  const XLSX = await import("xlsx");
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+  const cells = XLSX.utils.sheet_to_json(
+    workbook.Sheets[workbook.SheetNames[0]],
+    { header: 1, defval: "" }
+  );
+  const parsed = parseAttendanceRows(cells);
+  if (!parsed.attendees.length) throw new Error("表格未包含可导入的报名记录");
+  return parsed;
+}
+async function readCreationFile(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  resetCreationImport();
+  await perform(async () => {
+    const parsed = await parseExcelFile(file);
+    creationAttendees.value = parsed.attendees;
+    creationFilename.value = file.name;
+    creationGroupField.value = parsed.groupField;
+    creationQuality.value = parsed.quality;
+  });
+  input.value = "";
+}
+function creationPayload() {
+  return {
+    ...editorMetadata(),
+    attendees: creationAttendees.value,
+    group_field: creationGroupField.value
+  };
+}
+async function previewCreation() {
+  creationPreview.value = null;
+  await perform(async () => {
+    if (!permission("import"))
+      throw new Error("当前账号没有导入报名名单的权限");
+    if (!creationAttendees.value.length) throw new Error("请先上传报名表格");
+    const payload = creationPayload();
+    const fingerprint = JSON.stringify(payload);
+    creationPreview.value = await manageAttendance("upload_preview", payload);
+    creationPreviewFingerprint.value = fingerprint;
   });
 }
 async function changeLifecycle(next: "DRAFT" | "CONFIRMED" | "CANCELLED") {
@@ -531,13 +613,7 @@ async function readFile(e: Event) {
   preview.value = null;
   importAttendees.value = [];
   await perform(async () => {
-    const XLSX = await import("xlsx");
-    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
-    const cells = XLSX.utils.sheet_to_json(
-      workbook.Sheets[workbook.SheetNames[0]],
-      { header: 1, defval: "" }
-    );
-    const parsed = parseAttendanceRows(cells);
+    const parsed = await parseExcelFile(file);
     importAttendees.value = parsed.attendees;
     importGroupField.value = parsed.groupField;
     importHeaderRow.value = parsed.headerRow;
@@ -702,13 +778,19 @@ async function openCode() {
   await createCode();
 }
 async function createCode() {
+  codeError.value = "";
   await perform(async () => {
     if (!codeEvent.value?.event_id) throw new Error("请先选择场次");
     code.value = null;
-    code.value = await generateAttendanceCode(
-      codeEvent.value.event_id,
-      codeVersion.value
-    );
+    try {
+      code.value = await generateAttendanceCode(
+        codeEvent.value.event_id,
+        codeVersion.value
+      );
+    } catch (e) {
+      codeError.value = messageOf(e);
+      throw e;
+    }
   });
 }
 function downloadCode() {
@@ -721,6 +803,7 @@ function downloadCode() {
 watch(
   () => editor.activity_type,
   () => {
+    resetCreationImport();
     rosterOptionId.value = "";
     rosterMembers.value = [];
     rosterSource.value = "";
@@ -765,6 +848,7 @@ onUnmounted(() => {
         ><el-button
           v-if="permission('create')"
           type="primary"
+          :disabled="busy"
           @click="openEditor()"
           >创建活动</el-button
         >
@@ -918,326 +1002,336 @@ onUnmounted(() => {
         size="min(1200px, 96vw)"
         :close-on-click-modal="false"
       >
-      <el-card v-if="selected" shadow="never" v-loading="detailLoading">
-        <template #header
-          ><div class="heading">
-            <div>
-              <h2>{{ selected.name }}</h2>
-              <p>
-                {{ selected.event_date }} ·
-                {{
-                  selected.class_name || selected.center_name || "未配置组织"
-                }}
-              </p>
-            </div>
-            <div class="actions">
-              <el-switch v-model="autoRefresh" active-text="自动刷新" /><span
-                class="muted"
-                >{{ refreshedAt ? `更新于 ${refreshedAt}` : "" }}</span
-              ><el-button @click="refreshDetail()">刷新</el-button>
-            </div>
-          </div></template
-        >
-        <el-alert
-          v-if="currentEvent?.lifecycle_status === 'DRAFT'"
-          title="活动当前为草稿。核对活动与场次信息后，点击“确认活动”，再生成签到码。"
-          type="warning"
-          :closable="false"
-          show-icon
-          class="notice"
-        />
-        <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" class="notice" />
-        <div class="session-picker">
-          <el-button
-            v-for="session in sessions"
-            :key="session.event_id"
-            :type="activeEventId === session.event_id ? 'primary' : 'default'"
-            @click="switchSession(session.event_id)"
-            >{{
-              session.session_name ||
-              sessionLabels[session.session_code] ||
-              "当前场次"
+        <el-card v-if="selected" shadow="never" v-loading="detailLoading">
+          <template #header
+            ><div class="heading">
+              <div>
+                <h2>{{ selected.name }}</h2>
+                <p>
+                  {{ selected.event_date }} ·
+                  {{
+                    selected.class_name || selected.center_name || "未配置组织"
+                  }}
+                </p>
+              </div>
+              <div class="actions">
+                <el-switch v-model="autoRefresh" active-text="自动刷新" /><span
+                  class="muted"
+                  >{{ refreshedAt ? `更新于 ${refreshedAt}` : "" }}</span
+                ><el-button @click="refreshDetail()">刷新</el-button>
+              </div>
+            </div></template
+          >
+          <el-alert
+            v-if="currentEvent?.lifecycle_status === 'DRAFT'"
+            title="活动当前为草稿。核对活动与场次信息后，点击“确认活动”，再生成签到码。"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="notice"
+          />
+          <el-alert
+            v-if="error"
+            :title="error"
+            type="error"
+            show-icon
+            :closable="false"
+            class="notice"
+          />
+          <div class="session-picker">
+            <el-button
+              v-for="session in sessions"
+              :key="session.event_id"
+              :type="activeEventId === session.event_id ? 'primary' : 'default'"
+              @click="switchSession(session.event_id)"
+              >{{
+                session.session_name ||
+                sessionLabels[session.session_code] ||
+                "当前场次"
+              }}
+              ·
+              {{
+                checkinLabels[session.checkin_status] || session.checkin_status
+              }}</el-button
+            >
+          </div>
+          <p class="muted">
+            每个场次独立签到。签到时间：{{
+              timeLabel(currentEvent?.checkin_start_at)
             }}
-            ·
-            {{
-              checkinLabels[session.checkin_status] || session.checkin_status
-            }}</el-button
-          >
-        </div>
-        <p class="muted">
-          每个场次独立签到。签到时间：{{
-            timeLabel(currentEvent?.checkin_start_at)
-          }}
-          至 {{ timeLabel(currentEvent?.checkin_end_at) }}
-        </p>
-        <div class="actions notice">
-          <el-button
-            v-if="permission('update')"
-            :disabled="busy"
-            @click="openEditor(currentEvent)"
-            >编辑当前场次</el-button
-          >
-          <el-button
-            v-if="
-              permission('update') && currentEvent?.lifecycle_status === 'DRAFT'
-            "
-            type="primary"
-            :disabled="busy"
-            @click="changeLifecycle('CONFIRMED')"
-            >确认活动</el-button
-          >
-          <el-button
-            v-if="
-              permission('update') &&
-              currentEvent?.lifecycle_status === 'CONFIRMED'
-            "
-            :disabled="busy"
-            @click="changeLifecycle('DRAFT')"
-            >退回草稿</el-button
-          >
-          <el-button
-            v-if="
-              permission('manage') &&
-              currentEvent?.lifecycle_status !== 'CANCELLED'
-            "
-            :disabled="busy"
-            @click="toggleCheckin()"
-            >{{
-              currentEvent?.manual_status === "closed" ? "开放签到" : "关闭签到"
-            }}</el-button
-          >
-          <el-button
-            v-if="
-              permission('manage') &&
-              currentEvent?.lifecycle_status !== 'CANCELLED'
-            "
-            type="danger"
-            plain
-            :disabled="busy"
-            @click="changeLifecycle('CANCELLED')"
-            >取消活动</el-button
-          >
-          <el-button
-            v-if="permission('code')"
-            :disabled="busy || currentEvent?.lifecycle_status === 'CANCELLED'"
-            @click="openCode()"
-            >生成当前场次小程序码</el-button
-          >
-          <el-button
-            v-if="permission('export')"
-            :disabled="busy"
-            @click="exportExcel()"
-            >导出 Excel</el-button
-          >
-        </div>
-        <div v-if="stats" class="summary">
-          <el-statistic
-            title="本班应到 / 报名"
-            :value="stats.home_class_total ?? stats.total ?? 0"
+            至 {{ timeLabel(currentEvent?.checkin_end_at) }}
+          </p>
+          <div class="actions notice">
+            <el-button
+              v-if="permission('update')"
+              :disabled="busy"
+              @click="openEditor(currentEvent)"
+              >编辑当前场次</el-button
+            >
+            <el-button
+              v-if="
+                permission('update') &&
+                currentEvent?.lifecycle_status === 'DRAFT'
+              "
+              type="primary"
+              :disabled="busy"
+              @click="changeLifecycle('CONFIRMED')"
+              >确认活动</el-button
+            >
+            <el-button
+              v-if="
+                permission('update') &&
+                currentEvent?.lifecycle_status === 'CONFIRMED'
+              "
+              :disabled="busy"
+              @click="changeLifecycle('DRAFT')"
+              >退回草稿</el-button
+            >
+            <el-button
+              v-if="
+                permission('manage') &&
+                currentEvent?.lifecycle_status !== 'CANCELLED'
+              "
+              :disabled="busy"
+              @click="toggleCheckin()"
+              >{{
+                currentEvent?.manual_status === "closed"
+                  ? "开放签到"
+                  : "关闭签到"
+              }}</el-button
+            >
+            <el-button
+              v-if="
+                permission('manage') &&
+                currentEvent?.lifecycle_status !== 'CANCELLED'
+              "
+              type="danger"
+              plain
+              :disabled="busy"
+              @click="changeLifecycle('CANCELLED')"
+              >取消活动</el-button
+            >
+            <el-button
+              v-if="permission('code')"
+              :disabled="busy || currentEvent?.lifecycle_status === 'CANCELLED'"
+              @click="openCode()"
+              >生成当前场次小程序码</el-button
+            >
+            <el-button
+              v-if="permission('export')"
+              :disabled="busy"
+              @click="exportExcel()"
+              >导出 Excel</el-button
+            >
+          </div>
+          <div v-if="stats" class="summary">
+            <el-statistic
+              title="本班应到 / 报名"
+              :value="stats.home_class_total ?? stats.total ?? 0"
+            />
+            <el-statistic
+              title="本班已到 / 已签到"
+              :value="stats.home_class_checked ?? stats.checked ?? 0"
+            />
+            <el-statistic
+              title="外班实际到场"
+              :value="stats.cross_class_checked || 0"
+            />
+            <el-statistic
+              title="来宾实际到场"
+              :value="stats.guest_checked || 0"
+            />
+            <el-statistic
+              title="现场真实人数"
+              :value="stats.onsite_total ?? stats.checked ?? 0"
+            />
+            <el-statistic
+              title="本班签到率"
+              :value="stats.rate || 0"
+              suffix="%"
+            />
+          </div>
+          <el-alert
+            title="报名联系人与实际参加人分别保留。外班参加保留原班级；预计迟到、请假属于跟进状态，最终到场以签到事实为准。"
+            type="info"
+            :closable="false"
+            class="notice"
           />
-          <el-statistic
-            title="本班已到 / 已签到"
-            :value="stats.home_class_checked ?? stats.checked ?? 0"
+          <div class="actions notice">
+            <el-button
+              v-if="permission('manage')"
+              :disabled="busy || !canMaintainRegistration(currentEvent)"
+              @click="openManual()"
+              >新增临时报名</el-button
+            >
+            <el-button
+              v-if="
+                permission('import') &&
+                !['class_meeting', 'group_meeting'].includes(
+                  currentEvent?.activity_type
+                )
+              "
+              :disabled="busy || !allowExcel"
+              @click="openImport()"
+              >Excel 追加报名名单</el-button
+            >
+            <el-button
+              v-if="
+                permission('import') &&
+                currentEvent?.activity_type === 'class_meeting'
+              "
+              :disabled="busy || !allowRoster"
+              @click="syncRoster()"
+              >同步可信班级名单</el-button
+            >
+            <el-button
+              v-if="currentEvent?.activity_type === 'class_meeting'"
+              :disabled="busy"
+              @click="showRosterReconciliation()"
+              >班级名单对账</el-button
+            >
+          </div>
+          <el-tabs v-model="personFilter">
+            <el-tab-pane label="全部报名与实际到场" name="all" /><el-tab-pane
+              label="已签到"
+              name="checked"
+            /><el-tab-pane
+              :label="`未签到 (${stats?.pending || 0})`"
+              name="pending"
+            /><el-tab-pane
+              :label="`预计迟到 (${stats?.late || 0})`"
+              name="late"
+            /><el-tab-pane
+              :label="`请假 (${stats?.leave || 0})`"
+              name="leave"
+            /><el-tab-pane label="外班学长" name="cross" /><el-tab-pane
+              label="团队实际到场"
+              name="team"
+            />
+          </el-tabs>
+          <el-input
+            v-model="personKeyword"
+            placeholder="搜索报名人、实际参加人、班级、公司"
+            clearable
+            class="people-search"
           />
-          <el-statistic
-            title="外班实际到场"
-            :value="stats.cross_class_checked || 0"
-          />
-          <el-statistic
-            title="来宾实际到场"
-            :value="stats.guest_checked || 0"
-          />
-          <el-statistic
-            title="现场真实人数"
-            :value="stats.onsite_total ?? stats.checked ?? 0"
-          />
-          <el-statistic
-            title="本班签到率"
-            :value="stats.rate || 0"
-            suffix="%"
-          />
-        </div>
-        <el-alert
-          title="报名联系人与实际参加人分别保留。外班参加保留原班级；预计迟到、请假属于跟进状态，最终到场以签到事实为准。"
-          type="info"
-          :closable="false"
-          class="notice"
-        />
-        <div class="actions notice">
-          <el-button
-            v-if="permission('manage')"
-            :disabled="busy || !canMaintainRegistration(currentEvent)"
-            @click="openManual()"
-            >新增临时报名</el-button
+          <el-table
+            :data="visiblePeople"
+            row-key="registration_id"
+            max-height="620"
           >
-          <el-button
-            v-if="
-              permission('import') &&
-              !['class_meeting', 'group_meeting'].includes(
-                currentEvent?.activity_type
-              )
-            "
-            :disabled="busy || !allowExcel"
-            @click="openImport()"
-            >Excel 追加报名名单</el-button
-          >
-          <el-button
-            v-if="
-              permission('import') &&
-              currentEvent?.activity_type === 'class_meeting'
-            "
-            :disabled="busy || !allowRoster"
-            @click="syncRoster()"
-            >同步可信班级名单</el-button
-          >
-          <el-button
-            v-if="currentEvent?.activity_type === 'class_meeting'"
-            :disabled="busy"
-            @click="showRosterReconciliation()"
-            >班级名单对账</el-button
-          >
-        </div>
-        <el-tabs v-model="personFilter">
-          <el-tab-pane label="全部报名与实际到场" name="all" /><el-tab-pane
-            label="已签到"
-            name="checked"
-          /><el-tab-pane
-            :label="`未签到 (${stats?.pending || 0})`"
-            name="pending"
-          /><el-tab-pane
-            :label="`预计迟到 (${stats?.late || 0})`"
-            name="late"
-          /><el-tab-pane
-            :label="`请假 (${stats?.leave || 0})`"
-            name="leave"
-          /><el-tab-pane label="外班学长" name="cross" /><el-tab-pane
-            label="团队实际到场"
-            name="team"
-          />
-        </el-tabs>
-        <el-input
-          v-model="personKeyword"
-          placeholder="搜索报名人、实际参加人、班级、公司"
-          clearable
-          class="people-search"
-        />
-        <el-table
-          :data="visiblePeople"
-          row-key="registration_id"
-          max-height="620"
-        >
-          <el-table-column label="原报名人" min-width="110"
-            ><template #default="{ row }">{{
-              row.registered_name || row.name
-            }}</template></el-table-column
-          >
-          <el-table-column label="实际参加人" min-width="110"
-            ><template #default="{ row }">{{
-              checked(row) ? row.actual_attendee_name || row.name : "—"
-            }}</template></el-table-column
-          >
-          <el-table-column label="身份" width="95"
-            ><template #default="{ row }"
-              >{{ roleLabel(row) }}
-              <div v-if="row.is_team" class="muted">团队名额</div></template
-            ></el-table-column
-          >
-          <el-table-column prop="center" label="分中心" width="100" />
-          <el-table-column
-            prop="class_name"
-            label="参加班级"
-            width="115"
-          /><el-table-column
-            prop="home_class_name"
-            label="原班级"
-            width="115"
-          /><el-table-column prop="group_name" label="小组" width="95" />
-          <el-table-column label="状态" width="100"
-            ><template #default="{ row }"
-              ><el-tag
-                :type="
-                  checked(row)
-                    ? 'success'
-                    : row.attendance_status === 'leave'
-                      ? 'info'
-                      : 'warning'
-                "
-                >{{ rowStatus(row) }}</el-tag
-              ></template
-            ></el-table-column
-          >
-          <el-table-column label="签到时间" width="155"
-            ><template #default="{ row }">{{
-              checked(row) ? timeLabel(row.checked_at) : "—"
-            }}</template></el-table-column
-          >
-          <el-table-column
-            v-if="permission('status') || permission('manage')"
-            label="现场操作"
-            min-width="260"
-            fixed="right"
-            ><template #default="{ row }"
-              ><template v-if="!checked(row)">
-                <el-button
-                  v-if="permission('status')"
-                  size="small"
-                  :disabled="
-                    busy ||
-                    !canMaintainRegistration(currentEvent) ||
-                    currentEvent?.session_code === 'KONPA'
+            <el-table-column label="原报名人" min-width="110"
+              ><template #default="{ row }">{{
+                row.registered_name || row.name
+              }}</template></el-table-column
+            >
+            <el-table-column label="实际参加人" min-width="110"
+              ><template #default="{ row }">{{
+                checked(row) ? row.actual_attendee_name || row.name : "—"
+              }}</template></el-table-column
+            >
+            <el-table-column label="身份" width="95"
+              ><template #default="{ row }"
+                >{{ roleLabel(row) }}
+                <div v-if="row.is_team" class="muted">团队名额</div></template
+              ></el-table-column
+            >
+            <el-table-column prop="center" label="分中心" width="100" />
+            <el-table-column
+              prop="class_name"
+              label="参加班级"
+              width="115"
+            /><el-table-column
+              prop="home_class_name"
+              label="原班级"
+              width="115"
+            /><el-table-column prop="group_name" label="小组" width="95" />
+            <el-table-column label="状态" width="100"
+              ><template #default="{ row }"
+                ><el-tag
+                  :type="
+                    checked(row)
+                      ? 'success'
+                      : row.attendance_status === 'leave'
+                        ? 'info'
+                        : 'warning'
                   "
-                  @click="updatePerson(row, 'late')"
-                  >预计迟到</el-button
-                ><el-button
-                  v-if="permission('status')"
-                  size="small"
-                  :disabled="busy || !canMaintainRegistration(currentEvent)"
-                  @click="updatePerson(row, 'leave')"
-                  >请假</el-button
-                ><el-button
-                  v-if="
-                    permission('status') &&
-                    ['late', 'leave'].includes(row.attendance_status)
-                  "
-                  size="small"
-                  :disabled="busy || !canMaintainRegistration(currentEvent)"
-                  @click="updatePerson(row, 'pending')"
-                  >恢复待签到</el-button
-                >
-                <el-button
-                  v-if="permission('manage')"
-                  size="small"
-                  type="success"
-                  :disabled="
-                    busy || !canConfirmManually(currentEvent) || row.is_team
-                  "
-                  @click="confirmPerson(row)"
-                  >人工签到</el-button
-                ><el-button
-                  v-if="permission('manage')"
-                  size="small"
-                  type="danger"
-                  text
-                  :disabled="busy || !canMaintainRegistration(currentEvent)"
-                  @click="removePerson(row)"
-                  >删除报名</el-button
-                > </template
-              ><span v-else class="muted">已签到事实保留</span></template
-            ></el-table-column
-          >
-        </el-table>
-        <el-collapse class="notice"
-          ><el-collapse-item title="分组签到进度" name="groups"
-            ><el-table :data="groupRows"
-              ><el-table-column
-                prop="name"
-                :label="stats?.group_type || '分组'" /><el-table-column
-                prop="total"
-                label="报名人数" /><el-table-column
-                prop="checked"
-                label="实际签到人数" /></el-table></el-collapse-item
-        ></el-collapse>
-      </el-card>
+                  >{{ rowStatus(row) }}</el-tag
+                ></template
+              ></el-table-column
+            >
+            <el-table-column label="签到时间" width="155"
+              ><template #default="{ row }">{{
+                checked(row) ? timeLabel(row.checked_at) : "—"
+              }}</template></el-table-column
+            >
+            <el-table-column
+              v-if="permission('status') || permission('manage')"
+              label="现场操作"
+              min-width="260"
+              fixed="right"
+              ><template #default="{ row }"
+                ><template v-if="!checked(row)">
+                  <el-button
+                    v-if="permission('status')"
+                    size="small"
+                    :disabled="
+                      busy ||
+                      !canMaintainRegistration(currentEvent) ||
+                      currentEvent?.session_code === 'KONPA'
+                    "
+                    @click="updatePerson(row, 'late')"
+                    >预计迟到</el-button
+                  ><el-button
+                    v-if="permission('status')"
+                    size="small"
+                    :disabled="busy || !canMaintainRegistration(currentEvent)"
+                    @click="updatePerson(row, 'leave')"
+                    >请假</el-button
+                  ><el-button
+                    v-if="
+                      permission('status') &&
+                      ['late', 'leave'].includes(row.attendance_status)
+                    "
+                    size="small"
+                    :disabled="busy || !canMaintainRegistration(currentEvent)"
+                    @click="updatePerson(row, 'pending')"
+                    >恢复待签到</el-button
+                  >
+                  <el-button
+                    v-if="permission('manage')"
+                    size="small"
+                    type="success"
+                    :disabled="
+                      busy || !canConfirmManually(currentEvent) || row.is_team
+                    "
+                    @click="confirmPerson(row)"
+                    >人工签到</el-button
+                  ><el-button
+                    v-if="permission('manage')"
+                    size="small"
+                    type="danger"
+                    text
+                    :disabled="busy || !canMaintainRegistration(currentEvent)"
+                    @click="removePerson(row)"
+                    >删除报名</el-button
+                  > </template
+                ><span v-else class="muted">已签到事实保留</span></template
+              ></el-table-column
+            >
+          </el-table>
+          <el-collapse class="notice"
+            ><el-collapse-item title="分组签到进度" name="groups"
+              ><el-table :data="groupRows"
+                ><el-table-column
+                  prop="name"
+                  :label="stats?.group_type || '分组'" /><el-table-column
+                  prop="total"
+                  label="报名人数" /><el-table-column
+                  prop="checked"
+                  label="实际签到人数" /></el-table></el-collapse-item
+          ></el-collapse>
+        </el-card>
       </el-drawer>
     </template>
 
@@ -1245,6 +1339,8 @@ onUnmounted(() => {
       v-model="editorVisible"
       :title="editingId ? '编辑当前签到场次' : '创建活动'"
       width="min(920px, 96vw)"
+      top="5vh"
+      body-class="attendance-activity-editor-body"
       :close-on-click-modal="false"
     >
       <el-form label-position="top" class="editor-grid">
@@ -1264,7 +1360,7 @@ onUnmounted(() => {
               Boolean(editingId) && editor.activity_type === 'class_meeting'
             "
             ><el-option
-              v-for="[value, label] in activityTypes"
+              v-for="[value, label] in editorActivityTypes"
               :key="value"
               :value="value"
               :label="label" /></el-select
@@ -1357,11 +1453,69 @@ onUnmounted(() => {
             type="datetime"
             value-format="YYYY-MM-DDTHH:mm" /></el-form-item
       ></el-form>
+      <section
+        v-if="!editingId && editor.activity_type !== 'class_meeting'"
+        class="notice"
+      >
+        <h3>上传报名表格（必填）</h3>
+        <p class="muted">
+          选择 Excel
+          报名表，核对名单后保存活动。表格需包含姓名，联系方式、公司、班级等可选；重复报名名额会分别保留。
+        </p>
+        <input
+          type="file"
+          accept=".xls,.xlsx"
+          aria-label="上传活动报名表格"
+          :disabled="busy || !permission('import')"
+          @change="readCreationFile"
+        />
+        <p v-if="creationFilename">
+          {{ creationFilename }} · {{ creationAttendees.length }} 个报名名额
+        </p>
+        <el-table
+          v-if="creationAttendees.length"
+          :data="creationAttendees.slice(0, 20)"
+          max-height="220"
+        >
+          <el-table-column prop="name" label="姓名" /><el-table-column
+            prop="company"
+            label="公司"
+          /><el-table-column prop="class_name" label="班级" />
+        </el-table>
+        <el-alert
+          v-if="creationQuality"
+          :title="`报名名额 ${creationAttendees.length}；联系方式缺失 ${creationQuality.missing_phone_count}，格式异常 ${creationQuality.invalid_phone_count}，不阻断导入。`"
+          type="info"
+          :closable="false"
+          class="notice"
+        />
+        <el-button
+          :loading="busy"
+          :disabled="!creationAttendees.length || !permission('import')"
+          @click="previewCreation"
+          >核对报名表预览</el-button
+        >
+        <el-alert
+          v-if="creationPreview"
+          title="报名表预览通过，可以保存活动；修改活动信息或更换表格后请重新核对。"
+          type="success"
+          :closable="false"
+          class="notice"
+        />
+        <el-alert
+          v-if="!permission('import')"
+          title="当前账号没有导入报名名单的权限，请联系管理员。"
+          type="warning"
+          :closable="false"
+        />
+      </section>
       <el-alert
-        v-if="!editingId && editor.activity_type === 'group_meeting'"
-        title="小组学习会将根据选定小组组织 ID 自动读取当前可信名单，创建失败时先修正组织关系。"
-        type="info"
+        v-if="error"
+        :title="error"
+        type="error"
+        show-icon
         :closable="false"
+        class="notice"
       />
       <el-alert
         v-if="editingId"
@@ -1376,8 +1530,9 @@ onUnmounted(() => {
           :loading="busy"
           :disabled="
             !editingId &&
-            editor.activity_type === 'class_meeting' &&
-            !rosterMembers.length
+            (editor.activity_type === 'class_meeting'
+              ? !rosterMembers.length
+              : !creationPreview || !permission('import'))
           "
           @click="saveEditor"
           >{{
@@ -1548,7 +1703,15 @@ onUnmounted(() => {
       title="当前场次专属小程序码"
       width="min(520px, 96vw)"
       :close-on-click-modal="false"
-      ><h3>{{ codeEvent?.name }}</h3>
+      ><el-alert
+        v-if="codeError"
+        :title="codeError"
+        type="error"
+        show-icon
+        :closable="false"
+        class="notice"
+      />
+      <h3>{{ codeEvent?.name }}</h3>
       <p>
         {{ codeEvent?.event_date }} ·
         {{
@@ -1657,6 +1820,10 @@ h3 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   column-gap: 20px;
+}
+:global(.attendance-activity-editor-body) {
+  max-height: calc(85vh - 140px);
+  overflow-y: auto;
 }
 .editor-grid :deep(.el-select),
 .editor-grid :deep(.el-date-editor) {
