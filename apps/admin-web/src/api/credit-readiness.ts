@@ -49,6 +49,46 @@ export type CreditReadiness = {
 const endpoint =
   "/api/v1/ops/production-actions/g5-4-course-rule-reconciliation";
 
+export type CreditStorageReadiness = {
+  release_commit: string;
+  baseline_fingerprint: string;
+  stages: {
+    version: string;
+    filename: string;
+    sha256: string;
+    applied: boolean;
+  }[];
+  bindings: { total: number; generic_frozen: number; course_frozen: number };
+  course_references_to_fill: number;
+  ledger: { total: number; points: string };
+  blockers: string[];
+  next_migration: string | null;
+  can_prepare: boolean;
+  storage_ready: boolean;
+  formal_ready: boolean;
+  settlement_gates: Record<string, boolean>;
+};
+const storageEndpoint =
+  "/api/v1/ops/production-actions/credit-settlement-storage";
+export const getCreditStorageReadiness = () =>
+  http.request<{ success: true; data: CreditStorageReadiness }>(
+    "get",
+    `${storageEndpoint}/preflight`
+  );
+export const prepareCreditStorage = (
+  version: string,
+  data: {
+    expected_release_commit: string;
+    expected_baseline_fingerprint: string;
+    expected_migration_sha256: string;
+    execution_reason: string;
+  }
+) =>
+  http.request<{
+    success: true;
+    data: { status: "RECORDED"; migration_version: string };
+  }>("post", `${storageEndpoint}/${version}/prepare`, { data, timeout: 60000 });
+
 // Both calls use the normal authenticated client and one fixed API operation.
 // A deployment route token may target a verified candidate; no alternate host,
 // token extraction, fallback route, or retry is provided here.
