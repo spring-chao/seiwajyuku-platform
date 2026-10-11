@@ -44,6 +44,17 @@ const storageReason = ref("");
 const storageOutcome = ref("");
 const storageAttempted = ref(false);
 const formatRepairAttempted = ref(false);
+const managedAttempted = ref(false);
+const canPrepareManaged = computed(
+  () =>
+    storage.value?.can_prepare_managed_mysql &&
+    (!expectedCommit.value ||
+      storage.value.release_commit === expectedCommit.value) &&
+    !loading.value &&
+    !storageExecuting.value &&
+    !managedAttempted.value &&
+    storageReason.value.trim().length >= 8
+);
 const canRepairFormat = computed(
   () =>
     storage.value?.can_repair_alias_format &&
@@ -117,14 +128,25 @@ async function refresh() {
       sessionStorage.getItem(
         creditStoragePrepareKey("0064-alias-format-repair")
       ) !== null;
+    managedAttempted.value =
+      sessionStorage.getItem(
+        creditStoragePrepareKey("0064-managed-mysql-forward")
+      ) !== null;
   } catch (err) {
     storageError.value = creditSettlementErrorMessage(err, "结算存储核验失败");
     storage.value = undefined;
   }
 }
 
-async function executeStorage(repairAliasFormat = false) {
-  if (repairAliasFormat ? !canRepairFormat.value : !canPrepare.value) return;
+async function executeStorage(repairAliasFormat = false, managedMysql = false) {
+  if (
+    managedMysql
+      ? !canPrepareManaged.value
+      : repairAliasFormat
+        ? !canRepairFormat.value
+        : !canPrepare.value
+  )
+    return;
   const snapshot = storage.value;
   const stage = snapshot.stages.find(
     item => item.version === snapshot.next_migration
@@ -135,14 +157,19 @@ async function executeStorage(repairAliasFormat = false) {
   try {
     await submitCreditStoragePrepareOnce(
       sessionStorage,
-      repairAliasFormat ? "0064-alias-format-repair" : stage.version,
+      managedMysql
+        ? "0064-managed-mysql-forward"
+        : repairAliasFormat
+          ? "0064-alias-format-repair"
+          : stage.version,
       {
         commit: snapshot.release_commit,
         fingerprint: snapshot.baseline_fingerprint,
         submitted_at: new Date().toISOString()
       },
       () => {
-        if (repairAliasFormat) formatRepairAttempted.value = true;
+        if (managedMysql) managedAttempted.value = true;
+        else if (repairAliasFormat) formatRepairAttempted.value = true;
         else storageAttempted.value = true;
         return prepareCreditStorage(
           stage.version,
@@ -150,9 +177,13 @@ async function executeStorage(repairAliasFormat = false) {
             expected_release_commit: snapshot.release_commit,
             expected_baseline_fingerprint: snapshot.baseline_fingerprint,
             expected_migration_sha256: stage.sha256,
-            execution_reason: storageReason.value.trim()
+            execution_reason: storageReason.value.trim(),
+            ...(managedMysql
+              ? { expected_forward_sha256: snapshot.managed_forward_sha256 }
+              : {})
           },
-          repairAliasFormat
+          repairAliasFormat,
+          managedMysql
         );
       }
     );
@@ -444,6 +475,22 @@ onMounted(refresh);
             </el-button>
             <p v-if="formatRepairAttempted">
               格式修复已提交，请刷新核验；不重复发送。
+            </p>
+          </template>
+          <template v-if="storage.can_prepare_managed_mysql">
+            <p>
+              已确认应用账号不支持临时表，规则内容与格式均已就绪、尚无持久结构。使用固定前向脚本完成准备，保留原审计，不扩大数据库权限。
+            </p>
+            <el-button
+              type="primary"
+              :disabled="!canPrepareManaged"
+              :loading="storageExecuting"
+              @click="executeStorage(false, true)"
+            >
+              完成托管数据库规则绑定
+            </el-button>
+            <p v-if="managedAttempted">
+              前向准备已提交，请刷新核验；不重复发送。
             </p>
           </template>
         </el-form>

@@ -1,6 +1,8 @@
 """Fixed authenticated setup and persistent DDL interruption in disposable MySQL."""
 import os
 import json
+from uuid import uuid4
+import pymysql
 from unittest.mock import patch
 
 import pytest
@@ -209,3 +211,89 @@ def test_mysql_format_repair_unknown_result_retains_both_attempts_and_never_repl
     assert state['ledger']['total'] == 0
     with pytest.raises(ProductionOperationError):
         service.prepare(**request(state), repair_alias_format=True)
+
+
+@pytest.fixture
+def managed_mysql(setup_mysql):
+    root = setup_mysql()
+    schema = execute(root, 'SELECT DATABASE() AS name').fetchone()['name']
+    assert schema.startswith('credit_migration_ci_') and schema.replace('_', '').isalnum()
+    username = 'credit_ci_' + uuid4().hex[:12]
+    password = 'isolated-' + uuid4().hex
+    execute(root, "CREATE USER ?@'%' IDENTIFIED BY ?", (username, password))
+    execute(root, f"GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,REFERENCES ON `{schema}`.* TO ?@'%'", (username,))
+    def limited():
+        return pymysql.connect(host=root.host, port=root.port, user=username, password=password,
+                               database=schema, charset='utf8mb4', autocommit=False,
+                               cursorclass=pymysql.cursors.DictCursor)
+    try:
+        row = execute(root, "SELECT id,aliases_json FROM learning_plan_credit_rules WHERE course_key='Y1-HAPPINESS-ASSESSMENT' AND rule_version_id=(SELECT id FROM learning_plan_credit_rule_versions WHERE plan_key='STANDARD_3Y_2026' AND version_label='2026.1')").fetchone()
+        execute(root, 'UPDATE learning_plan_credit_rules SET aliases_json=? WHERE id=?', (json.dumps(json.loads(row['aliases_json']), ensure_ascii=False), row['id']))
+        root.commit()
+        with patch.object(service, 'connect', side_effect=limited):
+            with pytest.raises(ProductionOperationError):
+                service.prepare(**request(service.preview(1)))
+            with pytest.raises(ProductionOperationError):
+                service.prepare(**request(service.preview(1)), repair_alias_format=True)
+            state = service.preview(1)
+            assert state['temporary_table_permission_failure'] and state['can_prepare_managed_mysql']
+            yield limited
+    finally:
+        execute(root, "DROP USER ?@'%'", (username,))
+        root.close()
+
+
+def test_mysql_managed_account_without_temp_permission_completes_all_fixed_stages(managed_mysql):
+    before = service.preview(1)
+    payload = request(before, managed_mysql_forward=True, expected_forward_sha256=service.MANAGED_SHA256)
+    with pytest.raises(ProductionOperationError):
+        service.prepare(**{**payload, 'expected_forward_sha256': 'f' * 64})
+    assert service.prepare(**payload)['status'] == 'RECORDED'
+    with pytest.raises(ProductionOperationError):
+        service.prepare(**payload)
+    for _ in range(3):
+        service.prepare(**request(service.preview(1)))
+    after = service.preview(1)
+    assert after['storage_ready'] and after['ledger']['total'] == 0
+    assert after['bindings']['generic_frozen'] == after['bindings']['course_frozen'] == 20
+    connection = managed_mysql()
+    assert execute(connection, "SELECT COUNT(*) AS n FROM audit_logs WHERE action=? AND result='STARTED'", (service.MANAGED_ACTION,)).fetchone()['n'] == 1
+    assert execute(connection, 'SELECT COUNT(*) AS n FROM learning_credit_settlement_batches').fetchone()['n'] == 0
+    connection.close()
+
+
+def test_mysql_managed_guards_reject_raw_rule_and_category_drift_without_attempt(managed_mysql):
+    connection = managed_mysql()
+    execute(connection, "UPDATE learning_credit_rules SET credit_category='EXTENSION_ACTIVITY' WHERE rule_key='DAILY_READING' AND rule_version_id=(SELECT id FROM learning_credit_rule_versions WHERE rule_set_key='STANDARD_3Y_2026' AND version_label='2026.1')")
+    connection.commit()
+    connection.close()
+    with pytest.raises(ProductionOperationError):
+        service.prepare(**request(service.preview(1)), managed_mysql_forward=True, expected_forward_sha256=service.MANAGED_SHA256)
+    connection = managed_mysql()
+    execute(connection, "UPDATE learning_credit_rules SET credit_category='STANDARD_LEARNING' WHERE rule_key='DAILY_READING' AND rule_version_id=(SELECT id FROM learning_credit_rule_versions WHERE rule_set_key='STANDARD_3Y_2026' AND version_label='2026.1')")
+    execute(connection, "UPDATE learning_plan_credit_rules SET course_name=CONCAT(' ',course_name) WHERE course_key='Y1-SIX-DILIGENCES' AND rule_version_id=(SELECT id FROM learning_plan_credit_rule_versions WHERE plan_key='STANDARD_3Y_2026' AND version_label='2026.1')")
+    connection.commit()
+    connection.close()
+    with pytest.raises(ProductionOperationError):
+        service.prepare(**request(service.preview(1)), managed_mysql_forward=True, expected_forward_sha256=service.MANAGED_SHA256)
+    connection = managed_mysql()
+    assert execute(connection, "SELECT COUNT(*) AS n FROM audit_logs WHERE action=?", (service.MANAGED_ACTION,)).fetchone()['n'] == 0
+    connection.close()
+
+
+def test_mysql_managed_partial_ddl_and_started_record_cannot_replay(managed_mysql):
+    payload = request(service.preview(1), managed_mysql_forward=True, expected_forward_sha256=service.MANAGED_SHA256)
+    original = service.execute
+    def interrupted(connection, sql, params=()):
+        if 'CREATE TABLE IF NOT EXISTS g5_4_c0_rule_mapping_state' in sql:
+            original(connection, sql, params)
+            raise TimeoutError('isolated managed DDL interruption')
+        return original(connection, sql, params)
+    with patch.object(service, 'execute', side_effect=interrupted), pytest.raises(ProductionOperationError):
+        service.prepare(**payload)
+    state = service.preview(1)
+    assert not state['can_prepare_managed_mysql'] and state['managed_attempts'] == 1
+    assert state['stages'][0]['unrecorded_structure'] and not state['stages'][0]['applied']
+    assert state['ledger']['total'] == 0
+    with pytest.raises(ProductionOperationError):
+        service.prepare(**request(state), managed_mysql_forward=True, expected_forward_sha256=service.MANAGED_SHA256)
