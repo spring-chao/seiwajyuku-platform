@@ -65,6 +65,21 @@ test("activity scene and scanned route resolve opaque token; generic QR data and
   assert.equal(scan.classifyScanResult({ scene: "ci_opaque" }), "activity");
 });
 
+test("checkin dates show Beijing calendar days while preserving actual time limits", () => {
+  const source = { event_date: "2026-10-11", checkin_start_at: "2026-10-10T16:00:00.000Z", checkin_end_at: "2026-10-11T15:59:00.000Z" };
+  const shown = checkin.displayEvent(source);
+  assert.equal(shown.event_date_display, "2026-10-11");
+  assert.equal(shown.checkin_start_date, "2026-10-11");
+  assert.equal(shown.checkin_end_date, "2026-10-11");
+  assert.equal(shown.checkin_start_at, source.checkin_start_at);
+  assert.equal(shown.checkin_end_at, source.checkin_end_at);
+  const local = checkin.displayEvent({ checkin_open_at: "2026-10-11 00:00:00", checkin_close_at: "2026-10-11T23:59:00+08:00" });
+  assert.equal(local.checkin_start_date, "2026-10-11");
+  assert.equal(local.checkin_end_date, "2026-10-11");
+  assert.equal(checkin.displayEvent({ checkin_start_at: "invalid" }).checkin_start_date, "");
+  assert.equal(checkin.displayEvent({}).checkin_end_date, "");
+});
+
 test("bound member confirms only server resolved identity, double taps write once and pending sync remains successful", async () => {
   const pending = deferred();
   const h = harness("checkin/index", async (_, options) => options.method === "POST" ? pending.promise : context());
