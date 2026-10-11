@@ -37,6 +37,7 @@ from app.api.learning_cycle_monthly import router as learning_cycle_monthly_rout
 from app.api.learning_plans import router as learning_plans_router
 from app.api.learning_credits import router as learning_credits_router
 from app.api.credit_opening_balances import router as credit_opening_balances_router
+from app.api.credit_year_allocations import router as credit_year_allocations_router
 from app.api.production_actions import router as production_actions_router
 from app.api.member_roster_import import router as member_roster_import_router
 from app.api.plans import router as plans_router
@@ -252,6 +253,7 @@ app.include_router(learning_cycle_monthly_router)
 app.include_router(learning_plans_router)
 app.include_router(learning_credits_router)
 app.include_router(credit_opening_balances_router)
+app.include_router(credit_year_allocations_router)
 app.include_router(production_actions_router)
 app.include_router(member_roster_import_router)
 app.include_router(plans_router)
