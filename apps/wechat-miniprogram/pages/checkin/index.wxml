@@ -3,9 +3,9 @@
   <view wx:if="{{loading}}" class="state-card">正在确认活动与身份…</view>
   <view wx:if="{{event && !result}}" class="section-card">
     <view class="section-title">{{event.title}}</view>
-    <view class="detail-line">{{event.event_date}} · {{event.session_name}}</view>
-    <view wx:if="{{event.checkin_start_at || event.checkin_open_at}}" class="detail-line">签到开始：{{event.checkin_start_at || event.checkin_open_at}}</view>
-    <view wx:if="{{event.checkin_end_at || event.checkin_close_at}}" class="detail-line">签到截止：{{event.checkin_end_at || event.checkin_close_at}}</view>
+    <view class="detail-line">{{event.event_date_display}} · {{event.session_name}}</view>
+    <view wx:if="{{event.checkin_start_date}}" class="detail-line">签到开始：{{event.checkin_start_date}}</view>
+    <view wx:if="{{event.checkin_end_date}}" class="detail-line">签到截止：{{event.checkin_end_date}}</view>
     <view class="section-hint">各场次分别签到，上午签到不会代替下午或空巴签到。</view>
   </view>
   <view wx:if="{{member && !result}}" class="section-card">

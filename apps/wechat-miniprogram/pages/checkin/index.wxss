@@ -8,8 +8,8 @@
 .detail-line { margin-top: 14rpx; font-size: 27rpx; line-height: 1.6; word-break: break-all; }
 .section-hint { margin-top: 16rpx; color: #806f6f; line-height: 1.65; font-size: 25rpx; }
 .identity-name { margin-top: 18rpx; color: #741f2b; font-size: 35rpx; font-weight: 700; }
-.primary-button, .plain-button { margin-top: 22rpx; border-radius: 12rpx; font-size: 29rpx; }
-.primary-button { color: #fff; background: #741f2b; }
+.primary-button, .plain-button { width: 100%; box-sizing: border-box; margin: 22rpx 0 0; padding: 24rpx 20rpx; border-radius: 16rpx; font-size: 32rpx; line-height: 1.5; }
+.primary-button { min-height: 104rpx; font-weight: 700; color: #fff; background: #741f2b; }
 .primary-button[disabled] { background: #b69b9f; color: #fff; }
 .plain-button { color: #741f2b; background: #fffaf7; border: 1rpx solid #d9c7c3; }
 .success { background: #ecf6ef; color: #2b6640; }

@@ -63,9 +63,26 @@ function targetQuery(target) {
 function checkinPath(target) { return `${CHECKIN_PAGE}?${targetQuery(target)}`; }
 function contextPath(target) { return `/api/v1/wechat/checkin/context?${targetQuery(target)}`; }
 
+function chinaCalendarDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  // SQL timestamps without an offset are Beijing local time. ISO timestamps
+  // carry their own offset; do not slice the UTC date before converting it.
+  let timestamp = text.replace(" ", "T");
+  if (/^\d{4}-\d{2}-\d{2}T/.test(timestamp) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(timestamp)) timestamp += "+08:00";
+  const milliseconds = Date.parse(timestamp);
+  if (!Number.isFinite(milliseconds)) return "";
+  const china = new Date(milliseconds + 8 * 60 * 60 * 1000);
+  const pad = number => String(number).padStart(2, "0");
+  return `${china.getUTCFullYear()}-${pad(china.getUTCMonth() + 1)}-${pad(china.getUTCDate())}`;
+}
+
 function displayEvent(event = {}) {
   const sessionNames = { MORNING: "上午", AFTERNOON: "下午", KONPA: "晚上空巴", SINGLE: "活动签到" };
-  return { ...event, session_name: event.session_name || sessionNames[event.session_code] || "活动签到" };
+  return { ...event, session_name: event.session_name || sessionNames[event.session_code] || "活动签到",
+    event_date_display: chinaCalendarDate(event.event_date),
+    checkin_start_date: chinaCalendarDate(event.checkin_start_at || event.checkin_open_at),
+    checkin_end_date: chinaCalendarDate(event.checkin_end_at || event.checkin_close_at) };
 }
 
 function fallbackUrl(value) {
