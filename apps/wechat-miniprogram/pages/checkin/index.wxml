@@ -1,9 +1,16 @@
 <view class="page-shell">
-  <view wx:if="{{!result}}" class="hero-card"><view class="eyebrow">现场活动</view><view class="hero-title">活动签到</view><view class="hero-copy">确认当前场次，记录您的参与。</view></view>
+  <view wx:if="{{!result}}" class="brand-header">
+    <view class="brand-lockup"><image class="brand-logo" src="/assets/shenghe-brand-logo-jiangnan.png" mode="aspectFit" aria-label="江南塾徽" /></view>
+    <view class="brand-motto">提高心性 拓展经营</view>
+    <view class="page-title">活动签到</view>
+  </view>
   <view wx:if="{{loading}}" class="state-card">正在确认活动与身份…</view>
-  <view wx:if="{{event && !result}}" class="section-card">
-    <view class="section-title">{{event.title}}</view>
-    <view class="detail-line">{{event.event_date_display}} · {{event.session_name}}</view>
+  <view wx:if="{{event && !result}}" class="section-card activity-shell">
+    <view class="activity-heading">本次签到活动</view>
+    <view class="activity-card">
+      <view class="activity-top"><view class="activity-dot"></view><view class="activity-name">{{event.title}}</view></view>
+      <view class="activity-date">{{event.event_date_display}} · {{event.session_name}}</view>
+    </view>
     <view class="section-hint">各场次分别签到，上午签到不会代替下午或空巴签到。</view>
   </view>
   <view wx:if="{{member && !result}}" class="section-card">
@@ -27,8 +34,9 @@
     <view class="result-info"><view wx:for="{{item.card.lines}}" wx:for-item="line" wx:key="index">{{line}}</view></view>
   </view>
   <view wx:if="{{guestAllowed && !loading && !alreadyChecked}}" class="section-card">
-    <view class="section-title">姓名签到</view>
+    <view class="section-title">✍️ 签到</view>
     <view class="section-hint">输入报名姓名，确认签到。</view>
+    <view class="input-label">姓名</view>
     <input class="name-input" placeholder="请输入报名姓名" maxlength="120" value="{{guestName}}" bindinput="inputGuestName" disabled="{{confirming || guestResults.length > 0}}" />
     <view wx:if="{{nameCandidates.length > 1}}" class="candidate-section">
       <view class="candidate-heading">找到多条同名报名</view>

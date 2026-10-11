@@ -1,1 +1,5 @@
-{ "navigationBarTitleText": "活动签到" }
+{
+  "navigationBarTitleText": "活动签到",
+  "navigationBarBackgroundColor": "#431019",
+  "backgroundColor": "#431019"
+}

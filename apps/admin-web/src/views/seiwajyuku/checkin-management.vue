@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import dayjs from "dayjs";
 import { hasPerms } from "@/utils/auth";
+import AttendanceImportSummary from "./components/attendance-import-summary.vue";
 import {
   manageAttendance,
   generateAttendanceCode,
@@ -97,6 +98,8 @@ const creationAttendees = ref<any[]>([]);
 const creationFilename = ref("");
 const creationGroupField = ref("");
 const creationQuality = ref<any>(null);
+const creationHeaderRow = ref(0);
+const creationColumns = ref<Record<string, number> | null>(null);
 const creationPreview = ref<EngineResult | null>(null);
 const creationPreviewFingerprint = ref("");
 const editor = reactive<Record<string, any>>({
@@ -131,6 +134,7 @@ const importGroupField = ref("");
 const importHeaderRow = ref(0);
 const importFilename = ref("");
 const importQuality = ref<any>(null);
+const importColumns = ref<Record<string, number> | null>(null);
 const preview = ref<EngineResult | null>(null);
 const previewFingerprint = ref("");
 const sessionTimes = reactive<Record<string, string>>({});
@@ -505,6 +509,8 @@ function resetCreationImport() {
   creationFilename.value = "";
   creationGroupField.value = "";
   creationQuality.value = null;
+  creationHeaderRow.value = 0;
+  creationColumns.value = null;
   creationPreview.value = null;
   creationPreviewFingerprint.value = "";
 }
@@ -530,6 +536,8 @@ async function readCreationFile(e: Event) {
     creationFilename.value = file.name;
     creationGroupField.value = parsed.groupField;
     creationQuality.value = parsed.quality;
+    creationHeaderRow.value = parsed.headerRow;
+    creationColumns.value = parsed.columns;
   });
   input.value = "";
 }
@@ -604,6 +612,8 @@ async function openImport() {
   importAttendees.value = [];
   importFilename.value = "";
   importQuality.value = null;
+  importColumns.value = null;
+  importHeaderRow.value = 0;
   preview.value = null;
   importVisible.value = true;
 }
@@ -612,6 +622,10 @@ async function readFile(e: Event) {
   if (!file) return;
   preview.value = null;
   importAttendees.value = [];
+  importColumns.value = null;
+  importQuality.value = null;
+  importFilename.value = "";
+  importHeaderRow.value = 0;
   await perform(async () => {
     const parsed = await parseExcelFile(file);
     importAttendees.value = parsed.attendees;
@@ -619,6 +633,7 @@ async function readFile(e: Event) {
     importHeaderRow.value = parsed.headerRow;
     importFilename.value = file.name;
     importQuality.value = parsed.quality;
+    importColumns.value = parsed.columns;
     if (!parsed.attendees.length) throw new Error("表格未包含可导入的报名记录");
   });
   (e.target as HTMLInputElement).value = "";
@@ -1472,6 +1487,12 @@ onUnmounted(() => {
         <p v-if="creationFilename">
           {{ creationFilename }} · {{ creationAttendees.length }} 个报名名额
         </p>
+        <AttendanceImportSummary
+          v-if="creationColumns && creationQuality"
+          :header-row="creationHeaderRow"
+          :columns="creationColumns"
+          :quality="creationQuality"
+        />
         <el-table
           v-if="creationAttendees.length"
           :data="creationAttendees.slice(0, 20)"
@@ -1480,15 +1501,12 @@ onUnmounted(() => {
           <el-table-column prop="name" label="姓名" /><el-table-column
             prop="company"
             label="公司"
-          /><el-table-column prop="class_name" label="班级" />
+          /><el-table-column prop="center" label="分中心" />
+          <el-table-column prop="class_name" label="班级" />
+          <el-table-column prop="group_name" label="小组" />
+          <el-table-column prop="group_num" label="组号" />
+          <el-table-column prop="dinner_table_num" label="桌号" />
         </el-table>
-        <el-alert
-          v-if="creationQuality"
-          :title="`报名名额 ${creationAttendees.length}；联系方式缺失 ${creationQuality.missing_phone_count}，格式异常 ${creationQuality.invalid_phone_count}，不阻断导入。`"
-          type="info"
-          :closable="false"
-          class="notice"
-        />
         <el-button
           :loading="busy"
           :disabled="!creationAttendees.length || !permission('import')"
@@ -1567,12 +1585,11 @@ onUnmounted(() => {
         {{ importFilename }} · 表头第 {{ importHeaderRow }} 行 ·
         {{ importAttendees.length }} 个报名名额
       </p>
-      <el-alert
-        v-if="importQuality"
-        :title="`手机号正常 ${importQuality.valid_phone_count}，缺失 ${importQuality.missing_phone_count}，格式异常 ${importQuality.invalid_phone_count}；重复名额 ${importQuality.repeated_slots}，保留为独立报名位。手机号问题不阻断导入。`"
-        type="info"
-        :closable="false"
-        class="notice"
+      <AttendanceImportSummary
+        v-if="importColumns && importQuality"
+        :header-row="importHeaderRow"
+        :columns="importColumns"
+        :quality="importQuality"
       />
       <el-table
         v-if="importAttendees.length"
@@ -1582,7 +1599,10 @@ onUnmounted(() => {
           prop="company"
           label="公司" /><el-table-column
           prop="center"
-          label="分中心" /><el-table-column prop="class_name" label="班级"
+          label="分中心" /><el-table-column prop="class_name" label="班级" />
+        <el-table-column prop="group_name" label="小组" />
+        <el-table-column prop="group_num" label="组号" />
+        <el-table-column prop="dinner_table_num" label="桌号"
       /></el-table>
       <el-alert
         v-if="preview"
