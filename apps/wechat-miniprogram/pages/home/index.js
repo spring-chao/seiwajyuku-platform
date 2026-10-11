@@ -171,8 +171,6 @@ Page({
     wx.navigateTo({ url: "/pages/learning/index" });
   },
 
-  openCheckin() { wx.navigateTo({ url: "/pages/checkin/events" }); },
-
   openProfile() {
     if (this.data.identityState !== "bound") return;
     wx.navigateTo({ url: "/pages/profile/index" });
