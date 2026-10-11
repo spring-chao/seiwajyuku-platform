@@ -11,10 +11,16 @@ export type YearImport = {
   class_name: string;
   row_count: number;
   total_points: string;
-  rows: OpeningRow[];
+  mode?: string;
+  supplement_points?: string;
+  rows: (OpeningRow & { source_name?: string; previous_points?: string; supplement_points?: string })[];
 };
 export type YearWorkbench = {
   storage_available: boolean;
+  reconciliation_available: boolean;
+  reconciliation_setup_allowed: boolean;
+  reconciliation_setup_incomplete: boolean;
+  reconciliation_migration_sha256: string;
   setup_allowed: boolean;
   setup_incomplete: boolean;
   release_commit: string;
@@ -27,12 +33,16 @@ export type YearForm = {
   year_index: number;
   cutoff_date: string;
   source_note: string;
+  mode: string;
+  name_overrides_json: string;
 };
 export type YearPreview = {
-  rows: OpeningRow[];
+  rows: (OpeningRow & { source_name?: string; previous_points?: string; supplement_points?: string })[];
   row_count: number;
   error_count: number;
   total_points: string;
+  mode?: string;
+  supplement_points?: string;
   fingerprint: string | null;
   year_index: number;
   current_year_after_import: number;
@@ -84,5 +94,11 @@ export const setupYearStorage = (state: YearWorkbench) =>
       expected_release_commit: state.release_commit,
       expected_migration_sha256: state.migration_sha256
     },
+    timeout: 60000
+  });
+
+export const setupReconciliationStorage = (state: YearWorkbench) =>
+  http.request<Result<{ status: string }>>("post", base + "/reconciliation-setup", {
+    data: { expected_release_commit: state.release_commit, expected_migration_sha256: state.reconciliation_migration_sha256 },
     timeout: 60000
   });

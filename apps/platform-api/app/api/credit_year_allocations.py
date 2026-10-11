@@ -11,12 +11,12 @@ def workbench(user=Depends(require_permission(OPENING_PERMISSION))):
     return _call(service.workbench,user['id'])
 
 @router.post('/preview')
-async def preview(workbook: UploadFile=File(...), binding_id:int=Form(...,gt=0),year_index:int=Form(...,ge=1,le=3),cutoff_date:str=Form(...),source_note:str=Form(...,min_length=8,max_length=1000),user=Depends(require_permission(OPENING_PERMISSION))):
-    return _call(service.preview,await _content(workbook),binding_id,year_index,cutoff_date,source_note,user['id'])
+async def preview(workbook: UploadFile=File(...), binding_id:int=Form(...,gt=0),year_index:int=Form(...,ge=1,le=3),cutoff_date:str=Form(...),source_note:str=Form(...,min_length=8,max_length=1000),mode:str=Form('CLASSIFY_ONLY'),name_overrides_json:str=Form('{}',max_length=10000),user=Depends(require_permission(OPENING_PERMISSION))):
+    return _call(service.preview,await _content(workbook),binding_id,year_index,cutoff_date,source_note,user['id'],mode,name_overrides_json)
 
 @router.post('/imports')
-async def register(workbook:UploadFile=File(...),binding_id:int=Form(...,gt=0),year_index:int=Form(...,ge=1,le=3),cutoff_date:str=Form(...),source_note:str=Form(...,min_length=8,max_length=1000),expected_fingerprint:str=Form(...,pattern=r'^[a-f0-9]{64}$'),user=Depends(require_permission(OPENING_PERMISSION))):
-    return _call(service.register,await _content(workbook),binding_id,year_index,cutoff_date,source_note,workbook.filename or '年度学分.xlsx',expected_fingerprint,user['id'])
+async def register(workbook:UploadFile=File(...),binding_id:int=Form(...,gt=0),year_index:int=Form(...,ge=1,le=3),cutoff_date:str=Form(...),source_note:str=Form(...,min_length=8,max_length=1000),mode:str=Form('CLASSIFY_ONLY'),name_overrides_json:str=Form('{}',max_length=10000),expected_fingerprint:str=Form(...,pattern=r'^[a-f0-9]{64}$'),user=Depends(require_permission(OPENING_PERMISSION))):
+    return _call(service.register,await _content(workbook),binding_id,year_index,cutoff_date,source_note,workbook.filename or '年度学分.xlsx',expected_fingerprint,user['id'],mode,name_overrides_json)
 
 @router.post('/imports/{import_id}/approve')
 def approve(import_id:int,payload:FingerprintPayload,user=Depends(require_permission(OPENING_PERMISSION))):
@@ -38,3 +38,13 @@ def setup(payload:SetupPayload,user=Depends(require_permission('plans:production
         raise
     except Exception as exc:
         raise HTTPException(503,'存储准备结果待核验，请刷新实际状态，不要重复执行') from exc
+
+@router.post('/reconciliation-setup')
+def reconciliation_setup(payload:SetupPayload,user=Depends(require_permission('plans:production_rule_reconciliation_apply'))):
+    from app.services import credit_year_reconciliation
+    try:
+        return _call(credit_year_reconciliation.setup,user['id'],payload.expected_release_commit,payload.expected_migration_sha256)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(503,'补差存储准备结果待核验，请刷新实际状态，不要重复执行') from exc

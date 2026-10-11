@@ -6,6 +6,7 @@ from app.db import execute
 from app.migrations import MIGRATION_ROOT,_split_mysql
 from app.services import credit_year_allocations as service
 from app.services import credit_opening_balances as opening
+from app.services import credit_year_reconciliation as rec
 from test_credit_single_migration_mysql import isolated_schema
 
 pytestmark=pytest.mark.skipif(os.getenv('CREDIT_MIGRATION_ISOLATED_MYSQL')!='1',reason='explicit disposable CI MySQL only')
@@ -72,4 +73,41 @@ def test_mysql_rollback_keeps_retained_annual_source_and_parent_permissions(fres
         for sql in _split_mysql((MIGRATION_ROOT/'rollback/mysql/0069_learning_credit_opening_balances.down.sql').read_text()):execute(c,sql)
     assert execute(c,'SELECT * FROM role_permissions ORDER BY role_key,permission_key').fetchall()==permissions
     assert execute(c,'SELECT COUNT(*) AS n FROM learning_credit_year_imports').fetchone()['n']==1
+    c.close()
+
+
+def test_mysql_fixed_deficit_setup_empty_rollback_and_parent_dependency(fresh_year_db):
+    service.setup(1,'a'*40,service.HASHES['mysql'])
+    with patch.object(rec,'connect',side_effect=fresh_year_db):
+        with pytest.raises(ValueError,match='校验'):rec.setup(1,'a'*40,'b'*64)
+        assert rec.setup(1,'a'*40,rec.HASHES['mysql'])['status']=='READY'
+        assert rec.setup(1,'a'*40,rec.HASHES['mysql'])['idempotent']
+    c=fresh_year_db()
+    assert rec.available(c)
+    assert execute(c,'SELECT COUNT(*) AS n FROM learning_credit_opening_balances').fetchone()['n']==0
+    assert execute(c,'SELECT COUNT(*) AS n FROM learning_credit_entries').fetchone()['n']==0
+    with pytest.raises(Exception,match='constraint|CHECK'):
+        for sql in _split_mysql((MIGRATION_ROOT/'rollback/mysql/0070_learning_credit_year_allocations.down.sql').read_text()):execute(c,sql)
+    assert service.available(c) and rec.available(c)
+    for sql in _split_mysql((MIGRATION_ROOT/'rollback/mysql/0071_learning_credit_year_reconciliation.down.sql').read_text()):execute(c,sql)
+    c.commit()
+    assert not rec.present_tables(c) and service.available(c) and opening.storage_available(c)
+    c.close()
+
+
+def test_mysql_interrupted_deficit_ddl_cannot_replay(fresh_year_db):
+    service.setup(1,'a'*40,service.HASHES['mysql'])
+    original=rec.execute
+    def interrupted(c,sql,params=()):
+        if sql.startswith('CREATE TABLE learning_credit_opening_adjustments'):
+            raise TimeoutError('isolated response lost')
+        return original(c,sql,params)
+    with patch.object(rec,'connect',side_effect=fresh_year_db):
+        with patch.object(rec,'execute',side_effect=interrupted),pytest.raises(TimeoutError):rec.setup(1,'a'*40,rec.HASHES['mysql'])
+        with pytest.raises(ValueError,match='不自动重试'):rec.setup(1,'a'*40,rec.HASHES['mysql'])
+    c=fresh_year_db()
+    assert rec.present_tables(c)=={'learning_credit_year_reconciliation_rows'}
+    assert not rec.available(c)
+    assert execute(c,"SELECT COUNT(*) AS n FROM audit_logs WHERE action='production.credit_year.reconcile.setup'").fetchone()['n']==1
+    assert not execute(c,'SELECT version FROM schema_migrations WHERE version=?',(rec.MIGRATION,)).fetchone()
     c.close()

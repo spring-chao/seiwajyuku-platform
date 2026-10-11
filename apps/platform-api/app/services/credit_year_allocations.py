@@ -260,7 +260,12 @@ def _fingerprint(binding, rows, year, cutoff, note):
     return hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def preview(content, binding_id, year, cutoff, note, actor):
+def preview(content, binding_id, year, cutoff, note, actor, mode='CLASSIFY_ONLY', name_overrides_json='{}'):
+    from app.services import credit_year_reconciliation as reconciliation
+    if mode == reconciliation.MODE:
+        return reconciliation.preview(content,binding_id,year,cutoff,note,actor,name_overrides_json)
+    if mode != 'CLASSIFY_ONLY' or name_overrides_json != '{}':
+        raise LearningCreditError('请选择有效导入方式，姓名对应关系需使用年度补差模式')
     c = connect()
     try:
         binding, rows, cutoff, note = _checked(c, actor, content, binding_id, year, cutoff, note)
@@ -281,7 +286,12 @@ def _ready(c):
         raise LearningCreditError('年度归属存储尚未准备完成或期初学分管理未启用')
 
 
-def register(content, binding_id, year, cutoff, note, filename, fingerprint, actor):
+def register(content, binding_id, year, cutoff, note, filename, fingerprint, actor, mode='CLASSIFY_ONLY', name_overrides_json='{}'):
+    from app.services import credit_year_reconciliation as reconciliation
+    if mode == reconciliation.MODE:
+        return reconciliation.register(content,binding_id,year,cutoff,note,filename,fingerprint,actor,name_overrides_json)
+    if mode != 'CLASSIFY_ONLY' or name_overrides_json != '{}':
+        raise LearningCreditError('请选择有效导入方式，姓名对应关系需使用年度补差模式')
     with transaction() as c, opening._operation(c):
         _ready(c)
         binding, rows, cutoff, note = _checked(c, actor, content, binding_id, year, cutoff, note)
@@ -314,6 +324,9 @@ def _batch(c, actor, import_id):
     binding = _binding(c, actor, int(batch['binding_id']))
     rows = [dict(r) for r in execute(c, 'SELECT r.*,m.member_code,m.name AS member_name FROM learning_credit_year_rows r JOIN members m ON m.id=r.member_id WHERE r.import_id=? ORDER BY r.excel_row', (import_id,)).fetchall()]
     batch.update(class_name=binding['class_name'], row_count=len(rows), total_points=format(sum((Decimal(str(r['points'])) for r in rows), Decimal(0)), '.2f'))
+    from app.services import credit_year_reconciliation as reconciliation
+    if reconciliation.available(c):
+        reconciliation.enrich(c,batch,rows)
     return batch, rows
 
 
@@ -347,6 +360,9 @@ def action(import_id, actor, operation, fingerprint):
         batch, rows = _batch(c, actor, import_id)
         if batch['content_fingerprint'] != fingerprint:
             raise LearningCreditError('来源版本已变化，请刷新检查')
+        from app.services import credit_year_reconciliation as reconciliation
+        if reconciliation.managed(c,import_id):
+            return reconciliation.action(c,batch,rows,actor,operation,fingerprint)
         status = batch['status']
         if status == 'POSTED':
             if operation == 'cancel':
@@ -401,7 +417,8 @@ def workbench(actor):
                     continue
         user = opening._manage(actor)
         dialect = 'sqlite' if isinstance(c,sqlite3.Connection) else 'mysql'
-        return {'storage_available':ready,'bindings':bindings,'imports':imports,'release_commit':get_build_info()['commit_sha'],'migration_sha256':HASHES[dialect],
+        from app.services import credit_year_reconciliation as reconciliation
+        return {**reconciliation.setup_state(c,user),'storage_available':ready,'bindings':bindings,'imports':imports,'release_commit':get_build_info()['commit_sha'],'migration_sha256':HASHES[dialect],
                 'setup_allowed':'system_admin' in user.get('roles',[]) and 'plans:production_rule_reconciliation_apply' in user['permissions'] and get_settings().credit_opening_setup_enabled and not tables and not marker and not reserved,
                 'setup_incomplete':not ready and bool(tables or marker or reserved)}
     finally:
