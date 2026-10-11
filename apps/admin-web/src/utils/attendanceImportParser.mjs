@@ -1,4 +1,4 @@
-// Reused unchanged from spring-chao/signin public/admin.html (validated by admin_import_parser.test.js).
+// Adapted from spring-chao/signin public/admin.html.
 
 // This module adapts the existing spreadsheet parser; it does not define attendance rules.
 
@@ -30,7 +30,7 @@ export function detectColumns(headers) {
     )
       return "name";
     if (
-      /^(手机号|手机号码|电话|phone|tel|mobile|联系电话|联系手机|报名手机)$/i.test(
+      /^(?:报名|联系|学员|本人|个人|联系人|参会人|备用)?(?:手机(?:号码|号)?|电话(?:号码|号)?|phone(?:number|no)?|tel(?:number|no)?|mobile(?:number|no)?)$/i.test(
         h
       )
     )
@@ -168,6 +168,33 @@ export function buildRosterQuality(rows) {
   };
 }
 
+export function attendanceGroupNumber(value) {
+  const text = String(value ?? "").trim();
+  const match = text.match(/^(?:第\s*)?(\d+)(?:\s*(?:小组|组))?$/);
+  const number = match ? Number(match[1]) : null;
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+export function attendanceGroupLabel(row, activityType) {
+  if (activityType === "class_meeting" && row.group_name) return row.group_name;
+  const number =
+    attendanceGroupNumber(row.group_num) ??
+    attendanceGroupNumber(row.group_name);
+  return number === null ? "—" : `第${number}组`;
+}
+
+export function attendanceNameFromFile(
+  filename,
+  currentName = "",
+  previousDefault = ""
+) {
+  const name = String(currentName).trim();
+  if (name && name !== previousDefault) return currentName;
+  return String(filename)
+    .replace(/\.(xlsx?|xlsm|csv)$/i, "")
+    .trim();
+}
+
 export function parseAttendanceRows(arr) {
   const header = findHeaderRow(arr, { requirePhone: false });
   if (!header) throw new Error("前100行未找到包含“姓名”的表头，请检查列名");
@@ -200,7 +227,9 @@ export function parseAttendanceRows(arr) {
       return v && v !== "nan" && v !== "undefined" ? v : "";
     }
 
-    var gn = col.group_num >= 0 ? parseInt(cell(col.group_num)) : null;
+    var gn =
+      attendanceGroupNumber(cellClean(col.group_num)) ??
+      attendanceGroupNumber(cellClean(col.group_name));
     var dn =
       col.dinner_table_num >= 0 ? parseInt(cell(col.dinner_table_num)) : null;
     if (isNaN(gn)) gn = null;

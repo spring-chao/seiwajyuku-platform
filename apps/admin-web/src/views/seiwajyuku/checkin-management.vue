@@ -14,7 +14,9 @@ import {
 } from "@/api/attendance-management";
 import {
   parseAttendanceRows,
-  buildRosterQuality
+  buildRosterQuality,
+  attendanceGroupLabel,
+  attendanceNameFromFile
 } from "@/utils/attendanceImportParser.mjs";
 import {
   activityTypes,
@@ -96,6 +98,7 @@ const editorActivityTypes = computed(() =>
 );
 const creationAttendees = ref<any[]>([]);
 const creationFilename = ref("");
+const creationDefaultName = ref("");
 const creationGroupField = ref("");
 const creationQuality = ref<any>(null);
 const creationHeaderRow = ref(0);
@@ -353,6 +356,7 @@ async function openEditor(item?: ManagedEvent) {
   importAttendees.value = [];
   preview.value = null;
   resetCreationImport();
+  creationDefaultName.value = "";
   Object.assign(editor, {
     event_name: item?.name || "",
     event_date: item?.event_date || dayjs().format("YYYY-MM-DD"),
@@ -538,6 +542,12 @@ async function readCreationFile(e: Event) {
     creationQuality.value = parsed.quality;
     creationHeaderRow.value = parsed.headerRow;
     creationColumns.value = parsed.columns;
+    editor.event_name = attendanceNameFromFile(
+      file.name,
+      editor.event_name,
+      creationDefaultName.value
+    );
+    creationDefaultName.value = attendanceNameFromFile(file.name);
   });
   input.value = "";
 }
@@ -769,19 +779,20 @@ async function confirmPerson(row: any) {
 }
 async function exportExcel() {
   await perform(async () => {
+    const target = currentEvent.value;
     const result = await manageAttendance("export", {
       event_id: activeEventId.value
     });
     const XLSX = await import("xlsx");
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.aoa_to_sheet(
-      attendanceExportRows(result.rows)
+      attendanceExportRows(result.rows, target?.activity_type)
     );
-    worksheet["!cols"] = Array.from({ length: 13 }, () => ({ wch: 18 }));
+    worksheet["!cols"] = Array.from({ length: 12 }, () => ({ wch: 18 }));
     XLSX.utils.book_append_sheet(workbook, worksheet, "签到名单");
     XLSX.writeFile(
       workbook,
-      `${currentEvent.value?.name || "签到名单"}-${currentEvent.value?.session_code || ""}.xlsx`
+      `${target?.name || "签到名单"}-${target?.session_code || ""}.xlsx`
     );
     ElMessage.success("签到明细已导出");
   });
@@ -1260,7 +1271,17 @@ onUnmounted(() => {
               prop="home_class_name"
               label="原班级"
               width="115"
-            /><el-table-column prop="group_name" label="小组" width="95" />
+            /><el-table-column
+              :label="
+                currentEvent?.activity_type === 'class_meeting'
+                  ? '小组'
+                  : '现场分组'
+              "
+              width="105"
+              ><template #default="{ row }">{{
+                attendanceGroupLabel(row, currentEvent?.activity_type)
+              }}</template></el-table-column
+            >
             <el-table-column label="状态" width="100"
               ><template #default="{ row }"
                 ><el-tag
@@ -1492,6 +1513,7 @@ onUnmounted(() => {
           :header-row="creationHeaderRow"
           :columns="creationColumns"
           :quality="creationQuality"
+          :activity-type="editor.activity_type"
         />
         <el-table
           v-if="creationAttendees.length"
@@ -1503,8 +1525,14 @@ onUnmounted(() => {
             label="公司"
           /><el-table-column prop="center" label="分中心" />
           <el-table-column prop="class_name" label="班级" />
-          <el-table-column prop="group_name" label="小组" />
-          <el-table-column prop="group_num" label="组号" />
+          <el-table-column
+            :label="
+              editor.activity_type === 'class_meeting' ? '小组' : '现场分组'
+            "
+            ><template #default="{ row }">{{
+              attendanceGroupLabel(row, editor.activity_type)
+            }}</template></el-table-column
+          >
           <el-table-column prop="dinner_table_num" label="桌号" />
         </el-table>
         <el-button
@@ -1590,6 +1618,7 @@ onUnmounted(() => {
         :header-row="importHeaderRow"
         :columns="importColumns"
         :quality="importQuality"
+        :activity-type="currentEvent?.activity_type"
       />
       <el-table
         v-if="importAttendees.length"
@@ -1600,8 +1629,16 @@ onUnmounted(() => {
           label="公司" /><el-table-column
           prop="center"
           label="分中心" /><el-table-column prop="class_name" label="班级" />
-        <el-table-column prop="group_name" label="小组" />
-        <el-table-column prop="group_num" label="组号" />
+        <el-table-column
+          :label="
+            currentEvent?.activity_type === 'class_meeting'
+              ? '小组'
+              : '现场分组'
+          "
+          ><template #default="{ row }">{{
+            attendanceGroupLabel(row, currentEvent?.activity_type)
+          }}</template></el-table-column
+        >
         <el-table-column prop="dinner_table_num" label="桌号"
       /></el-table>
       <el-alert

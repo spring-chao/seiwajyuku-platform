@@ -43,6 +43,80 @@ test("Excel without a name header fails closed; blank rows do not become registr
   assert.equal(parsed.attendees.length, 1);
 });
 
+test("contact header aliases match phones without matching phone-device metadata", () => {
+  for (const header of [
+    "手机",
+    "手机号",
+    "手机号码（选填）",
+    "联系人手机",
+    "报名手机号",
+    "联系电话",
+    "phone_number"
+  ]) {
+    const columns = parser.detectColumns(["姓名", header]);
+    assert.equal(columns.phone, 1, header);
+  }
+  assert.equal(
+    parser.detectColumns(["姓名", "手机型号", "电话备注"]).phone,
+    -1
+  );
+});
+
+test("onsite group numbers use the explicit column and fall back to numeric group labels", () => {
+  const parsed = parser.parseAttendanceRows([
+    ["姓名", "组号", "小组", "桌号"],
+    ["示例甲", "", "1组", 3],
+    ["示例乙", 4, "第2组", 5],
+    ["示例丙", "", "精进组", 6],
+    ["示例丁", "", "第 7 小组", 8]
+  ]);
+  assert.deepEqual(
+    parsed.attendees.map(row => row.group_num),
+    [1, 4, null, 7]
+  );
+  assert.equal(parsed.attendees[0].dinner_table_num, 3);
+  assert.equal(
+    parser.attendanceGroupLabel(parsed.attendees[1], "course"),
+    "第4组"
+  );
+  assert.equal(
+    parser.attendanceGroupLabel(parsed.attendees[2], "class_meeting"),
+    "精进组"
+  );
+  assert.equal(parser.attendanceGroupLabel(parsed.attendees[2], "course"), "—");
+  const courseExport = management.attendanceExportRows(
+    parsed.attendees,
+    "course"
+  );
+  assert.equal(courseExport[0].includes("小组"), false);
+  assert.equal(courseExport[0].includes("组号"), false);
+  assert.equal(courseExport[2][courseExport[0].indexOf("现场分组")], "第4组");
+  const classExport = management.attendanceExportRows(
+    parsed.attendees,
+    "class_meeting"
+  );
+  assert.equal(classExport[3][classExport[0].indexOf("小组")], "精进组");
+  for (const invalid of [0, -1, "3abc", "1.5", "精进组"])
+    assert.equal(parser.attendanceGroupNumber(invalid), null);
+});
+
+test("uploaded filename supplies the activity name while preserving manually edited names", () => {
+  const first = parser.attendanceNameFromFile("示例报告会.XLS");
+  assert.equal(first, "示例报告会");
+  assert.equal(
+    parser.attendanceNameFromFile("新活动.xlsx", first, first),
+    "新活动"
+  );
+  assert.equal(
+    parser.attendanceNameFromFile("新活动.xlsx", "手工活动名称", first),
+    "手工活动名称"
+  );
+  assert.equal(
+    parser.attendanceNameFromFile("新活动.xlsx", "   ", first),
+    "新活动"
+  );
+});
+
 test("roster selection uses exact IDs and rejects an orphan group instead of guessing a class", () => {
   assert.throws(
     () => management.rosterSelection({ name: "示例班" }),

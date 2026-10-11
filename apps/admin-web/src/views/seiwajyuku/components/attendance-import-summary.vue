@@ -1,7 +1,10 @@
 <script setup lang="ts">
-defineProps<{
+import { computed } from "vue";
+
+const props = defineProps<{
   headerRow: number;
   columns: Record<string, number>;
+  activityType?: string;
   quality: {
     member_count: number;
     valid_phone_count: number;
@@ -16,10 +19,31 @@ const fields = [
   { key: "company", label: "公司" },
   { key: "center", label: "分中心" },
   { key: "class_name", label: "班级" },
-  { key: "group_name", label: "小组" },
-  { key: "group_num", label: "组号" },
+  { key: "group", label: "现场分组" },
   { key: "dinner_table_num", label: "桌号" }
 ];
+const displayedFields = computed(() =>
+  fields.map(field => {
+    const keys =
+      field.key === "group" ? ["group_name", "group_num"] : [field.key];
+    const positions = [
+      ...new Set(
+        keys.map(key => props.columns[key]).filter(index => index >= 0)
+      )
+    ].sort((a, b) => a - b);
+    return {
+      ...field,
+      label:
+        field.key === "group" && props.activityType === "class_meeting"
+          ? "小组"
+          : field.label,
+      recognized: positions.length > 0,
+      position: positions.length
+        ? positions.map(index => `第 ${index + 1} 列`).join(" / ")
+        : "未识别"
+    };
+  })
+);
 </script>
 
 <template>
@@ -27,16 +51,14 @@ const fields = [
     <p class="header-row">自动识别表头：第 {{ headerRow }} 行</p>
     <div class="column-status-list" aria-label="列识别">
       <el-checkbox
-        v-for="field in fields"
+        v-for="field in displayedFields"
         :key="field.key"
         class="column-status"
-        :class="columns[field.key] >= 0 ? 'recognized' : 'unrecognized'"
-        :model-value="columns[field.key] >= 0"
+        :class="field.recognized ? 'recognized' : 'unrecognized'"
+        :model-value="field.recognized"
         disabled
       >
-        {{ field.label }}：{{
-          columns[field.key] >= 0 ? `第 ${columns[field.key] + 1} 列` : "未识别"
-        }}
+        {{ field.label }}：{{ field.position }}
       </el-checkbox>
     </div>
     <div class="read-status" role="status">

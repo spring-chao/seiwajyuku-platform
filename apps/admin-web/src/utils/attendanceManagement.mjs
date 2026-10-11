@@ -1,3 +1,5 @@
+import { attendanceGroupLabel } from "./attendanceImportParser.mjs";
+
 export const activityTypes = [
   ["course", "课程"],
   ["class_meeting", "班级学习会（三场）"],
@@ -128,7 +130,7 @@ export function filterAttendanceRows(rows, filter, keyword = "") {
 }
 
 /** Build display-only export cells. Contact fields are already masked by the API. */
-export function attendanceExportRows(rows) {
+export function attendanceExportRows(rows, activityType) {
   return [
     [
       "实际到场姓名",
@@ -137,10 +139,9 @@ export function attendanceExportRows(rows) {
       "公司",
       "分中心",
       "班级",
-      "小组",
+      activityType === "class_meeting" ? "小组" : "现场分组",
       "签到身份",
       "原班级",
-      "组号",
       "桌号",
       "签到状态",
       "签到时间"
@@ -152,10 +153,9 @@ export function attendanceExportRows(rows) {
       row.company || "",
       row.center || "",
       row.class_name || "",
-      row.group_name || "",
+      attendanceGroupLabel(row, activityType),
       row.attendance_role_label || row.attendance_role || "",
       row.home_class_name || "",
-      row.group_num ?? "",
       row.dinner_table_num ?? "",
       row.sign_status || row.attendance_status_label || "",
       row.sign_time || row.checked_at || ""
