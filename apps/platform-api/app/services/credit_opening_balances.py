@@ -114,8 +114,12 @@ def opening_summary(connection, *, member_id: int | None = None, allowed: set[st
     if allowed is not None:
         conditions.append("org_unit_id IN (" + ",".join("?" for _ in allowed) + ")")
         params.extend(sorted(allowed))
-    row = execute(connection, "SELECT COUNT(*) AS n,COALESCE(SUM(points),0) AS points,"
-                  "MAX(cutoff_date) AS cutoff_date FROM learning_credit_opening_balances" +
+    from app.services import credit_year_reconciliation as reconciliation
+    ledger = 'learning_credit_opening_balances'
+    if reconciliation.available(connection):
+        ledger = "(SELECT member_id,org_unit_id,points,cutoff_date FROM learning_credit_opening_balances UNION ALL SELECT a.member_id,a.org_unit_id,a.points,a.cutoff_date FROM learning_credit_opening_adjustments a JOIN learning_credit_opening_imports i ON i.id=a.import_id AND i.status='POSTED' JOIN learning_credit_year_imports y ON y.id=a.year_import_id AND y.status='POSTED') confirmed_opening"
+    row = execute(connection, "SELECT COUNT(DISTINCT member_id) AS n,COALESCE(SUM(points),0) AS points,"
+                  "MAX(cutoff_date) AS cutoff_date FROM " + ledger +
                   (" WHERE " + " AND ".join(conditions) if conditions else ""), tuple(params)).fetchone()
     return {"entry_count": int(row["n"]), "total_points": format(Decimal(str(row["points"])), ".2f"),
             "cutoff_date": str(row["cutoff_date"])[:10] if row["cutoff_date"] else None}
@@ -392,6 +396,9 @@ def action(import_id: int, actor: int, operation: str, expected_fingerprint: str
     with transaction() as connection, _operation(connection):
         _ready(connection)
         batch, rows = _batch(connection, actor, import_id)
+        from app.services import credit_year_reconciliation as reconciliation
+        if reconciliation.managed_opening(connection,import_id):
+            raise LearningCreditError('这份补差来源由年度导入管理，请从历史年度入口复核和入账')
         if batch["content_fingerprint"] != expected_fingerprint:
             raise LearningCreditError("导入版本已变化，请刷新后核对")
         if operation == "cancel":

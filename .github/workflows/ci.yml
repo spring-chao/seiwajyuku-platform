@@ -178,6 +178,7 @@ jobs:
           apps/platform-api/tests/test_credit_single_migration_mysql.py
           apps/platform-api/tests/test_credit_opening_balances.py
           apps/platform-api/tests/test_credit_year_allocations.py
+          apps/platform-api/tests/test_credit_year_reconciliation.py
           apps/platform-api/tests/test_credit_year_setup_mysql.py
           apps/platform-api/tests/test_credit_opening_setup_mysql.py
           apps/platform-api/tests/test_credit_settlement_setup_mysql.py

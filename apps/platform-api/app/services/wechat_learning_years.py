@@ -62,6 +62,11 @@ def learning_year_summary(connection, member_id, opening):
         relations = []
     classes = {str(r["org_unit_id"] if r["relation_type"] == "STUDY_CLASS" else r["parent_id"])
                for r in relations if r["relation_type"] == "STUDY_CLASS" or r.get("parent_id")}
+    if not classes and annual_storage:
+        # Same direct class fallback as the scoped import roster; no fabricated relation.
+        direct = execute(connection, "SELECT m.org_unit_id FROM members m JOIN org_units o ON o.id=m.org_unit_id WHERE m.id=? AND m.status='ACTIVE' AND o.is_active=1 AND o.unit_type='CLASS'", (member_id,)).fetchone()
+        if direct:
+            classes.add(str(direct['org_unit_id']))
     current_years = set()
     current_days = set()
     for class_id in classes:
@@ -157,6 +162,10 @@ def learning_year_summary(connection, member_id, opening):
         'JOIN learning_credit_year_imports i ON i.id=a.import_id AND i.status=\'POSTED\' '
         'JOIN learning_credit_opening_balances b ON b.member_id=a.member_id AND b.import_id=a.opening_import_id '
         'WHERE a.member_id=?', (member_id,)).fetchall() if annual_storage else []
+    from app.services import credit_year_reconciliation as reconciliation
+    if annual_storage and reconciliation.available(connection):
+        annual_rows = execute(connection,
+            "SELECT a.year_index,a.points FROM learning_credit_year_allocations a JOIN learning_credit_year_imports i ON i.id=a.import_id AND i.status='POSTED' JOIN learning_credit_opening_imports o ON o.id=a.opening_import_id AND o.status='POSTED' WHERE a.member_id=? AND (EXISTS(SELECT 1 FROM learning_credit_opening_balances b WHERE b.member_id=a.member_id AND b.import_id=a.opening_import_id) OR EXISTS(SELECT 1 FROM learning_credit_year_reconciliation_rows r WHERE r.member_id=a.member_id AND r.import_id=a.import_id))",(member_id,)).fetchall()
     annual_points = sum((Decimal(str(r['points'])) for r in annual_rows),Decimal(0))
     for row in annual_rows:
         year = int(row['year_index'])
