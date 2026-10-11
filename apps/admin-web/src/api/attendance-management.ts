@@ -92,3 +92,15 @@ export const generateAttendanceCode = async (
   if (!result.success) throw new Error("小程序码生成失败");
   return result.data;
 };
+
+export const generateCommonAttendanceCode = async (
+  envVersion: "develop" | "trial" | "release"
+) => {
+  const result = await http.request<{ success: boolean; data: AttendanceCode }>(
+    "post",
+    "/api/v1/attendance/manage/common-code",
+    { data: { env_version: envVersion } }
+  );
+  if (!result.success) throw new Error("通用签到码生成失败");
+  return result.data;
+};

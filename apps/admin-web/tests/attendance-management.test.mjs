@@ -117,6 +117,38 @@ test("uploaded filename supplies the activity name while preserving manually edi
   );
 });
 
+test("named group category never shadows the later numeric seat-group column", () => {
+  assert.equal(parser.detectColumns(["姓名", "分组", "组号"]).group_num, 2);
+  for (const headers of [
+    ["姓名", "组别", "组号", "桌号"],
+    ["姓名", "组号", "组别", "桌号"]
+  ]) {
+    const row =
+      headers[1] === "组别"
+        ? ["合成甲", "奋斗组", "1组", 3]
+        : ["合成甲", "1组", "奋斗组", 3];
+    const parsed = parser.parseAttendanceRows([headers, row]);
+    assert.equal(parsed.attendees[0].group_name, "奋斗组");
+    assert.equal(parsed.attendees[0].group_num, 1);
+    assert.equal(parsed.attendees[0].dinner_table_num, 3);
+    assert.equal(
+      parser.attendanceGroupLabel(parsed.attendees[0], "course"),
+      "第1组"
+    );
+    assert.equal(
+      parser.attendanceGroupLabel(parsed.attendees[0], "class_meeting"),
+      "奋斗组"
+    );
+  }
+  assert.equal(
+    parser.parseAttendanceRows([
+      ["姓名", "组别"],
+      ["合成乙", "2组"]
+    ]).attendees[0].group_num,
+    2
+  );
+});
+
 test("roster selection uses exact IDs and rejects an orphan group instead of guessing a class", () => {
   assert.throws(
     () => management.rosterSelection({ name: "示例班" }),
@@ -271,6 +303,16 @@ function harness(api = async () => ({ ok: true })) {
         env_version: env
       };
     },
+    generateCommonAttendanceCode: async env => {
+      calls.push({ operation: "common-code", payload: { env } });
+      return {
+        image_base64: "cG5n",
+        mime_type: "image/png",
+        event_id: "",
+        page: "pages/checkin/events",
+        env_version: env
+      };
+    },
     document: { hidden: false },
     setInterval,
     clearInterval,
@@ -278,7 +320,7 @@ function harness(api = async () => ({ ok: true })) {
   });
   vm.runInContext(
     output +
-      "\nglobalThis.state = { selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, rosterOptionId, code, codeEvent, codeVersion, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, previewCreation };",
+      "\nglobalThis.state = { selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation };",
     context
   );
   return { state: context.state, actions: context.actions, calls };
@@ -504,6 +546,18 @@ function configureOrdinaryCreation(h) {
   });
   h.state.regionId.value = "isolated-center";
 }
+
+test("common QR generation needs no selected activity and never rotates a session code", async () => {
+  const h = harness();
+  h.state.codeEvent.value = { event_id: "old-session" };
+  h.state.codeVersion.value = "trial";
+  await h.actions.openCommonCode();
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.calls[0].operation, "common-code");
+  assert.equal(h.calls[0].payload.env, "trial");
+  assert.equal(h.state.codeEvent.value, null);
+  assert.equal(h.state.code.value.page, "pages/checkin/events");
+});
 
 test("ordinary creation requires a roster and uses the original signed upload preview before saving", async () => {
   const h = harness(async operation =>
