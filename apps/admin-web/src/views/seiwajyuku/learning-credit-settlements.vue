@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
 import { creditSettlementErrorMessage } from "@/utils/creditSettlementError";
 import CreditOpeningBalances from "./components/CreditOpeningBalances.vue";
+import CreditYearAllocations from "./components/CreditYearAllocations.vue";
 import {
   approveSettlementBatch,
   closeSettlementBatch,
@@ -388,6 +389,7 @@ onMounted(() => {
     </el-card>
 
     <CreditOpeningBalances v-if="canManageOpening" @posted="refreshLedger" />
+    <CreditYearAllocations v-if="permissions.includes('plans:credit_opening_manage')" @posted="refreshLedger" />
     <el-collapse v-if="canManage" class="activity-settlement">
       <el-collapse-item title="日常学习活动结算（按活动、课程记录计算）" name="activity">
         <el-alert v-if="error" class="notice" :title="error" type="error" show-icon :closable="false" />

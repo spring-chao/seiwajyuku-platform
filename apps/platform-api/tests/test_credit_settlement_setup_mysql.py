@@ -67,6 +67,14 @@ def test_mysql_sequence_freezes_all_bindings_retains_ledger_and_rejects_replay(s
                 'LEARNING_CREDIT_BATCH_APPROVAL_ENABLED', 'LEARNING_CREDIT_BATCH_POST_ENABLED'):
         monkeypatch.setenv(key, 'true')
     assert service.preview(1)['formal_ready']
+    # Legitimate later entries must not make completed preparation look broken.
+    from app.services.learning_credits import _insert_entry
+    connection = setup_mysql()
+    member = execute(connection, "INSERT INTO members(member_code,name,org_unit_id,status,created_at,updated_at) VALUES ('credit-ready-synthetic','隔离就绪测试','credit-setup-test-0','ACTIVE',UTC_TIMESTAMP(),UTC_TIMESTAMP())").lastrowid
+    _insert_entry(connection, {'member_id': member, 'credit_category': 'STANDARD_LEARNING', 'credit_type': 'DAILY_READING', 'points': '1.25', 'source_type': 'TEST', 'source_id': 'credit-ready-test', 'class_org_unit_id': 'credit-setup-test-0', 'rule_key': 'TEST', 'rule_version': 'TEST', 'rule_snapshot': {}, 'occurred_at': '2001-09-01', 'idempotency_key': 'credit-ready-test'}, status='POSTED', actor_user_id=1)
+    connection.commit()
+    connection.close()
+    assert service.preview(1)['formal_ready']
     connection = setup_mysql()
     assert execute(connection, "SELECT COUNT(*) AS n FROM audit_logs WHERE action=? AND result='STARTED'", (service.ACTION,)).fetchone()['n'] == 4
     assert execute(connection, "SELECT COUNT(*) AS n FROM learning_credit_settlement_batches").fetchone()['n'] == 0

@@ -174,7 +174,7 @@ def _snapshot(connection):
         blockers.append(error.message)
     if not baseline["canonical_rules_ready"] or audit_count != 1:
         blockers.append("请先完成已确认的 25 条课程规则收口")
-    if ledger["total"] != 0:
+    if ledger["total"] != 0 and any(not stage["applied"] for stage in stages):
         blockers.append("正式账本已有记录，首次存储准备需另行核对影响")
     if not baseline["dependency_ready"]:
         blockers.append("0063 基础迁移未登记")
