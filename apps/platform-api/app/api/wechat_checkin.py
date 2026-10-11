@@ -143,6 +143,32 @@ def events(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -
         raise _raise(exc) from exc
 
 
+@router.get("/open-events")
+def open_events() -> dict:
+    """Only public event metadata; no member, registration or attendance rows."""
+    try:
+        signin_engine.enabled(member=True)
+        result = signin_engine.engine_request("/ops/v1/member-checkin/events", {"member": None})
+        items = result.get("events") or []
+        if not isinstance(items, list):
+            raise signin_engine.SigninEngineError("当前活动暂时无法加载，请重试", 502)
+        fields = ("event_id", "title", "event_date", "session_code", "session_name",
+                  "activity_type", "checkin_status", "lifecycle_status")
+        public = []
+        for raw in items:
+            if not isinstance(raw, dict):
+                continue
+            item = _event(raw)
+            if (not item["event_id"] or item.get("lifecycle_status") != "CONFIRMED"
+                    or item.get("checkin_status") not in {"open", "upcoming"}):
+                continue
+            public.append({key: item[key] for key in fields if key in item
+                           and isinstance(item[key], (str, int))})
+        return {"success": True, "data": {"events": public}}
+    except signin_engine.SigninEngineError as exc:
+        raise _raise(exc) from exc
+
+
 @router.get("/context")
 def context(event_id: str | None = Query(default=None, min_length=1, max_length=128),
             token: str | None = Query(default=None, min_length=16, max_length=32, pattern=r"^[A-Za-z0-9_-]+$"),

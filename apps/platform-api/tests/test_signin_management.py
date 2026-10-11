@@ -17,7 +17,7 @@ from app.core.security import create_token, hash_password
 from app.db import execute, fetch_all, transaction
 from app.main import app
 from app.services import signin_engine
-from app.services.attendance_entry_codes import resolve_entry
+from app.services.attendance_entry_codes import resolve_entry, wechat_code
 from app.services.attendance_sync import sync_from_signin
 from test_v12_mvp import _seed_group_leader_fixture
 
@@ -168,6 +168,63 @@ def test_code_rotation_revokes_old_route_token_and_contains_no_identity():
         assert provider.call_args.args == (second_token, "develop")
         audit = fetch_all("SELECT after_json FROM audit_logs WHERE actor_user_id=? AND action='attendance.code.regenerate'", (user["id"],))
         assert all(second_token not in row["after_json"] and first_token not in row["after_json"] for row in audit)
+
+
+def test_common_code_reuses_public_route_without_rotating_any_activity_token():
+    with patch.dict(os.environ, ENV), TestClient(app) as client:
+        headers, _ = _operator({"attendance:code"})
+        denied, _ = _operator({"attendance:view"})
+        with patch("app.services.attendance_entry_codes.wechat_code", return_value=(b"synthetic-image", "image/png")) as provider:
+            assert client.post("/api/v1/attendance/manage/common-code", json={}).status_code == 401
+            assert client.post("/api/v1/attendance/manage/common-code", headers=denied, json={}).status_code == 403
+            provider.assert_not_called()
+            before = fetch_all("SELECT token_hash,revoked_at FROM attendance_entry_tokens ORDER BY token_hash")
+            responses = [client.post("/api/v1/attendance/manage/common-code", headers=headers, json={"env_version":"trial"}) for _ in range(2)]
+            assert all(response.status_code == 200 for response in responses)
+            first, second = [response.json()["data"] for response in responses]
+            assert first["token"] == second["token"] == "common_checkin"
+            assert second["page"] == "pages/checkin/events"
+            assert second["expires_at"] is None and second["reusable"] is True
+            provider.assert_called_with("common_checkin", "trial", page="pages/checkin/events")
+            assert fetch_all("SELECT token_hash,revoked_at FROM attendance_entry_tokens ORDER BY token_hash") == before
+
+
+def test_open_event_list_is_anonymous_metadata_only_and_keeps_confirm_protected():
+    safe = {"event_id":"open-session", "name":"合成公开活动", "event_date":"2026-10-11",
+            "session_code":"SINGLE", "lifecycle_status":"CONFIRMED", "checkin_status":"open"}
+    raw = {**safe, "registrations":[{"name":"private-person"}], "phone":"private-contact", "member_id":1, "notes":"private-notes"}
+    cases = [raw, {**safe,"event_id":"future","checkin_status":"upcoming"},
+             {**safe,"event_id":"draft","lifecycle_status":"DRAFT"}, {**safe,"event_id":"closed","checkin_status":"closed"}]
+    with patch.dict(os.environ, ENV), TestClient(app) as client, patch.object(signin_engine, "engine_request", return_value={"ok":True,"events":cases}) as engine:
+        response = client.get("/api/v1/wechat/checkin/open-events")
+        assert response.status_code == 200
+        events = response.json()["data"]["events"]
+        assert [item["event_id"] for item in events] == ["open-session","future"]
+        assert not {"registrations","phone","member_id","notes"}.intersection(events[0])
+        engine.assert_called_once_with("/ops/v1/member-checkin/events", {"member":None})
+        assert client.post("/api/v1/wechat/checkin/confirm", json={"event_id":"open-session"}).status_code == 401
+        assert client.get("/api/v1/wechat/checkin/events").status_code == 401
+
+
+def test_open_events_fail_closed_when_disabled_or_engine_unavailable():
+    with patch.dict(os.environ, {**ENV,"SIGNIN_MEMBER_CHECKIN_ENABLED":"false"}), TestClient(app) as client, patch.object(signin_engine,"engine_request") as engine:
+        assert client.get("/api/v1/wechat/checkin/open-events").status_code == 404
+        engine.assert_not_called()
+    with patch.dict(os.environ, ENV), TestClient(app) as client, patch.object(signin_engine,"engine_request",side_effect=signin_engine.SigninEngineError("暂时不可用",502)):
+        assert client.get("/api/v1/wechat/checkin/open-events").status_code == 502
+
+
+@pytest.mark.parametrize("version,checked", [("release",True),("trial",False),("develop",False)])
+def test_common_qr_provider_keeps_formal_page_validation(version, checked):
+    def provider(request):
+        body = json.loads(request.content)
+        assert body == {"scene":"common_checkin","page":"pages/checkin/events",
+                        "env_version":version,"check_path":checked,"width":430}
+        return httpx.Response(200, content=b"synthetic-image", headers={"Content-Type":"image/png"})
+    original = httpx.Client
+    with patch("app.services.attendance_entry_codes._wechat_access_token", return_value="isolated-token"), \
+         patch("app.services.attendance_entry_codes.httpx.Client", side_effect=lambda **kwargs: original(transport=httpx.MockTransport(provider), **kwargs)):
+        assert wechat_code("common_checkin",version,page="pages/checkin/events") == (b"synthetic-image","image/png")
 
 
 def test_immediate_sync_acknowledges_only_complete_increment_and_keeps_retry_on_failure():

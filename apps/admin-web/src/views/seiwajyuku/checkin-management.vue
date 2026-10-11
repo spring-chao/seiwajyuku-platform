@@ -7,6 +7,7 @@ import AttendanceImportSummary from "./components/attendance-import-summary.vue"
 import {
   manageAttendance,
   generateAttendanceCode,
+  generateCommonAttendanceCode,
   type ManagedEvent,
   type EngineResult,
   type AttendanceManagementOperation,
@@ -161,6 +162,7 @@ const codeVisible = ref(false);
 const code = ref<AttendanceCode | null>(null);
 const codeVersion = ref<"develop" | "trial" | "release">("develop");
 const codeEvent = ref<ManagedEvent | null>(null);
+const codeKind = ref<"session" | "common">("session");
 const codeError = ref("");
 const codeImage = computed(() =>
   code.value?.image_base64
@@ -798,7 +800,15 @@ async function exportExcel() {
   });
 }
 async function openCode() {
+  codeKind.value = "session";
   codeEvent.value = currentEvent.value;
+  code.value = null;
+  codeVisible.value = true;
+  await createCode();
+}
+async function openCommonCode() {
+  codeKind.value = "common";
+  codeEvent.value = null;
   code.value = null;
   codeVisible.value = true;
   await createCode();
@@ -806,13 +816,17 @@ async function openCode() {
 async function createCode() {
   codeError.value = "";
   await perform(async () => {
-    if (!codeEvent.value?.event_id) throw new Error("请先选择场次");
+    if (codeKind.value === "session" && !codeEvent.value?.event_id)
+      throw new Error("请先选择场次");
     code.value = null;
     try {
-      code.value = await generateAttendanceCode(
-        codeEvent.value.event_id,
-        codeVersion.value
-      );
+      code.value =
+        codeKind.value === "common"
+          ? await generateCommonAttendanceCode(codeVersion.value)
+          : await generateAttendanceCode(
+              codeEvent.value.event_id,
+              codeVersion.value
+            );
     } catch (e) {
       codeError.value = messageOf(e);
       throw e;
@@ -823,7 +837,10 @@ function downloadCode() {
   if (!codeImage.value) return;
   const anchor = document.createElement("a");
   anchor.href = codeImage.value;
-  anchor.download = `${codeEvent.value?.name || "签到"}-${codeEvent.value?.session_code || ""}-${code.value.env_version}.png`;
+  anchor.download =
+    codeKind.value === "common"
+      ? `通用签到码-${code.value.env_version}.png`
+      : `${codeEvent.value?.name || "签到"}-${codeEvent.value?.session_code || ""}-${code.value.env_version}.png`;
   anchor.click();
 }
 watch(
@@ -869,6 +886,12 @@ onUnmounted(() => {
         <p>创建活动、读取名单并管理每个场次的真实到场。</p>
       </div>
       <div class="actions">
+        <el-button
+          v-if="permission('code')"
+          :disabled="busy"
+          @click="openCommonCode"
+          >通用签到码</el-button
+        >
         <router-link to="/operations/activities"
           ><el-button>活动统计与学分记录</el-button></router-link
         ><el-button
@@ -1757,7 +1780,9 @@ onUnmounted(() => {
 
     <el-dialog
       v-model="codeVisible"
-      title="当前场次专属小程序码"
+      :title="
+        codeKind === 'common' ? '通用签到小程序码' : '当前场次专属小程序码'
+      "
       width="min(520px, 96vw)"
       :close-on-click-modal="false"
       ><el-alert
@@ -1768,8 +1793,10 @@ onUnmounted(() => {
         :closable="false"
         class="notice"
       />
-      <h3>{{ codeEvent?.name }}</h3>
-      <p>
+      <h3>
+        {{ codeKind === "common" ? "打印一次，重复使用" : codeEvent?.name }}
+      </h3>
+      <p v-if="codeKind === 'session'">
         {{ codeEvent?.event_date }} ·
         {{
           codeEvent?.session_name ||
@@ -1777,7 +1804,14 @@ onUnmounted(() => {
           "单场"
         }}
       </p>
-      <el-radio-group v-model="codeVersion"
+      <el-alert
+        v-if="codeKind === 'common'"
+        title="扫码进入当前开放活动；仅一场开放时直接进入，多场时先选择。仍需匹配本场报名，每个场次独立签到。通用码不随活动更换而失效。"
+        type="success"
+        :closable="false"
+        class="notice"
+      />
+      <el-radio-group v-model="codeVersion" :disabled="busy"
         ><el-radio-button value="develop">开发版验收</el-radio-button
         ><el-radio-button value="trial">体验版验收</el-radio-button
         ><el-radio-button value="release"
@@ -1786,9 +1820,13 @@ onUnmounted(() => {
       ><el-alert
         :title="
           codeVersion === 'develop'
-            ? '开发版码仅供当前小程序开发成员验收；每个场次请分别生成。'
+            ? codeKind === 'common'
+              ? '开发版码仅供小程序开发成员验收。对外长期使用请选择正式版。'
+              : '开发版码仅供当前小程序开发成员验收；每个场次请分别生成。'
             : codeVersion === 'trial'
-              ? '体验版码仅供已配置的体验成员验收；每个场次请分别生成。'
+              ? codeKind === 'common'
+                ? '体验版码仅供已配置的体验成员验收。对外长期使用请选择正式版。'
+                : '体验版码仅供已配置的体验成员验收；每个场次请分别生成。'
               : '正式版需要签到页面已审核发布；生成后仅下载预览，由授权人员安排现场投放。'
         "
         type="info"
@@ -1799,7 +1837,11 @@ onUnmounted(() => {
         <img
           v-if="codeImage"
           :src="codeImage"
-          :alt="`${codeEvent?.name} ${codeEvent?.session_name || ''} 签到小程序码`"
+          :alt="
+            codeKind === 'common'
+              ? '通用签到小程序码'
+              : `${codeEvent?.name} ${codeEvent?.session_name || ''} 签到小程序码`
+          "
         /><el-empty v-else description="点击生成当前版本签到码" />
       </div>
       <template #footer
@@ -1810,7 +1852,9 @@ onUnmounted(() => {
           type="primary"
           :disabled="!codeImage || busy"
           @click="downloadCode"
-          >下载当前场次小程序码</el-button
+          >{{
+            codeKind === "common" ? "下载通用签到码" : "下载当前场次小程序码"
+          }}</el-button
         ></template
       ></el-dialog
     >

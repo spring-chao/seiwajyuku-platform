@@ -39,8 +39,8 @@ export function detectColumns(headers) {
       return "company";
     if (/^(分中心|中心|center|分部|所属分中心)$/i.test(h)) return "center";
     if (/^(班级|班|class|班级名称)$/i.test(h)) return "class_name";
-    if (/^(组号|组别|大组|分组)$/i.test(h)) return "group_num";
-    if (/^(小组|小组名称|组名)$/i.test(h)) return "group_name";
+    if (/^(组号|大组|分组|现场分组)$/i.test(h)) return "group_num";
+    if (/^(小组|小组名称|组名|组别)$/i.test(h)) return "group_name";
     if (/^(桌号|桌数|桌子|空巴桌号|晚宴桌号|dinner|table)$/i.test(h))
       return "dinner_table_num";
     if (/^(是否学员|学员|is_student)$/i.test(h)) return "is_student";
@@ -48,7 +48,12 @@ export function detectColumns(headers) {
   }
   for (var i = 0; i < headers.length; i++) {
     var m = match(headers[i]);
-    if (m && map[m] === -1) map[m] = i;
+    if (
+      m &&
+      (map[m] === -1 ||
+        (m === "group_num" && normalizeHeader(headers[i]) === "组号"))
+    )
+      map[m] = i;
   }
   return map;
 }

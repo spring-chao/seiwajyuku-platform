@@ -15,6 +15,8 @@ from app.services.wechat_identity import _wechat_access_token, WeChatProviderErr
 
 
 PAGE = "pages/checkin/index"
+COMMON_PAGE = "pages/checkin/events"
+COMMON_SCENE = "common_checkin"
 
 
 def _hash(token: str) -> str:
@@ -33,13 +35,13 @@ def resolve_entry(token: str) -> str:
     return str(row["event_id"])
 
 
-def wechat_code(token: str, env_version: str) -> tuple[bytes, str]:
+def wechat_code(token: str, env_version: str, *, page: str = PAGE) -> tuple[bytes, str]:
     try:
         access_token = _wechat_access_token()
         with httpx.Client(timeout=20, follow_redirects=False) as client:
             response = client.post("https://api.weixin.qq.com/wxa/getwxacodeunlimit",
                                    params={"access_token": access_token},
-                                   json={"scene": token, "page": PAGE,
+                                   json={"scene": token, "page": page,
                                          "env_version": env_version,
                                          "check_path": env_version == "release", "width": 430})
         mime = response.headers.get("content-type", "").split(";", 1)[0].strip()
@@ -50,6 +52,20 @@ def wechat_code(token: str, env_version: str) -> tuple[bytes, str]:
         return response.content, mime
     except (httpx.HTTPError, WeChatProviderError) as exc:
         raise SigninEngineError("微信小程序码服务暂时不可用", 502) from exc
+
+
+def generate_common_entry(*, user: dict, env_version: str = "develop") -> dict:
+    """A fixed public route, never an expiring activity or identity credential."""
+    enabled(write=True)
+    enabled(member=True)
+    content, mime = wechat_code(COMMON_SCENE, env_version, page=COMMON_PAGE)
+    with transaction() as connection:
+        write_audit(connection, actor_user_id=user["id"], action="attendance.code.common",
+                    resource_type="signin_entry", resource_id="common",
+                    after={"page": COMMON_PAGE, "env_version": env_version})
+    return {"event_id": "", "page": COMMON_PAGE, "env_version": env_version,
+            "token": COMMON_SCENE, "image_base64": base64.b64encode(content).decode(),
+            "mime_type": mime, "reusable": True, "expires_at": None}
 
 
 def generate_entry(event_id: str, *, user: dict, env_version: str = "develop") -> dict:

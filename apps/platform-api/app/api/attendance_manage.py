@@ -13,7 +13,7 @@ from app.core.settings import get_settings
 from app.db import fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services import signin_engine
-from app.services.attendance_entry_codes import generate_entry
+from app.services.attendance_entry_codes import generate_entry, generate_common_entry
 from app.services.attendance_sync import sync_from_signin
 
 
@@ -92,6 +92,15 @@ def entry_code(event_id: str, payload: CodePayload,
                user: dict = Depends(require_permission("attendance:code"))) -> dict:
     try:
         return {"success": True, "data": generate_entry(event_id, user=user, env_version=payload.env_version)}
+    except signin_engine.SigninEngineError as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/manage/common-code")
+def common_entry_code(payload: CodePayload,
+                      user: dict = Depends(require_permission("attendance:code"))) -> dict:
+    try:
+        return {"success": True, "data": generate_common_entry(user=user, env_version=payload.env_version)}
     except signin_engine.SigninEngineError as exc:
         raise _error(exc) from exc
 

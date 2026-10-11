@@ -205,12 +205,37 @@ for (const pageName of ["index", "events", "legacy"]) {
   }
 }
 
-test("today entry requires binding and uses event IDs rather than guessed names", async () => {
-  const unbound = harness("checkin/events", async () => { throw new Error("must not request"); }, "");
-  await unbound.page.onShow(); assert.equal(unbound.calls.length, 0); assert.equal(unbound.page.data.bindingRequired, true);
-  const h = harness("checkin/events", async () => ({ data: { events: [{ event_id: 10, session_code: "MORNING" }, { event_id: "event_afternoon-11", session_code: "AFTERNOON" }] } }));
-  await h.page.onShow(); assert.equal(h.calls[0].options.auth, true); assert.equal(h.page.data.events.length, 2);
+test("common entry allows unbound visitors and uses server event IDs rather than guessed names", async () => {
+  const items = [{ event_id: 10, session_code: "MORNING", lifecycle_status: "CONFIRMED", checkin_status: "open" }, { event_id: "event_afternoon-11", session_code: "AFTERNOON", lifecycle_status: "CONFIRMED", checkin_status: "open" }];
+  const unbound = harness("checkin/events", async () => ({data:{events:items}}), "");
+  await unbound.page.onShow(); assert.equal(unbound.calls.length, 1); assert.equal(unbound.calls[0].url, "/api/v1/wechat/checkin/open-events");
+  assert.equal(unbound.calls[0].options.auth, undefined); assert.equal(unbound.navigations.length, 0);
+  const h = harness("checkin/events", async () => ({ data: { events: items } }));
+  await h.page.onShow(); assert.equal(h.page.data.events.length, 2);
   h.page.openEvent({ currentTarget: { dataset: { eventId: "event_afternoon-11" } } }); assert.equal(h.navigations[0], "/pages/checkin/index?event_id=event_afternoon-11");
+});
+
+test("common entry auto-opens the single open session once and blocks upcoming or unknown selections", async () => {
+  const h = harness("checkin/events", async () => ({ data: { events: [
+    {event_id:"one-open",lifecycle_status:"CONFIRMED",checkin_status:"open"},
+    {event_id:"upcoming",lifecycle_status:"CONFIRMED",checkin_status:"upcoming"},
+    {event_id:"draft",lifecycle_status:"DRAFT",checkin_status:"open"},
+    {event_id:"closed",lifecycle_status:"CONFIRMED",checkin_status:"closed"}
+  ] } }), "");
+  await h.page.onShow(); assert.equal(h.navigations[0], "/pages/checkin/index?event_id=one-open");
+  assert.equal(h.page.data.events.length,2); h.page.onHide(); await h.page.onShow();
+  assert.equal(h.navigations.length,1);
+  for (const eventId of ["upcoming","draft","closed","forged"]) h.page.openEvent({currentTarget:{dataset:{eventId}}});
+  assert.equal(h.navigations.length,1);
+});
+
+test("common entry does not navigate when none are open or a response arrives after hide", async () => {
+  const none = harness("checkin/events", async () => ({data:{events:[{event_id:10,lifecycle_status:"CONFIRMED",checkin_status:"upcoming"}]}}), "");
+  await none.page.onShow(); assert.equal(none.navigations.length,0);
+  const pending = deferred(); const hidden = harness("checkin/events", () => pending.promise, "");
+  const load = hidden.page.onShow(); hidden.page.onHide();
+  pending.resolve({data:{events:[{event_id:10,lifecycle_status:"CONFIRMED",checkin_status:"open"}]}}); await load;
+  assert.equal(hidden.navigations.length,0); assert.equal(hidden.page.data.events.length,0);
 });
 
 test("legacy fallback re-fetches a trusted context URL, rejects injection and preserves link on web-view failure", async () => {
