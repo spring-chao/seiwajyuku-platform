@@ -7,7 +7,7 @@ const { successCard } = require("../../utils/checkin-success");
 function empty() {
   return { event: null, member: null, registration: null, loading: false, confirming: false,
     canCheckin: false, alreadyChecked: false, bindingRequired: false, requiresFallback: false,
-    fallbackAvailable: false, guestName: "", guestAllowed: false, nameCandidates: [], historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null, successCard: null };
+    fallbackAvailable: false, guestName: "", guestAllowed: false, nameCandidates: [], selectedCandidateIndexes: [], guestResults: [], historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null, successCard: null };
 }
 
 Page({
@@ -78,58 +78,94 @@ Page({
   },
 
   inputGuestName(event) {
+    if (this.data.confirming || this.data.guestResults.length) return;
     this._nameSelections = [];
-    this.setData({ guestName: event.detail.value, nameCandidates: [], errorMessage: "" });
+    this.setData({ guestName: event.detail.value, nameCandidates: [], selectedCandidateIndexes: [], notice: "", errorMessage: "" });
   },
-  async lookupGuest() {
-    if (this.data.confirming || !this.data.guestAllowed || !this.data.event) return;
+  selectGuestCandidates(event) {
+    if (this.data.confirming) return;
+    const values = event.detail && event.detail.value;
+    const selected = Array.isArray(values) ? [...new Set(values.map(String))].filter(value => {
+      const index = Number(value);
+      return String(index) === value && Number.isInteger(index) && index >= 0 && this._nameSelections &&
+        this._nameSelections[index] && !this._nameSelections[index].result;
+    }) : [];
+    this.setData({ selectedCandidateIndexes: selected, errorMessage: "",
+      nameCandidates: this.data.nameCandidates.map((row, index) => ({ ...row, selected: selected.includes(String(index)) })) });
+  },
+  async submitGuest() {
+    if (this.data.confirming || !this.data.guestAllowed || this.data.alreadyChecked || !this.data.event) return;
     const name = String(this.data.guestName || "").trim();
     if (!name || name.length > 120 || /[\x00-\x1f\x7f]/.test(name)) {
       this.setData({ errorMessage: "请填写有效报名姓名。" }); return;
     }
     const current = beginPrivateRequest(this, "confirm");
-    this._nameSelections = [];
-    this.setData({ confirming: true, nameCandidates: [], errorMessage: "" });
-    try {
-      const login = await new Promise((resolve, reject) => wx.login({ success: resolve, fail: reject }));
-      if (!current()) return;
-      if (!login.code) throw new Error("微信身份暂时无法确认，请重试。");
-      const response = await request("/api/v1/wechat/checkin/guest-lookup", {
-        method: "POST", data: { ...this._target, name, wx_login_code: login.code }
-      });
-      if (!current()) return;
-      const result = response.data || {};
-      this._nameSelections = (result.candidates || []).filter(row => row.candidate_token).map(row => ({ name, token: row.candidate_token }));
-      this.setData({ nameCandidates: (result.candidates || []).filter(row => row.candidate_token).map(({ candidate_token, ...row }) => row),
-        errorMessage: this._nameSelections.length ? "" : result.message || "没有找到本场报名，请联系工作人员。",
-        notice: this._nameSelections.length ? "请核对以下报名信息，再确认本人签到。" : "" });
-    } catch (error) {
-      if (current()) this.setData({ errorMessage: error.message || "报名信息暂时无法查询，请重试。" });
-    } finally { if (current()) this.setData({ confirming: false }); }
-  },
-  async confirmGuest(event) {
-    if (this.data.confirming || !this.data.guestAllowed || this.data.alreadyChecked || !this.data.event) return;
-    const index = Number(event && event.currentTarget && event.currentTarget.dataset.index);
-    const selected = Number.isInteger(index) && this._nameSelections && this._nameSelections[index];
-    if (!selected || selected.name !== String(this.data.guestName || "").trim()) {
-      this.setData({ errorMessage: "请先查询并核对本场报名信息。" }); return;
-    }
-    const name = selected.name;
-    const current = beginPrivateRequest(this, "confirm");
     this.setData({ confirming: true, errorMessage: "" });
     try {
-      const login = await new Promise((resolve, reject) => wx.login({ success: resolve, fail: reject }));
-      if (!current()) return;
-      if (!login.code) throw new Error("微信身份暂时无法确认，请重试。");
-      const response = await request("/api/v1/wechat/checkin/guest-confirm", {
-        method: "POST", data: { ...this._target, name, candidate_token: selected.token, wx_login_code: login.code }
-      });
-      if (!current()) return;
-      const result = response.data || {};
-      if (result.participant_type !== "GUEST" || !result.checked_at || !["CHECKED_IN", "ALREADY_CHECKED_IN"].includes(result.status)) throw new Error("签到结果暂未确认，请重试。");
-      this._nameSelections = [];
-      this.setData({ nameCandidates: [], result, successCard: successCard(result, { event: this.data.event, name }), alreadyChecked: true, guestAllowed: false, guestName: "",
-        notice: result.message || "签到成功" });
+      if (!this._nameSelections || !this._nameSelections.length) {
+        const login = await new Promise((resolve, reject) => wx.login({ success: resolve, fail: reject }));
+        if (!current()) return;
+        if (!login.code) throw new Error("微信身份暂时无法确认，请重试。");
+        const response = await request("/api/v1/wechat/checkin/guest-lookup", {
+          method: "POST", data: { ...this._target, name, wx_login_code: login.code }
+        });
+        if (!current()) return;
+        const candidates = ((response.data || {}).candidates || []).filter(row => row.candidate_token);
+        // Selection credentials never enter render data or application storage.
+        this._nameSelections = candidates.map(row => ({ name, token: row.candidate_token }));
+        this.setData({ nameCandidates: candidates.map(({ candidate_token, ...row }) => ({ ...row, selected: false })),
+          selectedCandidateIndexes: [], notice: "" });
+        if (!candidates.length) {
+          this.setData({ errorMessage: "未查询到您的报名信息，请联系工作人员，谢谢" }); return;
+        }
+        if (candidates.length > 1) return;
+      }
+      const indexes = this._nameSelections.length === 1 ? [0] : this.data.selectedCandidateIndexes.map(Number);
+      if (!indexes.length) {
+        this.setData({ errorMessage: "请勾选需要签到的报名信息。" }); return;
+      }
+      const selections = [...new Set(indexes)].map(index => ({ index, selected: this._nameSelections[index] }));
+      if (selections.some(({ selected }) => !selected || selected.name !== name || selected.result)) {
+        throw new Error("报名选项已变化，请重新核对。");
+      }
+      let failed = 0;
+      for (const { index, selected } of selections) {
+        if (!current()) return;
+        try {
+          // Each selected original registration is confirmed independently. A
+          // fresh login code is required for each request; never reuse one.
+          const login = await new Promise((resolve, reject) => wx.login({ success: resolve, fail: reject }));
+          if (!current()) return;
+          if (!login.code) throw new Error("微信身份暂时无法确认，请重试。");
+          const response = await request("/api/v1/wechat/checkin/guest-confirm", {
+            method: "POST", data: { ...this._target, name, candidate_token: selected.token, wx_login_code: login.code }
+          });
+          if (!current()) return;
+          const result = response.data || {};
+          if (result.participant_type !== "GUEST" || !result.checked_at || !["CHECKED_IN", "ALREADY_CHECKED_IN"].includes(result.status)) throw new Error("签到结果暂未确认，请重试。");
+          selected.result = result;
+          this.setData({ nameCandidates: this.data.nameCandidates.map((row, rowIndex) => rowIndex === index ? { ...row, completed: true, selected: false, error: "" } : row),
+            selectedCandidateIndexes: this.data.selectedCandidateIndexes.filter(value => Number(value) !== index) });
+        } catch (error) {
+          if (!current()) return;
+          failed += 1;
+          this.setData({ nameCandidates: this.data.nameCandidates.map((row, rowIndex) => rowIndex === index ? { ...row, error: error.message || "签到暂时未完成，请重试。" } : row) });
+        }
+      }
+      const completed = this._nameSelections.filter(row => row.result);
+      const cards = this._nameSelections.map((row, index) => row.result ? { key: String(index), card: successCard(row.result, { event: this.data.event, name }) } : null).filter(Boolean);
+      const allSelectedCompleted = !failed && completed.length > 0;
+      const lastResult = completed.length ? completed[completed.length - 1].result : null;
+      this.setData({ guestResults: this._nameSelections.length > 1 ? cards : [],
+        result: allSelectedCompleted ? lastResult : null,
+        successCard: this._nameSelections.length === 1 && allSelectedCompleted ? cards[0].card : null,
+        alreadyChecked: allSelectedCompleted, guestAllowed: !allSelectedCompleted,
+        errorMessage: failed ? (completed.length ? `已完成 ${completed.length} 条报名签到，其余未完成，请重试。` : "签到暂时未完成，请重试。") : "",
+        notice: "" });
+      if (allSelectedCompleted) {
+        this._nameSelections = [];
+        this.setData({ nameCandidates: [], selectedCandidateIndexes: [], guestName: "" });
+      }
     } catch (error) {
       if (current()) this.setData({ errorMessage: error.message || "签到暂时未完成，请重试。" });
     } finally { if (current()) this.setData({ confirming: false }); }
