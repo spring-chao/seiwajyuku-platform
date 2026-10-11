@@ -330,18 +330,18 @@ test("external code restores bound identity without a binding form", async () =>
   assert.equal(h.navigations.length, 0);
 });
 
-test("name scan first verifies enrollment, then confirms the selected original slot exactly once", async () => {
+test("one tap verifies a unique enrollment and confirms its original slot exactly once", async () => {
   const pending = deferred();
   const h = harness("checkin/index", async url => url.endsWith("guest-confirm") ? pending.promise : url.endsWith("guest-lookup") ? {data:{status:"REGISTERED",candidates:[{registration_id:"slot-a",name:"合成报名人",company:"合成企业",candidate_token:"private-selection"}]}} : context(10, { member: null, can_checkin: false, guest_allowed: true }), "");
   h.page.onLoad({ scene: "external_scene_123456789" }); await h.page.onShow();
-  await h.page.confirmGuest(); assert.equal(h.calls.length, 1);
+  await h.page.submitGuest(); assert.equal(h.calls.length, 1);
   h.page.inputGuestName({ detail: { value: "合成报名人" } });
-  await h.page.lookupGuest();
+  const first = h.page.submitGuest();
+  while (h.calls.length < 3) await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.page.data.alreadyChecked,false);
   assert.equal(h.page.data.nameCandidates[0].company,"合成企业");
   assert(!JSON.stringify(h.page.data).includes("private-selection"));
-  const action = {currentTarget:{dataset:{index:0}}};
-  const first = h.page.confirmGuest(action); await h.page.confirmGuest(action);
+  await h.page.submitGuest();
   assert.equal(h.calls.length, 3);
   assert.deepEqual(JSON.parse(JSON.stringify(h.calls[2].options.data)), { token: "external_scene_123456789", name: "合成报名人",candidate_token:"private-selection", wx_login_code: "synthetic-login" });
   pending.resolve({ data: { status: "CHECKED_IN", participant_type: "GUEST", checked_at: "2026-10-10T09:00:00+08:00", sync_status: "PENDING" } });
@@ -351,16 +351,94 @@ test("name scan first verifies enrollment, then confirms the selected original s
   assert.equal(h.page.data.successCard.welcome, "欢迎 合成报名人学长！");
 });
 
-test("unregistered names and edited selections cannot confirm or report success", async () => {
+test("unregistered names show the requested message and never send confirmation", async () => {
   const h = harness("checkin/index", async url => url.endsWith("guest-lookup") ? {data:{status:"NOT_REGISTERED",candidates:[],message:"没有报名"}} : context(10,{member:null,guest_allowed:true}), "");
   h.page.onLoad({event_id:"test-event"}); await h.page.onShow();
-  h.page.inputGuestName({detail:{value:"未报名"}}); await h.page.lookupGuest();
-  await h.page.confirmGuest({currentTarget:{dataset:{index:0}}});
+  h.page.inputGuestName({detail:{value:"未报名"}}); await h.page.submitGuest();
   assert.equal(h.calls.length,2); assert.equal(h.page.data.result,null);
-  h.page._nameSelections=[{name:"未报名",token:"private-selection"}];
+  assert.equal(h.page.data.errorMessage,"未查询到您的报名信息，请联系工作人员，谢谢");
+});
+
+function guestCandidate(slot, extra = {}) {
+  return {registration_id:slot,name:"同名报名人",candidate_token:`selection-${slot}`,class_name:`合成班级${slot}`,...extra};
+}
+function guestReceipt(extra = {}) {
+  return {data:{status:"CHECKED_IN",participant_type:"GUEST",checked_at:"2026-10-11T09:00:00+08:00",...extra}};
+}
+async function duplicateGuest(handler, candidates = [guestCandidate("a"),guestCandidate("b")]) {
+  const h=harness("checkin/index", async (url, options) => url.endsWith("guest-lookup") ? {data:{candidates}} : url.endsWith("guest-confirm") ? handler(url, options) : context(10,{member:null,can_checkin:false,guest_allowed:true}), "");
+  h.page.onLoad({event_id:"test-event"});await h.page.onShow();
+  h.page.inputGuestName({detail:{value:"同名报名人"}});await h.page.submitGuest();
+  return h;
+}
+
+test("duplicate names require an explicit checkbox selection and can confirm only a chosen subset", async () => {
+  const h=await duplicateGuest(async()=>guestReceipt());
+  assert.equal(h.calls.length,2);assert.equal(h.page.data.nameCandidates.length,2);
+  assert.equal(h.page.data.selectedCandidateIndexes.length,0);
+  await h.page.submitGuest();assert.equal(h.calls.length,2);
+  assert.match(h.page.data.errorMessage,/勾选/);
+  h.page.selectGuestCandidates({detail:{value:["1","1","99","-1","0.5"]}});
+  await h.page.submitGuest();
+  assert.equal(h.calls.length,3);assert.equal(h.calls[2].options.data.candidate_token,"selection-b");
+  assert.equal(h.page.data.guestResults.length,1);assert.equal(h.page.data.alreadyChecked,true);
+  assert(!JSON.stringify(h.page.data).includes("selection-"));
+});
+
+test("multiple chosen registrations use fresh login codes and retain each original success receipt", async () => {
+  const h=await duplicateGuest(async (_,options)=>guestReceipt({status:options.data.candidate_token==="selection-b"?"ALREADY_CHECKED_IN":"CHECKED_IN",
+    receipt:{name:"同名报名人",group_num:options.data.candidate_token==="selection-a"?"3":"4",dinner_table_num:"8"}}));
+  let loginCount=0;h.wx.login=options=>options.success({code:`new-code-${++loginCount}`});
+  h.page.selectGuestCandidates({detail:{value:["0","1"]}});await h.page.submitGuest();
+  assert.equal(h.calls.length,4);
+  assert.deepEqual(h.calls.slice(2).map(call=>call.options.data.wx_login_code),["new-code-1","new-code-2"]);
+  assert.equal(h.page.data.guestResults.length,2);
+  assert.deepEqual(Array.from(h.page.data.guestResults[0].card.seats),["大会现场：第 3 组","空巴晚宴：第 8 桌"]);
+  assert.match(h.page.data.guestResults[1].card.lines.join(" "),/已签到/);
+});
+
+test("partial failures retain confirmed receipts and retry only the failed chosen registration", async () => {
+  let fail=true;
+  const h=await duplicateGuest(async(_,options)=>{
+    if(options.data.candidate_token==="selection-b"&&fail)throw new Error("合成临时故障");
+    return guestReceipt();
+  });
+  h.page.selectGuestCandidates({detail:{value:["0","1"]}});await h.page.submitGuest();
+  assert.equal(h.page.data.result,null);assert.equal(h.page.data.alreadyChecked,false);
+  assert.equal(h.page.data.guestResults.length,1);assert.equal(h.page.data.nameCandidates[0].completed,true);
+  assert.deepEqual(Array.from(h.page.data.selectedCandidateIndexes),["1"]);
+  assert.match(h.page.data.errorMessage,/已完成 1 条/);
+  h.page.inputGuestName({detail:{value:"改名"}});assert.equal(h.page.data.guestName,"同名报名人");
+  fail=false;await h.page.submitGuest();
+  assert.equal(h.calls.length,5);assert.equal(h.calls[4].options.data.candidate_token,"selection-b");
+  assert.equal(h.page.data.guestResults.length,2);assert.equal(h.page.data.alreadyChecked,true);
+});
+
+test("editing a name clears earlier candidate credentials and checkbox selection", async () => {
+  const h=await duplicateGuest(async()=>{throw new Error("must not confirm");});
+  h.page.selectGuestCandidates({detail:{value:["0"]}});
   h.page.inputGuestName({detail:{value:"修改姓名"}});
-  await h.page.confirmGuest({currentTarget:{dataset:{index:0}}});
-  assert.equal(h.calls.length,2);
+  assert.equal(h.page._nameSelections.length,0);assert.equal(h.page.data.nameCandidates.length,0);
+  assert.equal(h.page.data.selectedCandidateIndexes.length,0);assert.equal(h.calls.length,2);
+});
+
+for(const lifecycle of ["hide","switch"]) {
+  test(`late guest batch after ${lifecycle} cannot restore receipts or send the next confirmation`,async()=>{
+    const pending=deferred();const h=await duplicateGuest(async()=>pending.promise);
+    h.page.selectGuestCandidates({detail:{value:["0","1"]}});const first=h.page.submitGuest();
+    while(h.calls.length<3)await new Promise(resolve=>setImmediate(resolve));
+    if(lifecycle==="hide")h.page.onHide();else h.app.setPersonSession("account-b");
+    pending.resolve(guestReceipt());await first;
+    assert.equal(h.calls.length,3);assert.equal(h.page.data.guestResults.length,0);
+    assert.equal(h.page.data.result,null);assert.equal(h.page.data.confirming,false);
+  });
+}
+
+test("a 200 response without a verified guest receipt remains a retryable failure",async()=>{
+  const h=await duplicateGuest(async()=>({data:{status:"CHECKED_IN"}}));
+  h.page.selectGuestCandidates({detail:{value:["0","1"]}});await h.page.submitGuest();
+  assert.equal(h.page.data.guestResults.length,0);assert.equal(h.page.data.result,null);
+  assert.equal(h.page.data.alreadyChecked,false);assert.equal(h.page.data.confirming,false);
 });
 
 test("failed WeChat resume does not loop, offer guest entry or confirm an identity", async () => {
