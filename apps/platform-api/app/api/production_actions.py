@@ -59,6 +59,22 @@ def credit_storage_alias_format_repair(payload: CreditStoragePreparePayload,
         raise HTTPException(exc.status_code, {'code': exc.code, 'message': exc.message}) from exc
 
 
+class ManagedCreditStoragePayload(CreditStoragePreparePayload):
+    expected_forward_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
+@router.post('/credit-settlement-storage/0064/prepare-managed-mysql', include_in_schema=False)
+def credit_storage_managed_mysql_prepare(payload: ManagedCreditStoragePayload,
+                                        actor: dict = Depends(require_permission(REQUIRED_PERMISSION))):
+    from app.services import credit_settlement_setup
+    try:
+        return {'success': True, 'data': credit_settlement_setup.prepare(
+            actor_user_id=int(actor['id']), migration_version='0064', managed_mysql_forward=True,
+            **payload.model_dump())}
+    except ProductionOperationError as exc:
+        raise HTTPException(exc.status_code, {'code': exc.code, 'message': exc.message}) from exc
+
+
 class G54CourseRuleApplyPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -41,3 +41,12 @@ test('fixed alias format repair retains original attempt and has independent no-
   await assert.rejects(submit(storage, '0064', record, async () => sent++), /已提交/);
   assert.equal(sent, 1);
 });
+test('managed forward preparation reserves independently and never erases prior attempts', async () => {
+  const values = new Map([[key('0064'), JSON.stringify(record)], [key('0064-alias-format-repair'), JSON.stringify(record)]]);
+  const storage = { getItem: k => values.get(k) ?? null, setItem: (k, v) => values.set(k, v) };
+  let sent = 0;
+  await submit(storage, '0064-managed-mysql-forward', record, async () => sent++);
+  await assert.rejects(submit(storage, '0064-managed-mysql-forward', record, async () => sent++), /已提交/);
+  assert.equal(values.size, 3);
+  assert.equal(sent, 1);
+});

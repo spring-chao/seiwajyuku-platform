@@ -65,6 +65,8 @@ export type CreditStorageReadiness = {
   next_migration: string | null;
   can_prepare: boolean;
   can_repair_alias_format: boolean;
+  can_prepare_managed_mysql: boolean;
+  managed_forward_sha256: string;
   storage_ready: boolean;
   formal_ready: boolean;
   settlement_gates: Record<string, boolean>;
@@ -83,17 +85,21 @@ export const prepareCreditStorage = (
     expected_baseline_fingerprint: string;
     expected_migration_sha256: string;
     execution_reason: string;
+    expected_forward_sha256?: string;
   },
-  repairAliasFormat = false
+  repairAliasFormat = false,
+  managedMysql = false
 ) =>
   http.request<{
     success: true;
     data: { status: "RECORDED"; migration_version: string };
   }>(
     "post",
-    repairAliasFormat
-      ? `${storageEndpoint}/0064/repair-alias-format`
-      : `${storageEndpoint}/${version}/prepare`,
+    managedMysql
+      ? `${storageEndpoint}/0064/prepare-managed-mysql`
+      : repairAliasFormat
+        ? `${storageEndpoint}/0064/repair-alias-format`
+        : `${storageEndpoint}/${version}/prepare`,
     { data, timeout: 60000 }
   );
 
