@@ -10,6 +10,7 @@ Scoring rules:
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Any
 
@@ -88,15 +89,36 @@ def calculate_score(
     scheduled_start_at: str | None,
     score_eligible: bool,
     activity_type: str = "CLASS_MEETING",
+    _connection=None,
+    _late_override: bool | None = None,
+    _early_override: bool | None = None,
 ) -> dict[str, Any]:
     """Calculate score for a single attendance record.
 
     Returns dict with base_points, late_deduction, early_leave_deduction,
     final_points, is_late, is_early_leave.
     """
-    rule = get_active_rule(session_code, activity_type)
+    if _connection is None:
+        rule = get_active_rule(session_code, activity_type)
+    else:
+        now = _now()
+        row = execute(_connection, "SELECT * FROM attendance_score_rules WHERE session_code=? AND activity_type=? AND status='ACTIVE' AND effective_from<=? AND (effective_until IS NULL OR effective_until>=?) ORDER BY rule_version DESC LIMIT 1", (session_code, normalize_activity_type(activity_type), now, now)).fetchone()
+        rule = dict(row) if row else None
     if not rule:
         raise ValueError(f"没有找到 {session_code} 的有效积分规则")
+
+    if _late_override is None or _early_override is None:
+        from app.services.credit_source_imports import offline_flags
+        if _connection is None:
+            from app.db import connect
+            source_connection=connect()
+            try: flags=offline_flags(source_connection,attendance_record_id)
+            finally: source_connection.close()
+        else: flags=offline_flags(_connection,attendance_record_id)
+        if flags is not None:
+            # Offline lateness has no scan timestamp. Early leave already has
+            # an ordinary adjudication, whose later cancellation must prevail.
+            if _late_override is None: _late_override=flags[0]
 
     # MySQL DECIMAL values are returned as Decimal while SQLite returns float.
     # Normalize rule values before arithmetic and JSON serialization so both
@@ -126,10 +148,12 @@ def calculate_score(
             and scheduled_dt
             and checked_dt > scheduled_dt
         )
+        if _late_override is not None: is_late = _late_override
         late_deduction = rule_late_deduction if is_late else 0
 
         # Check early leave
-        is_early_leave = has_active_early_leave(attendance_record_id)
+        is_early_leave = has_active_early_leave(attendance_record_id) if _connection is None else bool(execute(_connection, "SELECT id FROM attendance_adjudications WHERE attendance_record_id=? AND adjudication_type='EARLY_LEAVE' AND superseded_at IS NULL LIMIT 1", (attendance_record_id,)).fetchone())
+        if _early_override is not None: is_early_leave = _early_override
         early_leave_deduction = (
             rule_early_leave_deduction if is_early_leave else 0
         )
@@ -175,6 +199,7 @@ def upsert_score_record(
     score_eligible: bool,
     activity_type: str = "CLASS_MEETING",
     source_updated_at: str | None = None,
+    _connection=None,
 ) -> dict[str, Any]:
     """Calculate and upsert a score record for an attendance record."""
     result = calculate_score(
@@ -186,9 +211,10 @@ def upsert_score_record(
         scheduled_start_at=scheduled_start_at,
         score_eligible=score_eligible,
         activity_type=normalize_activity_type(activity_type),
+        _connection=_connection,
     )
     now = _now()
-    with transaction() as connection:
+    with (transaction() if _connection is None else nullcontext(_connection)) as connection:
         existing = execute(
             connection,
             "SELECT id FROM attendance_score_records WHERE attendance_record_id=?",

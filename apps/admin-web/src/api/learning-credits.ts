@@ -114,6 +114,7 @@ export type HistoricalBatchDryRunResult = {
 };
 
 export type LearningCreditLedgerEntry = {
+  import_sources?: { import_id: number; original_filename: string; excel_row: number; source_reference: string; source_kind: string }[];
   id: number;
   member_id: number;
   member_name: string;

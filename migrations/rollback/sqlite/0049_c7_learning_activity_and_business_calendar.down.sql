@@ -2,6 +2,7 @@
 -- reference this model, restore a pre-0049 snapshot instead of dropping it.
 BEGIN;
 CREATE TEMP TABLE c7_learning_activity_rollback_guard (n INTEGER CHECK(n=0));
+INSERT INTO c7_learning_activity_rollback_guard SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('learning_credit_source_rows','learning_credit_source_imports','learning_credit_source_batches');
 INSERT INTO c7_learning_activity_rollback_guard
 SELECT COUNT(*) FROM learning_credit_activity_facts;
 INSERT INTO c7_learning_activity_rollback_guard

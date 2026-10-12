@@ -591,6 +591,7 @@ def _assert_current_preview(
             class_org_unit_id=source_snapshot["class_org_unit_id"],
             occurred_from=source_snapshot["occurred_from"],
             occurred_to=source_snapshot["occurred_to"],
+            fact_ids=source_snapshot.get("fact_ids_filter"),
         )
     else:
         raise credits.LearningCreditError("不支持的结算批次来源")
@@ -990,7 +991,7 @@ def _class_preview_snapshots(preview: dict[str, Any]) -> tuple[dict[str, Any], d
 
 def _activity_preview(
     connection: Any, *, actor_user_id: int, activity_type: str,
-    class_org_unit_id: str, occurred_from: str, occurred_to: str,
+    class_org_unit_id: str, occurred_from: str, occurred_to: str, fact_ids: list[int] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     if activity_type not in {activity_credits.DAILY_READING, activity_credits.EXCELLENT_SHARE}:
         raise credits.LearningCreditError("不支持的学习活动学分来源")
@@ -1002,8 +1003,10 @@ def _activity_preview(
     facts = activity_credits._load_activity_facts(
         connection, actor_user_id=actor_user_id, activity_type=activity_type,
         member_id=None, class_org_unit_id=class_org_unit_id,
-        occurred_from=start, occurred_to=end, limit=501,
+        occurred_from=start, occurred_to=end, limit=501, fact_ids=fact_ids,
     )
+    if fact_ids is not None and {int(f["id"]) for f in facts} != set(fact_ids):
+        raise credits.LearningCreditError("来源事实不完整或不在当前班级日期范围")
     if len(facts) > 500:
         raise credits.LearningCreditError("日期窗口超过500条学习事实，不能截断结算批次")
     if any(fact.get("_date_error") for fact in facts):
@@ -1034,6 +1037,7 @@ def _activity_preview(
         "occurred_from": start,
         "occurred_to": end,
         "facts": facts_snapshot,
+        **({"fact_ids_filter": sorted(fact_ids)} if fact_ids is not None else {}),
     }
     rules = [
         {"idempotency_key": item["idempotency_key"], "rule_snapshot": item["rule_snapshot"]}
@@ -1057,7 +1061,7 @@ def _activity_preview(
 
 def _dry_run_activity_batch(
     *, actor_user_id: int, activity_type: str, class_org_unit_id: str,
-    occurred_from: str, occurred_to: str,
+    occurred_from: str, occurred_to: str, fact_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     """Freeze a bounded activity proposal; this function cannot POST ledger rows."""
 
@@ -1072,7 +1076,7 @@ def _dry_run_activity_batch(
         preview, source_snapshot, rule_snapshot = _activity_preview(
             connection, actor_user_id=actor_user_id, activity_type=activity_type,
             class_org_unit_id=class_org_unit_id,
-            occurred_from=occurred_from, occurred_to=occurred_to,
+            occurred_from=occurred_from, occurred_to=occurred_to, fact_ids=fact_ids,
         )
         source_fp, rule_fp = _fingerprint(source_snapshot), _fingerprint(rule_snapshot)
         existing = execute(
@@ -2114,3 +2118,8 @@ def post_settlement_batch(
         actor_user_id=actor_user_id, batch_id=batch_id,
         resume_partial_failure=resume_partial_failure,
     )
+
+
+def dry_run_activity_import_batch(*, actor_user_id: int, activity_type: str, class_org_unit_id: str, occurred_from: str, occurred_to: str, fact_ids: list[int]) -> dict[str, Any]:
+    """Freeze only the exact scoped facts from an audited import receipt."""
+    return _dry_run_activity_batch(actor_user_id=actor_user_id,activity_type=activity_type,class_org_unit_id=class_org_unit_id,occurred_from=occurred_from,occurred_to=occurred_to,fact_ids=fact_ids)

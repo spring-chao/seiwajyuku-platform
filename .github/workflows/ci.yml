@@ -182,6 +182,8 @@ jobs:
           apps/platform-api/tests/test_credit_year_allocations.py
           apps/platform-api/tests/test_credit_year_reconciliation.py
           apps/platform-api/tests/test_credit_year_setup_mysql.py
+          apps/platform-api/tests/test_credit_source_excel.py
+          apps/platform-api/tests/test_credit_source_setup_mysql.py
           apps/platform-api/tests/test_credit_opening_setup_mysql.py
           apps/platform-api/tests/test_credit_settlement_setup_mysql.py
           apps/platform-api/tests/test_audit_serialization.py
@@ -347,6 +349,9 @@ jobs:
           set -euo pipefail
           container="${{ job.services.mysql.id }}"
           db="seiwajyuku_staging"
+          # Exercise 0067 at its dependency boundary. 0072 owns its guarded
+          # reversal tests; its empty child schema must be reversed first.
+          docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/rollback/mysql/0072_learning_credit_source_imports.down.sql
           # The migration runner already applied 0067; replay the script once
           # to verify the DDL/catalog registration is idempotent on MySQL.
           docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/mysql/0067_learning_credit_settlement_batches.sql
@@ -376,6 +381,8 @@ jobs:
           docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/mysql/0067_learning_credit_settlement_batches.sql
           docker exec "$container" mysql -uroot -pci-root-password "$db" -e "INSERT INTO schema_migrations(version,applied_at) VALUES ('0067_learning_credit_settlement_batches.sql',UTC_TIMESTAMP());"
           python -c "from app.services.iam import seed_iam; seed_iam()"
+          docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/mysql/0072_learning_credit_source_imports.sql
+          docker exec "$container" mysql -uroot -pci-root-password "$db" -e "INSERT INTO schema_migrations(version,applied_at) VALUES ('0072_learning_credit_source_imports.sql',UTC_TIMESTAMP());"
           ledger_after="$(docker exec "$container" mysql -N -uroot -pci-root-password "$db" -e "SELECT COUNT(*) FROM learning_credit_entries;")"
           test "$ledger_before" = "$ledger_after"
       - name: Verify 0068 entry code replay, guarded rollback and restore

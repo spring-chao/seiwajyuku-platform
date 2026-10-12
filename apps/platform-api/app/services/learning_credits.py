@@ -681,7 +681,12 @@ def list_credit_entries(
         ).fetchall()
     finally:
         connection.close()
-    return [_entry_payload(row) for row in rows]
+    from app.services.credit_source_exports import entry_sources
+    trace_connection = connect()
+    try:
+        return [{**_entry_payload(row), 'import_sources': entry_sources(trace_connection,dict(row))} for row in rows]
+    finally:
+        trace_connection.close()
 
 
 def member_credit_summary(*, actor_user_id: int, member_id: int) -> dict[str, Any]:
