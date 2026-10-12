@@ -484,8 +484,24 @@ def workbench(actor):
         tables=present_tables(c);reserved=execute(c,"SELECT id FROM audit_logs WHERE action='production.credit_source.setup' LIMIT 1").fetchone();marker=execute(c,'SELECT version FROM schema_migrations WHERE version=?',(MIGRATION,)).fetchone()
         return {'classes':classes,'cycles':cycles,'imports':imports,'storage_available':ready,'release_commit':get_build_info()['commit_sha'],'migration_sha256':HASHES['sqlite' if isinstance(c,sqlite3.Connection) else 'mysql'],
                 'setup_allowed':'system_admin' in user.get('roles',[]) and 'plans:production_rule_reconciliation_apply' in user['permissions'] and get_settings().credit_opening_setup_enabled and not tables and not reserved and not marker,
-                'setup_incomplete':not ready and bool(tables or reserved or marker),'can_import_activity':'plans:credit_activity_fact_manage' in user['permissions'],'can_import_attendance':{'attendance:adjudicate','plans:period_write'}<=set(user['permissions'])}
+                'setup_incomplete':not ready and bool(tables or reserved or marker),'can_import_activity':'plans:credit_activity_fact_manage' in user['permissions'],'can_import_attendance':{'attendance:adjudicate','plans:period_write'}<=set(user['permissions']), 'reading_calendar':reading_calendar(c)}
     finally:c.close()
+
+
+def reading_calendar(c):
+    row=execute(c,"SELECT v.version_label,COUNT(d.id) AS day_count FROM learning_business_calendar_versions v LEFT JOIN learning_business_calendar_days d ON d.calendar_version_id=v.id WHERE v.calendar_key='CHINA_MAINLAND' AND v.calendar_year=2026 AND v.status='PUBLISHED' GROUP BY v.id,v.version_label ORDER BY v.id DESC LIMIT 1").fetchone()
+    return {'status':'PUBLISHED' if row else 'MISSING','version_label':row['version_label'] if row else None,'day_count':int(row['day_count']) if row else 0}
+
+
+def prepare_reading_calendar(actor):
+    user=_principal(actor)
+    if 'plans:business_calendar_manage' not in user['permissions']:raise PermissionError('当前账号没有工作日日历维护权限')
+    credits._write_allowed()
+    path=Path(__file__).resolve().parents[1]/'assets/credit-reading-calendar-2026.json'
+    payload=json.loads(path.read_text(encoding='utf-8'))
+    with transaction() as c,opening._operation(c):
+        result=activity.save_business_calendar(actor_user_id=actor,calendar_year=2026,version_label=payload['version_label'],days=payload['days'],status='PUBLISHED',_connection=c,_only_if_missing=True)
+        return {'reading_calendar':reading_calendar(c),'idempotent':not result['persisted']}
 
 
 def template(kind,class_id,actor):

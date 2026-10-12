@@ -284,6 +284,8 @@ def save_business_calendar(
     version_label: str,
     days: list[dict[str, Any]],
     status: str = "DRAFT",
+    _connection=None,
+    _only_if_missing: bool = False,
 ) -> dict[str, Any]:
     """Create/update a draft or publish a complete annual calendar.
 
@@ -341,7 +343,13 @@ def save_business_calendar(
 
     now = datetime.now(UTC).isoformat()
     normalized_days.sort(key=lambda item: item["business_date"])
-    with transaction() as connection:
+    with (transaction() if _connection is None else nullcontext(_connection)) as connection:
+        if _only_if_missing:
+            published = execute(connection,"SELECT * FROM learning_business_calendar_versions WHERE calendar_key=? AND calendar_year=? AND status='PUBLISHED' ORDER BY id DESC LIMIT 1",(BUSINESS_CALENDAR_KEY,year)).fetchone()
+            if published:
+                return {"version":dict(published),"status":"PUBLISHED","persisted":False,"idempotent":True}
+            if execute(connection,'SELECT id FROM learning_business_calendar_versions WHERE calendar_key=? AND calendar_year=? AND version_label=?',(BUSINESS_CALENDAR_KEY,year,version_label)).fetchone():
+                raise LearningCreditError('该年度标准日历已有草稿或历史版本，请先核对版本，不能覆盖')
         existing = execute(
             connection,
             "SELECT * FROM learning_business_calendar_versions "

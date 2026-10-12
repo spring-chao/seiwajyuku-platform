@@ -1,6 +1,7 @@
 """The same source/import/export acceptance runs on SQLite and isolated MySQL."""
 import io
 import json
+from pathlib import Path
 from datetime import date
 from unittest.mock import patch
 import pytest
@@ -205,3 +206,13 @@ def test_offline_early_leave_cancellation_keeps_source_and_updates_proposal(sour
     score=fetch_one('SELECT is_early_leave,final_points FROM attendance_score_records WHERE attendance_record_id=?',(slot['attendance_record_id'],))
     assert not score['is_early_leave'] and DecimalText(score['final_points'])=='4.00'
     assert DecimalText(sources.create_batches(iid,f['actor'])['batches'][0]['proposed_points'])=='17.00'
+
+
+def test_calendar_preparation_preserves_existing_published_policy(source_fixture):
+    f=source_fixture;before=activity.get_business_calendar(calendar_year=2026)
+    result=sources.prepare_reading_calendar(f['actor'])
+    assert result['idempotent'] and result['reading_calendar']['status']=='PUBLISHED'
+    assert activity.get_business_calendar(calendar_year=2026)==before
+    canonical=Path(__file__).resolve().parents[3]/'data/learning-calendars/china-mainland-2026.json'
+    asset=Path(sources.__file__).resolve().parents[1]/'assets/credit-reading-calendar-2026.json'
+    assert canonical.read_bytes()==asset.read_bytes()

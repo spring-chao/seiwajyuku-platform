@@ -13,6 +13,7 @@ import {
   sourceCreateBatches,
   sourceAction,
   sourceSetup,
+  sourcePrepareCalendar,
   type SourceKind,
   type SourceWorkbench,
   type SourcePreview,
@@ -64,6 +65,12 @@ const batchSummary = (value: unknown) => {
 const choose = (event: Event) => {
   file.value = (event.target as HTMLInputElement).files?.[0];
 };
+const prepareCalendar = () =>
+  perform(async () => {
+    await sourcePrepareCalendar();
+    await reload();
+    ElMessage.success("读书工作日日历已准备，现有发布版本保留");
+  });
 const sourceDetails = (value: unknown) => {
   if (!value || typeof value !== "object") return "";
   const row = value as { record_json?: string; raw?: Record<string, unknown> };
@@ -445,6 +452,24 @@ onMounted(() => perform(reload));
         <p v-else>
           仅填写已经评定优秀的分享；每次分享使用稳定的分享编号，重复上传沿用原编号。系统保留月度计分上限。
         </p>
+        <div v-if="form.kind === 'DAILY_READING'" class="calendar-status">
+          <p v-if="state?.reading_calendar.status === 'PUBLISHED'">
+            2026年读书工作日日历已发布，覆盖{{
+              state.reading_calendar.day_count
+            }}天。
+          </p>
+          <template v-else
+            ><p>
+              2026年工作日日历尚未准备，管理员可使用系统已核准的年度日历补齐，再检查读书表格。
+            </p>
+            <el-button
+              v-if="permissions.includes('plans:business_calendar_manage')"
+              :disabled="busy"
+              @click="prepareCalendar"
+              >准备2026年工作日日历</el-button
+            ></template
+          >
+        </div>
         <el-form-item label="来源确认说明"
           ><el-input
             v-model="form.source_note"

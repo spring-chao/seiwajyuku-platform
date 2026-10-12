@@ -50,3 +50,7 @@ def setup(payload:SetupPayload,user=Depends(require_permission('plans:production
     try:return _call(service.setup,user['id'],payload.expected_release_commit,payload.expected_migration_sha256)
     except HTTPException:raise
     except Exception as exc:raise HTTPException(503,'存储准备结果待核验，请刷新实际状态，不要重复执行') from exc
+
+@router.post('/reading-calendar/setup')
+def prepare_calendar(user=Depends(require_permission('plans:business_calendar_manage'))):
+    return _call(service.prepare_reading_calendar,user['id'])

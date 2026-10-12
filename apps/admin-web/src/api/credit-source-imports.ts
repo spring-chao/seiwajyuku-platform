@@ -35,6 +35,11 @@ export type SourceImport = {
   batches: SourceBatch[];
 };
 export type SourceWorkbench = {
+  reading_calendar: {
+    status: string;
+    day_count: number;
+    version_label: string | null;
+  };
   classes: { id: string; name: string }[];
   cycles: {
     id: number;
@@ -69,6 +74,10 @@ export type SourceForm = {
 };
 type Result<T> = { success: boolean; data: T };
 const base = "/api/v1/learning-credits/excel";
+export const sourcePrepareCalendar = () =>
+  http.request<Result<unknown>>("post", base + "/reading-calendar/setup", {
+    timeout: 60000
+  });
 export const sourceWorkbench = () =>
   http.request<Result<SourceWorkbench>>("get", base);
 export const sourceExportOptions = () =>
