@@ -5,6 +5,7 @@ import { useUserStoreHook } from "@/store/modules/user";
 import { creditSettlementErrorMessage } from "@/utils/creditSettlementError";
 import {
   sourceWorkbench,
+  sourceGet,
   sourceExportOptions,
   sourceTemplate,
   sourceExport,
@@ -178,9 +179,28 @@ const perform = async (action: () => Promise<void>) => {
   }
 };
 const reload = async () => {
-  if (canManage.value) state.value = (await sourceWorkbench()).data;
+  const tasks: { label: string; run: () => Promise<void> }[] = [];
+  if (canManage.value)
+    tasks.push({
+      label: "来源记录读取失败",
+      run: async () => {
+        state.value = (await sourceWorkbench()).data;
+      }
+    });
   if (canExport.value)
-    exportClasses.value = (await sourceExportOptions()).data.classes;
+    tasks.push({
+      label: "导出班级读取失败",
+      run: async () => {
+        exportClasses.value = (await sourceExportOptions()).data.classes;
+      }
+    });
+  const results = await Promise.allSettled(tasks.map(task => task.run()));
+  const failures = results.flatMap((result, index) =>
+    result.status === "rejected"
+      ? [creditSettlementErrorMessage(result.reason, tasks[index].label)]
+      : []
+  );
+  if (failures.length) error.value = failures.join("；");
 };
 const download = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
@@ -241,9 +261,11 @@ const resolveRow = (value: unknown) =>
   value && typeof value === "object" && "id" in value
     ? state.value?.imports.find(r => r.id === value.id)
     : undefined;
-const show = (value: unknown) => {
-  detail.value = resolveRow(value);
-};
+const show = (value: unknown) =>
+  perform(async () => {
+    const row = resolveRow(value);
+    if (row) detail.value = (await sourceGet(row.id)).data;
+  });
 const eligible = (value: unknown, operation: "submit" | "approve" | "post") => {
   const r = resolveRow(value);
   return (

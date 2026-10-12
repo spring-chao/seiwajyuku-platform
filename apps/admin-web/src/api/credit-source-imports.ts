@@ -79,11 +79,16 @@ export const sourcePrepareCalendar = () =>
     timeout: 60000
   });
 export const sourceWorkbench = () =>
-  http.request<Result<SourceWorkbench>>("get", base);
+  http.request<Result<SourceWorkbench>>("get", base, { timeout: 60000 });
+export const sourceGet = (id: number) =>
+  http.request<Result<SourceImport>>("get", `${base}/imports/${id}`, {
+    timeout: 60000
+  });
 export const sourceExportOptions = () =>
   http.request<Result<{ classes: { id: string; name: string }[] }>>(
     "get",
-    base + "/export-options"
+    base + "/export-options",
+    { timeout: 60000 }
   );
 export const sourceTemplate = (kind: SourceKind, class_id: string) =>
   http.request<Blob>("get", base + "/template", {

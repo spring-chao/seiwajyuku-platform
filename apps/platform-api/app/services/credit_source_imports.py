@@ -87,6 +87,13 @@ def _has_scope(actor,class_id,permissions=('members:read','plans:credit_settleme
     return True
 
 
+def effective_scope(actor,permissions=('members:read','plans:credit_settlement_manage','plans:credit_settlement_preview')):
+    """Compute this request's permission intersection once, never cache IAM globally."""
+    scopes=[credits.accessible_org_ids(actor),*(credits.accessible_org_ids(actor,p) for p in permissions)]
+    restricted=[set(scope) for scope in scopes if scope is not None]
+    return set.intersection(*restricted) if restricted else None
+
+
 def _write_scope(actor,class_id,kind):
     required=('attendance:adjudicate','plans:period_write') if kind=='CLASS_MEETING' else ('plans:credit_activity_fact_manage',)
     if not _has_scope(actor,class_id,required):raise PermissionError('班级不在这项来源操作的授权范围')
@@ -284,15 +291,18 @@ def preview(content,kind,class_id,options,note,actor):
     finally:c.close()
 
 
-def _receipt(c,actor,import_id):
-    row=execute(c,'SELECT * FROM learning_credit_source_imports WHERE id=?',(import_id,)).fetchone()
+def _receipt(c,actor,import_id,*,allowed_scope=...,summary=False):
+    columns='id,fingerprint,file_sha256,original_filename,source_kind,class_org_unit_id,binding_id,cycle_id,event_group_id,options_json,source_note,created_by,created_at' if summary else '*'
+    row=execute(c,'SELECT '+columns+' FROM learning_credit_source_imports WHERE id=?',(import_id,)).fetchone()
     if not row:raise credits.LearningCreditError('导入来源不存在')
-    if not _has_scope(actor,row['class_org_unit_id']):raise PermissionError('导入来源不在当前授权范围')
+    permitted=_has_scope(actor,row['class_org_unit_id']) if allowed_scope is ... else allowed_scope is None or row['class_org_unit_id'] in allowed_scope
+    if not permitted:raise PermissionError('导入来源不在当前授权范围')
     item=dict(row);item['class_name']=execute(c,'SELECT name FROM org_units WHERE id=?',(row['class_org_unit_id'],)).fetchone()['name']
-    rows=[dict(r) for r in execute(c,'SELECT r.*,m.member_code,m.name AS member_name FROM learning_credit_source_rows r JOIN members m ON m.id=r.member_id WHERE r.import_id=? ORDER BY r.excel_row,r.id',(import_id,)).fetchall()]
-    _validate_receipt(c,item,rows)
-    item['rows']=rows;item['row_count']=len({r['excel_row'] for r in rows});item['batches']=[dict(r) for r in execute(c,'SELECT b.id,b.batch_no,b.status,b.blocked_count,b.proposed_entry_count,b.proposed_points,b.posted_entry_count,b.posted_points,b.created_by FROM learning_credit_source_batches l JOIN learning_credit_settlement_batches b ON b.id=l.batch_id WHERE l.import_id=? ORDER BY b.id',(import_id,)).fetchall()]
+    rows=[] if summary else [dict(r) for r in execute(c,'SELECT r.*,m.member_code,m.name AS member_name FROM learning_credit_source_rows r JOIN members m ON m.id=r.member_id WHERE r.import_id=? ORDER BY r.excel_row,r.id',(import_id,)).fetchall()]
+    if not summary:_validate_receipt(c,item,rows)
+    item['rows']=rows;item['row_count']=int(execute(c,'SELECT COUNT(DISTINCT excel_row) AS n FROM learning_credit_source_rows WHERE import_id=?',(import_id,)).fetchone()['n']) if summary else len({r['excel_row'] for r in rows});item['batches']=[dict(r) for r in execute(c,'SELECT b.id,b.batch_no,b.status,b.blocked_count,b.proposed_entry_count,b.proposed_points,b.posted_entry_count,b.posted_points,b.created_by FROM learning_credit_source_batches l JOIN learning_credit_settlement_batches b ON b.id=l.batch_id WHERE l.import_id=? ORDER BY b.id',(import_id,)).fetchall()]
     for batch in item['batches']:
+        if summary:break
         stored=execute(c,'SELECT source_type,source_snapshot_json FROM learning_credit_settlement_batches WHERE id=?',(batch['id'],)).fetchone()
         saved=json.loads(stored['source_snapshot_json'])
         source_kind=item['source_kind']
@@ -305,6 +315,7 @@ def _receipt(c,actor,import_id):
         if not matches:raise credits.LearningCreditError('结算批次与原文件来源不同，请核对关联')
     item['created_by_current_actor']=int(row['created_by'])==actor
     for b in item['batches']:b['created_by_current_actor']=int(b['created_by'])==actor
+    item.pop('source_snapshot_json',None)
     return item
 
 
@@ -474,13 +485,14 @@ def process(import_id,actor,operation):
 def workbench(actor):
     user=_principal(actor);c=connect()
     try:
-        classes=[dict(r) for r in execute(c,"SELECT DISTINCT b.class_org_unit_id AS id,o.name FROM class_learning_bindings b JOIN org_units o ON o.id=b.class_org_unit_id WHERE b.status='ACTIVE' AND o.is_active=1 ORDER BY o.name").fetchall() if _has_scope(actor,r['id'])]
+        scope=effective_scope(actor)
+        classes=[dict(r) for r in execute(c,"SELECT DISTINCT b.class_org_unit_id AS id,o.name FROM class_learning_bindings b JOIN org_units o ON o.id=b.class_org_unit_id WHERE b.status='ACTIVE' AND o.is_active=1 ORDER BY o.name").fetchall() if scope is None or r['id'] in scope]
         ids={r['id'] for r in classes}
         cycles=[dict(r) for r in execute(c,"SELECT c.id,c.class_org_unit_id,c.learning_cycle_index,c.cycle_status,c.class_meeting_status,c.actual_class_meeting_at,c.planned_class_meeting_at FROM class_learning_cycles c JOIN class_learning_bindings b ON b.id=c.binding_id WHERE b.status='ACTIVE' AND c.cycle_status IN ('OPEN','CLOSED') ORDER BY c.id DESC").fetchall() if r['class_org_unit_id'] in ids]
         ready=available(c);imports=[]
         if ready:
             for r in execute(c,'SELECT id,class_org_unit_id FROM learning_credit_source_imports ORDER BY id DESC LIMIT 100').fetchall():
-                if _has_scope(actor,r['class_org_unit_id']):imports.append(_receipt(c,actor,r['id']))
+                if scope is None or r['class_org_unit_id'] in scope:imports.append(_receipt(c,actor,r['id'],allowed_scope=scope,summary=True))
         tables=present_tables(c);reserved=execute(c,"SELECT id FROM audit_logs WHERE action='production.credit_source.setup' LIMIT 1").fetchone();marker=execute(c,'SELECT version FROM schema_migrations WHERE version=?',(MIGRATION,)).fetchone()
         return {'classes':classes,'cycles':cycles,'imports':imports,'storage_available':ready,'release_commit':get_build_info()['commit_sha'],'migration_sha256':HASHES['sqlite' if isinstance(c,sqlite3.Connection) else 'mysql'],
                 'setup_allowed':'system_admin' in user.get('roles',[]) and 'plans:production_rule_reconciliation_apply' in user['permissions'] and get_settings().credit_opening_setup_enabled and not tables and not reserved and not marker,
