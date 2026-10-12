@@ -40,6 +40,9 @@ def test_fixed_setup_hash_idempotency_and_empty_reversal(fresh_source_db):
     assert execute(c,"SELECT COUNT(*) AS n FROM audit_logs WHERE action='production.credit_source.setup'").fetchone()['n']==1
     # Child tables block parent rollback before permissions or tables change.
     with pytest.raises(Exception,match='constraint|CHECK'):rollback(c,'0067_learning_credit_settlement_batches.down.sql')
+    permissions=execute(c,'SELECT * FROM role_permissions ORDER BY role_key,permission_key').fetchall()
+    with pytest.raises(Exception,match='constraint|CHECK'):rollback(c,'0049_c7_learning_activity_and_business_calendar.down.sql')
+    assert execute(c,'SELECT * FROM role_permissions ORDER BY role_key,permission_key').fetchall()==permissions
     rollback(c,'0072_learning_credit_source_imports.down.sql');c.commit()
     assert not service.present_tables(c)
     assert execute(c,'SELECT COUNT(*) AS n FROM learning_credit_settlement_batches').fetchone()['n']==0

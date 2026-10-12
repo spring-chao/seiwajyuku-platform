@@ -216,6 +216,9 @@ def test_c7_1_1_mysql_forward_dry_run_parity_and_loss_averse_rollback() -> None:
     assert _fact_count() == facts_before
     assert _table_count(("learning_credit_proposals", "learning_credit_staging")) == 0
 
+    # Verify 0049's own fact/ledger guards at its dependency boundary. The
+    # empty newer source child has a separate loss-averse reversal contract.
+    _run_mysql_script(MIGRATION_ROOT / 'rollback/mysql/0072_learning_credit_source_imports.down.sql')
     # Existing C7 facts must prevent a destructive downgrade and leave all
     # three C7 tables in place after the rejected script.
     with pytest.raises(Exception):

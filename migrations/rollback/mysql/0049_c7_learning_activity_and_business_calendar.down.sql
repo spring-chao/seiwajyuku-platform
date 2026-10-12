@@ -1,6 +1,7 @@
 -- 0049 rollback is intentionally loss-averse.  Restore a pre-0049 snapshot
 -- after facts or ledger rows have been created instead of dropping data.
 CREATE TEMPORARY TABLE c7_learning_activity_rollback_guard (n INT CHECK(n=0));
+INSERT INTO c7_learning_activity_rollback_guard SELECT COUNT(*) FROM information_schema.tables WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('learning_credit_source_rows','learning_credit_source_imports','learning_credit_source_batches');
 INSERT INTO c7_learning_activity_rollback_guard
 SELECT COUNT(*) FROM learning_credit_activity_facts;
 INSERT INTO c7_learning_activity_rollback_guard
