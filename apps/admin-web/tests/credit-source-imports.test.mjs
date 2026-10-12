@@ -11,7 +11,7 @@ const compiled = ts.transpileModule(script, { compilerOptions: { target: ts.Scri
 function harness(api = {}, permissions = ["members:read", "plans:credit_settlement_manage", "plans:credit_settlement_preview", "plans:credit_settlement_approve", "plans:credit_settlement_post", "exports:normal"]) {
   const storage = new Map();
   const context = vm.createContext({ computed, reactive, ref, watch, onMounted: () => {}, defineEmits: () => () => {}, useUserStoreHook: () => ({ permissions }), creditSettlementErrorMessage: e => e.message, ElMessage: { success() {} }, ElMessageBox: { confirm: async () => {} }, localStorage: { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) }, URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} }, document: { createElement: () => ({ click() {} }) }, setTimeout: () => {}, ...api });
-  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,eligible,setup,error};", context);
+  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail};", context);
   return context.result;
 }
 
@@ -50,4 +50,19 @@ test("lost setup response keeps a durable no-replay journal", async () => {
   ui.state.value = { setup_allowed: true, release_commit: "a".repeat(40) };
   await ui.setup(); await ui.setup();
   assert.equal(calls, 1); assert.match(ui.error.value, /不重复执行/);
+});
+
+test("a source-read failure leaves the independently authorized export usable", async () => {
+  const ui = harness({ sourceWorkbench: async () => { throw new Error('source timeout'); }, sourceExportOptions: async () => ({ data: { classes: [{ id:'test-class', name:'合成班级' }] } }) });
+  await ui.reload();
+  assert.equal(ui.exportClasses.value[0].id,'test-class');
+  assert.match(ui.error.value,/source timeout/);
+});
+
+test("source details are loaded for the selected receipt instead of every list row", async () => {
+  let id;
+  const ui = harness({ sourceGet: async value => { id=value;return { data: { id:value,rows:[{excel_row:2}] } }; } });
+  ui.state.value = { imports: [{id:7,rows:[],row_count:1}] };
+  await ui.show({id:7});
+  assert.equal(id,7);assert.equal(ui.detail.value.rows[0].excel_row,2);
 });

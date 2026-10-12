@@ -216,3 +216,28 @@ def test_calendar_preparation_preserves_existing_published_policy(source_fixture
     canonical=Path(__file__).resolve().parents[3]/'data/learning-calendars/china-mainland-2026.json'
     asset=Path(sources.__file__).resolve().parents[1]/'assets/credit-reading-calendar-2026.json'
     assert canonical.read_bytes()==asset.read_bytes()
+
+
+def test_source_lists_resolve_scope_once_and_fetch_rows_only_for_detail(source_fixture):
+    f=source_fixture;iid,_,_=registered(f,'DAILY_READING')
+    with patch.object(credits,'accessible_org_ids',return_value=None) as resolver:
+        state=sources.workbench(f['actor'])
+        assert resolver.call_count==4
+    header=next(r for r in state['imports'] if r['id']==iid)
+    assert header['row_count']==1 and header['rows']==[] and 'source_snapshot_json' not in header
+    assert len(sources.get_import(iid,f['actor'])['rows'])==1
+    with patch.object(credits,'accessible_org_ids',return_value=None) as resolver:
+        assert exports.export_options(f['actor'])['classes']
+        assert resolver.call_count==4
+
+
+def test_list_scope_is_permission_intersection_and_refreshed_per_request(source_fixture):
+    f=source_fixture;iid,_,_=registered(f,'DAILY_READING')
+    def scopes(actor,permission=None):return set() if permission=='members:read' else None
+    with patch.object(credits,'accessible_org_ids',side_effect=scopes):
+        assert sources.workbench(f['actor'])['classes']==[]
+        assert sources.workbench(f['actor'])['imports']==[]
+        assert exports.export_options(f['actor'])['classes']==[]
+    # Removing the request-local restriction is observed immediately, without
+    # a TTL/global role cache retaining a previous request's scopes.
+    assert any(r['id']==iid for r in sources.workbench(f['actor'])['imports'])

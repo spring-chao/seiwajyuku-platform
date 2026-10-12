@@ -70,13 +70,12 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
     if not {'exports:normal','members:read','plans:credit_settlement_preview'}<=set(user.get('permissions',[])):raise PermissionError('当前账号没有学分导出权限')
     start=date.fromisoformat(occurred_from);end=date.fromisoformat(occurred_to) if occurred_to else datetime.now(sources.activity.SHANGHAI).date()
     if start>end:raise credits.LearningCreditError('导出开始日期不能晚于结束日期')
-    allowed=credits.accessible_org_ids(actor)
     export_permissions=('exports:normal','members:read','plans:credit_settlement_preview')
     if class_id and not sources._has_scope(actor,class_id,export_permissions):raise PermissionError('导出班级不在授权范围')
-    scope={class_id} if class_id else allowed
+    scope={class_id} if class_id else sources.effective_scope(actor,export_permissions)
     c=connect()
     try:
-        classes=[dict(r) for r in execute(c,"SELECT id,name FROM org_units WHERE unit_type IN ('CLASS','SPECIAL_COHORT') ORDER BY name").fetchall() if (scope is None or r['id'] in scope) and sources._has_scope(actor,r['id'],export_permissions)]
+        classes=[dict(r) for r in execute(c,"SELECT id,name FROM org_units WHERE unit_type IN ('CLASS','SPECIAL_COHORT') ORDER BY name").fetchall() if scope is None or r['id'] in scope]
         class_ids={r['id'] for r in classes}
         if not class_ids:raise credits.LearningCreditError('当前范围没有可导出的班级')
         placeholders=','.join('?' for _ in class_ids);params=tuple(sorted(class_ids))
@@ -129,5 +128,7 @@ def export_options(actor):
     user=credits.user_context(actor) or {}
     if not {'exports:normal','members:read','plans:credit_settlement_preview'}<=set(user.get('permissions',[])):raise PermissionError('当前账号没有学分导出权限')
     c=connect()
-    try:return {'classes':[dict(r) for r in execute(c,"SELECT id,name FROM org_units WHERE unit_type IN ('CLASS','SPECIAL_COHORT') ORDER BY name").fetchall() if sources._has_scope(actor,r['id'],('exports:normal','members:read','plans:credit_settlement_preview'))]}
+    try:
+        scope=sources.effective_scope(actor,('exports:normal','members:read','plans:credit_settlement_preview'))
+        return {'classes':[dict(r) for r in execute(c,"SELECT id,name FROM org_units WHERE unit_type IN ('CLASS','SPECIAL_COHORT') ORDER BY name").fetchall() if scope is None or r['id'] in scope]}
     finally:c.close()
