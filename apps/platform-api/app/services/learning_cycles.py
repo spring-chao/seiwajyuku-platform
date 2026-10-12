@@ -2377,6 +2377,7 @@ def _resolve_actual_class_meeting_at(
 def confirm_class_meeting(
     *, actor_user_id: int, class_org_unit_id: str, actual_class_meeting_at: str | None,
     source_event_group_id: int | None = None, confirmation_reason: str | None = None,
+    learning_cycle_id: int | None = None,
 ) -> dict[str, Any]:
     _visible_class(class_org_unit_id, actor_user_id)
     now = _now()
@@ -2390,9 +2391,14 @@ def confirm_class_meeting(
         binding = _active_binding(connection, class_org_unit_id)
         if not binding:
             raise ValueError("该班级尚未绑定学习计划")
-        cycle = _cycle_at(connection, int(binding["id"]), now)
-        if not cycle or cycle["cycle_status"] != "OPEN":
+        current_cycle = _cycle_at(connection, int(binding["id"]), now)
+        selected = execute(connection, "SELECT * FROM class_learning_cycles WHERE id=? AND binding_id=? AND class_org_unit_id=?", (learning_cycle_id,binding['id'],class_org_unit_id)).fetchone() if learning_cycle_id is not None else None
+        cycle = dict(selected) if selected else current_cycle if learning_cycle_id is None else None
+        historical_month = bool(monthly_mode and learning_cycle_id is not None and cycle and cycle['cycle_status']=='CLOSED')
+        if not cycle or (cycle["cycle_status"] != "OPEN" and not historical_month):
             raise ValueError("当前没有可确认的开放学习周期")
+        if not monthly_mode and learning_cycle_id is not None and (not current_cycle or current_cycle['id']!=cycle['id']):
+            raise ValueError('所选学习日不是当前可确认周期')
         if cycle.get("actual_class_meeting_at"):
             raise ValueError("本期实际班会已确认，不能重复确认")
         actual, source_id = _resolve_actual_class_meeting_at(
@@ -2405,12 +2411,14 @@ def confirm_class_meeting(
             raise ValueError("实际班会时间必须晚于当前学习周期开始时间")
         if monthly_mode and parse_utc_datetime(actual) > parse_utc_datetime(now):
             raise ValueError("实际班会时间不能晚于当前时间")
+        if historical_month and (not cycle.get('closed_at') or parse_utc_datetime(actual)>=parse_utc_datetime(cycle['closed_at'])):
+            raise ValueError('实际班会日期不属于所选历史月份')
         before = dict(cycle)
         execute(
             connection,
             "UPDATE class_learning_cycles SET actual_class_meeting_at=?, class_meeting_status='HELD', "
             "cycle_status=?, closed_at=?, source_event_group_id=?, updated_at=? WHERE id=?",
-            (actual, "OPEN" if monthly_mode else "CLOSED", None if monthly_mode else actual, source_id, now, cycle["id"]),
+            (actual, cycle['cycle_status'] if monthly_mode else "CLOSED", cycle.get('closed_at') if monthly_mode else actual, source_id, now, cycle["id"]),
         )
         plan_task = _group_plan_task(connection, int(cycle["plan_cycle_id"]))
         policy = str(cycle["group_meeting_policy"])

@@ -14,6 +14,7 @@ row-count proof showing that it performed no writes.
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 import re
 from collections import defaultdict
 from datetime import UTC, date, datetime, time
@@ -462,6 +463,7 @@ def record_learning_activity_fact(
     metadata: dict[str, Any] | None = None,
     binding_id: int | None = None,
     _allow_controlled_source: bool = False,
+    _connection=None,
 ) -> dict[str, Any]:
     """Persist one source fact, never a score or a ledger entry.
 
@@ -517,7 +519,7 @@ def record_learning_activity_fact(
     }.intersection(metadata):
         raise LearningCreditError("事实元数据不能携带学分或评分字段")
     metadata_json = _json(metadata or {})
-    with transaction() as connection:
+    with (transaction() if _connection is None else nullcontext(_connection)) as connection:
         class_row = execute(
             connection,
             "SELECT id, unit_type FROM org_units WHERE id=? "
@@ -650,6 +652,7 @@ def _load_activity_facts(
     occurred_from: str | None,
     occurred_to: str | None,
     limit: int,
+    fact_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     allowed = accessible_org_ids(actor_user_id)
     if class_org_unit_id and not _scope_allows(actor_user_id, class_org_unit_id):
@@ -657,7 +660,12 @@ def _load_activity_facts(
     if allowed is not None and not allowed and not class_org_unit_id:
         return []
     conditions = ["f.activity_type=?"]
+    if fact_ids is not None and (not fact_ids or len(fact_ids)>500 or any(type(i) is not int or i<=0 for i in fact_ids)):
+        raise LearningCreditError("来源事实清单需为1到500个有效编号")
     params: list[Any] = [activity_type]
+    if fact_ids is not None:
+        conditions.append("f.id IN ("+",".join("?" for _ in fact_ids)+")")
+        params.extend(fact_ids)
     if member_id is not None:
         if int(member_id) <= 0:
             raise LearningCreditError("学员编号无效")

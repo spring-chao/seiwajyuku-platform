@@ -428,6 +428,8 @@ def _member_proposal(
     total_deductions = total_late + total_early
     existing_key = f"CLASS_MEETING:{member_id}:{int(meeting['id'])}"
     existing = _existing_entry(connection, existing_key)
+    if not existing and class_org_unit_id:
+        existing = execute(connection, "SELECT * FROM learning_credit_entries WHERE member_id=? AND class_org_unit_id=? AND credit_type='CLASS_MEETING_SCORE' AND status IN ('POSTED','REVERSED') AND occurred_precision='EXACT_DATE' AND substr(occurred_at,1,10)=? ORDER BY id LIMIT 1", (member_id,class_org_unit_id,str(meeting['event_date'])[:10])).fetchone()
     if existing:
         reasons.append("该学员在此班会已有账本记录")
 

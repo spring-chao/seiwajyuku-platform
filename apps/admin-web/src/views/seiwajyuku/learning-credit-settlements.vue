@@ -5,6 +5,7 @@ import { useUserStoreHook } from "@/store/modules/user";
 import { creditSettlementErrorMessage } from "@/utils/creditSettlementError";
 import CreditOpeningBalances from "./components/CreditOpeningBalances.vue";
 import CreditYearAllocations from "./components/CreditYearAllocations.vue";
+import CreditSourceImports from "./components/CreditSourceImports.vue";
 import {
   approveSettlementBatch,
   closeSettlementBatch,
@@ -388,6 +389,7 @@ onMounted(() => {
       </div>
     </el-card>
 
+    <CreditSourceImports @posted="refreshLedger(); loadBatches()" />
     <CreditOpeningBalances v-if="canManageOpening" @posted="refreshLedger" />
     <CreditYearAllocations v-if="permissions.includes('plans:credit_opening_manage')" @posted="refreshLedger" />
     <el-collapse v-if="canManage" class="activity-settlement">
@@ -512,6 +514,7 @@ onMounted(() => {
         </el-form>
         <el-alert v-if="ledgerError" class="notice" :title="ledgerError" type="error" show-icon :closable="false" />
         <el-table v-loading="ledgerLoading" :data="ledgerEntries" row-key="id" :empty-text="ledgerError ? '账本明细读取失败，请重试' : '没有符合筛选条件的正式账本记录'">
+          <el-table-column label="上传来源" min-width="240"><template #default="{ row }"><div v-for="s in row.import_sources || []" :key="`${s.import_id}-${s.excel_row}-${s.source_reference}`">{{ s.original_filename }} · 第{{ s.excel_row }}行 · {{ ({ MORNING: '上午', AFTERNOON: '下午', KONPA: '空巴' } as Record<string,string>)[s.source_reference] || s.source_reference }}</div><span v-if="!row.import_sources?.length">—</span></template></el-table-column>
           <el-table-column prop="id" label="账本 ID" width="100" />
           <el-table-column label="学员" min-width="145"><template #default="{ row }">{{ row.member_name }} <span class="muted">#{{ row.member_id }}</span></template></el-table-column>
           <el-table-column label="分值" width="100"><template #default="{ row }"><span :class="Number(row.points) < 0 ? 'negative-points' : ''">{{ Number(row.points).toFixed(2) }}</span></template></el-table-column>
