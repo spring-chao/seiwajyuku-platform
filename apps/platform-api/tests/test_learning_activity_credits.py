@@ -670,6 +670,10 @@ def test_0049_forward_and_empty_rollback_remove_only_the_new_c7_schema() -> None
         connection.execute("PRAGMA foreign_keys=ON")
         try:
             for path in sorted((MIGRATION_ROOT / "sqlite").glob("*.sql")):
+                # Test the empty 0049 reversal at its own boundary. Later
+                # source tables intentionally forbid removing this parent.
+                if path.name[:4] > "0049":
+                    break
                 connection.executescript(path.read_text(encoding="utf-8"))
             assert connection.execute(
                 "SELECT name FROM sqlite_master WHERE name='learning_business_calendar_versions'"
