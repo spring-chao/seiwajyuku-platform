@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
-from fastapi.responses import Response
+from fastapi.responses import Response, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
@@ -25,6 +25,8 @@ from app.services.study_meetings import (
 from app.services.study_meeting_evidence import upload_evidence, read_evidence
 from app.services.study_evidence_storage import MAX_BYTES
 from app.services.study_meeting_attendees import attendee_options, correct_attendees
+from app.services.study_meeting_operations import meeting_credit_preview, export_meeting_records
+from app.services.learning_credits import LearningCreditError
 
 
 router = APIRouter(prefix="/api/v1/study-meetings", tags=["study-meetings"])
@@ -52,6 +54,7 @@ class CourseCompletionPayload(BaseModel):
     member_id: int = Field(gt=0)
     completion_status: str = Field(pattern="^(UNCONFIRMED|CONFIRMED|NOT_COMPLETED)$")
     note: str | None = Field(default=None, max_length=1000)
+    expected_completion_status: str | None = Field(default=None, pattern="^(UNCONFIRMED|CONFIRMED|NOT_COMPLETED)$")
 
 
 class AttendeeCorrectionPayload(BaseModel):
@@ -150,6 +153,31 @@ def operations_records(
     except (StudyMeetingError, StudyMeetingPermissionError) as exc:
         raise _business_error(exc) from exc
     return {"success": True, "data": {"records": data}}
+
+
+@router.get("/records-export")
+def export_records(
+    session_id: int | None = Query(default=None, gt=0),
+    status: str | None = Query(default=None, max_length=16),
+    meeting_date_from: str | None = Query(default=None, max_length=32),
+    meeting_date_to: str | None = Query(default=None, max_length=32),
+    user: dict = Depends(require_permission("exports:normal")),
+) -> Response:
+    try:
+        content = export_meeting_records(actor_user_id=user["id"], session_id=session_id,
+            status=status, meeting_date_from=meeting_date_from, meeting_date_to=meeting_date_to)
+        return PlainTextResponse(content, media_type="text/csv; charset=utf-8", headers={
+            "Content-Disposition": 'attachment; filename="study-meetings.csv"', "Cache-Control": "private, no-store"})
+    except (StudyMeetingError, LearningCreditError, PermissionError) as exc:
+        raise HTTPException(403 if isinstance(exc, PermissionError) else 400, str(exc)) from exc
+
+
+@router.get("/records/{session_id}/credit-preview")
+def credit_preview(session_id: int, user: dict = Depends(require_permission("plans:credit_settlement_preview"))) -> dict:
+    try:
+        return {"success": True, "data": meeting_credit_preview(actor_user_id=user["id"], session_id=session_id)}
+    except (StudyMeetingError, LearningCreditError, PermissionError) as exc:
+        raise HTTPException(403 if isinstance(exc, PermissionError) else 400, str(exc)) from exc
 
 
 @router.get("/records/{session_id}")

@@ -2,6 +2,7 @@
 import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { studyMeetingErrorMessage } from "@/utils/studyMeetingError";
+import { useUserStoreHook } from "@/store/modules/user";
 import {
   getStudyMeetingRecord,
   getStudyMeetingRecords,
@@ -9,6 +10,11 @@ import {
   correctStudyMeetingCourses,
   getStudyMeetingAttendeeOptions,
   correctStudyMeetingAttendees,
+  getMeetingCreditPreview,
+  confirmMeetingCourseCompletion,
+  exportMeetingRecords,
+  type MeetingCreditPreview,
+  type MeetingCourse,
   type MeetingAttendeeOptions,
   type StudyMeetingRecord,
   type StudyMeetingRecordDetail
@@ -24,6 +30,63 @@ const localApiLabel = import.meta.env.DEV
 const records = ref<StudyMeetingRecord[]>([]);
 const detailVisible = ref(false);
 const detail = ref<StudyMeetingRecordDetail>();
+const canPreviewCredit = computed(() => useUserStoreHook().permissions.includes("plans:credit_settlement_preview"));
+const canExport = computed(() => canPreviewCredit.value && useUserStoreHook().permissions.includes("exports:normal"));
+const creditPreview = ref<MeetingCreditPreview>();
+const creditLoading = ref(false);
+const creditError = ref("");
+const exporting = ref(false);
+const confirming = ref(false);
+const confirmationNote = ref("");
+let creditRequest = 0;
+const loadCredit = async () => {
+  const request = ++creditRequest;
+  creditPreview.value = undefined;
+  creditError.value = "";
+  const sessionId = detail.value?.id;
+  if (!sessionId || !detailVisible.value || !canPreviewCredit.value) { creditLoading.value = false; return; }
+  creditLoading.value = true;
+  try {
+    const response = await getMeetingCreditPreview(sessionId);
+    if (request === creditRequest && detailVisible.value && detail.value?.id === sessionId) creditPreview.value = response.data;
+  } catch (error) {
+    if (request === creditRequest) creditError.value = studyMeetingErrorMessage(error, "预计学分加载");
+  } finally { if (request === creditRequest) creditLoading.value = false; }
+};
+watch([detail, detailVisible], () => { void loadCredit(); });
+const personCredit = (memberId: number) => creditPreview.value?.members.find(item => item.member_id === memberId);
+const completionFact = (course: MeetingCourse, memberId: number) => course.completions?.find(item => item.member_id === memberId);
+const completionStatus = (course: MeetingCourse, memberId: number) => completionFact(course, memberId)?.completion_status || "UNCONFIRMED";
+const completionLabel = (value: string) => ({ CONFIRMED: "已观看", NOT_COMPLETED: "未观看", UNCONFIRMED: "待确认" })[value] || "待确认";
+const confirmCompletion = async (course: MeetingCourse, memberId: number, value: string) => {
+  if (!detail.value || confirming.value) return;
+  const sessionId = detail.value.id;
+  confirming.value = true;
+  try {
+    const response = await confirmMeetingCourseCompletion(sessionId, { course_key: course.course_key, member_id: memberId,
+      completion_status: value, expected_completion_status: completionStatus(course, memberId), note: confirmationNote.value || undefined });
+    if (detailVisible.value && detail.value?.id === sessionId) detail.value = response.data;
+    ElMessage.success("观看情况已人工确认，预计学分已更新");
+  } catch (error) {
+    ElMessage.error(studyMeetingErrorMessage(error, "观看确认"));
+  } finally { confirming.value = false; }
+};
+const downloadRecords = async (sessionId?: number) => {
+  if (exporting.value) return;
+  exporting.value = true;
+  try {
+    const blob = await exportMeetingRecords(sessionId ? { session_id: sessionId } : {
+      status: filters.status || undefined, meeting_date_from: filters.meeting_date_from || undefined,
+      meeting_date_to: filters.meeting_date_to || undefined });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = sessionId ? `学习会-${sessionId}-预计学分.csv` : "小组学习会-预计学分.csv";
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) { ElMessage.error(studyMeetingErrorMessage(error, "学习会导出")); }
+  finally { exporting.value = false; }
+};
 const photoUrl = ref("");
 const photoLoading = ref(false);
 const editingCourses = ref(false);
@@ -128,6 +191,7 @@ const openDetail = async (record: any) => {
   editingCourses.value = false;
   editingAttendees.value = false;
   attendeeOptions.value = undefined;
+  confirmationNote.value = "";
   detailVisible.value = true;
   detailLoading.value = true;
   detail.value = undefined;
@@ -164,15 +228,18 @@ const editCourses = () => {
 
 const saveCourses = async () => {
   if (!detail.value || savingCourses.value) return;
+  const sessionId = detail.value.id;
   savingCourses.value = true;
   try {
-    const response = await correctStudyMeetingCourses(detail.value.id, {
+    const response = await correctStudyMeetingCourses(sessionId, {
       course_keys: selectedCourses.value,
       expected_course_keys: detail.value.courses.map(item => item.course_key),
       note: correctionNote.value || undefined
     });
-    detail.value = response.data;
-    editingCourses.value = false;
+    if (detailVisible.value && detail.value?.id === sessionId) {
+      detail.value = response.data;
+      editingCourses.value = false;
+    }
     ElMessage.success("课程已修正，操作已记录；未产生积分");
     await loadRecords();
   } catch (requestError) {
@@ -233,7 +300,7 @@ onMounted(loadRecords);
           <div>
             <div class="records-title">小组学习会记录</div>
             <div class="records-subtitle">
-              查看学习记录与合影，按权限修正课程和参加人员；不做审核、积分结算或组织关系修改。
+              根据合影核实课程与参加人员，查看每人预计新增学分并导出明细。
             </div>
             <div v-if="localApiLabel" class="muted">{{ localApiLabel }}</div>
           </div>
@@ -273,6 +340,8 @@ onMounted(loadRecords);
           clearable
         />
         <el-button type="primary" :loading="loading" @click="loadRecords">查询</el-button>
+        <el-button v-if="canExport" :loading="exporting" @click="downloadRecords()">导出筛选结果</el-button>
+        <span v-if="canExport" class="muted">按当前筛选导出，最多500场学习会</span>
       </div>
 
       <el-table v-loading="loading" :data="records" stripe border class="records-table" row-key="id">
@@ -311,7 +380,7 @@ onMounted(loadRecords);
       </el-table>
     </el-card>
 
-    <el-drawer v-model="detailVisible" title="小组学习会详情" size="620px">
+    <el-drawer v-model="detailVisible" title="小组学习会详情" size="min(960px, 100vw)">
       <div v-loading="detailLoading" class="detail-content">
         <template v-if="detail">
           <el-descriptions :column="2" border>
@@ -327,11 +396,14 @@ onMounted(loadRecords);
             <el-descriptions-item label="课程" :span="2">{{ courseLabel(detail) }}</el-descriptions-item>
           </el-descriptions>
 
+          <el-alert v-if="detail.correction_lock_reason" :title="detail.correction_lock_reason" type="warning" :closable="false" class="correction-note" />
+          <el-button v-if="detail.correction_lock_reason" link type="primary" @click="$router.push('/operations/learning-credit-settlements')">前往学分结算工作台</el-button>
+
           <div class="attendee-section">
             <div class="detail-title">参加人员 {{ detail.attendees.length }} 人</div>
             <div class="muted">本组 {{ detail.home_attendees.length }} 人 · 跨组 {{ detail.cross_group_attendees.length }} 人</div>
             <el-button v-if="detail.can_edit_attendees && !editingAttendees" :loading="attendeeLoading"
-              :disabled="editingCourses || savingCourses" @click="editAttendees">修正参加人员</el-button>
+              :disabled="editingCourses || savingCourses || confirming" @click="editAttendees">核实 / 删减参加人员</el-button>
           </div>
           <section v-if="editingAttendees && attendeeOptions" class="attendee-editor">
             <div class="detail-title">已选择 {{ selectedMemberCount.total }} 人 · 本组 {{ selectedMemberCount.home }} · 跨组 {{ selectedMemberCount.cross }}</div>
@@ -369,6 +441,42 @@ onMounted(loadRecords);
             <div class="muted">仅修正本场名单，不转组、不替换合影、不改课程或积分。</div>
           </section>
           <div class="attendee-section">
+            <div class="detail-title">逐人观看确认与预计学分</div>
+            <div class="muted">先查看合影核对实际参加人员和观看情况。预计新增学分已扣除重复记录，以正式结算为准。</div>
+            <el-alert v-if="creditError" :title="creditError" type="warning" :closable="false" />
+            <el-button v-if="creditError" @click="loadCredit">重新加载预计学分</el-button>
+            <div v-if="!canPreviewCredit" class="muted">当前账号未取得学分预览权限。</div>
+            <el-table :data="detail.attendees" border v-loading="creditLoading" class="credit-table">
+              <el-table-column prop="name" label="姓名" min-width="90" fixed="left" />
+              <el-table-column label="参加类型" min-width="100">
+                <template #default="{ row }">{{ row.attendance_type === 'HOME_GROUP' ? '本组' : '跨组 · ' + row.home_group_name }}</template>
+              </el-table-column>
+              <el-table-column v-for="course in detail.courses" :key="course.course_key" :label="course.course_name_snapshot" min-width="160">
+                <template #default="{ row }">
+                  <el-select v-if="detail.can_edit_courses && completionFact(course, row.member_id)"
+                    :model-value="completionStatus(course, row.member_id)" :disabled="confirming || editingAttendees || editingCourses || savingCourses || savingAttendees"
+                    @change="confirmCompletion(course, row.member_id, $event)">
+                    <el-option label="已观看" value="CONFIRMED" />
+                    <el-option label="未观看" value="NOT_COMPLETED" />
+                    <el-option label="待确认" value="UNCONFIRMED" />
+                  </el-select>
+                  <span v-else>{{ completionLabel(completionStatus(course, row.member_id)) }}</span>
+                  <div class="muted">{{ completionFact(course, row.member_id)?.confirmed_by_user_id ? '人工确认' : '登记信息，待人工核实' }}</div>
+                  <el-button v-if="detail.can_edit_courses && completionFact(course, row.member_id) && !completionFact(course, row.member_id)?.confirmed_by_user_id"
+                    link type="primary" :disabled="confirming || editingAttendees || editingCourses || savingCourses || savingAttendees"
+                    @click="confirmCompletion(course, row.member_id, completionStatus(course, row.member_id))">确认当前情况</el-button>
+                </template>
+              </el-table-column>
+              <el-table-column label="小组会学分" width="100"><template #default="{ row }">{{ personCredit(row.member_id)?.group_points ?? '—' }}</template></el-table-column>
+              <el-table-column label="课程学分" width="100"><template #default="{ row }">{{ personCredit(row.member_id)?.course_points ?? '—' }}</template></el-table-column>
+              <el-table-column label="预计新增" width="100" fixed="right"><template #default="{ row }"><strong>{{ personCredit(row.member_id)?.expected_points ?? '—' }}</strong></template></el-table-column>
+              <el-table-column label="计分说明" min-width="220"><template #default="{ row }">{{ personCredit(row.member_id)?.reasons.join('；') || (personCredit(row.member_id) ? '可计入本次预计学分' : '预计学分尚未加载') }}</template></el-table-column>
+            </el-table>
+            <el-input v-if="detail.can_edit_courses && detail.courses.length" v-model="confirmationNote" class="correction-note" placeholder="观看核实备注（选填，填写后再确认）" maxlength="1000" :disabled="confirming" />
+            <div v-if="creditPreview" class="detail-title">本场预计新增合计 {{ creditPreview.totals.proposed_points }} 学分</div>
+            <el-button v-if="canExport" :loading="exporting" :disabled="editingCourses || editingAttendees || confirming || creditLoading" @click="downloadRecords(detail.id)">导出本场人员与预计学分</el-button>
+          </div>
+          <div class="attendee-section">
             <div class="detail-title">本组参加（{{ detail.home_attendees.length }}人）</div>
             <div class="attendee-list">
               <el-tag v-for="item in detail.home_attendees" :key="item.id" effect="plain">
@@ -396,7 +504,7 @@ onMounted(loadRecords);
             <span v-else class="muted">未上传或已到期清理</span>
           </section>
           <section v-if="detail.can_edit_courses" class="attendee-section">
-            <el-button v-if="!editingCourses" :disabled="editingAttendees || savingAttendees || attendeeLoading" @click="editCourses">修正课程</el-button>
+            <el-button v-if="!editingCourses" :disabled="editingAttendees || savingAttendees || attendeeLoading || confirming" @click="editCourses">核实 / 修正观看课程</el-button>
             <template v-else>
               <div class="detail-title">本次观看的课程（可多选，留空表示无课程）</div>
               <el-select v-model="selectedCourses" multiple filterable placeholder="选择课程" style="width: 100%">
@@ -432,6 +540,7 @@ onMounted(loadRecords);
 .attendee-section { margin: 22px 0; }
 .detail-title { color: #542a31; font-size: 15px; font-weight: 700; margin-bottom: 10px; }
 .attendee-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.credit-table { margin: 14px 0; }
 .study-photo { width: 100%; max-height: 420px; object-fit: contain; margin-top: 16px; }
 .correction-note { margin: 14px 0; }
 .attendee-editor { border: 1px solid #ddc7bd; border-radius: 10px; padding: 16px; background: #fffaf7; }
