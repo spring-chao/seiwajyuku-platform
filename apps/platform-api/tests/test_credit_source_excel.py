@@ -194,3 +194,14 @@ def test_closed_month_class_confirmation_preserves_current_month(source_fixture,
         sources.create_batches(iid,f['actor'])
     cycle=fetch_one('SELECT cycle_status,closed_at,class_meeting_status FROM class_learning_cycles WHERE id=?',(f['cycle_id'],))
     assert cycle['cycle_status']=='CLOSED' and str(cycle['closed_at'])[:10]=='2026-10-10' and cycle['class_meeting_status']=='HELD'
+
+
+def test_offline_early_leave_cancellation_keeps_source_and_updates_proposal(source_fixture):
+    from app.api.attendance import create_adjudication,AdjudicationPayload
+    f=source_fixture;iid,_,_=registered(f,'CLASS_MEETING')
+    receipt=sources.get_import(iid,f['actor']);slot=next(r for r in receipt['rows'] if r['source_reference']=='KONPA')
+    create_adjudication(slot['attendance_record_id'],AdjudicationPayload(adjudication_type='CANCEL_EARLY_LEAVE',reason='专职人员复核原表后撤销早退'),{'id':f['actor']})
+    assert json.loads(sources.get_import(iid,f['actor'])['rows'][-1]['record_json'])['state']=='早退'
+    score=fetch_one('SELECT is_early_leave,final_points FROM attendance_score_records WHERE attendance_record_id=?',(slot['attendance_record_id'],))
+    assert not score['is_early_leave'] and DecimalText(score['final_points'])=='4.00'
+    assert DecimalText(sources.create_batches(iid,f['actor'])['batches'][0]['proposed_points'])=='17.00'

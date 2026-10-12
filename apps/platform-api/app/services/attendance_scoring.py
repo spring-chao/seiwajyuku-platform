@@ -116,7 +116,9 @@ def calculate_score(
             finally: source_connection.close()
         else: flags=offline_flags(_connection,attendance_record_id)
         if flags is not None:
-            _late_override,_early_override=flags
+            # Offline lateness has no scan timestamp. Early leave already has
+            # an ordinary adjudication, whose later cancellation must prevail.
+            if _late_override is None: _late_override=flags[0]
 
     # MySQL DECIMAL values are returned as Decimal while SQLite returns float.
     # Normalize rule values before arithmetic and JSON serialization so both
