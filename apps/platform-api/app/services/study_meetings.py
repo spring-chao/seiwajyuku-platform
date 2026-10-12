@@ -1077,10 +1077,12 @@ def get_study_meeting_record_for_operations(
     course_options: list[dict[str, Any]] = []
     try:
         result = _session_payload(connection, session_id)
+        correction_lock_reason = _correction_lock_reason(connection, result) if result else None
         can_edit_courses = (
             bool(result)
             and can_edit_meeting_courses(actor_user_id)
             and result["status"] == "SUBMITTED"
+            and not correction_lock_reason
         )
         if can_edit_courses:
             plan = _session_plan(connection, result)
@@ -1093,7 +1095,8 @@ def get_study_meeting_record_for_operations(
         raise StudyMeetingError("学习会记录不存在")
     result["can_edit_courses"] = can_edit_courses
     from app.services.study_meeting_attendees import can_edit_attendees
-    result["can_edit_attendees"] = can_edit_attendees(actor_user_id) and result["status"] == "SUBMITTED"
+    result["can_edit_attendees"] = can_edit_attendees(actor_user_id) and result["status"] == "SUBMITTED" and not correction_lock_reason
+    result["correction_lock_reason"] = correction_lock_reason
     result["course_options"] = course_options
     return result
 
@@ -1102,12 +1105,54 @@ def can_edit_meeting_courses(actor_user_id: int) -> bool:
     settings = get_settings()
     user = user_context(actor_user_id) or {}
     return (
-        settings.study_meeting_course_edit_enabled
-        and not settings.learning_credit_settlement_enabled
+        (settings.study_meeting_course_edit_enabled or settings.study_meeting_pre_settlement_review_enabled)
+        and (not settings.learning_credit_settlement_enabled or settings.study_meeting_pre_settlement_review_enabled)
         and not settings.deployment_read_only
         and (not settings.is_production or settings.allow_production_mutations)
         and "study_meetings:courses_edit" in user.get("permissions", [])
     )
+
+
+def _correction_lock_reason(connection, session: dict, *, lock: bool = False) -> str | None:
+    """Never rewrite a source already used by the ledger or a frozen approval.
+
+    Batch states become protected before posting starts. Locking reads see the
+    latest MySQL state even under REPEATABLE READ. A stale DRY_RUN can be edited,
+    but its existing fingerprint checks prevent submission/posting afterwards.
+    """
+    from app.services.credit_settlement_batches import _batch_tables_available
+    if isinstance(connection, sqlite3.Connection):
+        ledger = execute(connection, "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='learning_credit_entries'").fetchone()
+    else:
+        ledger = execute(connection, "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='learning_credit_entries'").fetchone()
+    if not int(ledger["n"]) or not _batch_tables_available(connection):
+        return "结算记录尚未就绪，暂不能人工修正"
+    lock_clause = " FOR UPDATE" if lock and not isinstance(connection, sqlite3.Connection) else ""
+    courses = execute(connection, "SELECT id FROM study_meeting_courses WHERE study_meeting_session_id=?", (session["id"],)).fetchall()
+    source_clause = "(source_type='STUDY_MEETING_ATTENDANCE' AND source_id=?)"
+    params = [str(session["id"])]
+    if courses:
+        placeholders = ",".join("?" for _ in courses)
+        source_clause += f" OR (source_type='STUDY_MEETING_COURSE' AND source_id IN ({placeholders}))"
+        params.extend(str(item["id"]) for item in courses)
+    posted = execute(connection, "SELECT id FROM learning_credit_entries WHERE " + source_clause + " LIMIT 1" + lock_clause, tuple(params)).fetchone()
+    if posted:
+        return "本场已有学分账本记录，请到学分结算工作台按更正流程处理"
+    batches = execute(connection, "SELECT id, status, source_snapshot_json FROM learning_credit_settlement_batches "
+                      "WHERE class_org_unit_id=? AND source_type='STUDY_MEETING' "
+                      "AND status NOT IN ('DRAFT','DRY_RUN','CANCELLED') ORDER BY id" + lock_clause,
+                      (session["class_org_unit_id"],)).fetchall()
+    for batch in batches:
+        snapshot = json.loads(batch["source_snapshot_json"] or "{}")
+        if int(snapshot.get("session_id") or 0) == int(session["id"]):
+            return "本场已进入结算审批或入账流程，请先在学分结算工作台处理对应批次"
+    return None
+
+
+def _require_correctable_session(connection, session: dict) -> None:
+    reason = _correction_lock_reason(connection, session, lock=True)
+    if reason:
+        raise StudyMeetingError(reason)
 
 
 def correct_meeting_courses(*, actor_user_id: int, session_id: int,
@@ -1122,6 +1167,7 @@ def correct_meeting_courses(*, actor_user_id: int, session_id: int,
             raise StudyMeetingPermissionError("学习会记录不在当前组织授权范围内")
         if row["status"] != "SUBMITTED":
             raise StudyMeetingError("仅能修正已提交学习会的课程")
+        _require_correctable_session(connection, row)
         before = _read_courses(connection, row)
         if sorted(item["course_key"] for item in before) != sorted(expected_course_keys):
             raise StudyMeetingError("课程已被其他人修改，请刷新后重试")
@@ -1167,7 +1213,7 @@ def correct_meeting_courses(*, actor_user_id: int, session_id: int,
 
 def confirm_study_meeting_course_completion(
     *, actor_user_id: int, session_id: int, course_key: str, member_id: int,
-    completion_status: str, note: str | None = None,
+    completion_status: str, note: str | None = None, expected_completion_status: str | None = None,
 ) -> dict[str, Any]:
     """Confirm the per-member course fact used by formal settlement.
 
@@ -1191,6 +1237,7 @@ def confirm_study_meeting_course_completion(
             raise StudyMeetingPermissionError("学习会记录不在当前组织授权范围内")
         if session["status"] != "SUBMITTED":
             raise StudyMeetingError("仅能确认已提交学习会的课程完成事实")
+        _require_correctable_session(connection, session)
         course = execute(
             connection,
             "SELECT * FROM study_meeting_courses "
@@ -1215,6 +1262,8 @@ def confirm_study_meeting_course_completion(
         ).fetchone()
         if not before:
             raise StudyMeetingError("课程完成事实不存在")
+        if expected_completion_status is not None and before["completion_status"] != expected_completion_status:
+            raise StudyMeetingError("观看确认已被其他人修改，请刷新后重试")
         now = _db_timestamp(connection)
         completed_at = now if completion_status == "CONFIRMED" else None
         execute(

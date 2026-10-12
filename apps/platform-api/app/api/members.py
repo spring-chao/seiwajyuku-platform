@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app.api.auth import require_permission
 from app.services.members import (
@@ -43,6 +43,53 @@ from app.services.legacy_volunteer_adoption import (
 
 
 router = APIRouter(prefix="/api/v1", tags=["members-privacy"])
+
+
+class GroupAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    member_id: StrictInt = Field(gt=0)
+    group_org_unit_id: str = Field(min_length=1, max_length=64)
+
+
+class GroupReassignmentPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    class_org_unit_id: str = Field(min_length=1, max_length=64)
+    assignments: list[GroupAssignment] = Field(min_length=1, max_length=500)
+
+
+class GroupReassignmentApplyPayload(GroupReassignmentPayload):
+    preview_fingerprint: str = Field(pattern="^[a-f0-9]{64}$")
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+@router.get("/members/group-reassignment/roster")
+def group_reassignment_roster(class_org_unit_id: str = Query(min_length=1, max_length=64),
+                              user: dict = Depends(require_permission("members:manage"))) -> dict:
+    from app.services.member_group_reassignment import group_reassignment_roster as roster
+    try:
+        return {"success": True, "data": roster(actor_user_id=user["id"], class_org_unit_id=class_org_unit_id)}
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(403 if isinstance(exc, PermissionError) else 400, str(exc)) from exc
+
+
+@router.post("/members/group-reassignment/preview")
+def preview_group_reassignment(payload: GroupReassignmentPayload,
+                               user: dict = Depends(require_permission("members:manage"))) -> dict:
+    from app.services.member_group_reassignment import preview_group_reassignment as preview
+    try:
+        return {"success": True, "data": preview(actor_user_id=user["id"], **payload.model_dump())}
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(403 if isinstance(exc, PermissionError) else 400, str(exc)) from exc
+
+
+@router.post("/members/group-reassignment/apply")
+def apply_group_reassignment(payload: GroupReassignmentApplyPayload,
+                             user: dict = Depends(require_permission("members:manage"))) -> dict:
+    from app.services.member_group_reassignment import apply_group_reassignment as apply
+    try:
+        return {"success": True, "data": apply(actor_user_id=user["id"], **payload.model_dump())}
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(403 if isinstance(exc, PermissionError) else 400, str(exc)) from exc
 
 
 class MemberCreatePayload(BaseModel):

@@ -318,7 +318,7 @@ def _attendance_proposals(connection, session: dict[str, Any]) -> list[dict[str,
 def _course_rows(connection, session: dict[str, Any]) -> list[dict[str, Any]]:
     rows = execute(
         connection,
-        "SELECT c.*, r.member_id, r.completion_status, r.completed_at AS member_completed_at, "
+        "SELECT c.*, r.member_id, r.completion_status AS member_completion_status, r.completed_at AS member_completed_at, "
         "r.confirmed_by_user_id, r.confirmation_source, r.note AS completion_note, "
         "m.name AS member_name "
         "FROM study_meeting_courses c "
@@ -327,7 +327,7 @@ def _course_rows(connection, session: dict[str, Any]) -> list[dict[str, Any]]:
         "WHERE c.study_meeting_session_id=? ORDER BY c.id, r.member_id",
         (session["id"],),
     ).fetchall()
-    return [dict(row) for row in rows]
+    return [{**dict(row), "completion_status": row["member_completion_status"]} for row in rows]
 
 
 def _course_proposals(connection, session: dict[str, Any]) -> list[dict[str, Any]]:

@@ -8,6 +8,7 @@ from app.services.iam import user_context
 from app.services.study_meetings import (
     StudyMeetingError, StudyMeetingPermissionError, _db_timestamp, _lock_session,
     _operation_scope_allows, _require_write, _serialize, get_study_meeting_record_for_operations,
+    _require_correctable_session,
 )
 
 
@@ -15,8 +16,8 @@ def can_edit_attendees(actor_user_id: int) -> bool:
     settings = get_settings()
     user = user_context(actor_user_id) or {}
     return (
-        settings.study_meeting_attendee_edit_enabled
-        and not settings.learning_credit_settlement_enabled
+        (settings.study_meeting_attendee_edit_enabled or settings.study_meeting_pre_settlement_review_enabled)
+        and (not settings.learning_credit_settlement_enabled or settings.study_meeting_pre_settlement_review_enabled)
         and not settings.deployment_read_only
         and (not settings.is_production or settings.allow_production_mutations)
         and "study_meetings:attendees_edit" in user.get("permissions", [])
@@ -91,6 +92,7 @@ def attendee_options(*, actor_user_id: int, session_id: int) -> dict:
     _require_editor(actor_user_id, session)
     connection = connect()
     try:
+        _require_correctable_session(connection, session)
         options = _roster(connection, session)
         existing = _snapshot(connection, session_id)
     finally:
@@ -122,6 +124,7 @@ def correct_attendees(*, actor_user_id: int, session_id: int, member_ids: list[i
     with transaction() as connection:
         session = _lock_session(connection, session_id)
         _require_editor(actor_user_id, session)
+        _require_correctable_session(connection, session)
         before = _snapshot(connection, session_id)
         old = {item["member_id"]: item for item in before["home_attendees"] + before["cross_group_attendees"]}
         if set(old) != set(expected_member_ids):

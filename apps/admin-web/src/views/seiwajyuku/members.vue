@@ -10,6 +10,7 @@ import {
   type UploadUserFile
 } from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
+import BulkGroupReassignment from "./components/BulkGroupReassignment.vue";
 import { createSectionLoader } from "@/utils/section-loader";
 import {
   createMember,
@@ -1771,6 +1772,11 @@ async function handleMemberDialogClosed() {
   if (returnToRenewals) await router.push("/operations/renewals");
 }
 
+async function reloadAfterGroupReassignment() {
+  groupFilter.value = "";
+  await load();
+}
+
 onMounted(async () => {
   await load();
   if (route.query.open !== "edit") return;
@@ -1798,6 +1804,7 @@ onMounted(async () => {
         >
       </div>
       <div class="head-actions" v-if="canManage">
+        <BulkGroupReassignment :classes="classFilterOptions" :initial-class="classFilter" @saved="reloadAfterGroupReassignment" />
         <el-button size="large" @click="fullPreflightVisible = true">
           全量班级预检
         </el-button>
