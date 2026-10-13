@@ -101,7 +101,7 @@ def DecimalText(value):
 def test_reading_weekend_incomplete_and_invalid_rows_have_actionable_results(source_fixture):
     f=source_fixture
     p=sources.preview(workbook(f,'DAILY_READING',[date(2026,10,10),'是']),'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
-    assert p['error_count']==0 and p['proposed_points']=='0.00' and p['rows'][0]['credit_status']=='NO_CREDIT'
+    assert p['error_count']==0 and p['proposed_points']=='1.00' and p['rows'][0]['credit_status']=='READY'
     p=sources.preview(workbook(f,'DAILY_READING',[date.fromisoformat(DAY),'否']),'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
     assert p['proposed_points']=='0.00'
     p=sources.preview(workbook(f,'EXCELLENT_SHARE',[date.fromisoformat(DAY),'ref','普通分享','否']),'EXCELLENT_SHARE',f['class_id'],'{}',NOTE,f['actor'])
@@ -273,3 +273,39 @@ def test_incomplete_recording_archives_source_then_can_be_confirmed_later(source
     sources.create_batches(second,f['actor']);sources.process(second,f['actor'],'submit');sources.process(second,f['reviewer'],'approve');sources.process(second,f['actor'],'post')
     assert fetch_one("SELECT SUM(points) AS p FROM learning_credit_entries WHERE member_id=? AND credit_type='DAILY_READING'",(f['member_id'],))['p']==1
     assert json.loads(sources.get_import(first,f['actor'])['rows'][0]['record_json'])['已完成录音']=='否'
+
+
+@pytest.mark.parametrize('wide',[False,True])
+def test_original_reading_export_counts_weekend_completion_once_and_keeps_source(source_fixture,wide):
+    f=source_fixture
+    with transaction() as c:
+        execute(c,"UPDATE members SET phone_last4='2986',phone_masked='199****2986' WHERE id=?",(f['member_id'],))
+    headers=sources.READING_REPORT_HEADERS[int(wide)]
+    book=Workbook();sheet=book.active;sheet.title='导出数据';sheet.append(headers)
+    def record(day,status):
+        values={'姓名':f['name'],'账户':'199****2986','小组':'测试组','日期':day,'内容标题':'经营之心','录音':status}
+        return [values.get(label,'') for label in headers]
+    sheet.append(record('2026-10-09','未提交'))
+    sheet.append(record('2026-10-10','按时完成'))
+    raw=io.BytesIO();book.save(raw);data=raw.getvalue()
+    preview=sources.preview(data,'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
+    assert preview['error_count']==0 and preview['proposed_points']=='1.00'
+    assert [r['credit_status'] for r in preview['rows']]==['NO_CREDIT','READY']
+    import_id=sources.register(data,'DAILY_READING',f['class_id'],'{}',NOTE,'读书会打卡统计列表.xlsx',preview['fingerprint'],f['actor'])['id']
+    saved=sources.get_import(import_id,f['actor'])
+    assert [r['fact_id'] is not None for r in saved['rows']]==[False,True]
+    assert json.loads(saved['rows'][1]['record_json'])['录音']=='按时完成'
+    sources.create_batches(import_id,f['actor']);sources.process(import_id,f['actor'],'submit')
+    sources.process(import_id,f['reviewer'],'approve');sources.process(import_id,f['actor'],'post')
+    assert fetch_one("SELECT SUM(points) AS p FROM learning_credit_entries WHERE member_id=? AND credit_type='DAILY_READING'",(f['member_id'],))['p']==1
+    exported=load_workbook(io.BytesIO(exports.export_credits(f['actor'],f['class_id'],'2026-10-01','2026-10-13')))
+    assert '读书会打卡统计列表.xlsx' in exported['新增学分明细']['J2'].value
+
+
+def test_original_reading_export_rejects_unmatched_masked_account(source_fixture):
+    f=source_fixture;book=Workbook();sheet=book.active;sheet.title='导出数据';sheet.append(sources.READING_REPORT_HEADERS[0])
+    sheet.append([f['name'],'199****9999','测试组',DAY,'经营之心','过期完成'])
+    raw=io.BytesIO();book.save(raw)
+    preview=sources.preview(raw.getvalue(),'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
+    assert preview['error_count']==1 and preview['fingerprint'] is None
+    assert '账户尾号' in preview['rows'][0]['errors'][0]

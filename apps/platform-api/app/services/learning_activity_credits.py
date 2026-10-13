@@ -1083,9 +1083,6 @@ def _daily_entries(connection, facts: list[dict[str, Any]]) -> list[dict[str, An
         elif workday is None:
             entry["status"] = "BLOCKED"
             entry["reasons"] = ["BUSINESS_CALENDAR_INVALID"]
-        elif not workday:
-            entry["status"] = "NO_CREDIT"
-            entry["reasons"] = ["NOT_BUSINESS_WORKDAY"]
         else:
             entry["status"] = "READY"
             entry["points"] = float(rule["points"])
