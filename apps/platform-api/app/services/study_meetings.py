@@ -1043,6 +1043,8 @@ def list_study_meeting_records(
                 grouped.setdefault(item["study_meeting_session_id"], []).append(dict(item))
         for row in rows:
             row["courses"] = _read_courses(connection, row, grouped.get(row["id"], []))
+        from app.services.study_meeting_review import add_operation_metadata
+        add_operation_metadata(connection, rows)
     finally:
         connection.close()
     return [
@@ -1076,7 +1078,15 @@ def get_study_meeting_record_for_operations(
     connection = connect()
     course_options: list[dict[str, Any]] = []
     try:
+        # Keep the displayed facts and their review fingerprint in one snapshot.
+        # MySQL already starts a consistent transaction on the first SELECT;
+        # SQLite needs an explicit read transaction across these SELECTs.
+        if isinstance(connection, sqlite3.Connection):
+            execute(connection, "BEGIN")
         result = _session_payload(connection, session_id)
+        if result:
+            from app.services.study_meeting_review import add_operation_metadata
+            add_operation_metadata(connection, [result])
         correction_lock_reason = _correction_lock_reason(connection, result) if result else None
         can_edit_courses = (
             bool(result)
@@ -1096,6 +1106,8 @@ def get_study_meeting_record_for_operations(
     result["can_edit_courses"] = can_edit_courses
     from app.services.study_meeting_attendees import can_edit_attendees
     result["can_edit_attendees"] = can_edit_attendees(actor_user_id) and result["status"] == "SUBMITTED" and not correction_lock_reason
+    review_scope = accessible_org_ids(actor_user_id, "study_meetings:attendees_edit")
+    result["can_confirm_review"] = result["can_edit_attendees"] and (review_scope is None or result["class_org_unit_id"] in review_scope)
     result["correction_lock_reason"] = correction_lock_reason
     result["course_options"] = course_options
     return result

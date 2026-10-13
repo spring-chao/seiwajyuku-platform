@@ -12,6 +12,7 @@ import {
   correctStudyMeetingAttendees,
   getMeetingCreditPreview,
   confirmMeetingCourseCompletion,
+  confirmStudyMeetingReview,
   exportMeetingRecords,
   type MeetingCreditPreview,
   type MeetingCourse,
@@ -38,6 +39,21 @@ const creditError = ref("");
 const exporting = ref(false);
 const confirming = ref(false);
 const confirmationNote = ref("");
+const reviewing = ref(false);
+const confirmReview = async () => {
+  if (!detail.value || reviewing.value || editingAttendees.value || editingCourses.value || confirming.value) return;
+  const sessionId = detail.value.id;
+  const fingerprint = detail.value.review_fingerprint;
+  reviewing.value = true;
+  try {
+    const response = await confirmStudyMeetingReview(sessionId, fingerprint);
+    if (detailVisible.value && detail.value?.id === sessionId) detail.value = response.data;
+    await loadRecords();
+    ElMessage.success("本场学习会已核实");
+  } catch (error) {
+    ElMessage.error(studyMeetingErrorMessage(error, "学习会核实"));
+  } finally { reviewing.value = false; }
+};
 let creditRequest = 0;
 const loadCredit = async () => {
   const request = ++creditRequest;
@@ -54,12 +70,16 @@ const loadCredit = async () => {
   } finally { if (request === creditRequest) creditLoading.value = false; }
 };
 watch([detail, detailVisible], () => { void loadCredit(); });
+watch(detail, value => {
+  if (!value) return;
+  records.value = records.value.map(row => row.id === value.id ? { ...row, ...value } : row);
+});
 const personCredit = (memberId: number) => creditPreview.value?.members.find(item => item.member_id === memberId);
 const completionFact = (course: MeetingCourse, memberId: number) => course.completions?.find(item => item.member_id === memberId);
 const completionStatus = (course: MeetingCourse, memberId: number) => completionFact(course, memberId)?.completion_status || "UNCONFIRMED";
 const completionLabel = (value: string) => ({ CONFIRMED: "已观看", NOT_COMPLETED: "未观看", UNCONFIRMED: "待确认" })[value] || "待确认";
 const confirmCompletion = async (course: MeetingCourse, memberId: number, value: string) => {
-  if (!detail.value || confirming.value) return;
+  if (!detail.value || confirming.value || reviewing.value) return;
   const sessionId = detail.value.id;
   confirming.value = true;
   try {
@@ -151,6 +171,10 @@ const statusType = (status: StudyMeetingRecord["status"]) =>
 
 const formatDateTime = (value?: string | null) =>
   value ? value.replace("T", " ").replace("Z", "") : "—";
+const formatReviewTime = (value: string) => {
+  const normalized = /(?:Z|[+-]\d\d:\d\d)$/.test(value) ? value : value.replace(" ", "T") + "Z";
+  return new Date(normalized).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
+};
 
 // Element Plus exposes table slot rows as a generic DefaultRow in templates;
 // the API payload is still typed at the boundary above.
@@ -221,6 +245,7 @@ const viewPhoto = async () => {
 };
 
 const editCourses = () => {
+  if (reviewing.value) return;
   selectedCourses.value = detail.value?.courses.map(item => item.course_key) || [];
   correctionNote.value = "";
   editingCourses.value = true;
@@ -248,7 +273,7 @@ const saveCourses = async () => {
 };
 
 const editAttendees = async () => {
-  if (!detail.value || attendeeLoading.value) return;
+  if (!detail.value || attendeeLoading.value || reviewing.value) return;
   const sessionId = detail.value.id;
   attendeeLoading.value = true;
   try {
@@ -344,6 +369,7 @@ onMounted(loadRecords);
         <span v-if="canExport" class="muted">按当前筛选导出，最多500场学习会</span>
       </div>
 
+      <div class="muted records-alert">小组参会率 = 本组参加人数 ÷ 本组当前有效在册人数，跨组参加人员不计入；名单变化需核对。</div>
       <el-table v-loading="loading" :data="records" stripe border class="records-table" row-key="id">
         <el-table-column prop="meeting_date" label="日期" width="125" />
         <el-table-column label="班级 / 小组" min-width="210">
@@ -361,12 +387,25 @@ onMounted(loadRecords);
             <div class="muted">本组 {{ row.home_count }} · 跨组 {{ row.cross_group_count }}</div>
           </template>
         </el-table-column>
+        <el-table-column label="小组参会率" width="155">
+          <template #default="{ row }">
+            <div>{{ row.home_group_attendance_rate == null ? '待核对' : `${row.home_group_attendance_rate}%` }}</div>
+            <div class="muted">本组 {{ row.home_count }} / {{ row.home_group_member_count }} 人</div>
+          </template>
+        </el-table-column>
         <el-table-column label="课程" min-width="220">
           <template #default="{ row }">{{ courseLabel(row) }}</template>
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="核实状态" width="110">
+          <template #default="{ row }">
+            <el-tag :type="row.review_status === 'CONFIRMED' ? 'success' : 'warning'">
+              {{ row.review_status === 'CONFIRMED' ? '已核实' : '待核实' }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="90" fixed="right">
@@ -394,7 +433,25 @@ onMounted(loadRecords);
             <el-descriptions-item label="提交人">{{ detail.creator_name }}</el-descriptions-item>
             <el-descriptions-item label="提交时间">{{ formatDateTime(detail.submitted_at || detail.created_at) }}</el-descriptions-item>
             <el-descriptions-item label="课程" :span="2">{{ courseLabel(detail) }}</el-descriptions-item>
+            <el-descriptions-item label="小组参会率">
+              {{ detail.home_group_attendance_rate == null ? '待核对' : `${detail.home_group_attendance_rate}%` }}
+              <span class="muted">（本组 {{ detail.home_count }} / {{ detail.home_group_member_count }} 人）</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="核实状态">
+              <el-tag :type="detail.review_status === 'CONFIRMED' ? 'success' : 'warning'">
+                {{ detail.review_status === 'CONFIRMED' ? '已核实' : '待核实' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item v-if="detail.reviewed_at" label="核实人">{{ detail.reviewer_name || '—' }}</el-descriptions-item>
+            <el-descriptions-item v-if="detail.reviewed_at" label="核实时间">{{ formatReviewTime(detail.reviewed_at) }}</el-descriptions-item>
           </el-descriptions>
+
+          <div class="attendee-section">
+            <el-button v-if="detail.can_confirm_review" type="primary" :loading="reviewing"
+              :disabled="detail.review_status === 'CONFIRMED' || editingCourses || editingAttendees || confirming || savingCourses || savingAttendees"
+              @click="confirmReview">{{ detail.review_status === 'CONFIRMED' ? '已核实' : '确认核实' }}</el-button>
+            <div class="muted">核对合影、参加人员和观看情况后确认；人员、课程或观看情况修改后需重新核实。</div>
+          </div>
 
           <el-alert v-if="detail.correction_lock_reason" :title="detail.correction_lock_reason" type="warning" :closable="false" class="correction-note" />
           <el-button v-if="detail.correction_lock_reason" link type="primary" @click="$router.push('/operations/learning-credit-settlements')">前往学分结算工作台</el-button>
@@ -403,7 +460,7 @@ onMounted(loadRecords);
             <div class="detail-title">参加人员 {{ detail.attendees.length }} 人</div>
             <div class="muted">本组 {{ detail.home_attendees.length }} 人 · 跨组 {{ detail.cross_group_attendees.length }} 人</div>
             <el-button v-if="detail.can_edit_attendees && !editingAttendees" :loading="attendeeLoading"
-              :disabled="editingCourses || savingCourses || confirming" @click="editAttendees">核实 / 删减参加人员</el-button>
+              :disabled="editingCourses || savingCourses || confirming || reviewing" @click="editAttendees">核实 / 删减参加人员</el-button>
           </div>
           <section v-if="editingAttendees && attendeeOptions" class="attendee-editor">
             <div class="detail-title">已选择 {{ selectedMemberCount.total }} 人 · 本组 {{ selectedMemberCount.home }} · 跨组 {{ selectedMemberCount.cross }}</div>
@@ -454,16 +511,16 @@ onMounted(loadRecords);
               <el-table-column v-for="course in detail.courses" :key="course.course_key" :label="course.course_name_snapshot" min-width="160">
                 <template #default="{ row }">
                   <el-select v-if="detail.can_edit_courses && completionFact(course, row.member_id)"
-                    :model-value="completionStatus(course, row.member_id)" :disabled="confirming || editingAttendees || editingCourses || savingCourses || savingAttendees"
+                    :model-value="completionStatus(course, row.member_id)" :disabled="confirming || reviewing || editingAttendees || editingCourses || savingCourses || savingAttendees"
                     @change="confirmCompletion(course, row.member_id, $event)">
                     <el-option label="已观看" value="CONFIRMED" />
                     <el-option label="未观看" value="NOT_COMPLETED" />
                     <el-option label="待确认" value="UNCONFIRMED" />
                   </el-select>
                   <span v-else>{{ completionLabel(completionStatus(course, row.member_id)) }}</span>
-                  <div class="muted">{{ completionFact(course, row.member_id)?.confirmed_by_user_id ? '人工确认' : '登记信息，待人工核实' }}</div>
+                  <div class="muted">{{ completionFact(course, row.member_id)?.confirmed_by_user_id ? '人工确认' : detail.review_status === 'CONFIRMED' ? '登记信息，本场已核实' : '登记信息，待人工核实' }}</div>
                   <el-button v-if="detail.can_edit_courses && completionFact(course, row.member_id) && !completionFact(course, row.member_id)?.confirmed_by_user_id"
-                    link type="primary" :disabled="confirming || editingAttendees || editingCourses || savingCourses || savingAttendees"
+                    link type="primary" :disabled="confirming || reviewing || editingAttendees || editingCourses || savingCourses || savingAttendees"
                     @click="confirmCompletion(course, row.member_id, completionStatus(course, row.member_id))">确认当前情况</el-button>
                 </template>
               </el-table-column>
@@ -504,7 +561,7 @@ onMounted(loadRecords);
             <span v-else class="muted">未上传或已到期清理</span>
           </section>
           <section v-if="detail.can_edit_courses" class="attendee-section">
-            <el-button v-if="!editingCourses" :disabled="editingAttendees || savingAttendees || attendeeLoading || confirming" @click="editCourses">核实 / 修正观看课程</el-button>
+            <el-button v-if="!editingCourses" :disabled="editingAttendees || savingAttendees || attendeeLoading || confirming || reviewing" @click="editCourses">核实 / 修正观看课程</el-button>
             <template v-else>
               <div class="detail-title">本次观看的课程（可多选，留空表示无课程）</div>
               <el-select v-model="selectedCourses" multiple filterable placeholder="选择课程" style="width: 100%">

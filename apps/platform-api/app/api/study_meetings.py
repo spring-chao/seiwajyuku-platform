@@ -26,6 +26,7 @@ from app.services.study_meeting_evidence import upload_evidence, read_evidence
 from app.services.study_evidence_storage import MAX_BYTES
 from app.services.study_meeting_attendees import attendee_options, correct_attendees
 from app.services.study_meeting_operations import meeting_credit_preview, export_meeting_records
+from app.services.study_meeting_review import confirm_meeting_review
 from app.services.learning_credits import LearningCreditError
 
 
@@ -62,6 +63,11 @@ class AttendeeCorrectionPayload(BaseModel):
     member_ids: list[StrictInt] = Field(min_length=1, max_length=500)
     expected_member_ids: list[StrictInt] = Field(max_length=500)
     note: str | None = Field(default=None, max_length=1000)
+
+
+class MeetingReviewPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_fingerprint: str = Field(pattern="^[a-f0-9]{64}$")
 
 
 def _member_session(
@@ -201,6 +207,16 @@ def correct_courses(session_id: int, payload: CourseCorrectionPayload,
         data = correct_meeting_courses(actor_user_id=user["id"], session_id=session_id,
                                        **payload.model_dump())
         return {"success": True, "data": data}
+    except (StudyMeetingError, StudyMeetingPermissionError) as exc:
+        raise _business_error(exc) from exc
+
+
+@router.post("/records/{session_id}/review-confirmation")
+def confirm_record_review(session_id: int, payload: MeetingReviewPayload,
+                          user: dict = Depends(require_permission("study_meetings:attendees_edit"))) -> dict:
+    try:
+        return {"success": True, "data": confirm_meeting_review(
+            actor_user_id=user["id"], session_id=session_id, **payload.model_dump())}
     except (StudyMeetingError, StudyMeetingPermissionError) as exc:
         raise _business_error(exc) from exc
 
