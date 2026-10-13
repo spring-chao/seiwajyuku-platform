@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import json
 import re
 import sqlite3
@@ -2378,28 +2380,26 @@ def confirm_class_meeting(
     *, actor_user_id: int, class_org_unit_id: str, actual_class_meeting_at: str | None,
     source_event_group_id: int | None = None, confirmation_reason: str | None = None,
     learning_cycle_id: int | None = None,
+    _connection=None,
+    _settlement: bool = False,
 ) -> dict[str, Any]:
     _visible_class(class_org_unit_id, actor_user_id)
     now = _now()
-    with transaction() as connection:
+    with (nullcontext(_connection) if _connection is not None else transaction()) as connection:
         _lock_class_for_update(connection, class_org_unit_id)
-        from app.services.learning_cycle_monthly import enabled, refresh_in_connection
         from app.services.learning_cycle_schedule import parse_utc_datetime
-        monthly_mode = enabled()
-        if monthly_mode:
-            refresh_in_connection(connection, class_org_unit_id, at=now)
         binding = _active_binding(connection, class_org_unit_id)
         if not binding:
             raise ValueError("该班级尚未绑定学习计划")
         current_cycle = _cycle_at(connection, int(binding["id"]), now)
         selected = execute(connection, "SELECT * FROM class_learning_cycles WHERE id=? AND binding_id=? AND class_org_unit_id=?", (learning_cycle_id,binding['id'],class_org_unit_id)).fetchone() if learning_cycle_id is not None else None
         cycle = dict(selected) if selected else current_cycle if learning_cycle_id is None else None
-        historical_month = bool(monthly_mode and learning_cycle_id is not None and cycle and cycle['cycle_status']=='CLOSED')
+        historical_month = bool(learning_cycle_id is not None and cycle and cycle['cycle_status']=='CLOSED')
         if not cycle or (cycle["cycle_status"] != "OPEN" and not historical_month):
             raise ValueError("当前没有可确认的开放学习周期")
-        if not monthly_mode and learning_cycle_id is not None and (not current_cycle or current_cycle['id']!=cycle['id']):
+        if not historical_month and learning_cycle_id is not None and (not current_cycle or current_cycle['id']!=cycle['id']):
             raise ValueError('所选学习日不是当前可确认周期')
-        if cycle.get("actual_class_meeting_at"):
+        if cycle.get("actual_class_meeting_at") and not _settlement:
             raise ValueError("本期实际班会已确认，不能重复确认")
         actual, source_id = _resolve_actual_class_meeting_at(
             connection,
@@ -2409,16 +2409,20 @@ def confirm_class_meeting(
         )
         if parse_utc_datetime(actual) <= parse_utc_datetime(cycle["opened_at"]):
             raise ValueError("实际班会时间必须晚于当前学习周期开始时间")
-        if monthly_mode and parse_utc_datetime(actual) > parse_utc_datetime(now):
+        if _settlement and parse_utc_datetime(actual) > parse_utc_datetime(now):
             raise ValueError("实际班会时间不能晚于当前时间")
+        if cycle.get("actual_class_meeting_at") and parse_utc_datetime(cycle["actual_class_meeting_at"]) != parse_utc_datetime(actual):
+            raise ValueError("已确认的实际班会时间不同，请核对")
         if historical_month and (not cycle.get('closed_at') or parse_utc_datetime(actual)>=parse_utc_datetime(cycle['closed_at'])):
             raise ValueError('实际班会日期不属于所选历史月份')
+        stored_actual = _storage_datetime(connection, actual)
+        stored_now = _storage_datetime(connection, now)
         before = dict(cycle)
         execute(
             connection,
             "UPDATE class_learning_cycles SET actual_class_meeting_at=?, class_meeting_status='HELD', "
             "cycle_status=?, closed_at=?, source_event_group_id=?, updated_at=? WHERE id=?",
-            (actual, cycle['cycle_status'] if monthly_mode else "CLOSED", cycle.get('closed_at') if monthly_mode else actual, source_id, now, cycle["id"]),
+            (stored_actual, cycle['cycle_status'] if historical_month else "CLOSED", cycle.get('closed_at') if historical_month else stored_actual, source_id, stored_now, cycle["id"]),
         )
         plan_task = _group_plan_task(connection, int(cycle["plan_cycle_id"]))
         policy = str(cycle["group_meeting_policy"])
@@ -2441,8 +2445,8 @@ def confirm_class_meeting(
                     connection,
                     "UPDATE group_learning_cycle_tasks SET status=?, completed_at=?, adjusted_by=?, updated_at=? "
                     "WHERE id=?",
-                    (final_status, actual if final_status == "COMPLETED" else None,
-                     actor_user_id, now, existing["id"]),
+                    (final_status, stored_actual if final_status == "COMPLETED" else None,
+                     actor_user_id, stored_now, existing["id"]),
                 )
             else:
                 execute(
@@ -2452,14 +2456,14 @@ def confirm_class_meeting(
                     "VALUES (?, ?, ?, 'GROUP_MEETING', ?, ?, ?, ?, ?, ?)",
                     (cycle["id"], group["id"], plan_task["id"] if plan_task else None,
                      plan_task["title"] if plan_task else None, final_status,
-                     actual if final_status == "COMPLETED" else None, actor_user_id, now, now),
+                     stored_actual if final_status == "COMPLETED" else None, actor_user_id, stored_now, stored_now),
                 )
         next_index = int(cycle["learning_cycle_index"]) + 1
         duration = int(binding["duration_cycles"])
-        if monthly_mode:
-            # The fact of a held class meeting and the content month are
-            # independent. A confirmation must not advance twice in a month.
-            binding_status = "ACTIVE"
+        if historical_month:
+            # A late source for a previously closed period must not move the
+            # current class, even after calendar progression was retired.
+            binding_status = binding["status"]
         elif next_index <= duration:
             next_plan_cycle = _plan_cycle_for_track(
                 connection,
@@ -2483,24 +2487,38 @@ def confirm_class_meeting(
             stored_next_planned = _storage_datetime(connection, next_planned)
             next_status = "POSTPONED" if next_override else "PLANNED"
             next_reason = next_override["adjustment_reason"] if next_override else None
-            execute(
-                connection,
-                "INSERT INTO class_learning_cycles(binding_id, class_org_unit_id, learning_cycle_index, "
-                "plan_cycle_id, opened_at, planned_class_meeting_at, adjustment_reason, "
-                "class_meeting_status, group_meeting_policy, cycle_status, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'REQUIRED', 'OPEN', ?, ?)",
-                (
-                    binding["id"], class_org_unit_id, next_index, next_plan_cycle["id"],
-                    actual, stored_next_planned, next_reason, next_status, now, now,
-                ),
-            )
+            existing_next = execute(connection,
+                "SELECT * FROM class_learning_cycles WHERE binding_id=? AND learning_cycle_index=?",
+                (binding["id"], next_index),
+            ).fetchone()
+            if existing_next:
+                from app.services.learning_cycle_calendar import can_activate_upcoming
+                if (existing_next["plan_cycle_id"] != next_plan_cycle["id"]
+                    or not can_activate_upcoming(connection, int(binding["id"]), dict(existing_next))):
+                    raise ValueError("下一周期已有实际记录，不能自动覆盖")
+                execute(connection,
+                    "UPDATE class_learning_cycles SET opened_at=?, planned_class_meeting_at=?, adjustment_reason=?, "
+                    "class_meeting_status=?, cycle_status='OPEN', closed_at=NULL, updated_at=? WHERE id=?",
+                    (_storage_datetime(connection, actual), stored_next_planned, next_reason, next_status,
+                     _storage_datetime(connection, now), existing_next["id"]),
+                )
+            else:
+                execute(
+                    connection,
+                    "INSERT INTO class_learning_cycles(binding_id, class_org_unit_id, learning_cycle_index, "
+                    "plan_cycle_id, opened_at, planned_class_meeting_at, adjustment_reason, "
+                    "class_meeting_status, group_meeting_policy, cycle_status, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'REQUIRED', 'OPEN', ?, ?)",
+                    (binding["id"], class_org_unit_id, next_index, next_plan_cycle["id"],
+                     stored_actual, stored_next_planned, next_reason, next_status, stored_now, stored_now),
+                )
             binding_status = "ACTIVE"
         else:
             execute(
                 connection,
                 "UPDATE class_learning_bindings SET status='COMPLETED', ended_at=?, "
                 "ended_reason='三年学习计划已完成', updated_at=? WHERE id=?",
-                (_storage_datetime(connection, now), now, binding["id"]),
+                (stored_now, stored_now, binding["id"]),
             )
             binding_status = "COMPLETED"
         write_audit(
@@ -2517,7 +2535,7 @@ def confirm_class_meeting(
                 "source_event_group_id": source_id,
                 "final_group_counts": final_counts,
                 "binding_status": binding_status,
-                "progression_mode": "MONTHLY" if monthly_mode else "CLASS_MEETING",
+                "progression_mode": "SETTLEMENT" if _settlement else "CLASS_MEETING",
             },
         )
-        return _progress_from_connection(connection, class_org_unit_id, at=now if monthly_mode else actual)
+        return _progress_from_connection(connection, class_org_unit_id, at=now if historical_month else actual)
