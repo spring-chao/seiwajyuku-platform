@@ -24,6 +24,7 @@ export type SourceBatch = {
   created_by_current_actor: boolean;
 };
 export type SourceImport = {
+  source_only?: boolean;
   id: number;
   class_name: string;
   original_filename: string;

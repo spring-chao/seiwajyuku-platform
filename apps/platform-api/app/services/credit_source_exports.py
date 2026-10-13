@@ -75,7 +75,9 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
     scope={class_id} if class_id else sources.effective_scope(actor,export_permissions)
     c=connect()
     try:
-        classes=[dict(r) for r in execute(c,"SELECT id,name FROM org_units WHERE unit_type IN ('CLASS','SPECIAL_COHORT') ORDER BY name").fetchall() if scope is None or r['id'] in scope]
+        # An all-scope export includes confirmed balances held by a centre
+        # before class assignment. A class filter still limits that class.
+        classes=[dict(r) for r in execute(c,"SELECT id,name FROM org_units ORDER BY name").fetchall() if scope is None or r['id'] in scope]
         class_ids={r['id'] for r in classes}
         if not class_ids:raise credits.LearningCreditError('当前范围没有可导出的班级')
         placeholders=','.join('?' for _ in class_ids);params=tuple(sorted(class_ids))
@@ -84,7 +86,12 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
         for r in roster:
             member=members.setdefault(int(r['id']),{'member_code':r['member_code'],'name':r['name'],'classes':[]});member['classes'].append(r['class_name'])
         if len(members)>5000:raise credits.LearningCreditError('导出超过5000位学长，请选择班级缩小范围')
-        ledger=[dict(r) for r in execute(c,"SELECT e.*,m.member_code,m.name AS member_name,o.name AS class_name FROM learning_credit_entries e JOIN members m ON m.id=e.member_id LEFT JOIN org_units o ON o.id=e.class_org_unit_id WHERE e.status IN ('POSTED','REVERSED') AND e.class_org_unit_id IN ("+placeholders+") ORDER BY e.member_id,e.occurred_at,e.id",params).fetchall()]
+        ledger_scope='e.class_org_unit_id IN ('+placeholders+')'
+        ledger_params=params
+        if not class_id:
+            ledger_scope+=' OR (e.class_org_unit_id IS NULL AND m.org_unit_id IN ('+placeholders+'))'
+            ledger_params=(*params,*params)
+        ledger=[dict(r) for r in execute(c,"SELECT e.*,m.member_code,m.name AS member_name,o.name AS class_name FROM learning_credit_entries e JOIN members m ON m.id=e.member_id LEFT JOIN org_units o ON o.id=e.class_org_unit_id WHERE e.status IN ('POSTED','REVERSED') AND ("+ledger_scope+") ORDER BY e.member_id,e.occurred_at,e.id",ledger_params).fetchall()]
         if len(ledger)>50000:raise credits.LearningCreditError('学分明细超过50000条，请缩小班级范围')
         # Include retained balances/ledger for former members as well as the
         # current roster, so summary totals do not silently lose old credits.
