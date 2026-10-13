@@ -98,6 +98,74 @@ def DecimalText(value):
     return format(Decimal(str(value)),'.2f')
 
 
+def test_offline_cycle_advances_only_after_successful_settlement(source_fixture,monkeypatch):
+    f=source_fixture
+    monkeypatch.setenv('LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED','true')
+    iid,_,_=registered(f,'CLASS_MEETING')
+    def current():
+        return fetch_one("SELECT * FROM class_learning_cycles WHERE binding_id=? AND cycle_status='OPEN'",(f['binding_id'],))
+    before=current()
+    assert before['id']==f['cycle_id'] and before['actual_class_meeting_at'] is None
+    batch=sources.create_batches(iid,f['actor'])['batches'][0]
+    assert current()['id']==before['id'] and current()['actual_class_meeting_at'] is None
+    sources.process(iid,f['actor'],'submit');sources.process(iid,f['reviewer'],'approve')
+    assert current()['id']==before['id']
+    # The normal batch API must have the same side effect as the Excel UI.
+    assert batches.post_class_meeting_batch(actor_user_id=f['actor'],batch_id=batch['id'])['status']=='POSTED'
+    after=current()
+    assert after['learning_cycle_index']==2
+    assert str(after['opened_at']).startswith('2026-10-09T01:00:00')
+    old=fetch_one('SELECT * FROM class_learning_cycles WHERE id=?',(before['id'],))
+    assert old['cycle_status']=='CLOSED' and old['class_meeting_status']=='HELD'
+    assert old['source_event_group_id']==sources.get_import(iid,f['actor'])['event_group_id']
+    entry=fetch_one("SELECT learning_cycle_id FROM learning_credit_entries WHERE member_id=? AND credit_type='CLASS_MEETING_SCORE'",(f['member_id'],))
+    assert entry['learning_cycle_id']==before['id']
+    assert batches.post_class_meeting_batch(actor_user_id=f['actor'],batch_id=batch['id'])['idempotent']
+    assert current()==after
+
+
+def test_failed_settlement_preserves_cycle_then_explicit_retry_advances_once(source_fixture):
+    f=source_fixture;iid,_,_=registered(f,'CLASS_MEETING')
+    batch=sources.create_batches(iid,f['actor'])['batches'][0]
+    sources.process(iid,f['actor'],'submit');sources.process(iid,f['reviewer'],'approve')
+    with patch.object(credits,'post_credit_entry',side_effect=RuntimeError('test failure')):
+        result=batches.post_class_meeting_batch(actor_user_id=f['actor'],batch_id=batch['id'])
+    assert result['status']=='PARTIAL_FAILED'
+    old=fetch_one('SELECT * FROM class_learning_cycles WHERE id=?',(f['cycle_id'],))
+    assert old['cycle_status']=='OPEN' and old['actual_class_meeting_at'] is None
+    result=batches.post_class_meeting_batch(actor_user_id=f['actor'],batch_id=batch['id'],resume_partial_failure=True)
+    assert result['status']=='POSTED'
+    assert fetch_one("SELECT learning_cycle_index FROM class_learning_cycles WHERE binding_id=? AND cycle_status='OPEN'",(f['binding_id'],))['learning_cycle_index']==2
+
+
+def test_last_cycle_settlement_completes_round_without_cycle_37(source_fixture):
+    f=source_fixture
+    with transaction() as c:
+        plan=execute(c,'SELECT id FROM learning_plan_cycles WHERE plan_version_id=? AND cycle_index=36',(f['plan_id'],)).fetchone()
+        execute(c,'UPDATE class_learning_cycles SET learning_cycle_index=36,plan_cycle_id=? WHERE id=?',(plan['id'],f['cycle_id']))
+    iid,_,_=registered(f,'CLASS_MEETING');sources.create_batches(iid,f['actor'])
+    sources.process(iid,f['actor'],'submit');sources.process(iid,f['reviewer'],'approve');sources.process(iid,f['actor'],'post')
+    assert fetch_one('SELECT status FROM class_learning_bindings WHERE id=?',(f['binding_id'],))['status']=='COMPLETED'
+    assert not fetch_one("SELECT id FROM class_learning_cycles WHERE binding_id=? AND cycle_status='OPEN'",(f['binding_id'],))
+
+
+def test_cycle_failure_rolls_back_batch_terminal_state_and_can_reconcile(source_fixture):
+    from datetime import UTC,datetime,timedelta
+    from app.services import learning_cycles
+    f=source_fixture;iid,_,_=registered(f,'CLASS_MEETING')
+    batch=sources.create_batches(iid,f['actor'])['batches'][0]
+    sources.process(iid,f['actor'],'submit');sources.process(iid,f['reviewer'],'approve')
+    with patch.object(learning_cycles,'_plan_cycle_for_track',return_value=None),pytest.raises(credits.LearningCreditError,match='缺少'):
+        batches.post_class_meeting_batch(actor_user_id=f['actor'],batch_id=batch['id'])
+    assert fetch_one('SELECT status FROM learning_credit_settlement_batches WHERE id=?',(batch['id'],))['status']=='POSTING'
+    assert fetch_one('SELECT cycle_status,actual_class_meeting_at FROM class_learning_cycles WHERE id=?',(f['cycle_id'],))=={'cycle_status':'OPEN','actual_class_meeting_at':None}
+    with transaction() as c:
+        execute(c,'UPDATE learning_credit_settlement_batches SET updated_at=? WHERE id=?',(credits._db_timestamp(c,datetime.now(UTC)-timedelta(minutes=31)),batch['id']))
+    result=batches.reconcile_stale_posting_batch(actor_user_id=f['actor'],batch_id=batch['id'])
+    assert result['status']=='POSTED'
+    assert fetch_one("SELECT learning_cycle_index FROM class_learning_cycles WHERE binding_id=? AND cycle_status='OPEN'",(f['binding_id'],))['learning_cycle_index']==2
+
+
 def test_reading_weekend_incomplete_and_invalid_rows_have_actionable_results(source_fixture):
     f=source_fixture
     p=sources.preview(workbook(f,'DAILY_READING',[date(2026,10,11),'是']),'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
@@ -189,10 +257,9 @@ def test_closed_month_class_confirmation_preserves_current_month(source_fixture,
     with transaction() as c:
         execute(c,"UPDATE class_learning_cycles SET cycle_status='CLOSED',closed_at='2026-10-10' WHERE id=?",(f['cycle_id'],))
     iid,_,_=registered(f,'CLASS_MEETING')
-    # Exercise historical confirmation itself; calendar refresh is covered by
-    # its own suite and must not advance a current month during this operation.
-    with patch.object(learning_cycle_monthly,'refresh_in_connection',return_value=None),patch.object(learning_cycles,'_cycle_at',return_value=None):
-        sources.create_batches(iid,f['actor'])
+    sources.create_batches(iid,f['actor'])
+    assert fetch_one('SELECT class_meeting_status FROM class_learning_cycles WHERE id=?',(f['cycle_id'],))['class_meeting_status']=='PLANNED'
+    sources.process(iid,f['actor'],'submit');sources.process(iid,f['reviewer'],'approve');sources.process(iid,f['actor'],'post')
     cycle=fetch_one('SELECT cycle_status,closed_at,class_meeting_status FROM class_learning_cycles WHERE id=?',(f['cycle_id'],))
     assert cycle['cycle_status']=='CLOSED' and str(cycle['closed_at'])[:10]=='2026-10-10' and cycle['class_meeting_status']=='HELD'
 
