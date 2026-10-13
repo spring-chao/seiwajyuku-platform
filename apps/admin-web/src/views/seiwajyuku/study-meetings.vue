@@ -518,7 +518,7 @@ onMounted(loadRecords);
                     <el-option label="待确认" value="UNCONFIRMED" />
                   </el-select>
                   <span v-else>{{ completionLabel(completionStatus(course, row.member_id)) }}</span>
-                  <div class="muted">{{ completionFact(course, row.member_id)?.confirmed_by_user_id ? '人工确认' : '登记信息，待人工核实' }}</div>
+                  <div class="muted">{{ completionFact(course, row.member_id)?.confirmed_by_user_id ? '人工确认' : detail.review_status === 'CONFIRMED' ? '登记信息，本场已核实' : '登记信息，待人工核实' }}</div>
                   <el-button v-if="detail.can_edit_courses && completionFact(course, row.member_id) && !completionFact(course, row.member_id)?.confirmed_by_user_id"
                     link type="primary" :disabled="confirming || reviewing || editingAttendees || editingCourses || savingCourses || savingAttendees"
                     @click="confirmCompletion(course, row.member_id, completionStatus(course, row.member_id))">确认当前情况</el-button>
