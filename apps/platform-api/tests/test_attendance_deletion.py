@@ -14,6 +14,7 @@ from app.services.attendance_sync import DeletedAttendanceEvent, _upsert_event_g
 from app.services.signin_engine import SigninEngineError
 from test_signin_management import ENV, _operator
 from test_v12_mvp import _seed_group_leader_fixture
+from test_wechat_learning_summary import _insert_ledger_entry
 
 
 def _group(fixture, *, status="ACTIVE", present=False):
@@ -127,6 +128,24 @@ def test_changed_title_does_not_cancel_the_source():
             assert client.request("DELETE", f"/api/v1/attendance/event-groups/{group}", headers=headers,
                                   json={"expected_title": "另一活动"}).status_code == 409
             remote.assert_not_called()
+
+
+def test_test_confirmation_cannot_delete_settled_learning_credits():
+    fixture = _seed_group_leader_fixture()
+    group, _ = _group(fixture, present=True)
+    _insert_ledger_entry(member_id=fixture["member_id"], class_id=fixture["class_id"],
+                        credit_type="CLASS_MEETING_SCORE", credit_category="STANDARD_LEARNING",
+                        points=1, occurred_at="2026-09-28T00:00:00+00:00",
+                        source_type="ATTENDANCE_CLASS_MEETING", idempotency_key=str(group))
+    with patch.dict(os.environ, ENV), TestClient(app) as client:
+        headers, _ = _operator({"attendance:manage", "attendance:view"}, fixture["class_id"])
+        with patch("app.services.attendance_deletion.signin_engine.management_request") as remote:
+            response = client.request("DELETE", f"/api/v1/attendance/event-groups/{group}", headers=headers,
+                                      json={"expected_title": "合成测试活动", "confirm_test_activity": True})
+            assert response.status_code == 409
+            remote.assert_not_called()
+        assert fetch_one("SELECT status FROM attendance_event_groups WHERE id=?", (group,))["status"] == "ACTIVE"
+        assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries WHERE source_type='ATTENDANCE_CLASS_MEETING' AND source_id=?", (str(group),))["n"] == 1
 
 
 def test_sync_does_not_fetch_records_or_resurrect_deleted_groups():
