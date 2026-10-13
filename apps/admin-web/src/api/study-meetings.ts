@@ -33,6 +33,12 @@ export type StudyMeetingRecord = {
   home_count: number;
   cross_group_count: number;
   total_count: number;
+  home_group_member_count: number;
+  home_group_attendance_rate: number | null;
+  review_status: "CONFIRMED" | "UNCONFIRMED";
+  review_fingerprint: string;
+  reviewed_at?: string | null;
+  reviewer_name?: string | null;
 };
 
 export type StudyMeetingAttendee = {
@@ -52,6 +58,7 @@ export type StudyMeetingRecordDetail = StudyMeetingRecord & {
   evidence: { id: number; expires_at: string } | null;
   can_edit_courses: boolean;
   can_edit_attendees: boolean;
+  can_confirm_review: boolean;
   correction_lock_reason?: string | null;
   course_options: { course_key: string; course_name: string; credit_points: number; status: string }[];
 };
@@ -103,6 +110,12 @@ export const getStudyMeetingRecord = (sessionId: number) =>
   http.request<{ success: boolean; data: StudyMeetingRecordDetail }>(
     "get",
     `/api/v1/study-meetings/records/${sessionId}`
+  );
+
+export const confirmStudyMeetingReview = (sessionId: number, expectedFingerprint: string) =>
+  http.request<{ success: boolean; data: StudyMeetingRecordDetail }>(
+    "post", `/api/v1/study-meetings/records/${sessionId}/review-confirmation`,
+    { data: { expected_fingerprint: expectedFingerprint } }
   );
 
 export type MeetingCreditPreview = {

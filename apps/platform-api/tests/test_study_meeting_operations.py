@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 from unittest.mock import patch
 
 import pytest
@@ -9,6 +10,8 @@ from app.services.study_meeting_operations import meeting_credit_preview, export
 from app.services.study_meetings import confirm_study_meeting_course_completion, StudyMeetingError
 from app.services.study_meetings import correct_meeting_courses, get_study_meeting_record_for_operations
 from app.services.study_meeting_attendees import correct_attendees
+from app.services.study_meeting_review import confirm_meeting_review
+from app.services.study_meetings import list_study_meeting_records, StudyMeetingPermissionError
 from app.services.learning_credits import _insert_entry, dry_run_study_meeting_settlement
 from app.services.credit_settlement_batches import dry_run_study_meeting_batch, submit_study_meeting_batch_for_approval
 from test_learning_credit_ledger import _admin_id, _use_credit_plan, _submit_without_evidence
@@ -127,6 +130,9 @@ def test_posted_or_frozen_sources_reject_all_manual_corrections(protection, monk
                 execute(connection, "UPDATE learning_credit_settlement_batches SET status='POSTING' WHERE id=?", (batch["id"],))
     detail = get_study_meeting_record_for_operations(**args)
     assert not detail["can_edit_courses"] and not detail["can_edit_attendees"]
+    assert not detail["can_confirm_review"]
+    with pytest.raises(StudyMeetingError):
+        confirm_meeting_review(**args, expected_fingerprint=detail["review_fingerprint"])
     assert detail["correction_lock_reason"]
     before = fetch_one("SELECT COUNT(*) n FROM learning_credit_entries")["n"]
     with pytest.raises(StudyMeetingError):
@@ -137,3 +143,92 @@ def test_posted_or_frozen_sources_reject_all_manual_corrections(protection, monk
         with pytest.raises(StudyMeetingError):
             confirm_study_meeting_course_completion(**args, course_key="OPERATOR_VIDEO", member_id=f["member_id"], completion_status="NOT_COMPLETED")
     assert fetch_one("SELECT COUNT(*) n FROM learning_credit_entries")["n"] == before
+
+
+def test_home_rate_excludes_cross_group_and_counts_active_roster():
+    f, session = prepared()
+    args = {"actor_user_id": _admin_id(), "session_id": session["id"]}
+    detail = get_study_meeting_record_for_operations(**args)
+    assert detail["total_count"] == 2 and detail["home_count"] == 1
+    assert detail["home_group_member_count"] == 1 and detail["home_group_attendance_rate"] == 100
+    with transaction() as connection:
+        # A second current home member did not attend this meeting.
+        execute(connection, "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, created_at, updated_at) "
+            "VALUES (?, ?, 'STUDY_GROUP', 0, '2020-01-01', '2020-01-01')", (f["foreign_member_id"], f["group_id"]))
+    detail = get_study_meeting_record_for_operations(**args)
+    assert detail["home_group_member_count"] == 2 and detail["home_group_attendance_rate"] == 50
+    record = next(row for row in list_study_meeting_records(actor_user_id=_admin_id()) if row["id"] == session["id"])
+    assert record["home_group_attendance_rate"] == detail["home_group_attendance_rate"]
+    with transaction() as connection:
+        execute(connection, "UPDATE members SET status='INACTIVE' WHERE id=?", (f["foreign_member_id"],))
+    assert get_study_meeting_record_for_operations(**args)["home_group_member_count"] == 1
+    with transaction() as connection:
+        execute(connection, "UPDATE member_org_relations SET valid_until='2000-01-01' WHERE org_unit_id=?", (f["group_id"],))
+    detail = get_study_meeting_record_for_operations(**args)
+    assert detail["home_group_member_count"] == 0 and detail["home_group_attendance_rate"] is None
+
+
+def test_whole_meeting_review_is_audited_idempotent_and_invalidated_by_edits():
+    f, session = prepared(course=True)
+    args = {"actor_user_id": _admin_id(), "session_id": session["id"]}
+    detail = get_study_meeting_record_for_operations(**args)
+    assert detail["review_status"] == "UNCONFIRMED" and detail["can_confirm_review"]
+    count = fetch_one("SELECT COUNT(*) n FROM learning_credit_entries")["n"]
+    confirmed = confirm_meeting_review(**args, expected_fingerprint=detail["review_fingerprint"])
+    assert confirmed["review_status"] == "CONFIRMED" and confirmed["reviewed_at"] and confirmed["reviewer_name"]
+    confirm_meeting_review(**args, expected_fingerprint=detail["review_fingerprint"])
+    audit = fetch_one("SELECT COUNT(*) n FROM audit_logs WHERE action='study_meeting.review_confirm' AND resource_id=?", (str(session["id"]),))
+    assert audit["n"] == 1
+    record = next(row for row in list_study_meeting_records(actor_user_id=_admin_id()) if row["id"] == session["id"])
+    assert record["review_status"] == "CONFIRMED"
+    updated = confirm_study_meeting_course_completion(**args, course_key="OPERATOR_VIDEO", member_id=f["member_id"], completion_status="NOT_COMPLETED")
+    assert updated["review_status"] == "UNCONFIRMED" and updated["reviewed_at"] is None
+    with pytest.raises(StudyMeetingError, match="内容已变化"):
+        confirm_meeting_review(**args, expected_fingerprint=detail["review_fingerprint"])
+    updated = confirm_meeting_review(**args, expected_fingerprint=updated["review_fingerprint"])
+    assert updated["review_status"] == "CONFIRMED"
+    updated = correct_attendees(**args, member_ids=[f["member_id"]], expected_member_ids=[f["member_id"], f["other_member_id"]])
+    assert updated["review_status"] == "UNCONFIRMED"
+    confirm_meeting_review(**args, expected_fingerprint=updated["review_fingerprint"])
+    updated = correct_meeting_courses(**args, course_keys=[], expected_course_keys=["OPERATOR_VIDEO"])
+    assert updated["review_status"] == "UNCONFIRMED"
+    assert fetch_one("SELECT COUNT(*) n FROM learning_credit_entries")["n"] == count
+    payload = fetch_one("SELECT after_json FROM audit_logs WHERE action='study_meeting.review_confirm' AND resource_id=? ORDER BY id DESC LIMIT 1", (str(session["id"]),))
+    assert set(json.loads(payload["after_json"])) == {"fingerprint", "review_status"}
+
+
+def test_whole_meeting_review_enforces_scope_permission_write_gate_and_posted_lock(monkeypatch):
+    f, session = prepared()
+    args = {"actor_user_id": _admin_id(), "session_id": session["id"]}
+    fingerprint = get_study_meeting_record_for_operations(**args)["review_fingerprint"]
+    with patch("app.services.study_meeting_review.accessible_org_ids", return_value={f["other_class_id"]}), pytest.raises(StudyMeetingPermissionError):
+        confirm_meeting_review(**args, expected_fingerprint=fingerprint)
+    with patch("app.services.study_meeting_review.can_edit_attendees", return_value=False), pytest.raises(StudyMeetingPermissionError):
+        confirm_meeting_review(**args, expected_fingerprint=fingerprint)
+    monkeypatch.setenv("DEPLOYMENT_READ_ONLY", "true")
+    with pytest.raises(StudyMeetingPermissionError):
+        confirm_meeting_review(**args, expected_fingerprint=fingerprint)
+    monkeypatch.setenv("DEPLOYMENT_READ_ONLY", "false")
+    preview = dry_run_study_meeting_settlement(**args)
+    with transaction() as connection:
+        _insert_entry(connection, {**preview["entries"][0], "occurred_at": session["meeting_date"]}, status="POSTED", actor_user_id=_admin_id())
+    assert not get_study_meeting_record_for_operations(**args)["can_confirm_review"]
+    with pytest.raises(StudyMeetingError, match="更正流程"):
+        confirm_meeting_review(**args, expected_fingerprint=fingerprint)
+
+
+def test_review_endpoint_requires_auth_and_rejects_stale_facts():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.services.iam import authenticate
+    f, session = prepared()
+    with TestClient(app) as client:
+        url = f"/api/v1/study-meetings/records/{session['id']}/review-confirmation"
+        assert client.post(url, json={"expected_fingerprint": "0" * 64}).status_code == 401
+        token = authenticate("admin", "test-admin-password")["access_token"]
+        headers = {"Authorization": "Bearer " + token}
+        assert client.post(url, json={"expected_fingerprint": "0" * 64}, headers=headers).status_code == 400
+        detail = get_study_meeting_record_for_operations(actor_user_id=_admin_id(), session_id=session["id"])
+        response = client.post(url, json={"expected_fingerprint": detail["review_fingerprint"]}, headers=headers)
+        assert response.status_code == 200, response.text
+        assert response.json()["data"]["review_status"] == "CONFIRMED"
