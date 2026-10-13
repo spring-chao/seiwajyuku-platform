@@ -231,9 +231,9 @@ def test_daily_reading_uses_all_configured_day_types_and_never_writes() -> None:
         entries = {entry["occurred_on"]: entry for entry in preview["entries"]}
         assert entries["2026-03-02"]["status"] == "READY"
         assert entries["2026-03-02"]["points"] == 1.0
-        assert entries["2026-03-08"]["status"] == "READY"
-        assert entries["2026-03-08"]["points"] == 1.0
-        assert entries["2026-03-09"]["status"] == "READY"
+        assert entries["2026-03-08"]["status"] == "NO_CREDIT"
+        assert entries["2026-03-08"]["reasons"] == ["NOT_BUSINESS_WORKDAY"]
+        assert entries["2026-03-09"]["status"] == "NO_CREDIT"
         assert entries["2026-03-14"]["status"] == "READY"
         assert entries["2026-03-15"]["status"] == "READY"
         assert preview["timezone"] == "Asia/Shanghai"
@@ -314,7 +314,7 @@ def test_historical_fact_uses_occurrence_year_calendar_not_a_later_year_version(
         entries = {entry["occurred_on"]: entry for entry in before["entries"]}
         assert entries["2026-12-31"]["status"] == "READY"
         assert entries["2026-12-31"]["calendar"]["calendar_year"] == 2026
-        assert entries["2027-01-02"]["status"] == "READY"
+        assert entries["2027-01-02"]["status"] == "NO_CREDIT"
         assert entries["2027-01-02"]["calendar"]["calendar_year"] == 2027
 
         replacement = _calendar(
@@ -403,8 +403,8 @@ def test_activity_batches_freeze_daily_and_share_proposals_without_post(
             occurred_from="2026-05-01", occurred_to="2026-05-31",
         )
         assert daily["status"] == shares["status"] == "DRY_RUN"
-        assert daily["proposed_entry_count"] == 2
-        assert daily["proposed_points"] == "2.00"
+        assert daily["proposed_entry_count"] == 1
+        assert daily["proposed_points"] == "1.00"
         assert shares["proposed_entry_count"] == 5
         assert shares["proposed_points"] == "5.00"
         assert repeated["idempotent"] is True
@@ -412,7 +412,7 @@ def test_activity_batches_freeze_daily_and_share_proposals_without_post(
         assert int(fetch_one(
             "SELECT COUNT(*) AS n FROM learning_credit_settlement_batch_items WHERE batch_id=?",
             (daily["id"],),
-        )["n"]) == 2
+        )["n"]) == 1
         assert int(fetch_one(
             "SELECT COUNT(*) AS n FROM learning_credit_settlement_batch_items WHERE batch_id=?",
             (shares["id"],),

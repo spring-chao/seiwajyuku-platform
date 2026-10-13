@@ -1057,6 +1057,11 @@ def _daily_entries(connection, facts: list[dict[str, Any]]) -> list[dict[str, An
         occurred_on = representative.get("_occurred_date")
         calendar = _calendar_day(connection, occurred_on) if occurred_on else None
         workday = _is_workday_row(calendar) if calendar and occurred_on else None
+        original_report = (
+            representative.get("source_type") == "CREDIT_EXCEL_DAILY_READING"
+            and isinstance(representative.get("metadata"), dict)
+            and representative["metadata"].get("source_format") == "READING_REPORT"
+        )
         entry = _entry_common(
             connection,
             fact=representative,
@@ -1083,6 +1088,9 @@ def _daily_entries(connection, facts: list[dict[str, Any]]) -> list[dict[str, An
         elif workday is None:
             entry["status"] = "BLOCKED"
             entry["reasons"] = ["BUSINESS_CALENDAR_INVALID"]
+        elif not workday and not original_report:
+            entry["status"] = "NO_CREDIT"
+            entry["reasons"] = ["NOT_BUSINESS_WORKDAY"]
         else:
             entry["status"] = "READY"
             entry["points"] = float(rule["points"])

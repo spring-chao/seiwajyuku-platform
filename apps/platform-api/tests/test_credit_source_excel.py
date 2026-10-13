@@ -101,7 +101,7 @@ def DecimalText(value):
 def test_reading_weekend_incomplete_and_invalid_rows_have_actionable_results(source_fixture):
     f=source_fixture
     p=sources.preview(workbook(f,'DAILY_READING',[date(2026,10,10),'是']),'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
-    assert p['error_count']==0 and p['proposed_points']=='1.00' and p['rows'][0]['credit_status']=='READY'
+    assert p['error_count']==0 and p['proposed_points']=='0.00' and p['rows'][0]['credit_status']=='NO_CREDIT'
     p=sources.preview(workbook(f,'DAILY_READING',[date.fromisoformat(DAY),'否']),'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
     assert p['proposed_points']=='0.00'
     p=sources.preview(workbook(f,'EXCELLENT_SHARE',[date.fromisoformat(DAY),'ref','普通分享','否']),'EXCELLENT_SHARE',f['class_id'],'{}',NOTE,f['actor'])
