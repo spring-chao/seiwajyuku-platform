@@ -15,6 +15,7 @@ from app.services import learning_credits as credits
 from app.services import credit_settlement_batches as batches
 from app.services import attendance_scoring
 from app.services import learning_activity_credits as activity
+from app.services.learning_cycle_schedule import parse_utc_datetime
 from credit_batch_test_support import create_credit_batch_reviewer
 from test_learning_activity_credits import _fixture,_calendar,_admin_id
 
@@ -114,7 +115,7 @@ def test_offline_cycle_advances_only_after_successful_settlement(source_fixture,
     assert batches.post_class_meeting_batch(actor_user_id=f['actor'],batch_id=batch['id'])['status']=='POSTED'
     after=current()
     assert after['learning_cycle_index']==2
-    assert str(after['opened_at']).startswith('2026-10-09T01:00:00')
+    assert parse_utc_datetime(after['opened_at']).isoformat().startswith('2026-10-09T01:00:00')
     old=fetch_one('SELECT * FROM class_learning_cycles WHERE id=?',(before['id'],))
     assert old['cycle_status']=='CLOSED' and old['class_meeting_status']=='HELD'
     assert old['source_event_group_id']==sources.get_import(iid,f['actor'])['event_group_id']
