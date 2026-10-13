@@ -26,7 +26,7 @@ def source_fixture(monkeypatch):
     for key in ('LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED','LEARNING_CREDIT_BATCH_APPROVAL_ENABLED','LEARNING_CREDIT_BATCH_POST_ENABLED','LEARNING_CREDIT_SETTLEMENT_ENABLED'):monkeypatch.setenv(key,'true')
     monkeypatch.setenv('LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED','false')
     fixture=_fixture();fixture['actor']=_admin_id();fixture['reviewer']=create_credit_batch_reviewer()
-    _calendar(fixture,year=2026,day_types={DAY:'NORMAL_WORKDAY','2026-10-10':'WEEKEND'})
+    _calendar(fixture,year=2026,day_types={DAY:'NORMAL_WORKDAY','2026-10-10':'ADJUSTED_WORKDAY','2026-10-11':'WEEKEND'})
     c=connect()
     try:member=dict(execute(c,'SELECT member_code,name FROM members WHERE id=?',(fixture['member_id'],)).fetchone());fixture.update(member)
     finally:c.close()
@@ -100,7 +100,7 @@ def DecimalText(value):
 
 def test_reading_weekend_incomplete_and_invalid_rows_have_actionable_results(source_fixture):
     f=source_fixture
-    p=sources.preview(workbook(f,'DAILY_READING',[date(2026,10,10),'是']),'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
+    p=sources.preview(workbook(f,'DAILY_READING',[date(2026,10,11),'是']),'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
     assert p['error_count']==0 and p['proposed_points']=='0.00' and p['rows'][0]['credit_status']=='NO_CREDIT'
     p=sources.preview(workbook(f,'DAILY_READING',[date.fromisoformat(DAY),'否']),'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
     assert p['proposed_points']=='0.00'
@@ -276,7 +276,7 @@ def test_incomplete_recording_archives_source_then_can_be_confirmed_later(source
 
 
 @pytest.mark.parametrize('wide',[False,True])
-def test_original_reading_export_counts_weekend_completion_once_and_keeps_source(source_fixture,wide):
+def test_original_reading_export_trusts_supplied_dates_and_keeps_source(source_fixture,wide):
     f=source_fixture
     with transaction() as c:
         execute(c,"UPDATE members SET phone_last4='2986',phone_masked='199****2986' WHERE id=?",(f['member_id'],))
@@ -287,17 +287,18 @@ def test_original_reading_export_counts_weekend_completion_once_and_keeps_source
         return [values.get(label,'') for label in headers]
     sheet.append(record('2026-10-09','未提交'))
     sheet.append(record('2026-10-10','按时完成'))
+    sheet.append(record('2026-10-11','按时完成'))
     raw=io.BytesIO();book.save(raw);data=raw.getvalue()
     preview=sources.preview(data,'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
-    assert preview['error_count']==0 and preview['proposed_points']=='1.00'
-    assert [r['credit_status'] for r in preview['rows']]==['NO_CREDIT','READY']
+    assert preview['error_count']==0 and preview['proposed_points']=='2.00'
+    assert [r['credit_status'] for r in preview['rows']]==['NO_CREDIT','READY','READY']
     import_id=sources.register(data,'DAILY_READING',f['class_id'],'{}',NOTE,'读书会打卡统计列表.xlsx',preview['fingerprint'],f['actor'])['id']
     saved=sources.get_import(import_id,f['actor'])
-    assert [r['fact_id'] is not None for r in saved['rows']]==[False,True]
+    assert [r['fact_id'] is not None for r in saved['rows']]==[False,True,True]
     assert json.loads(saved['rows'][1]['record_json'])['录音']=='按时完成'
     sources.create_batches(import_id,f['actor']);sources.process(import_id,f['actor'],'submit')
     sources.process(import_id,f['reviewer'],'approve');sources.process(import_id,f['actor'],'post')
-    assert fetch_one("SELECT SUM(points) AS p FROM learning_credit_entries WHERE member_id=? AND credit_type='DAILY_READING'",(f['member_id'],))['p']==1
+    assert fetch_one("SELECT SUM(points) AS p FROM learning_credit_entries WHERE member_id=? AND credit_type='DAILY_READING'",(f['member_id'],))['p']==2
     exported=load_workbook(io.BytesIO(exports.export_credits(f['actor'],f['class_id'],'2026-10-01','2026-10-13')))
     assert '读书会打卡统计列表.xlsx' in exported['新增学分明细']['J2'].value
 
