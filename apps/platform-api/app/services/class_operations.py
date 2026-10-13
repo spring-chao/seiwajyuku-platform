@@ -103,7 +103,7 @@ def class_operations_detail(
     events = fetch_all(
         "SELECT id, title, event_date, activity_type FROM attendance_event_groups "
         "WHERE study_org_unit_id=? AND substr(event_date,1,7)=? "
-        "AND status NOT IN ('CANCELLED','INACTIVE') ORDER BY event_date, id",
+        "AND status NOT IN ('CANCELLED','INACTIVE','DELETED') ORDER BY event_date, id",
         (class_org_unit_id, period),
     )
     class_meetings = [row for row in events if str(row["activity_type"]).upper() == "CLASS_MEETING"]
@@ -117,7 +117,7 @@ def class_operations_detail(
         "SELECT eg.id, eg.title, eg.event_date, eg.study_org_unit_id, g.name AS group_name "
         "FROM attendance_event_groups eg JOIN org_units g ON g.id=eg.study_org_unit_id "
         "WHERE g.parent_id=? AND g.unit_type='GROUP' AND substr(eg.event_date,1,7)=? "
-        "AND eg.activity_type='GROUP_MEETING' AND eg.status NOT IN ('CANCELLED','INACTIVE') "
+        "AND eg.activity_type='GROUP_MEETING' AND eg.status NOT IN ('CANCELLED','INACTIVE','DELETED') "
         "ORDER BY eg.event_date, eg.id",
         (class_org_unit_id, period),
     )

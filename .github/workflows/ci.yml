@@ -173,6 +173,7 @@ jobs:
           apps/platform-api/tests/test_member_group_reassignment.py
           apps/platform-api/tests/test_wechat_learning_summary.py
           apps/platform-api/tests/test_signin_management.py
+          apps/platform-api/tests/test_attendance_deletion.py
           apps/platform-api/tests/test_mobile_record_idempotency.py
           apps/platform-api/tests/test_credit_settlement_batch_mysql.py
           apps/platform-api/tests/test_credit_lifecycle_acceptance.py
