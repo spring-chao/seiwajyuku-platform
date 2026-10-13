@@ -187,9 +187,8 @@ def _cycle(c,binding,options):
     if opened and actual<=opened:raise credits.LearningCreditError('实际班会时间需晚于所选周期开始时间')
     if row['actual_class_meeting_at'] and activity._local_date_from_timestamp(row['actual_class_meeting_at'])!=actual.date():raise credits.LearningCreditError('本期已登记其他班会日期，请核对本次学习日')
     if not row['actual_class_meeting_at'] and row['cycle_status']!='OPEN':
-        from app.services.learning_cycle_monthly import enabled
         closed=activity._parse_storage_timestamp(row['closed_at'])
-        if not enabled() or not closed or actual>=closed:raise credits.LearningCreditError('实际班会日期不属于所选月份，无法补登')
+        if not closed or actual>=closed:raise credits.LearningCreditError('实际班会日期不属于所选周期，无法补登')
     groups=execute(c,"SELECT id FROM attendance_event_groups WHERE study_org_unit_id=? AND event_date=? AND activity_type='CLASS_MEETING' AND status='ACTIVE' ORDER BY id",(binding['class_org_unit_id'],actual.date().isoformat())).fetchall()
     source_id=row['source_event_group_id']
     if source_id:
@@ -466,21 +465,18 @@ def create_batches(import_id,actor):
     if kind=='CLASS_MEETING':
         _principal(actor,kind,write=True)
         _write_scope(actor,source['class_org_unit_id'],kind)
-        from app.services.learning_cycles import confirm_class_meeting
-        c=connect()
-        try:cycle=dict(execute(c,'SELECT * FROM class_learning_cycles WHERE id=?',(source['cycle_id'],)).fetchone())
-        finally:c.close()
         options=json.loads(source['options_json'])
-        if not cycle['actual_class_meeting_at']:
-            result=confirm_class_meeting(actor_user_id=actor,class_org_unit_id=source['class_org_unit_id'],actual_class_meeting_at=options['actual_start'],source_event_group_id=source['event_group_id'],confirmation_reason=source['source_note'],learning_cycle_id=source['cycle_id'])
-        elif activity._local_date_from_timestamp(cycle['actual_class_meeting_at'])!=datetime.fromisoformat(options['actual_start']).date():raise credits.LearningCreditError('已举办日期不同，请核对学习日')
-        else:
-            with transaction() as c:
-                row=execute(c,'SELECT source_event_group_id FROM class_learning_cycles WHERE id=?',(source['cycle_id'],)).fetchone()
-                if row['source_event_group_id'] not in (None,source['event_group_id']):raise credits.LearningCreditError('学习日已关联其他班会，请核对')
-                if row['source_event_group_id'] is None:
-                    execute(c,'UPDATE class_learning_cycles SET source_event_group_id=?,updated_at=? WHERE id=?',(source['event_group_id'],credits._db_timestamp(c),source['cycle_id']))
-                    write_audit(c,actor_user_id=actor,action='learning.credit_source.link_held_cycle',resource_type='class_learning_cycle',resource_id=str(source['cycle_id']),org_unit_id=source['class_org_unit_id'],after={'source_event_group_id':source['event_group_id'],'progress_changed':False})
+        # Freeze the source/cycle association for the preview and ledger.
+        # Confirmation and progression belong to successful formal posting.
+        with transaction() as c:
+            from app.services.learning_cycles import _lock_class_for_update
+            _lock_class_for_update(c,source['class_org_unit_id'])
+            binding=_class(c,actor,source['class_org_unit_id'])
+            cycle,event_id=_cycle(c,binding,options)
+            if event_id!=source['event_group_id']:raise credits.LearningCreditError('学习日签到来源已变化，请核对')
+            if cycle['source_event_group_id'] is None:
+                execute(c,'UPDATE class_learning_cycles SET source_event_group_id=?,updated_at=? WHERE id=?',(source['event_group_id'],credits._db_timestamp(c),source['cycle_id']))
+                write_audit(c,actor_user_id=actor,action='learning.credit_source.link_cycle',resource_type='class_learning_cycle',resource_id=str(source['cycle_id']),org_unit_id=source['class_org_unit_id'],after={'source_event_group_id':source['event_group_id'],'progress_changed':False})
         plans=[{'event_group_id':source['event_group_id']}]
     else:
         by_period={}

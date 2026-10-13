@@ -1461,6 +1461,61 @@ def approve_historical_credit_batch(*, actor_user_id: int, batch_id: int) -> dic
     )
 
 
+def _advance_source_learning_cycle(connection: Any, row: Any, *, actor_user_id: int) -> None:
+    """Close the uploaded meeting only with a reconciled successful batch.
+
+    The batch terminal state and cycle transition share one transaction. A
+    closed cycle is the durable idempotency marker, including historical
+    uploads and retries through the batch API rather than the Excel UI.
+    """
+    if row["source_type"] != "CLASS_MEETING" or row["batch_type"] != "REGULAR":
+        return
+    from app.services import credit_source_imports as imports
+    from app.services import learning_cycles as cycles
+    if not imports.available(connection):
+        return
+    sources = execute(connection,
+        "SELECT s.* FROM learning_credit_source_imports s "
+        "JOIN learning_credit_source_batches b ON b.import_id=s.id "
+        "WHERE b.batch_id=? AND s.source_kind='CLASS_MEETING' ORDER BY s.id",
+        (row["id"],),
+    ).fetchall()
+    if not sources:
+        return
+    source = sources[0]
+    for item in sources:
+        rows = execute(connection, "SELECT * FROM learning_credit_source_rows WHERE import_id=? ORDER BY id", (item["id"],)).fetchall()
+        imports._validate_receipt(connection, item, rows)
+    if any(s["cycle_id"] != source["cycle_id"] or s["event_group_id"] != source["event_group_id"]
+           or s["options_json"] != source["options_json"] for s in sources):
+        raise credits.LearningCreditError("结算批次关联了不同班会周期，请核对")
+    snapshot = json.loads(row["source_snapshot_json"])
+    if (source["class_org_unit_id"] != row["class_org_unit_id"]
+        or source["event_group_id"] != snapshot["event_group_id"]
+        or source["binding_id"] != snapshot["binding_id"]):
+        raise credits.LearningCreditError("结算批次与班会来源不一致")
+    cycles._lock_class_for_update(connection, source["class_org_unit_id"])
+    cycle = execute(connection,
+        "SELECT * FROM class_learning_cycles WHERE id=? AND binding_id=? AND class_org_unit_id=?"
+        + ("" if isinstance(connection, sqlite3.Connection) else " FOR UPDATE"),
+        (source["cycle_id"], source["binding_id"], source["class_org_unit_id"]),
+    ).fetchone()
+    if not cycle or cycle["source_event_group_id"] != source["event_group_id"]:
+        raise credits.LearningCreditError("班会周期与结算来源不一致")
+    if cycle["cycle_status"] == "CLOSED" and cycle["actual_class_meeting_at"]:
+        return
+    options = json.loads(source["options_json"])
+    try:
+        cycles.confirm_class_meeting(
+            actor_user_id=actor_user_id, class_org_unit_id=source["class_org_unit_id"],
+            actual_class_meeting_at=options["actual_start"], source_event_group_id=source["event_group_id"],
+            confirmation_reason=f"班会学分批次{row['id']}成功结算后更新学习周期",
+            learning_cycle_id=source["cycle_id"], _connection=connection, _settlement=True,
+        )
+    except ValueError as exc:
+        raise credits.LearningCreditError(str(exc)) from exc
+
+
 def _reconcile_posted_items(connection: Any, row: Any) -> tuple[int, Decimal]:
     items = execute(
         connection,
@@ -1582,6 +1637,8 @@ def reconcile_stale_posting_batch(*, actor_user_id: int, batch_id: int) -> dict[
         )
         if changed.rowcount != 1:
             raise credits.LearningCreditError("批次心跳或状态已变化，必须重新读取")
+        if final_status == "POSTED":
+            _advance_source_learning_cycle(connection, row, actor_user_id=actor_user_id)
         after = int(execute(
             connection, "SELECT COUNT(*) AS n FROM learning_credit_entries"
         ).fetchone()["n"])
@@ -1817,6 +1874,7 @@ def _post_batch(
             count, points = _reconcile_posted_items(connection, row)
             if count != int(row["proposed_entry_count"]) or points != Decimal(str(row["proposed_points"])):
                 raise credits.LearningCreditError("已入账批次对账失败")
+            _advance_source_learning_cycle(connection, row, actor_user_id=actor_user_id)
             return _batch_summary(connection, batch_id, idempotent=True)
         if row["status"] == "PARTIAL_FAILED" and not resume_partial_failure:
             raise credits.LearningCreditError("部分失败批次必须明确请求续跑")
@@ -1986,6 +2044,8 @@ def _post_batch(
         )
         if changed.rowcount != 1:
             raise credits.LearningCreditError("批次入账终态已变化")
+        if final_status == "POSTED":
+            _advance_source_learning_cycle(connection, current, actor_user_id=actor_user_id)
         write_audit(
             connection, actor_user_id=actor_user_id,
             action="learning_credit.batch.post", resource_type="learning_credit_settlement_batch",

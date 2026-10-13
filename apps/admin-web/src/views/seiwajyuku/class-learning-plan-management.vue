@@ -406,10 +406,8 @@ onMounted(load);
       <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
       <el-alert
         v-if="health"
-        :title="health.monthly_refresh?.enabled
-          ? '每月自动更新已启用：按上海时区月初推进学习内容，手动校正本月生效；班会、课程完成和积分仍按实际记录。'
-          : '每月自动更新尚未启用，当前学习周期仍需人工维护。'"
-        :type="health.monthly_refresh?.enabled ? 'info' : 'warning'"
+        title="班会线下签到学分正式结算成功后，本班自动进入下一学习周期。上传、生成预览和待复核时保留本期；历史周期补登保留当前进度。"
+        type="info"
         show-icon
         :closable="false"
       />
