@@ -241,3 +241,35 @@ def test_list_scope_is_permission_intersection_and_refreshed_per_request(source_
     # Removing the request-local restriction is observed immediately, without
     # a TTL/global role cache retaining a previous request's scopes.
     assert any(r['id']==iid for r in sources.workbench(f['actor'])['imports'])
+
+
+def test_full_export_keeps_authorized_opening_balance_without_class_assignment(source_fixture):
+    f=source_fixture
+    with transaction() as c:
+        now=credits._db_timestamp(c)
+        execute(c,"DELETE FROM member_org_relations WHERE member_id=? AND relation_type='STUDY_CLASS'",(f['member_id'],))
+        execute(c,'UPDATE members SET org_unit_id=? WHERE id=?',(f['center_id'],f['member_id']))
+        fp=sources._hash(['unassigned-opening',f['suffix']])
+        iid=execute(c,"INSERT INTO learning_credit_opening_imports(content_fingerprint,file_sha256,original_filename,cutoff_date,status,created_by,posted_by,created_at,posted_at) VALUES (?,?,'隔离期初.xlsx','2026-09-30','POSTED',?,?,?,?)",(fp,fp,f['actor'],f['actor'],now,now)).lastrowid
+        execute(c,"INSERT INTO learning_credit_opening_balances(member_id,import_id,org_unit_id,points,cutoff_date,posted_by,posted_at) VALUES (?,?,?,12.75,'2026-09-30',?,?)",(f['member_id'],iid,f['center_id'],f['actor'],now))
+    book=load_workbook(io.BytesIO(exports.export_credits(f['actor'])))
+    rows=list(book['学分汇总'].iter_rows(min_row=2,values_only=True))
+    row=next((r for r in rows if r[0]==f['member_code']),None)
+    assert row is not None and row[3]==12.75 and row[5]==12.75
+    assert '余额归属' in row[2]
+    with patch.object(credits,'accessible_org_ids',return_value={f['class_id']}):
+        restricted=load_workbook(io.BytesIO(exports.export_credits(f['actor'])))
+        assert all(r[0].value!=f['member_code'] for r in restricted['学分汇总'].iter_rows(min_row=2))
+
+
+def test_incomplete_recording_archives_source_then_can_be_confirmed_later(source_fixture):
+    f=source_fixture
+    first,_,_=registered(f,'DAILY_READING',workbook(f,'DAILY_READING',[date.fromisoformat(DAY),'否']))
+    old=sources.get_import(first,f['actor'])
+    assert old['source_only'] and old['rows'][0]['fact_id'] is None
+    assert not sources.create_batches(first,f['actor'])['batches']
+    second,_,_=registered(f,'DAILY_READING')
+    assert second!=first and not sources.get_import(second,f['actor'])['source_only']
+    sources.create_batches(second,f['actor']);sources.process(second,f['actor'],'submit');sources.process(second,f['reviewer'],'approve');sources.process(second,f['actor'],'post')
+    assert fetch_one("SELECT SUM(points) AS p FROM learning_credit_entries WHERE member_id=? AND credit_type='DAILY_READING'",(f['member_id'],))['p']==1
+    assert json.loads(sources.get_import(first,f['actor'])['rows'][0]['record_json'])['已完成录音']=='否'

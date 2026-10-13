@@ -300,7 +300,10 @@ def _receipt(c,actor,import_id,*,allowed_scope=...,summary=False):
     item=dict(row);item['class_name']=execute(c,'SELECT name FROM org_units WHERE id=?',(row['class_org_unit_id'],)).fetchone()['name']
     rows=[] if summary else [dict(r) for r in execute(c,'SELECT r.*,m.member_code,m.name AS member_name FROM learning_credit_source_rows r JOIN members m ON m.id=r.member_id WHERE r.import_id=? ORDER BY r.excel_row,r.id',(import_id,)).fetchall()]
     if not summary:_validate_receipt(c,item,rows)
-    item['rows']=rows;item['row_count']=int(execute(c,'SELECT COUNT(DISTINCT excel_row) AS n FROM learning_credit_source_rows WHERE import_id=?',(import_id,)).fetchone()['n']) if summary else len({r['excel_row'] for r in rows});item['batches']=[dict(r) for r in execute(c,'SELECT b.id,b.batch_no,b.status,b.blocked_count,b.proposed_entry_count,b.proposed_points,b.posted_entry_count,b.posted_points,b.created_by FROM learning_credit_source_batches l JOIN learning_credit_settlement_batches b ON b.id=l.batch_id WHERE l.import_id=? ORDER BY b.id',(import_id,)).fetchall()]
+    stats=execute(c,'SELECT COUNT(DISTINCT excel_row) AS n,COUNT(fact_id) AS fact_count FROM learning_credit_source_rows WHERE import_id=?',(import_id,)).fetchone() if summary else None
+    item['rows']=rows;item['row_count']=int(stats['n']) if summary else len({r['excel_row'] for r in rows})
+    item['source_only']=item['source_kind']=='DAILY_READING' and (int(stats['fact_count'])==0 if summary else not any(r['fact_id'] is not None for r in rows))
+    item['batches']=[dict(r) for r in execute(c,'SELECT b.id,b.batch_no,b.status,b.blocked_count,b.proposed_entry_count,b.proposed_points,b.posted_entry_count,b.posted_points,b.created_by FROM learning_credit_source_batches l JOIN learning_credit_settlement_batches b ON b.id=l.batch_id WHERE l.import_id=? ORDER BY b.id',(import_id,)).fetchall()]
     for batch in item['batches']:
         if summary:break
         stored=execute(c,'SELECT source_type,source_snapshot_json FROM learning_credit_settlement_batches WHERE id=?',(batch['id'],)).fetchone()
@@ -340,6 +343,9 @@ def _validate_receipt(c,source,rows):
             if not ar or ar['member_id']!=r['member_id'] or ar['event_group_id']!=source['event_group_id'] or ar['session_code']!=r['source_reference']:raise credits.LearningCreditError('签到事实身份或场次已变化')
         else:
             if _json(saved['raw'])!=_json(record) or saved['source_reference']!=r['source_reference']:raise credits.LearningCreditError('原始打卡或分享来源已变化')
+            if r['fact_id'] is None:
+                if source['source_kind']=='DAILY_READING' and saved['participation_status']=='CANCELLED' and record.get('已完成录音')=='否':continue
+                raise credits.LearningCreditError('来源缺少对应的确认事实，请核对')
             fact=execute(c,'SELECT * FROM learning_credit_activity_facts WHERE id=?',(r['fact_id'],)).fetchone()
             if not fact or fact['member_id']!=r['member_id'] or fact['class_org_unit_id']!=source['class_org_unit_id'] or fact['source_type']!='CREDIT_EXCEL_'+source['source_kind'] or fact['source_id']!=saved['source_id'] or fact['participation_status']!=saved['participation_status'] or str(fact['occurred_on'])[:10]!=saved['occurred_on'] or str(fact['title'] or '')!=str(saved['raw'].get('分享标题') or ''):raise credits.LearningCreditError('打卡或分享事实已变化，请重新核对')
 
@@ -365,7 +371,8 @@ def register(content,kind,class_id,options_text,note,filename,fingerprint,actor)
         else:
             for r in rows:
                 existing=execute(c,'SELECT id FROM learning_credit_activity_facts WHERE source_type=? AND source_id=?',('CREDIT_EXCEL_'+kind,r['source_id'])).fetchone()
-                if existing:fact_id=int(existing['id'])
+                if kind=='DAILY_READING' and r['participation_status']=='CANCELLED':fact_id=None
+                elif existing:fact_id=int(existing['id'])
                 else:
                     fact=activity.record_learning_activity_fact(actor_user_id=actor,activity_type=kind,member_id=r['member_id'],class_org_unit_id=class_id,occurred_on=r['occurred_on'],source_type='CREDIT_EXCEL_'+kind,source_id=r['source_id'],participation_status=r['participation_status'],title=r['raw'].get('分享标题'),metadata={'source_import_id':import_id,'file_sha256':digest,'excel_row':r['excel_row'],'reference':r['source_reference']},binding_id=binding['id'],_connection=c)
                     fact_id=int(fact['id'])
@@ -443,6 +450,7 @@ def create_batches(import_id,actor):
     else:
         by_period={}
         for r in source['rows']:
+            if r['fact_id'] is None:continue
             period=str(r['occurred_on'])[:10] if kind=='DAILY_READING' else str(r['occurred_on'])[:7]
             by_period.setdefault(period,[]).append(r)
         plans=[]

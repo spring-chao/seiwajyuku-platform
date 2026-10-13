@@ -59,6 +59,7 @@ const slotLabel = (value: string) =>
   )[value] || value;
 const batchSummary = (value: unknown) => {
   const r = resolveRow(value);
+  if (r?.source_only) return "原表已保存，未完成录音，无需入账";
   return r?.batches.length
     ? r.batches.map(b => statuses[b.status] || b.status).join("、")
     : "来源已保存，待生成预览";
@@ -377,7 +378,7 @@ onMounted(() => perform(reload));
           ><el-select
             v-model="exportForm.class_id"
             clearable
-            placeholder="全部授权班级"
+            placeholder="全部授权学长（含未分班）"
             filterable
             ><el-option
               v-for="c in exportClasses"
@@ -469,10 +470,10 @@ onMounted(() => perform(reload));
           </p></template
         >
         <p v-else-if="form.kind === 'DAILY_READING'">
-          按学长和日期填写是否已完成录音。非工作日、未完成录音不计分，同一学长同一天只记一次。
+          按学长和日期填写是否已完成录音。非工作日、未完成录音不计分，同一学长同一天只记一次。未完成的记录只保存原表；之后确认完成，可填写“是”重新上传补录。
         </p>
         <p v-else>
-          仅填写已经评定优秀的分享；每次分享使用稳定的分享编号，重复上传沿用原编号。系统保留月度计分上限。
+          仅填写已经评定优秀的分享；每次分享填写一个编号，例如20261009-01，重复上传沿用原编号。系统保留月度计分上限。
         </p>
         <div v-if="form.kind === 'DAILY_READING'" class="calendar-status">
           <p v-if="state?.reading_calendar.status === 'PUBLISHED'">
@@ -599,7 +600,10 @@ onMounted(() => perform(reload));
         ><el-table-column label="操作" min-width="340"
           ><template #default="{ row }"
             ><el-button link @click="show(row)">查看来源</el-button
-            ><el-button link :disabled="busy" @click="act(row, 'generate')"
+            ><el-button
+              link
+              :disabled="busy || row.source_only"
+              @click="act(row, 'generate')"
               >生成结算预览</el-button
             ><el-button
               link
