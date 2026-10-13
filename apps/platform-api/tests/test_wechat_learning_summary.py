@@ -10,11 +10,30 @@ from fastapi.testclient import TestClient
 from app.db import execute, transaction
 from app.main import app
 from app.services.learning_credits import _insert_entry
+from app.services.wechat_learning import _attendance_records
 from test_v12_mvp import _seed_group_leader_fixture
 
 
 def _stamp() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def test_report_history_uses_verified_study_class_and_deleted_test_activity_is_hidden():
+    fixture = _seed_group_leader_fixture()
+    now = _stamp()
+    external = uuid4().hex
+    with transaction() as c:
+        execute(c, "UPDATE org_units SET name='合成直属班' WHERE id=?", (fixture["class_id"],))
+        group = execute(c, "INSERT INTO attendance_event_groups(source_key,external_group_id,org_unit_id,study_org_unit_id,title,activity_type,event_date,status,created_at,updated_at) VALUES ('signin',?,'org-suzhou',?,'合成直属班报告会','CENTER_QUARTERLY_REPORT','2026-09-28','ACTIVE',?,?)", (external, fixture["class_id"], now, now)).lastrowid
+        session = execute(c, "INSERT INTO attendance_sessions(event_group_id,external_session_id,session_code,status,created_at,updated_at) VALUES (?,?,'MORNING','ACTIVE',?,?)", (group, external, now, now)).lastrowid
+        execute(c, "INSERT INTO attendance_records(attendance_session_id,external_record_id,member_id,participant_type,attendance_status,score_eligible,received_at,created_at,updated_at) VALUES (?,?,?,'MEMBER','PRESENT',0,?,?,?)", (session, external, fixture["member_id"], now, now, now))
+        entries = _attendance_records(c, fixture["member_id"])
+        report = next(row for row in entries if row["source_id"] == f"attendance:signin:{external}")
+        assert report["title"] == "合成直属班报告会"
+        assert report["class_name"] == "合成直属班"
+        assert report["group_name"] == ""
+        execute(c, "UPDATE attendance_event_groups SET status='DELETED' WHERE id=?", (group,))
+        assert not any(row["source_id"] == report["source_id"] for row in _attendance_records(c, fixture["member_id"]))
 
 
 def _insert_learning_facts(fixture: dict) -> None:
