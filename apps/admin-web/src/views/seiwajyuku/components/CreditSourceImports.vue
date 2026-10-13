@@ -403,10 +403,13 @@ onMounted(() => perform(reload));
     </section>
     <section v-if="canManage" class="section">
       <strong>上传10月以后的学习记录</strong>
-      <p>
-        ①选择班级下载预填名册的模板 → ②填写签到、录音完成或已评定优秀的分享 →
-        ③上传检查并保存来源 →
-        ④生成结算预览、复核、确认入账。表格填写实际记录，系统按现有规则计算学分。
+      <p v-if="form.kind === 'DAILY_READING'">
+        ①选择班级 → ②上传该班原始读书打卡表 → ③检查预计学分并保存来源 →
+        ④生成结算预览、复核、确认入账。
+      </p>
+      <p v-else>
+        ①选择班级下载预填名册的模板 → ②填写实际签到或已评定优秀的分享 →
+        ③上传检查并保存来源 → ④生成结算预览、复核、确认入账。
       </p>
       <el-alert
         v-if="state && !state.storage_available"
@@ -442,7 +445,10 @@ onMounted(() => perform(reload));
             ><el-radio-button value="EXCELLENT_SHARE"
               >优秀分享</el-radio-button
             ></el-radio-group
-          ><el-button :disabled="busy || !form.class_id" @click="getTemplate"
+          ><el-button
+            v-if="form.kind !== 'DAILY_READING'"
+            :disabled="busy || !form.class_id"
+            @click="getTemplate"
             >下载本班模板</el-button
           ></el-form-item
         >
@@ -470,26 +476,26 @@ onMounted(() => perform(reload));
           </p></template
         >
         <p v-else-if="form.kind === 'DAILY_READING'">
-          按学长和日期填写是否已完成录音。非工作日、未完成录音不计分，同一学长同一天只记一次。未完成的记录只保存原表；之后确认完成，可填写“是”重新上传补录。
+          直接上传“读书会打卡统计列表.xlsx”，无需改成新模板。系统按姓名和脱敏账户核对学长；按原表提供的日期，录音为按时完成、提前完成或过期完成时每人每天计1分。未提交只保存原表，之后完成可重新上传补录。
         </p>
         <p v-else>
           仅填写已经评定优秀的分享；每次分享填写一个编号，例如20261009-01，重复上传沿用原编号。系统保留月度计分上限。
         </p>
         <div v-if="form.kind === 'DAILY_READING'" class="calendar-status">
           <p v-if="state?.reading_calendar.status === 'PUBLISHED'">
-            2026年读书工作日日历已发布，覆盖{{
+            2026年读书日期日历已发布，覆盖{{
               state.reading_calendar.day_count
             }}天。
           </p>
           <template v-else
             ><p>
-              2026年工作日日历尚未准备，管理员可使用系统已核准的年度日历补齐，再检查读书表格。
+              2026年日期日历尚未准备，管理员可使用系统已核准的年度日历补齐，再检查读书表格。
             </p>
             <el-button
               v-if="permissions.includes('plans:business_calendar_manage')"
               :disabled="busy"
               @click="prepareCalendar"
-              >准备2026年工作日日历</el-button
+              >准备2026年日期日历</el-button
             ></template
           >
         </div>

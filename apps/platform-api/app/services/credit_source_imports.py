@@ -38,6 +38,11 @@ SHEETS = {'CLASS_MEETING':'班会线下签到','DAILY_READING':'读书打卡','E
 HEADERS = {'CLASS_MEETING':['学长编号','姓名','上午状态','下午状态','空巴状态'],
            'DAILY_READING':['学长编号','姓名','打卡日期','已完成录音'],
            'EXCELLENT_SHARE':['学长编号','姓名','分享日期','分享编号','分享标题','已评定优秀']}
+READING_REPORT_HEADERS = (
+    ['姓名','账户','小组','日期','内容标题','录音'],
+    ['姓名','账户','小组','日期','内容标题','完成率','打卡状态','读书','分享','回应','录音','准时'],
+)
+RECORDING_COMPLETE = {'按时完成','提前完成','过期完成'}
 
 
 def _json(value):
@@ -100,7 +105,7 @@ def _write_scope(actor,class_id,kind):
 
 
 def _members(c,class_id):
-    return {r['member_code']:dict(r) for r in execute(c,"SELECT DISTINCT m.id,m.member_code,m.name FROM members m JOIN member_org_relations r ON r.member_id=m.id AND r.org_unit_id=? AND r.relation_type='STUDY_CLASS' WHERE m.status='ACTIVE' ORDER BY m.id",(class_id,)).fetchall()}
+    return {r['member_code']:dict(r) for r in execute(c,"SELECT DISTINCT m.id,m.member_code,m.name,m.phone_last4,m.phone_masked FROM members m JOIN member_org_relations r ON r.member_id=m.id AND r.org_unit_id=? AND r.relation_type='STUDY_CLASS' WHERE m.status='ACTIVE' ORDER BY m.id",(class_id,)).fetchall()}
 
 
 def _date(value):
@@ -138,8 +143,25 @@ def _parse(content,kind):
         with zipfile.ZipFile(io.BytesIO(content)) as z:
             if len(z.infolist())>1000 or sum(f.file_size for f in z.infolist())>50*1024*1024 or any('externallinks' in f.lower() or 'vbaproject' in f.lower() for f in z.namelist()):raise ValueError
         book=load_workbook(io.BytesIO(content),read_only=True,data_only=False)
-    except Exception as exc:raise credits.LearningCreditError('无法读取文件，请使用下载的.xlsx模板，保留普通数值与文字') from exc
+    except Exception as exc:raise credits.LearningCreditError('无法读取文件，请上传原始.xlsx文件，保留普通数值与文字') from exc
     try:
+        if kind=='DAILY_READING' and '导出数据' in book.sheetnames:
+            sheet=book['导出数据'];headers=[v.value for v in next(sheet.iter_rows(max_row=1))]
+            if headers not in READING_REPORT_HEADERS or sheet.max_row>5001 or sheet.max_column!=len(headers):raise credits.LearningCreditError('读书会原表需保留姓名、账户、小组、日期、内容标题、录音列，单次最多5000行')
+            rows=[]
+            for i,cells in enumerate(sheet.iter_rows(min_row=2),2):
+                values=[cell.value for cell in cells]
+                if all(value in (None,'') for value in values):continue
+                raw=dict(zip(headers,values));account=str(raw.get('账户') or '').strip();status=str(raw.get('录音') or '').strip()
+                row={'excel_row':i,'member_code':'','member_name':str(raw.get('姓名') or '').strip(),'original_report':True,'errors':[],
+                     'raw':{**raw,'打卡日期':raw.get('日期'),'已完成录音':'是' if status in RECORDING_COMPLETE else '否'}}
+                if any(cell.data_type=='f' for cell in cells):row['errors'].append('含公式，请粘贴为数值或文字')
+                if not re.fullmatch(r'1[3-9]\d\*{4}\d{4}',account):row['errors'].append('账户需为原表中的脱敏手机号，不能填写完整号码')
+                if status not in RECORDING_COMPLETE|{'未提交'}:row['errors'].append('录音状态只接受按时完成、提前完成、过期完成或未提交')
+                if any(len(str(v or ''))>255 for v in values):row['errors'].append('单元格文字不能超过255字')
+                rows.append(row)
+            if not rows:raise credits.LearningCreditError('原表没有读书打卡记录')
+            return rows
         if SHEETS[kind] not in book.sheetnames:raise credits.LearningCreditError('找不到'+SHEETS[kind]+'工作表')
         sheet=book[SHEETS[kind]];headers=HEADERS[kind]
         if sheet.max_row>5001 or sheet.max_column!=len(headers) or [v.value for v in next(sheet.iter_rows(max_row=1))]!=headers:raise credits.LearningCreditError('请保留模板表头，单次最多5000行')
@@ -193,10 +215,22 @@ def _checked(c,actor,content,kind,class_id,options_text,note):
     if not 4<=len(note)<=1000:raise credits.LearningCreditError('请填写至少4字的来源确认说明')
     binding=_class(c,actor,class_id);options=_options(kind,options_text);rows=_parse(content,kind)
     roster=_members(c,class_id);seen=set();facts=[];cycle=None;event_id=None
+    roster_by_account={}
+    if kind=='DAILY_READING':
+        for member in roster.values():
+            last4=member['phone_last4'] or str(member['phone_masked'] or '')[-4:]
+            roster_by_account.setdefault((''.join(member['name'].split()),last4),[]).append(member)
     if kind=='CLASS_MEETING':cycle,event_id=_cycle(c,binding,options)
     for r in rows:
-        m=roster.get(r['member_code'])
-        if not m or ''.join(m['name'].split())!=''.join(r['member_name'].split()):r['errors'].append('编号或姓名未匹配本班名册，请使用预填模板');continue
+        if r.get('original_report'):
+            account=str(r['raw']['账户']).strip();matches=[member for member in roster_by_account.get((''.join(r['member_name'].split()),account[-4:]),[])
+                if not member['phone_masked'] or member['phone_masked']==account]
+            m=matches[0] if len(matches)==1 else None
+            if m:r['member_code']=m['member_code']
+        else:m=roster.get(r['member_code'])
+        if not m or ''.join(m['name'].split())!=''.join(r['member_name'].split()):
+            r['errors'].append('姓名与账户尾号未唯一匹配本班名册，请核对后台联系方式' if r.get('original_report') else '编号或姓名未匹配本班名册，请使用预填模板')
+            continue
         r['member_id']=int(m['id']);r['member_name']=m['name']
         try:
             day=_date(datetime.fromisoformat(options['actual_start']).date() if kind=='CLASS_MEETING' else r['raw'][HEADERS[kind][2]])
@@ -217,8 +251,9 @@ def _checked(c,actor,content,kind,class_id,options_text,note):
                 r['participation_status']='CONFIRMED' if yes=='是' else 'CANCELLED'
                 existing=execute(c,'SELECT * FROM learning_credit_activity_facts WHERE source_type=? AND source_id=?',('CREDIT_EXCEL_'+kind,r['source_id'])).fetchone()
                 if existing and (existing['class_org_unit_id']!=class_id or existing['participation_status']!=r['participation_status'] or str(existing['title'] or '')!=str(r['raw'].get('分享标题') or '')):raise credits.LearningCreditError('已有同一来源但内容不同，请核对原记录，不能覆盖')
+                if existing and r.get('original_report') and json.loads(existing['metadata_json'] or '{}').get('source_format')!='READING_REPORT':raise credits.LearningCreditError('这一天已有其他格式的读书事实，请核对原来源，不能重复改写')
                 # Existing IDs sort before new IDs, matching the durable insert order.
-                fact={'id':int(existing['id']) if existing else 10**15+r['excel_row'],'activity_type':kind,'member_id':m['id'],'member_name':m['name'],'class_org_unit_id':class_id,'class_name':binding['class_name'],'binding_id':binding['id'],'occurred_on':day.isoformat(),'_occurred_date':day,'participation_status':r['participation_status'],'source_type':'CREDIT_EXCEL_'+kind,'source_id':r['source_id'],'title':r['raw'].get('分享标题'),'metadata':{}}
+                fact={'id':int(existing['id']) if existing else 10**15+r['excel_row'],'activity_type':kind,'member_id':m['id'],'member_name':m['name'],'class_org_unit_id':class_id,'class_name':binding['class_name'],'binding_id':binding['id'],'occurred_on':day.isoformat(),'_occurred_date':day,'participation_status':r['participation_status'],'source_type':'CREDIT_EXCEL_'+kind,'source_id':r['source_id'],'title':r['raw'].get('分享标题'),'metadata':{'source_format':'READING_REPORT'} if r.get('original_report') else {}}
                 facts.append(fact);r['fact_id']=fact['id'] if existing else None
                 key=(m['id'],day.isoformat(),reference)
             if key in seen:raise credits.LearningCreditError('同一学长的同一来源在表内重复，请只保留一行')
@@ -312,7 +347,7 @@ def _receipt(c,actor,import_id,*,allowed_scope=...,summary=False):
         if source_kind=='CLASS_MEETING':
             matches=stored['source_type']=='CLASS_MEETING' and saved.get('event_group_id')==item['event_group_id']
         else:
-            ids={int(r['fact_id']) for r in rows}
+            ids={int(r['fact_id']) for r in rows if r['fact_id'] is not None}
             selected=saved.get('fact_ids_filter') or []
             matches=stored['source_type']==source_kind and saved.get('class_org_unit_id')==item['class_org_unit_id'] and bool(selected) and set(selected)<=ids
         if not matches:raise credits.LearningCreditError('结算批次与原文件来源不同，请核对关联')
@@ -374,7 +409,7 @@ def register(content,kind,class_id,options_text,note,filename,fingerprint,actor)
                 if kind=='DAILY_READING' and r['participation_status']=='CANCELLED':fact_id=None
                 elif existing:fact_id=int(existing['id'])
                 else:
-                    fact=activity.record_learning_activity_fact(actor_user_id=actor,activity_type=kind,member_id=r['member_id'],class_org_unit_id=class_id,occurred_on=r['occurred_on'],source_type='CREDIT_EXCEL_'+kind,source_id=r['source_id'],participation_status=r['participation_status'],title=r['raw'].get('分享标题'),metadata={'source_import_id':import_id,'file_sha256':digest,'excel_row':r['excel_row'],'reference':r['source_reference']},binding_id=binding['id'],_connection=c)
+                    fact=activity.record_learning_activity_fact(actor_user_id=actor,activity_type=kind,member_id=r['member_id'],class_org_unit_id=class_id,occurred_on=r['occurred_on'],source_type='CREDIT_EXCEL_'+kind,source_id=r['source_id'],participation_status=r['participation_status'],title=r['raw'].get('分享标题'),metadata={'source_import_id':import_id,'file_sha256':digest,'excel_row':r['excel_row'],'reference':r['source_reference'],**({'source_format':'READING_REPORT'} if r.get('original_report') else {})},binding_id=binding['id'],_connection=c)
                     fact_id=int(fact['id'])
                 execute(c,'INSERT INTO learning_credit_source_rows(import_id,member_id,excel_row,occurred_on,source_reference,record_json,fact_id) VALUES (?,?,?,?,?,?,?)',(import_id,r['member_id'],r['excel_row'],r['occurred_on'],r['source_reference'],_json(r['raw']),fact_id))
         write_audit(c,actor_user_id=actor,action='learning.credit_source.import',resource_type='credit_source_import',resource_id=str(import_id),org_unit_id=class_id,after={'kind':kind,'count':len(rows),'file_sha256':digest,'fingerprint':fingerprint,'ledger_write':False})
