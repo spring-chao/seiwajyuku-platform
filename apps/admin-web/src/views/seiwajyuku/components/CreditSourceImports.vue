@@ -403,10 +403,13 @@ onMounted(() => perform(reload));
     </section>
     <section v-if="canManage" class="section">
       <strong>上传10月以后的学习记录</strong>
-      <p>
-        ①选择班级下载预填名册的模板 → ②填写签到、录音完成或已评定优秀的分享 →
-        ③上传检查并保存来源 →
-        ④生成结算预览、复核、确认入账。表格填写实际记录，系统按现有规则计算学分。
+      <p v-if="form.kind === 'DAILY_READING'">
+        ①选择班级 → ②上传该班原始读书打卡表 → ③检查预计学分并保存来源 →
+        ④生成结算预览、复核、确认入账。
+      </p>
+      <p v-else>
+        ①选择班级下载预填名册的模板 → ②填写实际签到或已评定优秀的分享 →
+        ③上传检查并保存来源 → ④生成结算预览、复核、确认入账。
       </p>
       <el-alert
         v-if="state && !state.storage_available"
