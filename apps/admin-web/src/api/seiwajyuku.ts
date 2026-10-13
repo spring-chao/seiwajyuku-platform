@@ -1133,6 +1133,12 @@ export type AttendanceActivityRow = AttendanceEventGroup & {
   display_title?: string;
 };
 
+export const deleteAttendanceEventGroup = (id: number, expectedTitle: string) =>
+  http.request<{ success: boolean; data: { event_group_id: number; status: string } }>(
+    "delete", `/api/v1/attendance/event-groups/${id}`,
+    { data: { expected_title: expectedTitle, confirm_test_activity: true } }
+  );
+
 export type AttendanceSession = {
   id: number;
   event_group_id: number;

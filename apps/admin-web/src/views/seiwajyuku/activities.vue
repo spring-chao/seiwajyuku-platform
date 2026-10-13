@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import dayjs from "dayjs";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { useUserStoreHook } from "@/store/modules/user";
 import { hasPerms } from "@/utils/auth";
 import {
   getAttendanceActivityRows,
+  deleteAttendanceEventGroup,
   getAttendanceEventGroupDetail,
   getAttendanceRecords,
   downloadAttendanceRecords,
@@ -25,6 +27,34 @@ import {
 defineOptions({ name: "ActivityAdmin" });
 
 const loading = ref(false);
+const deletingGroupId = ref<number | null>(null);
+const canDeleteActivity = computed(() =>
+  ["attendance:manage", "attendance:view"].every(permission =>
+    useUserStoreHook().permissions.includes(permission)
+  )
+);
+
+async function deleteActivity(row: any) {
+  if (deletingGroupId.value !== null) return;
+  if (!Number.isInteger(row.id)) return;
+  deletingGroupId.value = row.id;
+  const related = rows.value.filter(item => item.id === row.id);
+  try {
+    try {
+      await ElMessageBox.confirm(
+      `请确认“${row.title || "未命名活动"}”是测试或无效活动。${related.length > 1 ? `该活动的 ${related.length} 个场次将一起删除。` : ""}删除后活动及测试签到不再显示在活动列表、签到候选和个人参与记录中。已结算学分或人工裁定的活动需先复核。`,
+      "删除测试或无效活动", { type: "warning", confirmButtonText: "确认是测试活动并删除", cancelButtonText: "取消" }
+      );
+    } catch {
+      return;
+    }
+    await deleteAttendanceEventGroup(row.id, row.title || "");
+    ElMessage.success("活动已删除");
+    await load();
+  } finally {
+    deletingGroupId.value = null;
+  }
+}
 const month = ref(dayjs().format("YYYY-MM"));
 const rows = ref<AttendanceActivityRow[]>([]);
 const syncStatus = ref<AttendanceSyncStatus | null>(null);
@@ -492,10 +522,16 @@ async function downloadDetailRecords() {
             {{ activityStatusLabel(row.status) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="190" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="openActivityDetail(row)">
               查看明细
+            </el-button>
+            <el-button v-if="canDeleteActivity" type="danger" link
+              :loading="deletingGroupId === row.id"
+              :disabled="deletingGroupId !== null && deletingGroupId !== row.id"
+              @click="deleteActivity(row)">
+              删除
             </el-button>
           </template>
         </el-table-column>

@@ -34,6 +34,8 @@ from app.services.attendance_scoring import (
     upsert_score_record,
 )
 from app.services.attendance_sync import sync_from_signin
+from app.services.attendance_deletion import delete_event_group
+from app.services.signin_engine import SigninEngineError
 from app.services.iam import accessible_org_ids
 
 
@@ -55,6 +57,21 @@ class AdjudicationPayload(BaseModel):
     occurred_at: str | None = None
     reason: str = Field(min_length=4, max_length=500)
     member_id: int | None = None
+
+
+class DeleteEventPayload(BaseModel):
+    expected_title: str = Field(max_length=500)
+    confirm_test_activity: bool = Field(default=False, strict=True)
+
+
+@router.delete("/event-groups/{event_group_id}")
+def delete_activity(event_group_id: int, payload: DeleteEventPayload,
+                    user: dict = Depends(require_permission("attendance:manage"))) -> dict:
+    try:
+        return {"success": True, "data": delete_event_group(event_group_id, expected_title=payload.expected_title,
+                confirm_test_activity=payload.confirm_test_activity, user=user)}
+    except SigninEngineError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
 
 
 def _as_utc_datetime(value: object) -> datetime | None:
@@ -182,7 +199,7 @@ def _member_activity_month_clause(month: str | None) -> tuple[str, tuple[str, ..
         " AND EXISTS (SELECT 1 FROM attendance_records ar "
         "JOIN attendance_sessions mas ON mas.id=ar.attendance_session_id "
         "JOIN attendance_event_groups meg ON meg.id=mas.event_group_id "
-        "WHERE ar.member_id=m.id AND substr(meg.event_date, 1, 7)=?)",
+        "WHERE ar.member_id=m.id AND meg.status<>'DELETED' AND substr(meg.event_date, 1, 7)=?)",
         (month,),
     )
 
@@ -201,7 +218,7 @@ def _attendance_reconciliation_summary(month: str | None = None) -> dict:
             "SELECT COUNT(*) AS count FROM attendance_records ar "
             "JOIN attendance_sessions s ON s.id=ar.attendance_session_id "
             "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
-            "WHERE (ar.attendance_status='UNMATCHED' OR ar.member_id IS NULL)"
+            "WHERE eg.status<>'DELETED' AND (ar.attendance_status='UNMATCHED' OR ar.member_id IS NULL)"
             + unmatched_month_clause,
             (month,) if month else (),
         ),
@@ -368,7 +385,7 @@ def reconciliation_queue(
             "count": "SELECT COUNT(*) AS count FROM attendance_records r "
             "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
             "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
-            "WHERE (r.attendance_status='UNMATCHED' OR r.member_id IS NULL)"
+            "WHERE eg.status<>'DELETED' AND (r.attendance_status='UNMATCHED' OR r.member_id IS NULL)"
             + unmatched_month_clause,
             "count_params": (month,) if month else (),
             "rows": "SELECT r.id, r.member_code_snapshot, r.name_snapshot, "
@@ -376,7 +393,7 @@ def reconciliation_queue(
             "eg.title, eg.event_date, eg.org_unit_id, eg.study_org_unit_id "
             "FROM attendance_records r JOIN attendance_sessions s "
             "ON s.id=r.attendance_session_id JOIN attendance_event_groups eg "
-            "ON eg.id=s.event_group_id WHERE (r.attendance_status='UNMATCHED' "
+            "ON eg.id=s.event_group_id WHERE eg.status<>'DELETED' AND (r.attendance_status='UNMATCHED' "
             "OR r.member_id IS NULL)"
             + unmatched_month_clause
             + " ORDER BY eg.event_date DESC, r.id DESC",
@@ -474,7 +491,7 @@ def reconciliation_breakdown(
             "FROM attendance_records r JOIN attendance_sessions s ON s.id=r.attendance_session_id "
             "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
             "JOIN org_units o ON o.id=eg.org_unit_id "
-            "WHERE (r.attendance_status='UNMATCHED' OR r.member_id IS NULL) "
+            "WHERE eg.status<>'DELETED' AND (r.attendance_status='UNMATCHED' OR r.member_id IS NULL) "
             + ("AND substr(eg.event_date, 1, 7)=? " if month else "")
             + "GROUP BY eg.org_unit_id, o.name ORDER BY count DESC, eg.org_unit_id"
         )
@@ -571,7 +588,7 @@ def list_event_groups(
         "FROM attendance_event_groups eg "
         "JOIN org_units o ON o.id=eg.org_unit_id "
         "LEFT JOIN org_units class_org ON class_org.id=eg.study_org_unit_id "
-        "WHERE 1=1"
+        "WHERE eg.status<>'DELETED'"
     )
     if month:
         sql += " AND substr(eg.event_date, 1, 7)=?"
@@ -710,7 +727,7 @@ def list_activity_sessions(
         "JOIN attendance_sessions s ON s.event_group_id=eg.id "
         "JOIN org_units o ON o.id=eg.org_unit_id "
         "LEFT JOIN org_units class_org ON class_org.id=eg.study_org_unit_id "
-        "WHERE 1=1"
+        "WHERE eg.status<>'DELETED'"
     )
     if month:
         sql += " AND substr(eg.event_date, 1, 7)=?"
@@ -797,7 +814,7 @@ def event_group_detail(
         "FROM attendance_event_groups eg "
         "JOIN org_units o ON o.id=eg.org_unit_id "
         "LEFT JOIN org_units class_org ON class_org.id=eg.study_org_unit_id "
-        "WHERE eg.id=?",
+        "WHERE eg.id=? AND eg.status<>'DELETED'",
         (group_id,),
     )
     if not group:
@@ -909,7 +926,7 @@ def download_event_group_records(
     """Download a privacy-minimized Excel workbook of read-only sign-in details."""
     group = fetch_one(
         "SELECT id, title, event_date, org_unit_id, study_org_unit_id "
-        "FROM attendance_event_groups WHERE id=?",
+        "FROM attendance_event_groups WHERE id=? AND status<>'DELETED'",
         (group_id,),
     )
     if not group:
@@ -1046,7 +1063,7 @@ def list_records(
         "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
         "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
         "LEFT JOIN attendance_score_records sr ON sr.attendance_record_id=r.id "
-        "WHERE 1=1"
+        "WHERE eg.status<>'DELETED'"
     )
     if event_group_id:
         sql += " AND s.event_group_id=?"
@@ -1242,7 +1259,7 @@ def recalculate(
     """Recalculate all scores for an event group."""
     group = fetch_one(
         "SELECT org_unit_id, study_org_unit_id "
-        "FROM attendance_event_groups WHERE id=?",
+        "FROM attendance_event_groups WHERE id=? AND status<>'DELETED'",
         (group_id,),
     )
     if not group:

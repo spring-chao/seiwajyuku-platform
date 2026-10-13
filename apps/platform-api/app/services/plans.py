@@ -383,7 +383,7 @@ def operations_snapshot(
         "SELECT eg.id, eg.org_unit_id, eg.study_org_unit_id "
         "FROM attendance_event_groups eg WHERE eg.event_date>=? AND eg.event_date<? "
         "AND eg.activity_type='CLASS_MEETING' "
-        "AND eg.status NOT IN ('CANCELLED','INACTIVE')"
+        "AND eg.status NOT IN ('CANCELLED','INACTIVE','DELETED')"
         + event_scope
         + " ORDER BY eg.event_date, eg.id",
         (f"{year:04d}-01-01", end, *event_scope_params),
@@ -403,7 +403,7 @@ def operations_snapshot(
         "FROM attendance_event_groups eg JOIN org_units o ON o.id=eg.org_unit_id "
         "LEFT JOIN org_units co ON co.id=eg.study_org_unit_id "
         "WHERE substr(eg.event_date, 1, 7)=? "
-        "AND eg.status NOT IN ('CANCELLED','INACTIVE')"
+        "AND eg.status NOT IN ('CANCELLED','INACTIVE','DELETED')"
         + event_scope
         + " ORDER BY eg.event_date, co.name, eg.title, eg.id",
         (period, *event_scope_params),

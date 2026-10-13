@@ -26,6 +26,10 @@ from app.services.attendance_scoring import (
 )
 
 
+class DeletedAttendanceEvent(ValueError):
+    """A retained deletion marker must never be resurrected by a source pull."""
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -133,6 +137,11 @@ def _sync_run_finish(
 def _upsert_event_group(
     connection, *, source_key: str, external_group_id: str, group_data: dict, now: str
 ) -> int:
+    deleted = execute(connection, "SELECT id FROM attendance_event_groups "
+                      "WHERE source_key=? AND external_group_id=? AND status='DELETED'",
+                      (source_key, external_group_id)).fetchone()
+    if deleted:
+        raise DeletedAttendanceEvent("活动已删除")
     org_unit_id = str(group_data.get("org_unit_id") or "").strip()
     event_date = group_data.get("event_date")
     if not external_group_id:
@@ -486,6 +495,8 @@ def sync_from_signin(cursor: str | None = None, *, event_id: str | None = None,
                         records_cursor = records_data.get("next_cursor")
                         if not records_cursor:
                             break
+                except DeletedAttendanceEvent:
+                    ignored += 1
                 except Exception as exc:
                     errors += 1
                     error_messages.append(
