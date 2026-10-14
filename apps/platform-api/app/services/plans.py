@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Any
 
+from app.core.business_time import business_date_sql
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
@@ -327,7 +328,7 @@ def operations_snapshot(
             "JOIN renewal_cycles c ON c.id=h.renewal_cycle_id "
             "JOIN members m ON m.id=c.member_id "
             "WHERE h.to_status='RENEWED' AND h.from_status IS NOT NULL "
-            "AND h.created_at>=? AND h.created_at<?"
+            f"AND {business_date_sql('h.created_at')}>=? AND {business_date_sql('h.created_at')}<?"
             + renewal_scope,
             (start, end, *renewal_scope_params),
         )["count"]

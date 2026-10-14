@@ -10,6 +10,7 @@ from typing import Any
 from openpyxl import load_workbook
 
 from app.core.privacy import encrypt_text, phone_hash
+from app.core.business_time import BUSINESS_TIMEZONE, business_today, calendar_date, instant_date
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
@@ -200,7 +201,7 @@ def determine_calendar_stage(
     if not 1 <= int(due_month) <= 12:
         raise ValueError("续费月份必须在1至12之间")
     current = as_of or datetime.now(UTC)
-    current_date = current.date() if isinstance(current, datetime) else current
+    current_date = business_today(current)
     months_until_due = (
         int(renewal_year) * 12 + int(due_month)
         - (current_date.year * 12 + current_date.month)
@@ -237,7 +238,7 @@ def determine_renewal_stage(
     normalised_status = str(status or "").upper()
     if normalised_status in CLOSED_RENEWAL_STATUSES:
         current = as_of or datetime.now(UTC)
-        current_date = current.date() if isinstance(current, datetime) else current
+        current_date = business_today(current)
         calendar = determine_calendar_stage(renewal_year, due_month, as_of=current_date)
         return {
             **calendar,
@@ -290,18 +291,7 @@ def _redact_action_text(value: Any) -> str | None:
 
 
 def _calendar_date(value: Any) -> date | None:
-    """Read the calendar date prefix used by follow-up date fields."""
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        return date.fromisoformat(text[:10])
-    except ValueError:
-        return None
+    return calendar_date(value)
 
 
 _FOLLOWUP_SHORT_DATE_RE = re.compile(
@@ -342,7 +332,7 @@ def _normalize_followup_datetime(
         if short_match:
             reference = now or datetime.now(UTC)
             if reference.tzinfo is not None:
-                reference = reference.astimezone(UTC).replace(tzinfo=None)
+                reference = reference.astimezone(BUSINESS_TIMEZONE).replace(tzinfo=None)
             month = int(short_match.group("month"))
             day = int(short_match.group("day"))
             time_parts = [
@@ -372,8 +362,9 @@ def _normalize_followup_datetime(
             except ValueError as exc:
                 raise ValueError(_FOLLOWUP_DATETIME_ERROR) from exc
 
+    # A next-follow-up is a Beijing wall-clock plan, unlike an audit instant.
     if candidate.tzinfo is not None:
-        candidate = candidate.astimezone(UTC).replace(tzinfo=None)
+        candidate = candidate.astimezone(BUSINESS_TIMEZONE).replace(tzinfo=None)
     else:
         candidate = candidate.replace(tzinfo=None)
     return candidate.strftime("%Y-%m-%d %H:%M:%S")
@@ -1063,7 +1054,7 @@ def list_cycles(
     months and cycles that are not marked RENEWED. Callers can select a month
     explicitly or opt into all months for historical review.
     """
-    year = year or datetime.now(UTC).year
+    year = year or business_today(datetime.now(UTC)).year
     conditions = ["c.renewal_year=?"]
     params: list[Any] = [year]
     if status:
@@ -1084,9 +1075,9 @@ def list_cycles(
             raise ValueError("月份必须在1至12之间")
         conditions.append("c.due_month=?")
         params.append(due_month)
-    elif not include_past and year == datetime.now(UTC).year:
+    elif not include_past and year == business_today(datetime.now(UTC)).year:
         conditions.append("c.due_month>=? AND c.due_month<=12")
-        params.append(datetime.now(UTC).month)
+        params.append(business_today(datetime.now(UTC)).month)
     if member_name and member_name.strip():
         conditions.append("m.name LIKE ?")
         params.append(f"%{member_name.strip()}%")
@@ -1144,7 +1135,7 @@ def list_today_actions(
     message references and is opened only after an operator chooses a row.
     """
     current = as_of or datetime.now(UTC)
-    current_date = current.date() if isinstance(current, datetime) else current
+    current_date = business_today(current)
     year = year or current_date.year
     if not 2020 <= int(year) <= 2100:
         raise ValueError("续费年度无效")
@@ -1248,7 +1239,7 @@ def list_today_actions(
         cycle_followups = followups_by_cycle.get(cycle_id, [])
         cycle_followups.sort(
             key=lambda value: (
-                _calendar_date(value.get("followed_at")) or date.min,
+                instant_date(value.get("followed_at")) or date.min,
                 str(value.get("followed_at") or ""),
                 int(value.get("id") or 0),
             ),
@@ -1259,7 +1250,7 @@ def list_today_actions(
             value
             for value in cycle_followups
             if (
-                (followed_on := _calendar_date(value.get("followed_at")))
+                (followed_on := instant_date(value.get("followed_at")))
                 and followed_on.year == current_date.year
                 and followed_on.month == current_date.month
             )
@@ -1400,7 +1391,7 @@ def list_cycle_coverage(
     being silently excluded from the operations page; creating a cycle is a
     separate, audited action.
     """
-    year = year or datetime.now(UTC).year
+    year = year or business_today(datetime.now(UTC)).year
     if not 1 <= limit <= 500:
         raise ValueError("同步检查条数必须在1至500之间")
     conditions = ["1=1"]
@@ -1886,7 +1877,7 @@ def get_action_card(
 ) -> dict[str, Any]:
     """Build a read-only, rules-based action card for one renewal cycle."""
     current = as_of or datetime.now(UTC)
-    current_date = current.date() if isinstance(current, datetime) else current
+    current_date = business_today(current)
     cycle = fetch_one(
         "SELECT c.id, c.member_id, c.renewal_year, c.due_month, c.status, "
         "c.result, c.assigned_user_id, u.display_name AS assigned_user_name, "
@@ -2070,7 +2061,7 @@ def get_action_card(
 
 
 def list_overview(user_id: int, year: int | None = None) -> dict[str, Any]:
-    year = year or datetime.now(UTC).year
+    year = year or business_today(datetime.now(UTC)).year
     allowed = accessible_org_ids(user_id)
     rows = fetch_all(
         "SELECT "

@@ -14,6 +14,7 @@ import json
 from typing import Any, Iterable
 
 from app.core.settings import get_settings
+from app.core.business_time import business_today
 from app.db import atomic_transaction, execute
 from app.services.audit import write_audit
 from app.services.followups import add_followup_record, create_task, list_tasks
@@ -260,7 +261,7 @@ def _today_actions_for_principal(principal: dict[str, Any]) -> dict[str, Any]:
     completed: list[dict[str, Any]] = []
     pending_seen: set[tuple[str, str, int]] = set()
     completed_seen: set[tuple[str, str, int]] = set()
-    as_of = datetime.now(UTC).date().isoformat()
+    as_of = business_today(datetime.now(UTC)).isoformat()
 
     for source, coverage_key, permission in _CARE_SOURCE_PERMISSIONS:
         if permission not in permissions:
@@ -349,7 +350,7 @@ def _renewal_rows_for_principal(
 
     _require_permission(principal, permission)
     scoped_principal = _source_principal(principal, permission)
-    current_year = datetime.now(UTC).year
+    current_year = business_today(datetime.now(UTC)).year
     rows: list[dict[str, Any]] = []
     seen: set[int] = set()
     with mobile_iam_context(scoped_principal, permission):
@@ -413,7 +414,7 @@ def renewal_watch(session: dict[str, Any]) -> dict[str, Any]:
             )
         )
     return {
-        "as_of": datetime.now(UTC).date().isoformat(),
+        "as_of": business_today(datetime.now(UTC)).isoformat(),
         "groups": [
             {"key": stage, "name": name, "items": by_stage[stage]}
             for stage, name in _RENEWAL_WATCH_STAGES

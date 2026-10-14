@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { chinaDate } from "@/utils/business-date";
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -36,7 +37,7 @@ import {
 
 defineOptions({ name: "RenewalOperations" });
 
-const currentYear = new Date().getFullYear();
+const currentYear = Number(chinaDate().slice(0, 4));
 const year = ref(currentYear);
 const yearOptions = computed(() =>
   [currentYear - 1, currentYear, currentYear + 1].map(value => ({
@@ -229,7 +230,7 @@ const monthlyRows = computed(() =>
     };
   })
 );
-const currentMonth = new Date().getMonth() + 1;
+const currentMonth = Number(chinaDate().slice(5, 7));
 const currentMonthRow = computed(
   () =>
     monthlyRows.value.find(row => row.month === currentMonth) ||

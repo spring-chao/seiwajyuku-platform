@@ -5,6 +5,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from app.core.business_time import business_today, calendar_date, instant_date, business_date_sql
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.followups import OPEN_STATES, list_tasks
@@ -81,17 +82,7 @@ def _mark_source_unavailable(
 
 
 def _calendar_date(value: Any) -> date | None:
-    if isinstance(value, datetime):
-        return value.astimezone(UTC).date() if value.tzinfo else value.date()
-    if isinstance(value, date):
-        return value
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        return date.fromisoformat(text[:10])
-    except ValueError:
-        return None
+    return calendar_date(value)
 
 
 def _date_text(value: Any) -> str | None:
@@ -364,7 +355,7 @@ def complete_birthday_care(
         )
     else:
         completed_at = datetime.combine(current, datetime.min.time(), tzinfo=UTC)
-    today = completed_at.date()
+    today = business_today(completed_at)
     if requested_due_date > today + timedelta(days=7):
         raise ValueError("只能登记已经进入七天生日关怀窗口的事项")
 
@@ -552,12 +543,12 @@ def _followup_actions(user_id: int, today: date) -> list[dict[str, Any]]:
         placeholders = ",".join("?" for _ in task_ids)
         recorded_rows = fetch_all(
             "SELECT task_id, contacted_at FROM followup_records "
-            f"WHERE task_id IN ({placeholders}) AND DATE(contacted_at)=?",
+            f"WHERE task_id IN ({placeholders}) AND {business_date_sql('contacted_at')}=?",
             (*task_ids, today.isoformat()),
         )
         visited_rows = fetch_all(
             "SELECT task_id, visited_at FROM enterprise_visit_records "
-            f"WHERE task_id IN ({placeholders}) AND DATE(visited_at)=?",
+            f"WHERE task_id IN ({placeholders}) AND {business_date_sql('visited_at')}=?",
             (*task_ids, today.isoformat()),
         )
         completed_today_task_ids = {
@@ -658,7 +649,7 @@ def _completed_birthday_actions(user_id: int, today: date) -> list[dict[str, Any
     try:
         completion_rows = fetch_all(
             "SELECT id, member_id, birthday_year, due_date, channel, completed_at "
-            "FROM birthday_care_completions WHERE DATE(completed_at)=?",
+            f"FROM birthday_care_completions WHERE {business_date_sql('completed_at')}=?",
             (today.isoformat(),),
         )
     except Exception as error:
@@ -670,7 +661,7 @@ def _completed_birthday_actions(user_id: int, today: date) -> list[dict[str, Any
         "SELECT id, business_id, due_date, actual_at, completion_note "
         "FROM operation_items WHERE business_type='BIRTHDAY_CARE' "
         "AND status='COMPLETED' AND actual_at IS NOT NULL "
-        "AND DATE(actual_at)=?",
+        f"AND {business_date_sql('actual_at')}=?",
         (today.isoformat(),),
     )
     # The operation-item completion path is the authoritative row when the
@@ -741,14 +732,14 @@ def _completed_followup_actions(user_id: int, today: date) -> list[dict[str, Any
     records = fetch_all(
         "SELECT id, task_id, member_id, channel, contacted_at, outcome_code "
         f"FROM followup_records WHERE task_id IN ({placeholders}) "
-        "AND DATE(contacted_at)=? "
+        f"AND {business_date_sql('contacted_at')}=? "
         "ORDER BY contacted_at DESC, id DESC",
         (*task_ids, today.isoformat()),
     )
     visits = fetch_all(
         "SELECT id, task_id, member_id, visited_at, location_type "
         f"FROM enterprise_visit_records WHERE task_id IN ({placeholders}) "
-        "AND DATE(visited_at)=? "
+        f"AND {business_date_sql('visited_at')}=? "
         "ORDER BY visited_at DESC, id DESC",
         (*task_ids, today.isoformat()),
     )
@@ -761,7 +752,7 @@ def _completed_followup_actions(user_id: int, today: date) -> list[dict[str, Any
         int(task["member_id"])
         for task in task_by_id.values()
         if str(task.get("status") or "").upper() == "CLOSED"
-        and _calendar_date(task.get("updated_at")) == today
+        and instant_date(task.get("updated_at")) == today
     )
     contexts = _member_contexts(member_ids, accessible_org_ids(user_id))
     result: list[dict[str, Any]] = []
@@ -771,7 +762,7 @@ def _completed_followup_actions(user_id: int, today: date) -> list[dict[str, Any
         row: dict[str, Any], *, visited: bool = False
     ) -> None:
         occurred_at = row.get("visited_at") if visited else row.get("contacted_at")
-        if _calendar_date(occurred_at) != today:
+        if instant_date(occurred_at) != today:
             return
         task_id = int(row["task_id"])
         task = task_by_id.get(task_id)
@@ -824,7 +815,7 @@ def _completed_followup_actions(user_id: int, today: date) -> list[dict[str, Any
             continue
         if str(task.get("status") or "").upper() != "CLOSED":
             continue
-        if _calendar_date(task.get("updated_at")) != today:
+        if instant_date(task.get("updated_at")) != today:
             continue
         member_id = int(task["member_id"])
         if member_id not in contexts:
@@ -861,13 +852,13 @@ def _completed_renewal_actions(user_id: int, today: date) -> list[dict[str, Any]
         "SELECT f.id, f.renewal_cycle_id, f.followed_at, f.channel, "
         "c.member_id, c.renewal_year, c.due_month, c.status, c.completed_at "
         "FROM renewal_followups f JOIN renewal_cycles c "
-        "ON c.id=f.renewal_cycle_id WHERE DATE(f.followed_at)=? "
+        f"ON c.id=f.renewal_cycle_id WHERE {business_date_sql('f.followed_at')}=? "
         "ORDER BY f.followed_at DESC, f.id DESC",
         (today.isoformat(),),
     )
     cycle_rows = fetch_all(
         "SELECT id, member_id, renewal_year, due_month, status, completed_at "
-        "FROM renewal_cycles WHERE completed_at IS NOT NULL AND DATE(completed_at)=?",
+        f"FROM renewal_cycles WHERE completed_at IS NOT NULL AND {business_date_sql('completed_at')}=?",
         (today.isoformat(),),
     )
     member_ids = {
@@ -879,7 +870,7 @@ def _completed_renewal_actions(user_id: int, today: date) -> list[dict[str, Any]
     result: list[dict[str, Any]] = []
     followed_cycle_ids: set[int] = set()
     for row in rows:
-        if _calendar_date(row.get("followed_at")) != today:
+        if instant_date(row.get("followed_at")) != today:
             continue
         member_id = int(row["member_id"])
         if member_id not in contexts:
@@ -903,7 +894,7 @@ def _completed_renewal_actions(user_id: int, today: date) -> list[dict[str, Any]
             }
         )
     for row in cycle_rows:
-        if _calendar_date(row.get("completed_at")) != today:
+        if instant_date(row.get("completed_at")) != today:
             continue
         cycle_id = int(row["id"])
         if cycle_id in followed_cycle_ids:
@@ -976,7 +967,7 @@ def build_member_care_actions(
 ) -> dict[str, Any]:
     """Aggregate member-centered care actions without creating a new task source."""
     today = (as_of or datetime.now(UTC))
-    today = today.date() if isinstance(today, datetime) else today
+    today = business_today(today)
     context = user_context(user_id)
     permissions = set((context or {}).get("permissions", []))
     source_permissions = {"renewals:read", "followups:manage", "members:detail_view"}

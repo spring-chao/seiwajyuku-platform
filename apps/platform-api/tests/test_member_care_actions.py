@@ -524,10 +524,10 @@ def test_optional_renewal_support_failure_keeps_base_actions(
     assert all(item["support_status"] == "UNAVAILABLE" for item in result["items"])
 
 
-def test_member_care_actions_include_completed_today_from_existing_sources() -> None:
+@pytest.mark.parametrize("now", ["2099-08-20T09:30:00+00:00", "2099-08-19 16:00:00", "2099-08-20 15:59:59"])
+def test_member_care_actions_include_completed_today_from_existing_sources(now) -> None:
     fixture = _care_fixture()
     as_of = date(2099, 8, 20)
-    now = "2099-08-20T09:30:00+00:00"
     all_member_id = int(fixture["all_member_id"])
     birthday_member_id = int(fixture["birthday_member_id"])
     cycle_id = int(fixture["cycle_id"])
@@ -613,3 +613,36 @@ def test_member_care_actions_include_completed_today_from_existing_sources() -> 
     assert all("objective_facts" not in item for item in completed)
     assert all("summary" not in item for item in completed)
     assert all(item["member_name"] != "其他分中心学长" for item in completed)
+
+
+def test_today_birthdays_and_management_use_beijing_date(monkeypatch):
+    from app.services import member_care_management as management
+    fixture = _care_fixture()
+    class FrozenClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2099, 8, 19, 16, 0, tzinfo=UTC)
+    monkeypatch.setattr(care_service, "datetime", FrozenClock)
+    monkeypatch.setattr(management, "datetime", FrozenClock)
+    result = build_member_care_actions(int(fixture["user_id"]))
+    assert result["as_of"] == "2099-08-20"
+    today_birthdays = {person["member_id"] for person in result["people"]
+        if any(action["source"] == "BIRTHDAY" and action["urgency"] == "TODAY" for action in person["actions"])}
+    assert int(fixture["birthday_member_id"]) in today_birthdays
+    assert int(fixture["overdue_member_id"]) not in today_birthdays
+    assert management.build_member_care_management_overview(int(fixture["user_id"]))["as_of"] == "2099-08-20"
+
+
+def test_completed_birthdays_include_utc_previous_evening_only():
+    fixture = _care_fixture()
+    user_id = int(fixture["user_id"])
+    now = "2099-08-19 16:00:00"
+    with transaction() as connection:
+        execute(connection,
+            "INSERT INTO birthday_care_completions(member_id, birthday_year, due_date, channel, completed_at, completed_by, created_at, updated_at) "
+            "VALUES (?, 2099, '2099-08-20', 'WECHAT', ?, ?, ?, ?)",
+            (int(fixture["birthday_member_id"]), now, user_id, now, now))
+    before = build_member_care_actions(user_id, as_of=date(2099, 8, 19))
+    after = build_member_care_actions(user_id, as_of=date(2099, 8, 20))
+    assert not any(item["source"] == "BIRTHDAY" for item in before["completed_today"])
+    assert any(item["source"] == "BIRTHDAY" and item["member_id"] == int(fixture["birthday_member_id"]) for item in after["completed_today"])

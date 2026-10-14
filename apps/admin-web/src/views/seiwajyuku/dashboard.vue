@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { computed, onActivated, onMounted, ref } from "vue";
+import {
+  computed,
+  onActivated,
+  onDeactivated,
+  onMounted,
+  onUnmounted,
+  ref
+} from "vue";
 import dayjs from "dayjs";
 import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
@@ -38,6 +45,12 @@ import {
 } from "@/api/seiwajyuku";
 import { useUserStoreHook } from "@/store/modules/user";
 import { createSectionLoader } from "@/utils/section-loader";
+import {
+  chinaDate,
+  chinaTime,
+  chinaTimestampDate,
+  createBusinessDayRefresh
+} from "@/utils/business-date";
 import { centerScope } from "@/utils/dashboard-centers";
 import MemberDetailDrawer from "@/components/seiwajyuku/MemberDetailDrawer.vue";
 
@@ -86,8 +99,9 @@ const mpError = ref(false);
 const router = useRouter();
 const plans = ref<AnnualPlan[]>([]);
 const planId = ref<number>();
-const year = ref(new Date().getFullYear());
-const month = ref(Math.min(new Date().getMonth() + 1, 12));
+const businessDate = ref(chinaDate());
+const year = ref(Number(businessDate.value.slice(0, 4)));
+const month = ref(Number(businessDate.value.slice(5, 7)));
 const operations = ref<OperationsSnapshot>();
 const rhythm = ref<OperationRhythmSnapshot>();
 const memberCare = ref<MemberCareActions>();
@@ -254,7 +268,7 @@ const reachedForecastCount = computed(
     }).length
 );
 const yearOptions = computed(() => {
-  const currentYear = new Date().getFullYear();
+  const currentYear = Number(chinaDate().slice(0, 4));
   return Array.from(
     new Set([
       currentYear - 2,
@@ -902,7 +916,7 @@ function nextBirthdayDueDate(monthDay?: string | null) {
   const monthValue = Number(match[1]);
   const dayValue = Number(match[2]);
   if (monthValue < 1 || monthValue > 12 || dayValue < 1) return "";
-  const today = dayjs().startOf("day");
+  const today = dayjs(chinaDate()).startOf("day");
   const clamped = (targetYear: number) => {
     const lastDay = new Date(targetYear, monthValue, 0).getDate();
     return dayjs(
@@ -1009,7 +1023,7 @@ async function completeBirthdayCare(channel: "WECHAT" | "PHONE") {
     birthdayDueDate.value = "";
     await load();
     ElMessage.success(
-      `已记录：${dayjs(response.data.completed_at || new Date()).format("M月D日 HH:mm")} · ${channelLabel}`
+      `已记录：${chinaTimestampDate(response.data.completed_at || new Date())} ${chinaTime(response.data.completed_at || new Date())} · ${channelLabel}`
     );
   } catch (error) {
     ElMessage.error("生日关怀完成记录保存失败，请稍后重试");
@@ -1292,14 +1306,44 @@ async function load() {
   ]);
 }
 
+let dashboardActive = true;
 let dashboardInitialized = false;
+let businessDateTimer: ReturnType<typeof setInterval> | undefined;
+const checkBusinessDate = createBusinessDayRefresh(chinaDate, () => {
+  businessDate.value = chinaDate();
+  void load();
+});
+function startBusinessDateCheck() {
+  if (!businessDateTimer)
+    businessDateTimer = setInterval(checkBusinessDate, 30000);
+}
+function stopBusinessDateCheck() {
+  if (businessDateTimer) clearInterval(businessDateTimer);
+  businessDateTimer = undefined;
+}
+function checkVisibleBusinessDate() {
+  if (dashboardActive && document.visibilityState === "visible")
+    checkBusinessDate();
+}
+onDeactivated(() => {
+  dashboardActive = false;
+  stopBusinessDateCheck();
+});
+onUnmounted(() => {
+  stopBusinessDateCheck();
+  document.removeEventListener("visibilitychange", checkVisibleBusinessDate);
+});
 
 onMounted(async () => {
+  startBusinessDateCheck();
+  document.addEventListener("visibilitychange", checkVisibleBusinessDate);
   await load();
   dashboardInitialized = true;
 });
 
 onActivated(() => {
+  dashboardActive = true;
+  startBusinessDateCheck();
   if (dashboardInitialized) void load();
 });
 
@@ -1367,6 +1411,9 @@ function changePlan() {
         <div>
           <p class="eyebrow dark">MEMBER CARE CENTER</p>
           <h2>今日行动</h2>
+          <p class="business-date-label">
+            北京时间 {{ memberCare?.as_of || businessDate }}
+          </p>
           <p>以学长为中心合并续费、日常关怀/走访和生日行动。</p>
         </div>
         <div class="care-center-heading-actions">
@@ -1442,7 +1489,8 @@ function changePlan() {
               :aria-pressed="careFilter === 'TODAY'"
               @click="careFilter = 'TODAY'"
             >
-              🔵 今天 <b>{{ memberCare.summary.today_people_count }}</b>
+              🔵 今天（{{ (memberCare?.as_of || businessDate).slice(5) }}）
+              <b>{{ memberCare.summary.today_people_count }}</b>
             </button>
             <button
               type="button"
@@ -1602,7 +1650,7 @@ function changePlan() {
             </el-table-column>
             <el-table-column label="完成时间" width="180">
               <template #default="{ row }">
-                {{ dayjs(row.completed_at).format("HH:mm") }}
+                {{ chinaTime(row.completed_at) }}
               </template>
             </el-table-column>
             <el-table-column label="操作" width="120" fixed="right">

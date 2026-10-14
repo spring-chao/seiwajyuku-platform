@@ -5,6 +5,7 @@ import json
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from app.core.business_time import business_today
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
@@ -738,7 +739,7 @@ def rhythm_snapshot(
         class_org_unit_id=class_org_unit_id,
         status=status,
     )
-    today = datetime.now(UTC).date()
+    today = business_today(datetime.now(UTC))
     next_week = today + timedelta(days=7)
     today_rows = [item for item in items if item.get("due_date") == today.isoformat()]
     next_week_rows = [

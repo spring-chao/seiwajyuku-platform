@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from datetime import UTC, date, datetime
 from typing import Any
 
+from app.core.business_time import business_today
 from app.db import fetch_all
 from app.services.iam import accessible_org_ids
 from app.services.renewals import (
@@ -229,7 +230,7 @@ def get_annual_renewal_analytics(
                 org["reliable_completion_count"] += 1
                 completion = _parse_datetime(cycle.get("completed_at"))
                 calendar_stage = determine_calendar_stage(
-                    int(cycle["renewal_year"]), int(cycle["due_month"]), as_of=completion.date() if completion else None
+                    int(cycle["renewal_year"]), int(cycle["due_month"]), as_of=business_today(completion) if completion else None
                 )
                 stage = calendar_stage["code"]
                 timing_counts[stage] += 1
@@ -244,7 +245,7 @@ def get_annual_renewal_analytics(
                     org["after_due_count"] += 1
                 evidence["completion_stage"] = stage
                 evidence["completion_stage_label"] = TIMING_STAGE_LABELS[stage]
-                evidence["completion_date"] = completion.date().isoformat() if completion else None
+                evidence["completion_date"] = business_today(completion).isoformat() if completion else None
             else:
                 org["unreliable_completion_count"] += 1
             evidence_samples.append(

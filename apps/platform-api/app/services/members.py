@@ -11,6 +11,7 @@ from typing import Any
 
 from app.core.privacy import decrypt_text, encrypt_text, normalize_phone, phone_hash, protected_phone
 from app.core.settings import get_settings
+from app.core.business_time import business_today
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
@@ -77,7 +78,7 @@ def inferred_membership_years(join_date: str | datetime | None) -> float | None:
         if isinstance(join_date, datetime)
         else datetime.fromisoformat(str(join_date)).date()
     )
-    today = datetime.now(UTC).date()
+    today = business_today(datetime.now(UTC))
     if joined > today:
         return 0.0
     return round((today - joined).days / 365.2425, 1)

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { chinaDate } from "@/utils/business-date";
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
@@ -166,11 +167,7 @@ const businessExpectationDescription = (item: LearningPlanHealthClass) => {
 };
 const dateOnly = (value?: string | null) => value ? value.slice(0, 10) : "";
 const formatDateOnly = (value?: string | null) => dateOnly(value) || "—";
-const todayDate = () => {
-  const now = new Date();
-  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 10);
-};
+const todayDate = chinaDate;
 
 const planMatchesExpectedVersion = (plan: LearningPlan, expected: string) =>
   [plan.version_label, plan.plan_key, String(plan.id)].some(value =>
