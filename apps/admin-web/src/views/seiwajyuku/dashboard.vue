@@ -38,6 +38,7 @@ import {
 } from "@/api/seiwajyuku";
 import { useUserStoreHook } from "@/store/modules/user";
 import { createSectionLoader } from "@/utils/section-loader";
+import { centerScope } from "@/utils/dashboard-centers";
 import MemberDetailDrawer from "@/components/seiwajyuku/MemberDetailDrawer.vue";
 
 defineOptions({ name: "MpDashboard" });
@@ -57,6 +58,26 @@ const props = withDefaults(defineProps<{ mode?: "actions" | "data" }>(), {
   mode: "actions"
 });
 const isDataView = computed(() => props.mode === "data");
+const dataSection = ref("overview");
+const dataSections = [
+  { id: "overview", label: "运营总览", description: "月度指标与各分中心在册" },
+  { id: "care", label: "关爱健康", description: "待支持事项与处理明细" },
+  { id: "renewal", label: "续费分析", description: "年度结果与续费节奏" },
+  {
+    id: "schedule",
+    label: "运营日程",
+    description: "运营事项、生日与班级日历"
+  },
+  { id: "targets", label: "年度目标", description: "MP 目标与完成情况" }
+];
+const centerShukuId = ref("");
+const scopedCenters = computed(() =>
+  centerScope(
+    operations.value?.centers || [],
+    operations.value?.shukus || [],
+    centerShukuId.value
+  )
+);
 const sectionLoader = createSectionLoader();
 const memberCareLoading = ref(false);
 const operationsError = ref(false);
@@ -1288,7 +1309,7 @@ function changePlan() {
 </script>
 
 <template>
-  <div class="page-shell">
+  <div class="page-shell" :class="{ 'data-overview': isDataView }">
     <section class="hero">
       <div>
         <p class="eyebrow">
@@ -1298,7 +1319,7 @@ function changePlan() {
         <p class="subtitle">
           {{
             isDataView
-              ? "查看月度实况、班级运营和年度目标；缺失数据会明确提示。"
+              ? "按主题查看运营数据；各分中心在册可切换二级塾。"
               : "找到今天需要联系的学长，记录行动后查看完成结果。"
           }}
         </p>
@@ -1599,29 +1620,46 @@ function changePlan() {
       </template>
     </section>
 
+    <nav v-if="isDataView" class="data-navigation" aria-label="数据概览分区">
+      <button
+        v-for="section in dataSections"
+        :key="section.id"
+        type="button"
+        :class="{ active: dataSection === section.id }"
+        :aria-pressed="dataSection === section.id"
+        @click="dataSection = section.id"
+      >
+        <strong>{{ section.label }}</strong
+        ><span>{{ section.description }}</span>
+      </button>
+    </nav>
+
     <template v-if="isDataView">
       <el-alert
-        v-if="operationsError"
+        v-if="operationsError && ['overview', 'schedule'].includes(dataSection)"
         title="所选月份运营数据加载失败，未展示其他月份的数据"
         type="error"
         :closable="false"
         show-icon
       />
       <el-alert
-        v-if="rhythmError"
+        v-if="rhythmError && dataSection === 'schedule'"
         title="所选月份运营节奏加载失败，请重试"
         type="error"
         :closable="false"
         show-icon
       />
       <el-alert
-        v-if="mpError"
+        v-if="mpError && dataSection === 'targets'"
         title="年度 MP 数据加载失败，请重试"
         type="error"
         :closable="false"
         show-icon
       />
-      <section class="content-card management-card">
+      <section
+        v-if="dataSection === 'care'"
+        class="content-card management-card"
+      >
         <div class="section-title management-heading">
           <div>
             <p class="eyebrow dark">CARE OPERATIONS HEALTH</p>
@@ -1795,13 +1833,65 @@ function changePlan() {
           </div>
 
           <h3 class="management-subheading">各分中心当前需要支持的事项</h3>
+          <p class="center-footnote">
+            展开分中心可查看逾期来源、阶段未触达和下一时间。
+          </p>
           <el-table
             :data="memberCareManagement.organizations"
+            max-height="360"
             stripe
             empty-text="当前覆盖范围内暂无管理异常"
             class="management-org-table"
           >
-            <el-table-column prop="org_name" label="分中心" min-width="150" />
+            <el-table-column type="expand" width="44">
+              <template #default="{ row }">
+                <dl class="management-org-details">
+                  <div>
+                    <dt>最早逾期</dt>
+                    <dd>
+                      {{
+                        row.oldest_overdue_days
+                          ? `${row.oldest_overdue_days}天`
+                          : "—"
+                      }}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>阶段未触达</dt>
+                    <dd>
+                      {{
+                        managementCountLabel(row.renewal_stage_untouched_count)
+                      }}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>无下一时间</dt>
+                    <dd>
+                      {{ managementCountLabel(row.followup_no_schedule_count) }}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>逾期来源</dt>
+                    <dd>
+                      续费
+                      {{ managementCountLabel(row.renewal_overdue_count) }} ·
+                      关怀
+                      {{ managementCountLabel(row.followup_overdue_count) }} ·
+                      走访
+                      {{
+                        managementCountLabel(row.enterprise_visit_overdue_count)
+                      }}
+                    </dd>
+                  </div>
+                </dl>
+              </template>
+            </el-table-column>
+            <el-table-column
+              prop="org_name"
+              label="分中心"
+              min-width="150"
+              fixed="left"
+            />
             <el-table-column
               prop="today_care_people_count"
               label="今日关爱"
@@ -1812,23 +1902,13 @@ function changePlan() {
               label="已逾期"
               width="85"
             />
-            <el-table-column label="最早逾期" width="100">
-              <template #default="{ row }">
-                {{
-                  row.oldest_overdue_days ? `${row.oldest_overdue_days}天` : "—"
-                }}
-              </template>
-            </el-table-column>
+
             <el-table-column label="需要协助" width="100">
               <template #default="{ row }">{{
                 managementCountLabel(row.renewal_support_needed_count)
               }}</template>
             </el-table-column>
-            <el-table-column label="阶段未触达" width="105">
-              <template #default="{ row }">{{
-                managementCountLabel(row.renewal_stage_untouched_count)
-              }}</template>
-            </el-table-column>
+
             <el-table-column label="续费挽回" width="100">
               <template #default="{ row }">{{
                 managementCountLabel(row.renewal_recovery_open_count)
@@ -1838,21 +1918,6 @@ function changePlan() {
               <template #default="{ row }">{{
                 managementCountLabel(row.renewal_unassigned_count)
               }}</template>
-            </el-table-column>
-            <el-table-column label="无下一时间" width="110">
-              <template #default="{ row }">{{
-                managementCountLabel(row.followup_no_schedule_count)
-              }}</template>
-            </el-table-column>
-            <el-table-column label="逾期来源" min-width="270">
-              <template #default="{ row }">
-                <span class="management-breakdown">
-                  续费 {{ managementCountLabel(row.renewal_overdue_count) }} ·
-                  关怀 {{ managementCountLabel(row.followup_overdue_count) }} ·
-                  走访
-                  {{ managementCountLabel(row.enterprise_visit_overdue_count) }}
-                </span>
-              </template>
             </el-table-column>
           </el-table>
 
@@ -1950,7 +2015,10 @@ function changePlan() {
         </template>
       </section>
 
-      <section class="content-card annual-renewal-card">
+      <section
+        v-if="dataSection === 'renewal'"
+        class="content-card annual-renewal-card"
+      >
         <div class="section-title management-heading">
           <div>
             <p class="eyebrow dark">ANNUAL RENEWAL INSIGHT</p>
@@ -2002,9 +2070,7 @@ function changePlan() {
               <h3>数据可信度</h3>
               <p>
                 已续费
-                {{
-                  renewalAnnualAnalytics.completion_quality.renewed_count
-                }}
+                {{ renewalAnnualAnalytics.completion_quality.renewed_count }}
                 人； 有可信完成时点
                 {{
                   renewalAnnualAnalytics.completion_quality
@@ -2112,80 +2178,88 @@ function changePlan() {
         </template>
       </section>
 
-      <section class="section-heading">
-        <div>
-          <p class="eyebrow dark">MONTHLY OPERATIONS</p>
-          <h2>{{ year }} 年 {{ month }} 月运营实况</h2>
-        </div>
-        <span>在册为当前快照；新增、续费和排期按所选月份统计</span>
-      </section>
+      <template v-if="dataSection === 'overview'">
+        <section class="section-heading">
+          <div>
+            <p class="eyebrow dark">MONTHLY OPERATIONS</p>
+            <h2>{{ year }} 年 {{ month }} 月运营实况</h2>
+          </div>
+          <span>在册为当前快照；新增、续费和排期按所选月份统计</span>
+        </section>
 
-      <section class="operations-grid">
-        <article
-          v-for="card in operationsCards"
-          :key="card.label"
-          class="operations-card"
-          :class="{ unavailable: card.value === null }"
-        >
-          <span>{{ card.label }}</span>
-          <strong v-if="card.value !== null"
-            >{{ card.value }}<small>{{ card.unit }}</small></strong
+        <section class="operations-grid">
+          <article
+            v-for="card in operationsCards"
+            :key="card.label"
+            class="operations-card"
+            :class="{ unavailable: card.value === null }"
           >
-          <strong v-else class="not-ready">未接入</strong>
-          <p>{{ card.note }}</p>
-        </article>
-      </section>
+            <span>{{ card.label }}</span>
+            <strong v-if="card.value !== null"
+              >{{ card.value }}<small>{{ card.unit }}</small></strong
+            >
+            <strong v-else class="not-ready">未接入</strong>
+            <p>{{ card.note }}</p>
+          </article>
+        </section>
 
-      <el-alert
-        v-if="operations?.data_quality.missing_join_date_count"
-        :title="`${operations.data_quality.missing_join_date_count} 位在册学长缺少入塾日期，未计入本月新增`"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="data-alert"
-      />
+        <details class="quality-details">
+          <summary>数据口径与质量提示</summary>
+          <el-alert
+            v-if="operations?.data_quality.missing_join_date_count"
+            :title="`${operations.data_quality.missing_join_date_count} 位在册学长缺少入塾日期，未计入本月新增`"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="data-alert"
+          />
 
-      <el-alert
-        v-if="operations?.data_quality.unscheduled_class_count"
-        :title="`${operations.data_quality.unscheduled_class_count} 个班级本月尚未接入班会排期`"
-        description="驾驶舱会保留这些班级并显示“待排期”，不会把缺少排期误报为已召开 0 次。"
-        type="info"
-        :closable="false"
-        show-icon
-        class="data-alert"
-      />
+          <el-alert
+            v-if="operations?.data_quality.unscheduled_class_count"
+            :title="`${operations.data_quality.unscheduled_class_count} 个班级本月尚未接入班会排期`"
+            description="驾驶舱会保留这些班级并显示“待排期”，不会把缺少排期误报为已召开 0 次。"
+            type="info"
+            :closable="false"
+            show-icon
+            class="data-alert"
+          />
 
-      <el-alert
-        v-if="operations?.data_quality.unlinked_class_meeting_count"
-        :title="`${operations.data_quality.unlinked_class_meeting_count} 场班会尚未关联正式班级`"
-        description="这些班会计入本月总次数并保留在日历中，但不会据活动名称自动猜测班级。"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="data-alert"
-      />
+          <el-alert
+            v-if="operations?.data_quality.unlinked_class_meeting_count"
+            :title="`${operations.data_quality.unlinked_class_meeting_count} 场班会尚未关联正式班级`"
+            description="这些班会计入本月总次数并保留在日历中，但不会据活动名称自动猜测班级。"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="data-alert"
+          />
 
-      <el-alert
-        v-if="operations?.data_quality.duplicate_class_node_count"
-        :title="`${operations.data_quality.duplicate_class_node_count} 个历史班级重复节点已按名称合并展示`"
-        description="不会重复计入班会或待排期；系统已阻止继续创建同名班级，历史节点仅在完成受控归并后才会停用。"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="data-alert"
-      />
+          <el-alert
+            v-if="operations?.data_quality.duplicate_class_node_count"
+            :title="`${operations.data_quality.duplicate_class_node_count} 个历史班级重复节点已按名称合并展示`"
+            description="不会重复计入班会或待排期；系统已阻止继续创建同名班级，历史节点仅在完成受控归并后才会停用。"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="data-alert"
+          />
 
-      <el-alert
-        v-if="operations?.data_quality.invalid_direct_root_class_count"
-        :title="`${operations.data_quality.invalid_direct_root_class_count} 个历史班级节点不符合苏州塾直属四班规则，已从驾驶舱排除`"
-        description="苏州塾直属仅保留先锋班、神仙班、黄埔一班和黄埔二班；其他班级按各自分中心的正式节点运营。"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="data-alert"
-      />
+          <el-alert
+            v-if="operations?.data_quality.invalid_direct_root_class_count"
+            :title="`${operations.data_quality.invalid_direct_root_class_count} 个历史班级节点不符合苏州塾直属四班规则，已从驾驶舱排除`"
+            description="苏州塾直属仅保留先锋班、神仙班、黄埔一班和黄埔二班；其他班级按各自分中心的正式节点运营。"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="data-alert"
+          />
+        </details>
+      </template>
 
-      <section class="content-card rhythm-card">
+      <section
+        v-if="dataSection === 'schedule'"
+        class="content-card rhythm-card"
+      >
         <div class="section-title rhythm-heading">
           <div>
             <p class="eyebrow dark">OPERATION RHYTHM</p>
@@ -2433,101 +2507,138 @@ function changePlan() {
         </el-dialog>
       </section>
 
-      <section class="operations-panels">
-        <article class="content-card">
-          <div class="section-title birthday-title">
+      <section
+        v-if="dataSection === 'overview' && operations"
+        class="content-card center-card"
+      >
+        <div class="section-title center-heading">
+          <div>
             <h2>各分中心当前在册</h2>
-            <p>
-              按学员管理主档所属分中心统计；直属学习班保留独立口径，不并入六个分中心。
-            </p>
+            <p>按学员主档所属分中心统计，以下仅显示所选二级塾的授权分中心。</p>
           </div>
-          <div class="center-list">
-            <div v-for="center in operations?.centers || []" :key="center.id">
-              <span>{{ center.name }}</span>
-              <strong>{{ center.active_member_count }} 人</strong>
-            </div>
-          </div>
-        </article>
-
-        <article class="content-card">
-          <div class="section-title">
-            <div>
-              <h2>本月生日关怀</h2>
-              <p>仅展示生日月日，不展示出生年份及其他敏感资料。</p>
-            </div>
-            <div class="birthday-filters">
-              <el-select
-                v-model="birthdayCenterId"
-                clearable
-                aria-label="生日关怀分中心"
-                placeholder="全部分中心"
-                @change="changeBirthdayCenter"
-              >
-                <el-option
-                  v-for="option in birthdayCenterOptions"
-                  :key="option.id"
-                  :label="option.name"
-                  :value="option.id"
-                />
-              </el-select>
-              <el-select
-                v-model="birthdayMonth"
-                aria-label="生日关怀月份"
-                placeholder="生日月份"
-                class="birthday-month-filter"
-                @change="load"
-              >
-                <el-option
-                  v-for="option in birthdayMonthOptions"
-                  :key="option.id"
-                  :label="option.name"
-                  :value="option.id"
-                />
-              </el-select>
-              <el-select
-                v-model="birthdayClassOrgUnitId"
-                clearable
-                aria-label="生日关怀班级"
-                placeholder="全部班级"
-              >
-                <el-option
-                  v-for="option in birthdayClassOptions"
-                  :key="option.id"
-                  :label="option.name"
-                  :value="option.id"
-                />
-              </el-select>
-            </div>
-          </div>
-          <el-table
-            :data="filteredBirthdayMembers"
-            size="small"
-            max-height="300"
-            empty-text="本月暂无在册学长生日"
+          <label class="center-selector"
+            ><span>二级塾</span>
+            <el-select
+              :model-value="scopedCenters.selectedId"
+              aria-label="在册统计二级塾"
+              :disabled="!scopedCenters.options.length"
+              @update:model-value="centerShukuId = $event"
+            >
+              <el-option
+                v-for="option in scopedCenters.options"
+                :key="option.id"
+                :label="option.name"
+                :value="option.id"
+              />
+            </el-select>
+          </label>
+        </div>
+        <div class="center-scope-summary">
+          <strong>{{ scopedCenters.name }}</strong>
+          <span>{{ scopedCenters.rows.length }} 个分中心</span>
+          <span
+            >分中心在册合计 <b>{{ scopedCenters.total }}</b> 人</span
           >
-            <el-table-column prop="birthday" label="日期" width="86" />
-            <el-table-column label="学长" min-width="100">
-              <template #default="{ row }">
-                <el-button
-                  link
-                  type="primary"
-                  @click="openBirthdayGreeting(row)"
-                >
-                  {{ row.name }}
-                </el-button>
-              </template>
-            </el-table-column>
-            <el-table-column prop="org_name" label="分中心" min-width="130" />
-            <el-table-column label="班级" min-width="120">
-              <template #default="{ row }">{{
-                row.class_name || "未分班"
-              }}</template>
-            </el-table-column>
-          </el-table>
-        </article>
+        </div>
+        <el-table
+          :data="scopedCenters.rows"
+          stripe
+          empty-text="该二级塾下暂无可见分中心"
+          max-height="420"
+        >
+          <el-table-column prop="name" label="分中心" min-width="180" />
+          <el-table-column
+            prop="active_member_count"
+            label="当前在册（人）"
+            align="right"
+            min-width="140"
+          />
+        </el-table>
+        <p class="center-footnote">
+          在册为当前快照，不随月份变化。直属学习班及其他管理单位不并入分中心合计。
+        </p>
       </section>
 
-      <section class="content-card schedule-card">
+      <section
+        v-if="dataSection === 'schedule'"
+        class="content-card birthday-card"
+      >
+        <div class="section-title">
+          <div>
+            <h2>本月生日关怀</h2>
+            <p>仅展示生日月日，不展示出生年份及其他敏感资料。</p>
+          </div>
+          <div class="birthday-filters">
+            <el-select
+              v-model="birthdayCenterId"
+              clearable
+              aria-label="生日关怀分中心"
+              placeholder="全部分中心"
+              @change="changeBirthdayCenter"
+            >
+              <el-option
+                v-for="option in birthdayCenterOptions"
+                :key="option.id"
+                :label="option.name"
+                :value="option.id"
+              />
+            </el-select>
+            <el-select
+              v-model="birthdayMonth"
+              aria-label="生日关怀月份"
+              placeholder="生日月份"
+              class="birthday-month-filter"
+              @change="load"
+            >
+              <el-option
+                v-for="option in birthdayMonthOptions"
+                :key="option.id"
+                :label="option.name"
+                :value="option.id"
+              />
+            </el-select>
+            <el-select
+              v-model="birthdayClassOrgUnitId"
+              clearable
+              aria-label="生日关怀班级"
+              placeholder="全部班级"
+            >
+              <el-option
+                v-for="option in birthdayClassOptions"
+                :key="option.id"
+                :label="option.name"
+                :value="option.id"
+              />
+            </el-select>
+          </div>
+        </div>
+        <el-table
+          :data="filteredBirthdayMembers"
+          size="small"
+          max-height="300"
+          empty-text="本月暂无在册学长生日"
+        >
+          <el-table-column prop="birthday" label="日期" width="86" />
+          <el-table-column label="学长" min-width="100">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openBirthdayGreeting(row)">
+                {{ row.name }}
+              </el-button>
+            </template>
+          </el-table-column>
+          <el-table-column prop="org_name" label="分中心" min-width="130" />
+          <el-table-column label="班级" min-width="120">
+            <template #default="{ row }">{{
+              row.class_name || "未分班"
+            }}</template>
+          </el-table-column>
+        </el-table>
+      </section>
+
+      <section
+        v-if="dataSection === 'schedule'"
+        class="content-card schedule-card"
+      >
         <div class="section-title">
           <h2>班级运营与本月服务日历</h2>
           <p>
@@ -3139,7 +3250,7 @@ function changePlan() {
       </div>
     </el-drawer>
 
-    <template v-if="isDataView">
+    <template v-if="isDataView && dataSection === 'targets'">
       <section class="section-heading mp-heading">
         <div>
           <p class="eyebrow dark">ANNUAL MP</p>
@@ -3190,7 +3301,7 @@ function changePlan() {
             selectedMetric?.name ?? "请选择指标"
           }}</strong>
           <small
-            >{{ unitLabel(selectedMetric?.unit) }}口径，六分中心横向比较</small
+            >{{ unitLabel(selectedMetric?.unit) }}口径，分中心横向比较</small
           >
         </article>
         <article class="summary-card">
@@ -3226,7 +3337,7 @@ function changePlan() {
 
       <section class="content-card">
         <div class="section-title">
-          <h2>六分中心 · {{ selectedMetric?.name ?? "指标明细" }}</h2>
+          <h2>分中心 · {{ selectedMetric?.name ?? "指标明细" }}</h2>
           <p>
             年目标是全年方向；月MP是本月基准；预定是本月预计完成值；实绩是实际完成值。
           </p>
@@ -4277,6 +4388,196 @@ h1 {
   .rhythm-filters .el-select {
     flex: 1;
     width: auto;
+  }
+}
+
+.data-overview {
+  padding: 20px;
+}
+.data-overview .hero {
+  padding: 22px 26px;
+  margin-bottom: 12px;
+  box-shadow: none;
+}
+.data-overview h1 {
+  font-size: 28px;
+}
+.data-overview .subtitle {
+  margin-top: 8px;
+  font-size: 14px;
+}
+.data-overview .hero .eyebrow {
+  display: none;
+}
+.data-overview > .section-heading {
+  margin: 10px 0;
+}
+.data-navigation {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 16px 0 20px;
+}
+.data-navigation button {
+  padding: 14px 16px;
+  text-align: left;
+  color: #60756c;
+  background: #fff;
+  border: 1px solid #dce8e2;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.data-navigation button.active {
+  color: #1e604a;
+  background: #eaf5ef;
+  border-color: #70a78e;
+}
+.data-navigation button:hover {
+  border-color: #70a78e;
+}
+.data-navigation button:focus-visible {
+  outline: 2px solid #24765b;
+  outline-offset: 2px;
+}
+.data-navigation strong,
+.data-navigation span {
+  display: block;
+}
+.data-navigation strong {
+  font-size: 15px;
+}
+.data-navigation span {
+  margin-top: 5px;
+  font-size: 12px;
+}
+.data-overview .content-card {
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: none;
+}
+.data-overview .section-title h2,
+.data-overview .section-heading h2 {
+  font-size: 20px;
+}
+.data-overview .section-title p {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.data-overview .eyebrow.dark {
+  display: none;
+}
+.data-overview .operations-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.data-overview .operations-card {
+  min-height: 112px;
+  padding: 16px;
+  box-shadow: none;
+}
+.data-overview .management-summary-grid,
+.data-overview .annual-renewal-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.data-overview .management-summary-card {
+  min-height: 82px;
+}
+.management-org-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+  margin: 12px 24px;
+  font-size: 13px;
+}
+.management-org-details dt {
+  color: #72877e;
+  margin-bottom: 6px;
+}
+.management-org-details dd {
+  margin: 0;
+  color: #294d40;
+}
+.quality-details {
+  margin-top: 16px;
+  font-size: 13px;
+  color: #60756c;
+}
+.quality-details summary {
+  cursor: pointer;
+}
+.center-card,
+.birthday-card {
+  margin-top: 16px;
+}
+.center-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.center-selector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  font-size: 14px;
+  color: #426458;
+}
+.center-selector .el-select {
+  width: 190px;
+}
+.center-scope-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: center;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  background: #f1f7f4;
+  border-radius: 8px;
+  color: #60756c;
+  font-size: 13px;
+}
+.center-scope-summary strong,
+.center-scope-summary b {
+  color: #1e604a;
+}
+.center-footnote {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: #72877e;
+  line-height: 1.6;
+}
+@media (max-width: 1000px) {
+  .data-navigation {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .data-navigation span {
+    display: none;
+  }
+  .data-overview .operations-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .data-overview {
+    padding: 12px;
+  }
+  .data-overview .hero,
+  .data-overview .content-card {
+    padding: 16px;
+  }
+  .data-navigation {
+    display: flex;
+    overflow-x: auto;
+  }
+  .data-navigation button {
+    flex: 0 0 auto;
+    padding: 12px;
+  }
+  .data-overview .management-summary-grid,
+  .data-overview .annual-renewal-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

@@ -164,6 +164,8 @@ def test_operations_snapshot_uses_master_facts_and_event_groups() -> None:
     assert result["data_quality"]["missing_join_date_count"] == 1
     assert result["data_quality"]["course_schedule_source_ready"] is True
     assert {row["id"] for row in result["centers"]} == {"snapshot-center-a"}
+    assert result["centers"][0]["shuku_org_unit_id"] == "org-suzhou"
+    assert {row["id"] for row in result["shukus"]} == {"org-suzhou"}
 
     january = operations_snapshot(
         user_id=scoped_user_id, year=2026, month=8, birthday_month=1
@@ -196,3 +198,30 @@ def test_operations_snapshot_hides_renewals_without_permission() -> None:
 
     assert result["summary"]["renewed_member_count"] is None
     assert result["data_quality"]["renewal_source_authorized"] is False
+
+
+def test_center_shuku_ownership_is_scoped_and_empty_shukus_remain_selectable() -> None:
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        for org_id, name, kind, parent in (
+            ("snapshot-other-shuku", "测试二级塾", "ROOT", None),
+            ("snapshot-empty-shuku", "空二级塾", "ROOT", None),
+            ("snapshot-other-center", "驾驶舱测试分中心A", "REGIONAL_CENTER", "snapshot-other-shuku"),
+        ):
+            execute(connection,
+                "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                (org_id, org_id, name, kind, parent, now, now))
+    result = operations_snapshot(user_id=admin["id"], year=2026, month=8)
+    assert result["scope_label"] == "全部授权组织"
+    assert {row["id"] for row in result["shukus"]} >= {"snapshot-other-shuku", "snapshot-empty-shuku"}
+    center = next(row for row in result["centers"] if row["id"] == "snapshot-other-center")
+    assert center["shuku_org_unit_id"] == "snapshot-other-shuku"
+    assert center["active_member_count"] == 0
+    user_id = create_user(admin["id"], username="snapshot-other-scoped", display_name="范围核验",
+        password="snapshot-scope-password", roles=["read_only"],
+        scopes=[{"scope_type": "SUBTREE", "org_unit_id": "snapshot-other-center"}])
+    scoped = operations_snapshot(user_id=user_id, year=2026, month=8)
+    assert {row["id"] for row in scoped["centers"]} == {"snapshot-other-center"}
+    assert {row["id"] for row in scoped["shukus"]} == {"snapshot-other-shuku"}

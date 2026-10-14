@@ -342,6 +342,33 @@ def operations_snapshot(
     if allowed is not None:
         centers = [row for row in centers if row["id"] in allowed]
 
+    # Resolve ownership from organization IDs, never from translated names.
+    org_rows = fetch_all("SELECT id, name, parent_id, unit_type, is_active FROM org_units")
+    org_by_id = {row["id"]: row for row in org_rows}
+
+    def nearest_shuku(org_id: str) -> dict[str, Any] | None:
+        seen = set()
+        current = org_by_id.get(org_id)
+        while current and current["id"] not in seen:
+            seen.add(current["id"])
+            if current["unit_type"] == "ROOT":
+                return current
+            current = org_by_id.get(current["parent_id"])
+        return None
+
+    visible_shukus = {}
+    for row in org_rows:
+        if row["is_active"] and (allowed is None or row["id"] in allowed):
+            root = nearest_shuku(row["id"])
+            if root and root["is_active"] and root["id"] != "org-jiangnan":
+                visible_shukus[root["id"]] = {"id": root["id"], "name": root["name"]}
+    for center in centers:
+        root = nearest_shuku(center["id"])
+        center["shuku_org_unit_id"] = (
+            root["id"] if root and root["id"] in visible_shukus else None
+        )
+    shukus = sorted(visible_shukus.values(), key=lambda row: (row["name"], row["id"]))
+
     direct_class_placeholders = ",".join("?" for _ in DIRECT_CLASS_NAMES)
     direct_class_params = (SUZHOU_ROOT_ORG_UNIT_ID, *sorted(DIRECT_CLASS_NAMES))
     classes = fetch_all(
@@ -605,7 +632,7 @@ def operations_snapshot(
     )
     return {
         "period": period,
-        "scope_label": "苏州塾" if allowed is None else "授权范围",
+        "scope_label": "全部授权组织" if allowed is None else "授权范围",
         "summary": {
             "renewed_member_count": renewed_members,
             "new_member_count": new_members,
@@ -617,6 +644,7 @@ def operations_snapshot(
             "activity_count": len(activities),
         },
         "centers": centers,
+        "shukus": shukus,
         "birthday_members": birthday_members,
         "classes": class_operations_rows,
         "class_meeting_schedule": class_meeting_schedule,
