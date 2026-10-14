@@ -51,7 +51,9 @@ export type OperationsSnapshot = {
     id: string;
     name: string;
     active_member_count: number;
+    shuku_org_unit_id?: string | null;
   }[];
+  shukus?: { id: string; name: string }[];
   birthday_members: {
     member_id: number;
     name: string;
