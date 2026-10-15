@@ -27,7 +27,8 @@ import {
   rosterSelection,
   chinaLocalDateTime,
   canMaintainRegistration,
-  canConfirmManually,
+  scopedRosterOptions,
+  manualCheckinReason,
   filterAttendanceRows,
   attendanceExportRows
 } from "@/utils/attendanceManagement.mjs";
@@ -118,12 +119,23 @@ const editor = reactive<Record<string, any>>({
 const classOptions = ref<any[]>([]);
 const groupOptions = ref<any[]>([]);
 const orgOptions = ref<any[]>([]);
+const organizations = ref<any[]>([]);
 const rosterOptionId = ref("");
 const regionId = ref("");
-const rosterOptions = computed(() =>
+const allRosterOptions = computed(() =>
   editor.activity_type === "group_meeting"
     ? groupOptions.value
     : classOptions.value
+);
+const rosterOptions = computed(() =>
+  scopedRosterOptions(
+    allRosterOptions.value,
+    [...organizations.value, ...classOptions.value],
+    regionId.value
+  )
+);
+const automaticClassName = computed(
+  () => !editingId.value && editor.activity_type === "class_meeting"
 );
 const selectedRosterOption = computed(() =>
   rosterOptions.value.find(item => item.id === rosterOptionId.value)
@@ -324,6 +336,7 @@ async function loadRosterOptions() {
     }
   );
   orgOptions.value = result.centers || result.org_units || [];
+  organizations.value = result.org_units || orgOptions.value;
 }
 function setDateDefaults() {
   if (!editor.event_date) return;
@@ -372,6 +385,29 @@ async function openEditor(item?: ManagedEvent) {
   editorVisible.value = true;
   await perform(async () => {
     await loadRosterOptions();
+    if (item) {
+      // Existing class events store their trusted class ID as org_unit_id.
+      // Restore the parent selector without changing that event identity.
+      let id =
+        item.group_org_unit_id || item.class_org_unit_id || item.org_unit_id;
+      const parents = new Map(
+        [
+          ...organizations.value,
+          ...classOptions.value,
+          ...groupOptions.value
+        ].map(option => [option.id, option.parent_id])
+      );
+      const seen = new Set();
+      while (
+        id &&
+        !orgOptions.value.some(option => option.id === id) &&
+        !seen.has(id)
+      ) {
+        seen.add(id);
+        id = parents.get(id);
+      }
+      regionId.value = id || item.org_unit_id || "";
+    }
     rosterOptionId.value =
       item?.group_org_unit_id || item?.class_org_unit_id || "";
   });
@@ -762,6 +798,11 @@ async function removePerson(row: any) {
   });
 }
 async function confirmPerson(row: any) {
+  const reason = manualCheckinReason(currentEvent.value, row, busy.value);
+  if (reason) {
+    ElMessage.warning(reason);
+    return;
+  }
   try {
     await ElMessageBox.confirm(
       `确认“${row.registered_name || row.name}”本人现场到场？团队实际参加人请由小程序团队确认入口填写，不能覆盖报名联系人。`,
@@ -854,7 +895,21 @@ watch(
 );
 watch(rosterOptionId, () => {
   rosterMembers.value = [];
+  rosterVersion.value = null;
   rosterSource.value = "";
+});
+watch(regionId, () => {
+  if (!rosterOptions.value.some(item => item.id === rosterOptionId.value))
+    rosterOptionId.value = "";
+  rosterMembers.value = [];
+  rosterVersion.value = null;
+  rosterSource.value = "";
+});
+watch([automaticClassName, selectedRosterOption], () => {
+  if (automaticClassName.value)
+    editor.event_name = selectedRosterOption.value
+      ? `${selectedRosterOption.value.name}班级学习会`
+      : "";
 });
 watch(codeVersion, () => {
   code.value = null;
@@ -1357,16 +1412,27 @@ onUnmounted(() => {
                     @click="updatePerson(row, 'pending')"
                     >恢复待签到</el-button
                   >
-                  <el-button
+                  <el-tooltip
                     v-if="permission('manage')"
-                    size="small"
-                    type="success"
-                    :disabled="
-                      busy || !canConfirmManually(currentEvent) || row.is_team
-                    "
-                    @click="confirmPerson(row)"
-                    >人工签到</el-button
-                  ><el-button
+                    :content="manualCheckinReason(currentEvent, row, busy)"
+                    :disabled="!manualCheckinReason(currentEvent, row, busy)"
+                    placement="top"
+                    ><span
+                      ><el-button
+                        size="small"
+                        type="success"
+                        :disabled="
+                          Boolean(manualCheckinReason(currentEvent, row, busy))
+                        "
+                        @click="confirmPerson(row)"
+                        >人工签到</el-button
+                      ></span
+                    ></el-tooltip
+                  >
+                  <div v-if="row.is_team && permission('manage')" class="muted">
+                    团队名额：请通过小程序确认实际参加人
+                  </div>
+                  <el-button
                     v-if="permission('manage')"
                     size="small"
                     type="danger"
@@ -1403,8 +1469,19 @@ onUnmounted(() => {
       :close-on-click-modal="false"
     >
       <el-form label-position="top" class="editor-grid">
-        <el-form-item label="活动名称（必填）"
-          ><el-input v-model="editor.event_name" maxlength="150"
+        <el-form-item
+          :label="
+            automaticClassName ? '活动名称（自动生成）' : '活动名称（必填）'
+          "
+          ><el-input
+            v-model="editor.event_name"
+            maxlength="150"
+            :readonly="automaticClassName"
+            :placeholder="
+              automaticClassName
+                ? '选择班级后自动生成，如圆融五班班级学习会'
+                : '请输入活动名称'
+            "
         /></el-form-item>
         <el-form-item label="活动日期（北京时间）"
           ><el-date-picker
@@ -1416,7 +1493,8 @@ onUnmounted(() => {
           ><el-select
             v-model="editor.activity_type"
             :disabled="
-              Boolean(editingId) && editor.activity_type === 'class_meeting'
+              busy ||
+              (Boolean(editingId) && editor.activity_type === 'class_meeting')
             "
             ><el-option
               v-for="[value, label] in editorActivityTypes"
@@ -1424,13 +1502,31 @@ onUnmounted(() => {
               :value="value"
               :label="label" /></el-select
         ></el-form-item>
+        <el-form-item label="所属组织 / 分中心（必填）"
+          ><el-select v-model="regionId" filterable clearable :disabled="busy"
+            ><el-option
+              v-for="item in orgOptions"
+              :key="item.id"
+              :value="item.id"
+              :label="item.path || item.name" /></el-select
+        ></el-form-item>
         <el-form-item
           :label="
             editor.activity_type === 'group_meeting'
-              ? '所属小组（可信组织 ID）'
-              : '所属班级（可信组织 ID，非班级活动可选）'
+              ? '所属小组'
+              : editor.activity_type === 'class_meeting'
+                ? '所属班级（必选）'
+                : '所属班级（可选）'
           "
-          ><el-select v-model="rosterOptionId" filterable clearable
+          ><el-select
+            v-model="rosterOptionId"
+            filterable
+            clearable
+            :disabled="busy || !regionId"
+            :placeholder="
+              regionId ? '请选择所属班级或小组' : '请先选择所属组织 / 分中心'
+            "
+            no-data-text="该组织下暂无可选班级或小组"
             ><el-option
               v-for="item in rosterOptions"
               :key="item.id"
@@ -1441,14 +1537,6 @@ onUnmounted(() => {
                   .filter(Boolean)
                   .join(' / ')
               " /></el-select
-        ></el-form-item>
-        <el-form-item v-if="!rosterOptionId" label="所属组织 / 分中心（必填）"
-          ><el-select v-model="regionId" filterable clearable
-            ><el-option
-              v-for="item in orgOptions"
-              :key="item.id"
-              :value="item.id"
-              :label="item.path || item.name" /></el-select
         ></el-form-item>
       </el-form>
       <template v-if="!editingId && editor.activity_type === 'class_meeting'">
