@@ -4,7 +4,7 @@ An immediate check-in delivery can contain just one signed registration. Such
 rows must not be presented as the complete registration roster. No source rows
 are persisted here; the short-lived cache holds aggregate counts only.
 """
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 import hashlib
 from threading import Lock
 from time import monotonic
@@ -15,10 +15,15 @@ from app.core.settings import get_settings
 
 _cache: dict[tuple[str, str, str], tuple[float, int | None]] = {}
 _lock = Lock()
+READ_BUDGET_SECONDS = 6
+
+
+def _cache_key(base, key, session_id):
+    return (base, hashlib.sha256(key.encode()).hexdigest(), session_id)
 
 
 def _registration_count(client, base: str, key: str, session_id: str) -> int | None:
-    cache_key = (base, hashlib.sha256(key.encode()).hexdigest(), session_id)
+    cache_key = _cache_key(base, key, session_id)
     with _lock:
         cached = _cache.get(cache_key)
         if cached and cached[0] > monotonic():
@@ -28,7 +33,10 @@ def _registration_count(client, base: str, key: str, session_id: str) -> int | N
         ids: set[str] = set()
         cursor = None
         seen_cursors: set[str] = set()
+        deadline = monotonic() + READ_BUDGET_SECONDS
         for _ in range(20):
+            if monotonic() >= deadline:
+                break
             params = {"session_id": session_id, "limit": 500}
             if cursor:
                 params["cursor"] = cursor
@@ -68,7 +76,7 @@ def attach_registration_counts(rows: list[dict]) -> None:
     settings = get_settings()
     base = settings.signin_api_base_url.rstrip("/")
     key = settings.signin_service_api_key
-    source_ids = set()
+    source_ids = {}
     for row in rows:
         row["registration_count"] = None
         row["registration_count_status"] = "UNAVAILABLE"
@@ -76,14 +84,33 @@ def attach_registration_counts(rows: list[dict]) -> None:
             row["registration_count"] = row.get("record_count", 0)
             row["registration_count_status"] = "LOCAL_RECORDS"
         elif row.get("external_session_id"):
-            source_ids.add(str(row["external_session_id"]))
+            source_ids[str(row["external_session_id"])] = None
     if not source_ids or not base or not key:
         return
-    # All requests are machine-to-machine reads. No sync or score writes occur.
-    with httpx.Client(timeout=8, follow_redirects=False) as client:
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            ids = sorted(source_ids)
-            counts = dict(zip(ids, pool.map(lambda value: _registration_count(client, base, key, value), ids)))
+    counts = {}
+    with _lock:
+        for session_id in source_ids:
+            cached = _cache.get(_cache_key(base, key, session_id))
+            if cached and cached[0] > monotonic():
+                counts[session_id] = cached[1]
+    ids = [value for value in source_ids if value not in counts]
+    # Preserve newest-first row order, reuse cached totals, and bound the whole
+    # batch below the admin client's timeout. Slow sources must not hide all
+    # activities. Each running reader owns its client and only caches a count.
+    def read(session_id):
+        with httpx.Client(timeout=3, follow_redirects=False) as client:
+            return _registration_count(client, base, key, session_id)
+    if ids:
+        pool = ThreadPoolExecutor(max_workers=8)
+        futures = {pool.submit(read, value): value for value in ids}
+        try:
+            done, pending = wait(futures, timeout=READ_BUDGET_SECONDS)
+            for future in done:
+                counts[futures[future]] = future.result()
+            for future in pending:
+                future.cancel()
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
     for row in rows:
         if row.get("source_key") == "signin":
             count = counts.get(str(row.get("external_session_id") or ""))
