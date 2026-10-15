@@ -1725,9 +1725,11 @@ onMounted(async () => {
           <el-descriptions-item label="销售收入补充">{{ memberRosterReceipt.annual_sales_applied === undefined ? '原批次未提供' : `${memberRosterReceipt.annual_sales_applied} 条（加密保存）` }}</el-descriptions-item>
         </el-descriptions>
         <p v-if="memberRosterReceipt.field_applied_counts?.length">实际补充的信息：</p>
-        <el-tag v-for="item in memberRosterReceipt.field_applied_counts" :key="item.field" class="result-tag" type="success">
-          {{ rosterFieldLabel(item.field) }}：{{ item.count }} 人
-        </el-tag>
+        <div class="roster-field-counts">
+          <el-tag v-for="item in memberRosterReceipt.field_applied_counts" :key="item.field" type="success">
+            {{ rosterFieldLabel(item.field) }}：{{ item.count }} 人
+          </el-tag>
+        </div>
         <p v-if="memberRosterReceipt.field_applied_counts?.length === 0">本次没有需要补充的空白资料；已有非空资料保持原样。</p>
         <p v-if="memberRosterReceipt.skipped_reasons?.length">
           跳过原因：{{ memberRosterReceipt.skipped_reasons.map(item => `${memberRosterReviewReasonText(item.code)} ${item.count} 条`).join('；') }}。可在下方人工复核清单查看。
@@ -2780,6 +2782,11 @@ onMounted(async () => {
 }
 .result-tag {
   margin: 0 8px 6px 0;
+}
+.roster-field-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .result-alert {
   margin-top: 4px;
