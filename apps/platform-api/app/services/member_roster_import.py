@@ -412,6 +412,7 @@ def preview_member_roster(content: bytes, source_name: str, actor_user_id: int) 
             "field_non_empty_counts": _counter_rows(field_counts, "field"),
         },
         **plan,
+        "previous_import": _previous_import(hashlib.sha256(content).hexdigest(), actor_user_id),
         "write_gates": [
             "只补充空白学员资料，不覆盖已有非空字段、现有状态或现有分中心归属。",
             "手机号必须唯一匹配；缺失、无效、重复或姓名冲突的记录进入人工复核。",
@@ -460,6 +461,39 @@ def _apply_fields(current: dict[str, Any] | None, fields: dict[str, Any], *, all
     return result
 
 
+def _scope_fingerprint(actor_user_id: int) -> str:
+    scope = accessible_org_ids(actor_user_id, "members:manage")
+    return hashlib.sha256(json.dumps(None if scope is None else sorted(scope)).encode()).hexdigest()
+
+
+def _previous_import(source_sha256: str, actor_user_id: int) -> dict[str, Any] | None:
+    # A receipt belongs to its operator; never disclose another operator's
+    # aggregate result or replay statistics after their organization scope changes.
+    batch = fetch_one(
+        "SELECT id,applied_at FROM import_batches WHERE import_type=? AND source_sha256=? "
+        "AND status='APPLIED' AND created_by=? ORDER BY id DESC LIMIT 1",
+        (IMPORT_TYPE, source_sha256, actor_user_id),
+    )
+    if not batch:
+        return None
+    result = {"batch_id": batch["id"], "status": "ALREADY_APPLIED",
+              "source_sha256": source_sha256, "applied_at": batch["applied_at"]}
+    audit = fetch_one(
+        "SELECT after_json FROM audit_logs WHERE action='members.roster_import.apply' "
+        "AND resource_type='import_batch' AND resource_id=? AND actor_user_id=? ORDER BY id DESC LIMIT 1",
+        (str(batch["id"]), actor_user_id),
+    )
+    if audit:
+        payload = audit["after_json"]
+        payload = json.loads(payload) if isinstance(payload, str) else payload
+        if payload.get("scope_fingerprint") == _scope_fingerprint(actor_user_id):
+            for key in ("created", "updated", "fields", "relations", "annual_sales_applied",
+                        "skipped_manual_review", "field_applied_counts", "skipped_reasons"):
+                if key in payload:
+                    result[key] = payload[key]
+    return result
+
+
 def apply_member_roster(content: bytes, source_name: str, actor_user_id: int, confirmation_text: str) -> dict[str, Any]:
     settings = get_settings()
     if settings.is_production and not settings.allow_production_mutations:
@@ -475,7 +509,8 @@ def apply_member_roster(content: bytes, source_name: str, actor_user_id: int, co
         (IMPORT_TYPE, source_sha256),
     )
     if existing_batch and existing_batch["status"] == "APPLIED":
-        return {"batch_id": existing_batch["id"], "status": "ALREADY_APPLIED", "source_sha256": source_sha256}
+        return _previous_import(source_sha256, actor_user_id) or {
+            "batch_id": existing_batch["id"], "status": "ALREADY_APPLIED", "source_sha256": source_sha256}
     rows, meta = _read_rows(content)
     prepared, plan = _build_plan(rows, actor_user_id=actor_user_id)
     if not plan["matching"]["existing_member_count"] and not plan["matching"]["new_member_count"]:
@@ -485,6 +520,7 @@ def apply_member_roster(content: bytes, source_name: str, actor_user_id: int, co
         raise PermissionError("当前账号缺少企业敏感资料权限，无法导入销售收入")
     now = datetime.now(UTC).isoformat()
     created = updated = field_count = relation_count = annual_sales_applied = 0
+    field_applied: Counter[str] = Counter()
     with transaction() as connection:
         cursor = execute(
             connection,
@@ -503,6 +539,7 @@ def apply_member_roster(content: bytes, source_name: str, actor_user_id: int, co
             if not allow_sensitive:
                 fields.pop("annual_sales", None)
             if item["status"] == "READY_NEW":
+                field_applied.update(fields.keys())
                 phone = item["phone"]
                 if not phone:
                     raise ValueError("预检与导入阶段手机号状态不一致")
@@ -552,6 +589,7 @@ def apply_member_roster(content: bytes, source_name: str, actor_user_id: int, co
             current_financial = _financial_data(current) if allow_sensitive else {}
             current["annual_sales"] = current_financial.get("annual_sales")
             changes = _apply_fields(current, fields, allow_sensitive=allow_sensitive)
+            field_applied.update(changes.keys())
             center_id = item["center_id"]
             if center_id and not current.get("development_org_unit_id"):
                 changes["development_org_unit_id"] = center_id
@@ -583,8 +621,7 @@ def apply_member_roster(content: bytes, source_name: str, actor_user_id: int, co
             if changes or item["relation_ids"].get("class_id") or item["relation_ids"].get("group_id"):
                 write_audit(connection, actor_user_id=actor_user_id, action="members.roster_import.update", resource_type="member", resource_id=str(current["id"]), org_unit_id=current["org_unit_id"], after={"source_batch_id": batch_id, "changed_fields": sorted(_member_fields_for_response(changes))})
         execute(connection, "UPDATE import_batches SET status='APPLIED', applied_at=? WHERE id=?", (now, batch_id))
-        write_audit(connection, actor_user_id=actor_user_id, action="members.roster_import.apply", resource_type="import_batch", resource_id=str(batch_id), after={"source_sha256": source_sha256, "created": created, "updated": updated, "fields": field_count, "relations": relation_count})
-    return {
+        summary = {
         "batch_id": batch_id,
         "status": "APPLIED",
         "created": created,
@@ -594,4 +631,11 @@ def apply_member_roster(content: bytes, source_name: str, actor_user_id: int, co
         "annual_sales_applied": annual_sales_applied,
         "skipped_manual_review": plan["matching"]["manual_review_count"],
         "source_sha256": source_sha256,
-    }
+        "field_applied_counts": _counter_rows(field_applied, "field"),
+        "skipped_reasons": plan["issues"],
+        "applied_at": now,
+        }
+        write_audit(connection, actor_user_id=actor_user_id, action="members.roster_import.apply",
+                    resource_type="import_batch", resource_id=str(batch_id),
+                    after={**summary, "scope_fingerprint": _scope_fingerprint(actor_user_id)})
+    return summary

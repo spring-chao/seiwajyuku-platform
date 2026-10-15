@@ -99,6 +99,18 @@ def test_apply_only_fills_missing_fields_and_adds_committee_name() -> None:
     assert row["position"] == "董事"
     assert row["employee_count"] == 12
     assert result["annual_sales_applied"] == 1
+    counts = {item["field"]: item["count"] for item in result["field_applied_counts"]}
+    assert counts["class_committee_name"] == 1
+    assert counts["annual_sales"] == 1
+    assert "company_name" not in counts
+    assert "enterprise_financial_ciphertext" not in counts
+    assert "新公司不覆盖" not in json.dumps(result, ensure_ascii=False)
+    assert "15500001002" not in json.dumps(result)
+    repeat = apply_member_roster(content, "latest.xlsx", admin["id"], "确认补充导入学员主档")
+    assert repeat["status"] == "ALREADY_APPLIED"
+    assert repeat["field_applied_counts"] == result["field_applied_counts"]
+    assert repeat["updated"] == result["updated"]
+    assert preview_member_roster(content, "latest.xlsx", admin["id"])["previous_import"] == repeat
     financial = fetch_one("SELECT enterprise_financial_ciphertext FROM members WHERE id=?", (member_id,))
     assert json.loads(decrypt_text(financial["enterprise_financial_ciphertext"]))["annual_sales"] == "1200"
 
@@ -136,3 +148,36 @@ def test_preview_returns_a_masked_manual_review_list_and_never_overwrites_sales(
     assert applied["annual_sales_applied"] == 0
     stored = fetch_one("SELECT enterprise_financial_ciphertext FROM members WHERE id=?", (member_id,))
     assert json.loads(decrypt_text(stored["enterprise_financial_ciphertext"]))["annual_sales"] == "已有收入"
+    assert applied["skipped_manual_review"] == 3
+    assert {item["code"] for item in applied["skipped_reasons"]} >= {"DUPLICATE_SOURCE_PHONE", "MISSING_OR_INVALID_PHONE"}
+
+
+def test_historical_receipt_does_not_disclose_other_actors_or_changed_scopes() -> None:
+    from unittest.mock import patch
+    from app.services.member_roster_import import _previous_import
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    content = _workbook_bytes([
+        ["receipt-scope", "在册", "回执范围测试", "女", "", "", "15500001991", "导入测试分中心", "", "", "", "", "", "", "", "", "", ""],
+    ])
+    result = apply_member_roster(content, "receipt.xlsx", admin["id"], "确认补充导入学员主档")
+    assert _previous_import(result["source_sha256"], admin["id"] + 999999) is None
+    with patch("app.services.member_roster_import._scope_fingerprint", return_value="changed"):
+        old = _previous_import(result["source_sha256"], admin["id"])
+        assert old["status"] == "ALREADY_APPLIED"
+        assert "updated" not in old
+        assert "field_applied_counts" not in old
+
+
+def test_failed_import_rolls_back_batch_and_profile_changes() -> None:
+    import hashlib
+    import pytest
+    from unittest.mock import patch
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    content = _workbook_bytes([
+        ["receipt-fail", "在册", "回执回滚测试", "女", "", "", "15500001992", "导入测试分中心", "", "", "", "", "", "", "", "", "", ""],
+    ])
+    with patch("app.services.member_roster_import.write_audit", side_effect=RuntimeError("audit failed")):
+        with pytest.raises(RuntimeError, match="audit failed"):
+            apply_member_roster(content, "failure.xlsx", admin["id"], "确认补充导入学员主档")
+    assert fetch_one("SELECT id FROM import_batches WHERE import_type='MEMBER_PROFILE_SUPPLEMENT' AND source_sha256=?", (hashlib.sha256(content).hexdigest(),)) is None
+    assert fetch_one("SELECT id FROM members WHERE name='回执回滚测试'") is None
