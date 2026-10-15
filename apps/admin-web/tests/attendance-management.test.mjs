@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import dayjs from "dayjs";
-import { computed, reactive, ref, watch } from "vue";
+import { computed, nextTick, reactive, ref, watch } from "vue";
 import * as parser from "../src/utils/attendanceImportParser.mjs";
 import * as management from "../src/utils/attendanceManagement.mjs";
 
@@ -288,7 +288,7 @@ function harness(api = async () => ({ ok: true })) {
     onMounted() {},
     onUnmounted() {},
     hasPerms: () => true,
-    ElMessage: { success() {}, error() {} },
+    ElMessage: { success() {}, error() {}, warning() {} },
     ElMessageBox: { confirm: async () => true },
     manageAttendance: async (operation, payload) => {
       calls.push({ operation, payload });
@@ -320,7 +320,7 @@ function harness(api = async () => ({ ok: true })) {
   });
   vm.runInContext(
     output +
-      "\nglobalThis.state = { selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation };",
+      "\nglobalThis.state = { selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, groupOptions, orgOptions, organizations, rosterOptions, rosterMembers, rosterSource, rosterVersion, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation, openEditor, confirmPerson };",
     context
   );
   return { state: context.state, actions: context.actions, calls };
@@ -388,6 +388,7 @@ test("a name-only edit preserves legacy organization ownership and does not subm
   h.state.classOptions.value = [
     { id: "class-1", parent_id: "center-1", name: "示例班" }
   ];
+  h.state.regionId.value = "center-1";
   h.state.rosterOptionId.value = "class-1";
   Object.assign(h.state.editor, {
     event_name: "新活动名称",
@@ -631,4 +632,125 @@ test("group study meetings are absent from new activity choices and cannot be cr
     ),
     true
   );
+});
+
+const organizationFixture = {
+  centers: [
+    { id: "center-a", name: "甲分中心" },
+    { id: "center-b", name: "乙分中心" }
+  ],
+  org_units: [
+    { id: "center-a", parent_id: "shuku" },
+    { id: "center-b", parent_id: "shuku" }
+  ],
+  classes: [
+    { id: "class-a", parent_id: "center-a", name: "圆融五班" },
+    { id: "class-b", parent_id: "center-b", name: "同名五班" }
+  ]
+};
+
+test("class options follow center IDs; changing center clears the class and loaded roster", async () => {
+  const h = harness(async () => organizationFixture);
+  await h.actions.openEditor();
+  h.state.editor.activity_type = "class_meeting";
+  h.state.regionId.value = "center-a";
+  await nextTick();
+  assert.deepEqual(
+    Array.from(h.state.rosterOptions.value, item => item.id),
+    ["class-a"]
+  );
+  h.state.rosterOptionId.value = "class-a";
+  await nextTick();
+  assert.equal(h.state.editor.event_name, "圆融五班班级学习会");
+  h.state.rosterMembers.value = [{ name: "合成学员" }];
+  h.state.rosterSource.value = "ops_roster";
+  h.state.rosterVersion.value = { source_version: "old" };
+  h.state.regionId.value = "center-b";
+  await nextTick();
+  assert.equal(h.state.rosterOptionId.value, "");
+  assert.equal(h.state.rosterMembers.value.length, 0);
+  assert.equal(h.state.rosterSource.value, "");
+  assert.equal(h.state.rosterVersion.value, null);
+  assert.equal(h.state.editor.event_name, "");
+  h.state.rosterOptionId.value = "class-b";
+  await nextTick();
+  assert.equal(h.state.editor.event_name, "同名五班班级学习会");
+  h.state.regionId.value = "";
+  await nextTick();
+  assert.equal(h.state.rosterOptions.value.length, 0);
+});
+
+test("editing a class-ID event restores its center and preserves its historical name", async () => {
+  const h = harness(async () => organizationFixture);
+  await h.actions.openEditor({
+    event_id: "existing",
+    org_unit_id: "class-a",
+    class_org_unit_id: "class-a",
+    activity_type: "class_meeting",
+    name: "原定专题班会"
+  });
+  await nextTick();
+  assert.equal(h.state.regionId.value, "center-a");
+  assert.equal(h.state.rosterOptionId.value, "class-a");
+  assert.equal(h.state.editor.event_name, "原定专题班会");
+});
+
+test("organization filtering supports nested scopes and rejects missing or cyclic ancestry", () => {
+  const options = [
+    { id: "class-a", parent_id: "center-a" },
+    { id: "orphan" },
+    { id: "loop", parent_id: "loop" }
+  ];
+  assert.deepEqual(
+    management.scopedRosterOptions(
+      options,
+      organizationFixture.org_units,
+      "shuku"
+    ),
+    [options[0]]
+  );
+  assert.deepEqual(
+    management.scopedRosterOptions(
+      options,
+      organizationFixture.org_units,
+      "center-b"
+    ),
+    []
+  );
+  assert.deepEqual(
+    management
+      .scopedRosterOptions(
+        [{ id: "group-a", parent_id: "class-a" }],
+        [...organizationFixture.org_units, ...options],
+        "center-a"
+      )
+      .map(item => item.id),
+    ["group-a"]
+  );
+});
+
+test("manual attendance explains team slots and event restrictions and never writes a team contact", async () => {
+  const event = { lifecycle_status: "CONFIRMED", checkin_status: "open" };
+  assert.equal(management.manualCheckinReason(event, {}), "");
+  assert.match(
+    management.manualCheckinReason(event, { is_team: true }),
+    /实际参加人/
+  );
+  assert.match(
+    management.manualCheckinReason({ ...event, lifecycle_status: "DRAFT" }, {}),
+    /先确认/
+  );
+  assert.match(
+    management.manualCheckinReason({ ...event, checkin_status: "ended" }, {}),
+    /已结束/
+  );
+  assert.match(management.manualCheckinReason(event, {}, true), /稍候/);
+  const h = harness();
+  h.state.selected.value = { ...event, event_id: "event-a" };
+  h.state.activeEventId.value = "event-a";
+  await h.actions.confirmPerson({
+    is_team: true,
+    registration_id: "team-slot"
+  });
+  assert.equal(h.calls.length, 0);
 });

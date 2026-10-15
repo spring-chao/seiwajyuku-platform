@@ -85,6 +85,42 @@ export function canConfirmManually(event) {
   );
 }
 
+/** Follow organization IDs only; names and display paths are not membership. */
+export function scopedRosterOptions(options, organizations, regionId) {
+  if (!regionId) return [];
+  const parents = new Map(
+    [...organizations, ...options].map(item => [
+      String(item.id),
+      item.parent_id
+    ])
+  );
+  return options.filter(option => {
+    let id = String(option.id);
+    const visited = new Set();
+    while (id && !visited.has(id)) {
+      if (id === String(regionId)) return true;
+      visited.add(id);
+      id = String(parents.get(id) || "");
+    }
+    return false;
+  });
+}
+
+export function manualCheckinReason(event, row, busy = false) {
+  if (busy) return "正在处理操作，请稍候";
+  if (row?.checked === true || row?.checked_at)
+    return "已签到，保留原有签到记录";
+  if (row?.is_team)
+    return "团队名额请通过小程序团队确认入口填写实际参加人，不能直接将报名联系人记为到场";
+  if (!event) return "请先选择签到场次";
+  if (event.lifecycle_status === "CANCELLED") return "活动已取消，无法人工签到";
+  if (event.lifecycle_status !== "CONFIRMED")
+    return "请先确认活动，再进行人工签到";
+  if (event.checkin_status !== "open")
+    return `当前场次${checkinLabels[event.checkin_status] || "未开放"}，仅签到开放期间支持人工签到`;
+  return "";
+}
+
 export function filterAttendanceRows(rows, filter, keyword = "") {
   const text = keyword.trim().toLowerCase();
   return (rows || []).filter(row => {
