@@ -406,6 +406,7 @@ class ReleasePlan:
     stable_env_fingerprint: str = ""
     continuation: RepairContinuation | None = None
     startup_probe_id: str = ""
+    startup_probe_start: datetime | None = field(default=None, repr=False)
 
     def safe_dict(self) -> dict[str, Any]:
         deploy_type = (
@@ -1146,15 +1147,19 @@ def verify_controller_provenance(commit: str, manifest_path: Path | None) -> Non
             raise RuntimeError("invalid CI run")
 
         def github(path: str) -> Any:
-            result = subprocess.run(
-                ["gh", "api", f"repos/spring-chao/seiwajyuku-platform/{path}"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                check=True,
-                timeout=30,
-            )
-            return json.loads(result.stdout)
+            try:
+                result = subprocess.run(
+                    ["gh", "api", f"repos/spring-chao/seiwajyuku-platform/{path}"],
+                    capture_output=True, text=True, encoding="utf-8", check=True, timeout=30,
+                )
+                return json.loads(result.stdout)
+            except FileNotFoundError:
+                headers = {"Accept": "application/vnd.github+json", "User-Agent": "seiwajyuku-release-controller"}
+                if os.getenv("GH_TOKEN"):
+                    headers["Authorization"] = "Bearer " + os.environ["GH_TOKEN"]
+                request = Request("https://api.github.com/repos/spring-chao/seiwajyuku-platform/" + path, headers=headers)
+                with urlopen(request, timeout=30) as response:
+                    return json.load(response)
 
         run = github(f"actions/runs/{run_id}")
         if (
@@ -1585,9 +1590,11 @@ class CloudRunReleaseController:
     def build_plan(
         self, release_input: ReleaseInput, *, network_repair: MissingVpcRepairInput | None = None,
         continuation: RepairContinuation | None = None,
+        source_resume: bool = False, expected_stable_revision: str | None = None,
     ) -> ReleasePlan:
         try:
-            return self._build_plan(release_input, network_repair=network_repair, continuation=continuation)
+            return self._build_plan(release_input, network_repair=network_repair, continuation=continuation,
+                                    source_resume=source_resume, expected_stable_revision=expected_stable_revision)
         except ReleaseFailure:
             if not self.history or self.history[-1] not in {
                 ReleaseState.BLOCKED,
@@ -1696,13 +1703,19 @@ class CloudRunReleaseController:
     def _build_plan(
         self, release_input: ReleaseInput, *, network_repair: MissingVpcRepairInput | None = None,
         continuation: RepairContinuation | None = None,
+        source_resume: bool = False, expected_stable_revision: str | None = None,
     ) -> ReleasePlan:
-        if continuation and not network_repair:
+        if source_resume and (not continuation or network_repair or not expected_stable_revision
+                or not release_input.ci_provenance_verified or release_input.requested_env_changes
+                or release_input.artifact_mode != "source" or not release_input.approval_ref
+                or release_input.candidate_verification != "startup-loopback"):
+            raise ReleaseFailure("SOURCE_CONTINUATION_INVALID", "source resume requires an approved CI source, exact stable/task/order, unchanged environment and startup proof")
+        if continuation and not network_repair and not source_resume:
             raise ReleaseFailure("REPAIR_CONTINUATION_INVALID", "continuation is limited to the missing VPC repair mode")
         if continuation and network_repair and network_repair.restore_private_database_endpoint:
             raise ReleaseFailure("VPC_REPAIR_SCOPE_INVALID", "database endpoint restoration requires a new repair candidate")
         if release_input.candidate_verification == "startup-loopback" and (
-            continuation or release_input.artifact_mode != "source" or not release_input.approval_ref
+            (continuation and not source_resume) or release_input.artifact_mode != "source" or not release_input.approval_ref
         ):
             raise ReleaseFailure("CANDIDATE_VERIFICATION_INVALID", "startup check requires a new explicitly authorized main source candidate")
         if network_repair and (
@@ -1724,6 +1737,8 @@ class CloudRunReleaseController:
                 "a CloudRun release task is already active",
             )
         stable_name, stable_image, base_url = self._discover_stable(service, records, continuation=continuation)
+        if source_resume and stable_name != expected_stable_revision:
+            raise ReleaseFailure("STABLE_REVISION_CHANGED", "source continuation stable identity changed")
         self._stable_revision = stable_name
 
         self._transition(ReleaseState.READ_STABLE_VERSION)
@@ -1751,16 +1766,33 @@ class CloudRunReleaseController:
             changes["DATABASE_URL"] = self._verified_private_database_url(stable, network_repair)
         env_json, env_summary = _merge_env_params(stable_env, changes)
         probe_id = ""
+        probe_start = None
         if release_input.candidate_verification == "startup-loopback":
             if int(_value(stable, "Port") or 0) != 8000:
                 raise ReleaseFailure("CANDIDATE_VERIFICATION_INVALID", "startup check requires the existing port 8000")
             probe_id = secrets.token_urlsafe(32)
+            if source_resume:
+                candidate = self.api.describe_version(continuation.candidate_revision)
+                candidate_env = _parse_env_params(_value(candidate, "EnvParams"))
+                probe_id = candidate_env.get("DEPLOYMENT_CANDIDATE_PROBE_ID", "")
+                if (len(probe_id) < 32 or probe_id == stable_env.get("DEPLOYMENT_CANDIDATE_PROBE_ID")
+                        or {k: v for k, v in candidate_env.items() if k != "DEPLOYMENT_CANDIDATE_PROBE_ID"}
+                           != {k: v for k, v in stable_env.items() if k != "DEPLOYMENT_CANDIDATE_PROBE_ID"}):
+                    raise ReleaseFailure("CANDIDATE_ENV_MISMATCH", "source continuation must retain stable environment and its unique startup probe")
+                steps = _value(current_task, "Steps") or []
+                creation = [step for step in steps if _value(step, "Name") == "CreateVersion" and _value(step, "Status") == "finished"]
+                try:
+                    probe_start = datetime.strptime(creation[0]["StartTime"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC) - timedelta(hours=8, seconds=5)
+                except (IndexError, KeyError, TypeError, ValueError) as exc:
+                    raise ReleaseFailure("SOURCE_CONTINUATION_INVALID", "completed source candidate creation time is required") from exc
+                if probe_start > datetime.now(UTC) or datetime.now(UTC) - probe_start > timedelta(days=1):
+                    raise ReleaseFailure("SOURCE_CONTINUATION_INVALID", "source continuation proof window is not current")
             probe_env = json.loads(env_json) if env_json else dict(stable_env)
             probe_env["DEPLOYMENT_CANDIDATE_PROBE_ID"] = probe_id
             env_json = json.dumps(probe_env, sort_keys=True)
             env_summary = (*env_summary, {"key": "DEPLOYMENT_CANDIDATE_PROBE_ID", "status": "changed"})
         if continuation:
-            if continuation.candidate_revision in {stable_name, network_repair.reference_revision}:
+            if continuation.candidate_revision in {stable_name, network_repair.reference_revision if network_repair else stable_name}:
                 raise ReleaseFailure("REPAIR_CONTINUATION_INVALID", "repair candidate must be separate from stable and reference")
             self._assert_repair_candidate(
                 continuation.candidate_revision, desired_vpc,
@@ -1812,6 +1844,7 @@ class CloudRunReleaseController:
             stable_env_fingerprint=hashlib.sha256(json.dumps(stable_env, sort_keys=True).encode()).hexdigest(),
             continuation=continuation,
             startup_probe_id=probe_id,
+            startup_probe_start=probe_start,
         )
 
     def _assert_startup_probe(self, plan: ReleasePlan, candidate: str, start: datetime) -> None:
@@ -2683,7 +2716,7 @@ class CloudRunReleaseController:
         )
         try:
             self._candidate_created = True
-            probe_start = datetime.now(UTC) - timedelta(seconds=5)
+            probe_start = plan.startup_probe_start or (datetime.now(UTC) - timedelta(seconds=5))
             if plan.continuation:
                 self._transition(ReleaseState.READ_EXISTING_CANDIDATE)
                 candidate_name = plan.continuation.candidate_revision
@@ -2844,6 +2877,7 @@ def _parser() -> argparse.ArgumentParser:
         help="separately authorized missing-baseline repair using verified historical and database network metadata",
     )
     parser.add_argument("--resume-repair-candidate", metavar="REVISION")
+    parser.add_argument("--resume-source-candidate", metavar="REVISION")
     parser.add_argument("--expected-task-id", type=int)
     parser.add_argument("--expected-release-order-id", type=int)
     parser.add_argument("--candidate-verification", choices=("url-params", "startup-loopback"), default="url-params")
@@ -2885,7 +2919,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.poll_seconds <= 0 or args.max_polls <= 0:
             raise ReleaseFailure("POLL_POLICY_INVALID", "poll timing must be positive")
-        if not args.resume_repair_candidate and (args.expected_task_id is not None or args.expected_release_order_id is not None):
+        if args.resume_source_candidate and (args.resume_repair_candidate or args.repair_missing_vpc_from_version or args.verify_existing_candidate):
+            raise ReleaseFailure("SOURCE_CONTINUATION_INVALID", "source continuation cannot be combined with repair or generic existing-candidate mode")
+        if not (args.resume_repair_candidate or args.resume_source_candidate) and (args.expected_task_id is not None or args.expected_release_order_id is not None):
             raise ReleaseFailure("REPAIR_CONTINUATION_INVALID", "task and order assertions require repair continuation")
         existing_candidate = str(args.verify_existing_candidate or "").strip()
         artifact_selected = sum(
@@ -3029,6 +3065,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise ReleaseFailure("REPAIR_CONTINUATION_INVALID", "continuation requires the authorized network repair scope")
             continuation = RepairContinuation(args.resume_repair_candidate, args.expected_task_id or 0,
                                                args.expected_release_order_id or 0)
+        if args.resume_source_candidate:
+            continuation = RepairContinuation(args.resume_source_candidate, args.expected_task_id or 0,
+                                               args.expected_release_order_id or 0)
+            if args.execute:
+                verify_controller_provenance(args.control_tool_commit or "", args.controller_release_manifest)
         if args.repair_missing_vpc_from_version:
             repair = MissingVpcRepairInput(
                 expected_stable_revision=args.expected_stable_revision or "",
@@ -3040,7 +3081,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     verify_controller_provenance(args.control_tool_commit or "", args.controller_release_manifest)
                 else:
                     verify_controller_provenance(args.commit, args.release_manifest)
-        plan = controller.build_plan(release_input, network_repair=repair, continuation=continuation)
+        plan = controller.build_plan(release_input, network_repair=repair, continuation=continuation,
+                                     source_resume=bool(args.resume_source_candidate),
+                                     expected_stable_revision=args.expected_stable_revision)
         if args.dry_run:
             safe_plan = plan.safe_dict()
             safe_plan["release_strategy"]["requested_promotion"] = args.promotion
