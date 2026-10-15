@@ -4,6 +4,7 @@ import re
 from datetime import UTC, date, datetime
 from typing import Any
 
+from app.core.business_time import business_today
 from app.db import fetch_all
 
 
@@ -109,7 +110,7 @@ def verified_member_memories(
     as_of: date | None = None,
 ) -> list[dict[str, Any]]:
     """Return deduplicated positive participation facts from verifiable sources."""
-    current_date = as_of or datetime.now(UTC).date()
+    current_date = as_of or business_today(datetime.now(UTC))
     candidates: list[dict[str, Any]] = []
     attendance_rows = fetch_all(
         "SELECT eg.id AS event_id, eg.event_date, eg.activity_type, eg.title "

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { chinaDate } from "@/utils/business-date";
 import { computed, onMounted, ref } from "vue";
 import { message } from "@/utils/message";
 import {
@@ -15,7 +16,7 @@ const loading = ref(false);
 const saving = ref(false);
 const plans = ref<AnnualPlan[]>([]);
 const planId = ref<number>();
-const month = ref(Math.min(new Date().getMonth() + 1, 12));
+const month = ref(Number(chinaDate().slice(5, 7)));
 const rows = ref<PeriodValue[]>([]);
 const orgUnitId = ref("");
 

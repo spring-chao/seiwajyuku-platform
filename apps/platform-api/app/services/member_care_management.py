@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Any, Callable
 
+from app.core.business_time import business_today, calendar_date, instant_date
 from app.db import fetch_all
 from app.services.followups import OPEN_STATES, list_tasks
 from app.services.iam import accessible_org_ids, user_context
@@ -37,17 +38,7 @@ EXCEPTION_RANK = {
 
 
 def _calendar_date(value: Any) -> date | None:
-    if isinstance(value, datetime):
-        return value.astimezone(UTC).date() if value.tzinfo else value.date()
-    if isinstance(value, date):
-        return value
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        return date.fromisoformat(text[:10])
-    except ValueError:
-        return None
+    return calendar_date(value)
 
 
 def _date_text(value: Any) -> str | None:
@@ -219,7 +210,7 @@ def _birthday_missed_exceptions(
         operation_item = state["operation_item"]
         completion_dates: list[date | None] = []
         if completion:
-            completion_dates.append(_calendar_date(completion.get("completed_at")))
+            completion_dates.append(instant_date(completion.get("completed_at")))
         if (
             operation_item
             and str(operation_item.get("status") or "").upper() == "COMPLETED"
@@ -227,7 +218,7 @@ def _birthday_missed_exceptions(
             # Historical rhythm rows occasionally predate actual_at.  Preserve
             # their existing compatibility semantics: a completed legacy row
             # without a timestamp is not retroactively treated as missed.
-            completion_dates.append(_calendar_date(operation_item.get("actual_at")))
+            completion_dates.append(instant_date(operation_item.get("actual_at")))
         if completion_dates and any(
             completed_at is None or completed_at <= due_date
             for completed_at in completion_dates
@@ -460,7 +451,7 @@ def build_member_care_management_overview(
     org_unit_id: str | None = None,
 ) -> dict[str, Any]:
     current = as_of or datetime.now(UTC)
-    today = current.date() if isinstance(current, datetime) else current
+    today = business_today(current)
     coverage = _source_coverage(user_id)
     if not any(item["accessible"] for item in coverage.values()):
         raise PermissionError("当前账号没有学长关爱管理数据查看权限")

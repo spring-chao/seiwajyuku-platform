@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Literal
 from zipfile import BadZipFile
 
+from app.core.business_time import business_today
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from openpyxl.utils.exceptions import InvalidFileException
 from pydantic import BaseModel, Field
@@ -91,7 +92,7 @@ class RenewalSupportRequestUpdatePayload(BaseModel):
 
 
 def _current_year() -> int:
-    return datetime.now(UTC).year
+    return business_today(datetime.now(UTC)).year
 
 @router.get("/overview")
 def overview(

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Any, Literal
 
+from app.core.business_time import business_today
 from app.db import fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
@@ -35,7 +36,7 @@ def _completed_years(join_date: Any, stored: Any, overridden: Any) -> int | None
             return None
     if not joined:
         return None
-    today = datetime.now(UTC).date()
+    today = business_today(datetime.now(UTC))
     years = today.year - joined.year
     if (today.month, today.day) < (joined.month, joined.day):
         years -= 1

@@ -1768,9 +1768,11 @@ def test_followup_datetime_accepts_shorthand_and_rejects_invalid_input() -> None
         "2027-01-05 00:00:00"
     )
     assert _normalize_followup_datetime("2026-09-28T09:30:00+08:00") == (
-        "2026-09-28 01:30:00"
+        "2026-09-28 09:30:00"
     )
     assert _normalize_followup_datetime("2026-09-28") == "2026-09-28 00:00:00"
+    assert _normalize_followup_datetime("2026-10-15T00:30:00+08:00") == "2026-10-15 00:30:00"
+    assert _normalize_followup_datetime("2026-10-14T16:30:00Z") == "2026-10-15 00:30:00"
     with pytest.raises(ValueError, match="下次跟进时间格式无效"):
         _normalize_followup_datetime("不是日期")
 
