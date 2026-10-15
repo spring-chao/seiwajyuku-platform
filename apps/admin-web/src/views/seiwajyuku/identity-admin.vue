@@ -643,14 +643,14 @@ onMounted(load);
     />
     <el-alert
       v-else-if="!writesEnabled"
-      title="当前为只读灰度状态：IDENTITY_ADMIN_WRITES_ENABLED 尚未开启"
+      title="当前为只读状态，人员权限维护尚未开放"
       type="info"
       :closable="false"
       show-icon
     />
     <el-alert
       v-else
-      title="写入灰度已开启。每次操作都必须填写确认依据和业务说明，并写入审计。"
+      title="人员权限维护已开放。每次操作都必须填写确认依据和业务说明，并写入审计。"
       type="success"
       :closable="false"
       show-icon

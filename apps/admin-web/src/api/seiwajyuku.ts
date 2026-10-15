@@ -1119,6 +1119,8 @@ export type ActivitySnapshot = {
 };
 
 export type AttendanceEventGroup = {
+  registration_count?: number | null;
+  registration_count_status?: string;
   id: number;
   source_key: string;
   title?: string;
@@ -1158,6 +1160,8 @@ export const deleteAttendanceEventGroup = (id: number, expectedTitle: string) =>
   );
 
 export type AttendanceSession = {
+  registration_count?: number | null;
+  registration_count_status?: string;
   id: number;
   event_group_id: number;
   session_code: string;

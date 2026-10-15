@@ -1,4 +1,5 @@
 import { attendanceGroupLabel } from "./attendanceImportParser.mjs";
+export { activityTypeLabel, activitySessionLabel, activityDisplayTitle } from "./business-labels.mjs";
 
 export const activityTypes = [
   ["course", "课程"],

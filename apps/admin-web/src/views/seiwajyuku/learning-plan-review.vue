@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
+import { taskTypeLabel } from "@/utils/business-labels.mjs";
 import {
   getLearningPlanReview,
   type LearningPlanReview
@@ -85,7 +86,7 @@ const currentCohortCheckpoints = computed(() =>
 
 const taskTypeSummary = (taskTypeCounts: Record<string, number>) =>
   Object.entries(taskTypeCounts)
-    .map(([type, count]) => `${type} ${count}`)
+    .map(([type, count]) => `${taskTypeLabel(type)} ${count}`)
     .join("、");
 
 const sourceText = (metadata?: Record<string, unknown> | null) => {
@@ -290,31 +291,11 @@ onMounted(loadReview);
           </div>
         </div>
 
-        <el-collapse
-          ><el-collapse-item title="查看来源与核验信息" name="source">
-            <el-descriptions :column="2" border class="fingerprints">
-              <el-descriptions-item label="固定提交">
-                <span class="fingerprint">{{ review.source_commit }}</span>
-              </el-descriptions-item>
-              <el-descriptions-item label="标准 JSON SHA-256">
-                <span class="fingerprint">{{ review.source_json_sha256 }}</span>
-              </el-descriptions-item>
-              <el-descriptions-item
-                v-for="year in workbookYears"
-                :key="year"
-                :label="`第${year}年 Excel SHA-256`"
-              >
-                <span>
-                  <span>{{ review.source_workbooks[year]?.file }}</span
-                  ><br />
-                  <span class="fingerprint">{{
-                    review.source_workbooks[year]?.sha256
-                  }}</span>
-                </span>
-              </el-descriptions-item>
-            </el-descriptions>
-          </el-collapse-item></el-collapse
-        >
+        <el-collapse><el-collapse-item title="查看来源文档" name="source">
+          <el-descriptions :column="1" border>
+            <el-descriptions-item v-for="year in workbookYears" :key="year" :label="`第${year}年来源文档`">{{ review.source_workbooks[year]?.file || "未提供" }}</el-descriptions-item>
+          </el-descriptions>
+        </el-collapse-item></el-collapse>
 
         <el-tabs v-model="activeCohort" class="review-tabs">
           <el-tab-pane
@@ -428,7 +409,7 @@ onMounted(loadReview);
           stripe
           class="task-table"
         >
-          <el-table-column prop="task_type" label="类型" width="150" />
+          <el-table-column label="类型" width="150"><template #default="{ row }">{{ taskTypeLabel(row.task_type) }}</template></el-table-column>
           <el-table-column prop="title" label="任务名称" min-width="280" />
           <el-table-column prop="description" label="说明" min-width="220" />
           <el-table-column label="源内容" min-width="240">

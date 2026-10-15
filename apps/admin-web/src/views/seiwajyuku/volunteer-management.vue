@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { volunteerStatusOptions, volunteerStatusLabel, organizationTypeLabel, volunteerMigrationLabel, capabilityLabel } from "@/utils/business-labels.mjs";
 import { getIdentityOrgOptions, type IdentityOrgOption } from "@/api/identityAdmin";
 import {
   acceptVolunteerRecommendation,
@@ -30,6 +31,10 @@ const recommendationRules = ref<VolunteerRecommendationRule[]>([]);
 const appointmentDialogVisible = ref(false);
 const serviceUnitDialogVisible = ref(false);
 const migrationDialogVisible = ref(false);
+const statusDialogVisible = ref(false);
+const statusSaving = ref(false);
+const statusTarget = ref<VolunteerAppointment>();
+const statusForm = reactive({ status: "SUSPENDED" as "ACTIVE" | "SUSPENDED" | "ENDED" | "REVOKED", reason: "" });
 const migrationPreview = ref<{ counts: Record<string, number>; entries: Array<Record<string, unknown>> }>();
 
 const filters = reactive({
@@ -152,21 +157,28 @@ async function submitAppointment() {
   ElMessage.success(rules.length ? "任职已建立；可按提示确认推荐的另一项任职" : "志工任职已建立");
 }
 
-async function changeStatus(row: VolunteerAppointment) {
-  const { value } = await ElMessageBox.prompt("填写状态调整说明", "调整志工任职状态", {
-    inputPattern: /[\s\S]{6,}/,
-    inputErrorMessage: "说明至少 6 个字符",
-    confirmButtonText: "继续",
-    cancelButtonText: "取消"
-  });
-  const { value: status } = await ElMessageBox.prompt("输入 ACTIVE、SUSPENDED、ENDED 或 REVOKED", "选择状态", {
-    inputValue: row.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE",
-    inputPattern: /^(ACTIVE|SUSPENDED|ENDED|REVOKED)$/,
-    inputErrorMessage: "请输入允许的状态值"
-  });
-  await changeVolunteerAppointmentStatus(row.id, { status: status as "ACTIVE" | "SUSPENDED" | "ENDED" | "REVOKED", reason: value });
-  ElMessage.success("状态已更新");
-  await load();
+function changeStatus(row: VolunteerAppointment) {
+  statusTarget.value = row;
+  statusForm.status = row.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE";
+  statusForm.reason = "";
+  statusDialogVisible.value = true;
+}
+
+async function submitStatus() {
+  if (statusSaving.value || !statusTarget.value) return;
+  if (!volunteerStatusOptions.some(item => item.value === statusForm.status) || statusForm.reason.trim().length < 6) {
+    ElMessage.warning("请选择任职状态并填写至少 6 个字符的调整说明");
+    return;
+  }
+  statusSaving.value = true;
+  try {
+    await changeVolunteerAppointmentStatus(statusTarget.value.id, { status: statusForm.status, reason: statusForm.reason.trim() });
+    statusDialogVisible.value = false;
+    ElMessage.success(`状态已更新为“${volunteerStatusLabel(statusForm.status)}”`);
+    await load();
+  } finally {
+    statusSaving.value = false;
+  }
 }
 
 async function acceptRecommendation(row: VolunteerAppointment, rule: VolunteerRecommendationRule) {
@@ -252,7 +264,7 @@ onMounted(async () => {
       <el-table-column prop="service_unit_name" label="志工服务组织" min-width="160"><template #default="{ row }">{{ row.service_unit_name || '历史任职（待迁移确认）' }}</template></el-table-column>
       <el-table-column prop="position_name" label="岗位" min-width="130" />
       <el-table-column prop="service_target_name" label="服务对象" min-width="130" />
-      <el-table-column label="能力" min-width="150"><template #default="{ row }">{{ row.capabilities.length ? row.capabilities.join('、') : '未配置移动端能力' }}</template></el-table-column>
+      <el-table-column label="能力" min-width="150"><template #default="{ row }">{{ row.capabilities.length ? row.capabilities.map(capabilityLabel).join('、') : '未配置移动端能力' }}</template></el-table-column>
       <el-table-column prop="status_name" label="状态" width="100" />
       <el-table-column label="操作" width="170" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="changeStatus(row as VolunteerAppointment)">调整状态</el-button><el-dropdown v-if="row.status === 'ACTIVE' && row.service_unit_id"><el-button link type="primary">推荐任职</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-for="rule in recommendationRules.filter(item => item.source_service_unit_id === row.service_unit_id && item.source_position_key === row.position_key && item.is_active)" :key="rule.id" @click="acceptRecommendation(row as VolunteerAppointment, rule)">{{ rule.target_service_unit_name }} / {{ rule.target_position_name }}</el-dropdown-item><el-dropdown-item v-if="!recommendationRules.some(item => item.source_service_unit_id === row.service_unit_id && item.source_position_key === row.position_key && item.is_active)" disabled>暂无配置的推荐规则</el-dropdown-item></el-dropdown-menu></template></el-dropdown></template></el-table-column>
     </el-table>
@@ -268,6 +280,14 @@ onMounted(async () => {
       </el-form>
     </el-card>
 
+    <el-dialog v-model="statusDialogVisible" title="调整志工任职状态" width="500px" :close-on-click-modal="false" :close-on-press-escape="!statusSaving" :show-close="!statusSaving">
+      <el-form label-position="top">
+        <el-form-item label="学长 / 岗位"><span>{{ statusTarget?.member_name }} / {{ statusTarget?.position_name }}</span></el-form-item>
+        <el-form-item label="任职状态" required><el-select v-model="statusForm.status" :disabled="statusSaving"><el-option v-for="item in volunteerStatusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+        <el-form-item label="调整说明" required><el-input v-model="statusForm.reason" type="textarea" :rows="3" :disabled="statusSaving" placeholder="请填写至少 6 个字符的调整说明" /></el-form-item>
+      </el-form>
+      <template #footer><el-button :disabled="statusSaving" @click="statusDialogVisible = false">取消</el-button><el-button type="primary" :loading="statusSaving" @click="submitStatus">确认调整</el-button></template>
+    </el-dialog>
     <el-dialog v-model="appointmentDialogVisible" title="新增志工任职" width="560px">
       <el-form label-width="120px">
         <el-form-item label="在册学长 ID" required><el-input-number v-model="appointmentForm.member_id" :min="1" /><div class="field-help">仅在册学长可建立志工任职；同一学长可拥有多个当前岗位。</div></el-form-item>
@@ -287,12 +307,12 @@ onMounted(async () => {
         <el-form-item label="线别"><el-select v-model="serviceUnitForm.line_type"><el-option label="学习践行线" value="LEARNING" /><el-option label="运营管理线" value="OPERATIONS" /><el-option label="发展建设线" value="DEVELOPMENT" /><el-option label="综合" value="GENERAL" /><el-option label="监事线" value="SUPERVISION" /></el-select></el-form-item>
         <el-form-item label="上级服务组织"><el-select v-model="serviceUnitForm.parent_id" clearable filterable><el-option v-for="unit in serviceUnits" :key="unit.id" :label="unit.name" :value="unit.id" /></el-select></el-form-item>
         <el-form-item label="归属塾"><el-select v-model="serviceUnitForm.home_shuku_org_unit_id" clearable filterable><el-option v-for="org in orgOptions.filter(item => item.unit_type === 'ROOT')" :key="org.id" :label="org.name" :value="org.id" /></el-select></el-form-item>
-        <el-form-item label="服务对象" required><el-select v-model="serviceUnitForm.service_target_org_unit_id" filterable><el-option v-for="org in orgOptions" :key="org.id" :label="`${org.name}（${org.unit_type}）`" :value="org.id" /></el-select></el-form-item>
+        <el-form-item label="服务对象" required><el-select v-model="serviceUnitForm.service_target_org_unit_id" filterable><el-option v-for="org in orgOptions" :key="org.id" :label="`${org.name}（${organizationTypeLabel(org.unit_type)}）`" :value="org.id" /></el-select></el-form-item>
       </el-form>
       <template #footer><el-button @click="serviceUnitDialogVisible = false">取消</el-button><el-button type="primary" @click="submitServiceUnit">保存</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="migrationDialogVisible" title="历史志工任职迁移预览" width="900px"><el-alert type="warning" :closable="false" title="此页面只做预览，绝不自动迁移、结束或重写生产志工任职。" show-icon /><el-descriptions v-if="migrationPreview" :column="3" border><el-descriptions-item label="已是 V2">{{ migrationPreview.counts.ALREADY_V2 || 0 }}</el-descriptions-item><el-descriptions-item label="可人工确认">{{ migrationPreview.counts.SAFE_TO_MIGRATE || 0 }}</el-descriptions-item><el-descriptions-item label="需人工核验">{{ migrationPreview.counts.MANUAL_REVIEW || 0 }}</el-descriptions-item></el-descriptions><el-table v-if="migrationPreview" :data="migrationPreview.entries" max-height="420"><el-table-column label="原任职"><template #default="{ row }">{{ (row.appointment as any).member_name }} / {{ (row.appointment as any).position_name }}</template></el-table-column><el-table-column prop="classification" label="分类" /><el-table-column prop="reason" label="原因" min-width="380" /></el-table></el-dialog>
+    <el-dialog v-model="migrationDialogVisible" title="历史志工任职迁移预览" width="900px"><el-alert type="warning" :closable="false" title="此页面只做预览，绝不自动迁移、结束或重写生产志工任职。" show-icon /><el-descriptions v-if="migrationPreview" :column="3" border><el-descriptions-item label="已使用新任职体系">{{ migrationPreview.counts.ALREADY_V2 || 0 }}</el-descriptions-item><el-descriptions-item label="可人工确认">{{ migrationPreview.counts.SAFE_TO_MIGRATE || 0 }}</el-descriptions-item><el-descriptions-item label="需人工核验">{{ migrationPreview.counts.MANUAL_REVIEW || 0 }}</el-descriptions-item></el-descriptions><el-table v-if="migrationPreview" :data="migrationPreview.entries" max-height="420"><el-table-column label="原任职"><template #default="{ row }">{{ (row.appointment as any).member_name }} / {{ (row.appointment as any).position_name }}</template></el-table-column><el-table-column label="分类"><template #default="{ row }">{{ volunteerMigrationLabel(row.classification) }}</template></el-table-column><el-table-column prop="reason" label="原因" min-width="380" /></el-table></el-dialog>
   </div>
 </template>
 
