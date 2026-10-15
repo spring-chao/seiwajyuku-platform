@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+from threading import Event
+from time import monotonic
 
 import httpx
 import pytest
@@ -74,6 +76,32 @@ def test_local_imports_do_not_request_source_and_preserve_local_counts(monkeypat
     rows = [{"source_key": "historical_import", "record_count": 20}]
     totals.attach_registration_counts(rows)
     assert rows[0]["registration_count"] == 20
+
+
+def test_slow_source_does_not_block_the_activity_response(monkeypatch):
+    release, finished = Event(), Event()
+    original = totals._registration_count
+    def reader(*args):
+        try:
+            return original(*args)
+        finally:
+            finished.set()
+    def handler(request):
+        release.wait(2)
+        return httpx.Response(200, json={"items": [{"external_record_id": "slot-a"}]})
+    client_for(monkeypatch, handler)
+    monkeypatch.setattr(totals, "_registration_count", reader)
+    monkeypatch.setattr(totals, "READ_BUDGET_SECONDS", .02)
+    rows = [{"source_key": "signin", "external_session_id": "slow-event", "record_count": 14}]
+    try:
+        started = monotonic()
+        totals.attach_registration_counts(rows)
+        assert monotonic() - started < .5
+        assert rows[0]["registration_count"] is None
+        assert rows[0]["registration_count_status"] == "UNAVAILABLE"
+    finally:
+        release.set()
+        assert finished.wait(3)
 
 
 @pytest.mark.parametrize("activity_type", ["OTHER", "other", "STAFF_TRAINING", "COURSE", "GROUP_MEETING"])
