@@ -103,8 +103,8 @@ def _care_fixture() -> dict[str, int | str]:
         node_id = int(
             execute(
                 connection,
-                "INSERT INTO operation_template_nodes(template_id, node_code, title, category, rule_type, business_type, created_at, updated_at) "
-                "VALUES (?, 'BIRTHDAY_CARE', '生日学长关怀', '学长关怀', 'BIRTHDAY_MONTH', 'BIRTHDAY_CARE', ?, ?)",
+                "INSERT INTO operation_template_nodes(template_id, node_code, title, category, rule_type, rule_config_json, business_type, created_at, updated_at) "
+                "VALUES (?, 'BIRTHDAY_CARE', '生日学长关怀', '学长关怀', 'BIRTHDAY_MONTH', '{}', 'BIRTHDAY_CARE', ?, ?)",
                 (template_id, now, now),
             ).lastrowid
         )
