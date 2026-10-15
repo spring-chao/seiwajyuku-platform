@@ -33,9 +33,10 @@ def fixture():
     return controller, api, source, continuation, task, proof
 
 
-def build(controller, api, continuation, **overrides):
+def build(controller, api, continuation, *, warm=False, **overrides):
     return controller.build_plan(source_input(candidate_verification='startup-loopback', **overrides),
-        continuation=continuation, source_resume=True, expected_stable_revision=api.stable['Name'])
+        continuation=continuation, source_resume=True, expected_stable_revision=api.stable['Name'],
+        warm_resumed_source_candidate=warm)
 
 
 def test_resume_reuses_same_source_candidate_and_original_probe_window():
@@ -78,3 +79,58 @@ def test_resume_still_requires_candidate_build_database_and_log_identity(change)
     with pytest.raises(release.ReleaseFailure):
         c.execute(plan, promotion='full')
     assert api.flow_calls == []
+
+
+def test_zero_pod_warmup_starts_once_and_scopes_all_proof_to_the_ready_pod():
+    c, api, source, continuation, _, _ = fixture()
+    api.pods = []
+    starts, queries = [], []
+    def start(name):
+        starts.append(name)
+        api.pods = [{'PodId': 'source-resume-pod', 'Status': 'Running'}]
+        return 'source-resume-pod'
+    api.start_source_candidate_instance = start
+    original = api.search_cls_logs
+    def logs(query, *rest):
+        queries.append(query)
+        assert 'source-resume-pod' in query
+        return original(query, *rest)
+    api.search_cls_logs = logs
+    result = c.execute(build(c, api, continuation, warm=True), promotion='full')
+    assert result['state'] == 'VERIFIED'
+    assert starts == [api.candidate_name] and queries
+    assert source.calls == 0 and api.update_specs == [] and api.flow_calls == [5, 100]
+
+
+@pytest.mark.parametrize('status', ['Running', 'Pending'])
+def test_existing_pod_never_starts_an_additional_instance(status):
+    c, api, _, continuation, _, _ = fixture()
+    api.pods = [{'PodId': 'existing-pod', 'Status': status}]
+    api.start_source_candidate_instance = lambda _: pytest.fail('additional instance')
+    plan = build(c, api, continuation, warm=True)
+    if status == 'Running':
+        assert c.execute(plan, promotion='full')['state'] == 'VERIFIED'
+    else:
+        with pytest.raises(release.ReleaseFailure, match='no running instance'):
+            c.execute(plan, promotion='full')
+        assert api.flow_calls == []
+
+
+def test_warmup_timeout_is_not_automatically_retried_and_no_traffic_changes():
+    c, api, _, continuation, _, _ = fixture()
+    api.pods = []
+    calls = []
+    def start(name):
+        calls.append(name)
+        raise TimeoutError('uncertain start')
+    api.start_source_candidate_instance = start
+    with pytest.raises(release.ReleaseFailure):
+        c.execute(build(c, api, continuation, warm=True), promotion='full')
+    assert calls == [api.candidate_name] and api.flow_calls == []
+
+
+def test_other_release_modes_cannot_use_source_instance_warmup():
+    c, api, _, _, _, _ = fixture()
+    with pytest.raises(release.ReleaseFailure):
+        c.build_plan(source_input(), warm_resumed_source_candidate=True)
+    assert api.flow_calls == [] and api.update_specs == []

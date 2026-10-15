@@ -407,6 +407,7 @@ class ReleasePlan:
     continuation: RepairContinuation | None = None
     startup_probe_id: str = ""
     startup_probe_start: datetime | None = field(default=None, repr=False)
+    warm_resumed_source_candidate: bool = False
 
     def safe_dict(self) -> dict[str, Any]:
         deploy_type = (
@@ -425,6 +426,7 @@ class ReleasePlan:
             "desired_runtime_commit": self.desired_runtime_commit,
             "ci_provenance_verified": self.ci_provenance_verified,
             "candidate_verification": "startup-loopback" if self.startup_probe_id else "url-params",
+            "warm_resumed_source_candidate": self.warm_resumed_source_candidate,
             "deploy_type": deploy_type,
             "release_type": self.release_type,
             "stable_vpc_conf": self.stable_vpc_conf.as_api_dict(),
@@ -1016,6 +1018,13 @@ class TencentCloudSdkApi:
         pods = response.get("PodList") or []
         return [pod for pod in pods if isinstance(pod, Mapping)]
 
+    def start_source_candidate_instance(self, version_name: str) -> str:
+        from tencentcloud.tcbr.v20220217 import models
+        request = models.StartVersionInstanceRequest()
+        request.EnvId, request.ServerName, request.VersionName = ENV_ID, SERVICE_NAME, version_name
+        response = self._tcbr_request("StartVersionInstance", request)
+        return str(response.get("InstanceName") or "")
+
     def search_cls_logs(
         self, query: str, start_time: str, end_time: str
     ) -> Mapping[str, Any]:
@@ -1080,6 +1089,9 @@ class TencentCloudSdkApi:
 
 class ExistingCandidateSdkApi(TencentCloudSdkApi):
     """Capability boundary: allow reads and only targeted/zero-flow ReleaseGray."""
+
+    def start_source_candidate_instance(self, version_name: str) -> str:
+        raise ReleaseFailure("EXISTING_CANDIDATE_WRITE_DISALLOWED", "instance start is disallowed")
 
     def _tcbr_request(self, name: str, request: Any) -> dict[str, Any]:
         reads = {
@@ -1328,6 +1340,7 @@ class CloudRunReleaseController:
         self._routing_changed = False
         self._candidate_revision: str | None = None
         self._stable_revision: str | None = None
+        self._startup_pod_filter = ""
 
     def _transition(self, state: ReleaseState) -> None:
         self.history.append(state)
@@ -1492,7 +1505,7 @@ class CloudRunReleaseController:
             terminal_state=ReleaseState.FAILED,
         )
 
-    def _wait_for_candidate_instance(self, candidate_revision: str) -> None:
+    def _wait_for_candidate_instance(self, candidate_revision: str) -> Mapping[str, Any]:
         for _ in range(self.max_polls):
             pods = self.api.describe_candidate_pods(candidate_revision)
             ready = []
@@ -1502,7 +1515,7 @@ class CloudRunReleaseController:
                     ready.append(pod)
             if ready:
                 self._transition(ReleaseState.CANDIDATE_INSTANCE_READY)
-                return
+                return ready[0]
             self.sleep(self.poll_seconds)
         raise ReleaseFailure(
             "CANDIDATE_INSTANCE_NOT_READY",
@@ -1533,6 +1546,8 @@ class CloudRunReleaseController:
         expected_count: int = 23,
     ) -> None:
         query = f'"{token}" OR "{batch_id}"'
+        if self._startup_pod_filter:
+            query = f'({query}) AND "{self._startup_pod_filter}"'
         for _ in range(self.max_polls):
             result = self.api.search_cls_logs(query, start_time, end_time)
             rows = _value(result, "Results") or []
@@ -1591,10 +1606,12 @@ class CloudRunReleaseController:
         self, release_input: ReleaseInput, *, network_repair: MissingVpcRepairInput | None = None,
         continuation: RepairContinuation | None = None,
         source_resume: bool = False, expected_stable_revision: str | None = None,
+        warm_resumed_source_candidate: bool = False,
     ) -> ReleasePlan:
         try:
             return self._build_plan(release_input, network_repair=network_repair, continuation=continuation,
-                                    source_resume=source_resume, expected_stable_revision=expected_stable_revision)
+                                    source_resume=source_resume, expected_stable_revision=expected_stable_revision,
+                                    warm_resumed_source_candidate=warm_resumed_source_candidate)
         except ReleaseFailure:
             if not self.history or self.history[-1] not in {
                 ReleaseState.BLOCKED,
@@ -1704,7 +1721,10 @@ class CloudRunReleaseController:
         self, release_input: ReleaseInput, *, network_repair: MissingVpcRepairInput | None = None,
         continuation: RepairContinuation | None = None,
         source_resume: bool = False, expected_stable_revision: str | None = None,
+        warm_resumed_source_candidate: bool = False,
     ) -> ReleasePlan:
+        if warm_resumed_source_candidate and not source_resume:
+            raise ReleaseFailure("SOURCE_CONTINUATION_INVALID", "bounded instance warmup is limited to exact source continuation")
         if source_resume and (not continuation or network_repair or not expected_stable_revision
                 or not release_input.ci_provenance_verified or release_input.requested_env_changes
                 or release_input.artifact_mode != "source" or not release_input.approval_ref
@@ -1845,6 +1865,7 @@ class CloudRunReleaseController:
             continuation=continuation,
             startup_probe_id=probe_id,
             startup_probe_start=probe_start,
+            warm_resumed_source_candidate=warm_resumed_source_candidate,
         )
 
     def _assert_startup_probe(self, plan: ReleasePlan, candidate: str, start: datetime) -> None:
@@ -1855,7 +1876,10 @@ class CloudRunReleaseController:
         marker = "CANDIDATE_PROBE_RESULT "
         for _ in range(self.max_polls):
             end_time = (datetime.now(UTC) + local_offset + timedelta(seconds=5)).strftime("%Y-%m-%d %H:%M:%S")
-            result = self.api.search_cls_logs(f'"{result_id}"', start_time, end_time)
+            result_query = f'"{result_id}"'
+            if self._startup_pod_filter:
+                result_query += f' AND "{self._startup_pod_filter}"'
+            result = self.api.search_cls_logs(result_query, start_time, end_time)
             rows = _value(result, "Results") or []
             for row in rows:
                 if self._log_identity(row, plan.stable_revision, candidate) != "candidate":
@@ -2750,7 +2774,19 @@ class CloudRunReleaseController:
             if plan.startup_probe_id:
                 self._transition(ReleaseState.CANDIDATE_SELF_PROBE)
                 self._assert_traffic_restored(plan.stable_revision, candidate_name)
-                self._wait_for_candidate_instance(candidate_name)
+                if plan.warm_resumed_source_candidate:
+                    pods = self.api.describe_candidate_pods(candidate_name)
+                    # Only a zero-instance candidate can be woken once. Any
+                    # non-ready existing pod must settle without adding one.
+                    if not pods:
+                        self.api.start_source_candidate_instance(candidate_name)
+                    pod = self._wait_for_candidate_instance(candidate_name)
+                    pod_id = str(_value(pod, "PodId") or "")
+                    if not re.fullmatch(r"[A-Za-z0-9._-]{1,200}", pod_id):
+                        raise ReleaseFailure("CANDIDATE_IDENTITY_NOT_PROVEN", "resumed source pod identity is required")
+                    self._startup_pod_filter = pod_id
+                else:
+                    self._wait_for_candidate_instance(candidate_name)
                 self._assert_startup_probe(plan, candidate_name, probe_start)
                 self._assert_traffic_restored(plan.stable_revision, candidate_name)
             else:
@@ -2878,6 +2914,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--resume-repair-candidate", metavar="REVISION")
     parser.add_argument("--resume-source-candidate", metavar="REVISION")
+    parser.add_argument("--warm-resumed-source-candidate", action="store_true")
     parser.add_argument("--expected-task-id", type=int)
     parser.add_argument("--expected-release-order-id", type=int)
     parser.add_argument("--candidate-verification", choices=("url-params", "startup-loopback"), default="url-params")
@@ -2917,6 +2954,8 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.warm_resumed_source_candidate and not args.resume_source_candidate:
+            raise ReleaseFailure("SOURCE_CONTINUATION_INVALID", "instance warmup requires exact source continuation")
         if args.poll_seconds <= 0 or args.max_polls <= 0:
             raise ReleaseFailure("POLL_POLICY_INVALID", "poll timing must be positive")
         if args.resume_source_candidate and (args.resume_repair_candidate or args.repair_missing_vpc_from_version or args.verify_existing_candidate):
@@ -3083,7 +3122,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     verify_controller_provenance(args.commit, args.release_manifest)
         plan = controller.build_plan(release_input, network_repair=repair, continuation=continuation,
                                      source_resume=bool(args.resume_source_candidate),
-                                     expected_stable_revision=args.expected_stable_revision)
+                                     expected_stable_revision=args.expected_stable_revision,
+                                     warm_resumed_source_candidate=args.warm_resumed_source_candidate)
         if args.dry_run:
             safe_plan = plan.safe_dict()
             safe_plan["release_strategy"]["requested_promotion"] = args.promotion
