@@ -13,6 +13,7 @@ from app.core.privacy import encrypt_text, phone_hash
 from app.core.business_time import BUSINESS_TIMEZONE, business_today, calendar_date, instant_date
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
+from app.services.care_copy import renewal_care_references
 from app.services.iam import accessible_org_ids, user_context
 from app.services.member_memories import verified_member_memories
 from app.services.renewal_support_network import (
@@ -1926,49 +1927,16 @@ def get_action_card(
     memories = verified_member_memories(cycle["member_id"], limit=4, as_of=current_date)
     strategy = _renewal_action_strategy(stage["code"], latest_followup=latest)
     annual_service_fee = get_annual_member_service_fee(cycle["member_org_unit_id"])
-    salutation = (
-        cycle["member_name"]
-        if str(cycle["member_name"]).endswith(("学长", "学姐"))
-        else f"{cycle['member_name']}学长"
+    wechat_reference, phone_opening_reference = renewal_care_references(
+        name=cycle["member_name"],
+        stage_code=stage["code"],
+        status=cycle["status"],
+        renewal_year=cycle["renewal_year"],
+        due_month=cycle["due_month"],
+        memories=memories,
+        latest=latest,
+        as_of=current_date,
     )
-    memory = memories[0] if memories else None
-    if stage["code"] == "CLOSED":
-        wechat_reference = None
-        phone_opening_reference = None
-    else:
-        memory_wechat = (
-            f"前段时间想到您参加过的{memory['title']}，也想听听您最近有没有新的感受。"
-            if memory
-            else "有一段时间没和您细聊了，也一直惦记着您的近况。"
-        )
-        recent_contact = "上次联系后，最近还顺利吗？" if latest else "最近还顺利吗？"
-        if stage["code"] in {"PREPARE", "OBSERVE_3"}:
-            wechat_reference = (
-                f"{salutation}好，{memory_wechat}{recent_contact}"
-                "最近企业、学习或生活上如果有我们可以支持的地方，也请随时告诉我。"
-            )
-            phone_opening_reference = (
-                f"{salutation}好，我是盛和塾的运营同仁。今天联系您主要是想关心一下近况，"
-                "也听听您最近学习和经营上的感受，现在方便聊几分钟吗？"
-            )
-        elif stage["code"] == "RENEW_2":
-            wechat_reference = (
-                f"{salutation}好，{memory_wechat}{recent_contact}"
-                "也想和您回顾一下这一年的学习与同行，听听您对下一阶段学习的期待。"
-            )
-            phone_opening_reference = (
-                f"{salutation}好，我是盛和塾的运营同仁。想听听您对这一年学习和同行的真实感受，"
-                "也了解一下接下来最希望获得哪些支持，现在方便聊几分钟吗？"
-            )
-        else:
-            wechat_reference = (
-                f"{salutation}好，{memory_wechat}{recent_contact}"
-                "想和您确认一下下一阶段继续同行的考虑，以及有没有需要我们协调支持的地方。"
-            )
-            phone_opening_reference = (
-                f"{salutation}好，我是盛和塾的运营同仁。今天想基于前面的沟通，"
-                "确认一下您对下一阶段同行的考虑，也看看有没有需要我们协助解决的事项。"
-            )
 
     join_date = str(cycle["join_date"])[:10] if cycle.get("join_date") else None
     membership_years = _completed_membership_years(
@@ -2030,7 +1998,7 @@ def get_action_card(
             "phone_opening_reference": phone_opening_reference,
             "questions": strategy["questions"],
             "do_not": strategy["do_not"],
-            "advice_source": "RULE_TEMPLATE_V1",
+            "advice_source": "RULE_TEMPLATE_V2",
         },
         "data_quality": {
             "facts_only": True,

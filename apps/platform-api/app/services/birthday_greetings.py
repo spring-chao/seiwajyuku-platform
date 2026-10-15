@@ -6,6 +6,7 @@ from typing import Any, Literal
 from app.core.business_time import business_today
 from app.db import fetch_one, transaction
 from app.services.audit import write_audit
+from app.services.care_copy import member_salutation, memory_phrase
 from app.services.iam import accessible_org_ids, user_context
 from app.services.member_memories import verified_member_memories
 from app.services.members import can_access_member
@@ -108,7 +109,7 @@ def get_birthday_greeting_context(member_id: int, actor_user_id: int) -> dict[st
     if not join_date:
         notes.append("该学长缺少入塾日期，当前祝福不会包含同行年限。")
     if not memories:
-        notes.append("当前没有可核验的本人学习或活动记录，祝福将退化为基础祝福。")
+        notes.append("暂无可核验的学习或活动经历，祝福将以日常问候为主。")
     birthday_month_day = _format_month_day(member.get("birthday"))
     member_view = {
         "id": member["id"],
@@ -139,7 +140,7 @@ def get_birthday_greeting_context(member_id: int, actor_user_id: int) -> dict[st
     result = {
         "member": member_view,
         "memories": memories,
-        "selected_memory_ids": [item["id"] for item in memories if item["selected_by_default"]],
+        "selected_memory_ids": [item["id"] for item in memories[:2]],
         "data_quality": {
             "facts_only": True,
             "memory_count": len(memories),
@@ -169,68 +170,46 @@ def generate_birthday_greeting_draft(
     selected_memory_ids: list[str],
     tone: Literal["standard", "warm", "concise"] = "warm",
 ) -> dict[str, Any]:
+    if tone not in {"standard", "warm", "concise"}:
+        raise ValueError("不支持的祝福语气")
     context = get_birthday_greeting_context(member_id, actor_user_id)
     memories_by_id = {item["id"]: item for item in context["memories"]}
     if len(selected_memory_ids) > 4 or any(item not in memories_by_id for item in selected_memory_ids):
         raise ValueError("只能选择当前上下文中的已验证共同记忆，最多 4 条")
+    selected_memory_ids = list(dict.fromkeys(selected_memory_ids))
     memories = [memories_by_id[item] for item in selected_memory_ids]
     member = context["member"]
-    name = member["name"]
-    salutation = name if name.endswith(("学长", "学姐")) else f"{name}学长"
+    salutation = member_salutation(member["name"])
     birthday_month_day = member.get("birthday_month_day")
     birthday_text = None
     if birthday_month_day:
         birthday_month, birthday_day = birthday_month_day.split("-")
         birthday_text = f"{int(birthday_month)}月{int(birthday_day)}日"
 
+    today = business_today()
+    if birthday_month_day == today.strftime("%m-%d"):
+        opening = f"{salutation}，今天是您的生日，祝您生日快乐！"
+    elif birthday_text:
+        opening = f"{salutation}，{birthday_text}是您的生日，送上一份祝福：生日快乐！"
+    else:
+        opening = f"{salutation}，送上一份生日祝福，祝您生日快乐！"
+    lines = [opening]
+    joined = _as_date(member.get("join_date"))
+    years = member.get("membership_years")
+    if tone != "concise" and joined and joined <= today and years is not None:
+        if years > 0:
+            lines.append(f"从{joined.year}年{joined.month}月入塾到现在，已有{years}年，感谢您的同行。")
+        else:
+            lines.append("很高兴在盛和塾与您相识，也期待往后有更多交流的机会。")
+    if memories:
+        phrases = "、".join(memory_phrase(item) for item in memories)
+        lines.append(f"您参加过{phrases}，期待往后有机会再相聚，聊聊学习，也聊聊近况。")
     if tone == "warm":
-        birthday_line = (
-            f"{salutation}好，{birthday_text}是您的生日，祝您生日快乐！"
-            if birthday_text
-            else f"{salutation}好，祝您生日快乐！"
-        )
-        lines = [birthday_line]
-        if member["join_date"] and member["membership_years"] is not None:
-            joined = _as_date(member["join_date"])
-            lines.append(
-                f"从{joined.year}年{joined.month}月加入盛和塾以来，已经与盛和塾各位学长同行{member['membership_years']}年。"
-            )
-        lines.append("这些年的学习与相聚，记录着与各位学长共同走过的时光。")
-        lines.append(
-            "感谢您这些年与盛和塾各位学长同行与践行。祝您身心安康、家庭幸福、事业顺遂，在经营与人生的道路上不断精进。"
-        )
+        lines.append("愿您身体安康，心里有热爱，身边有惦念。也愿工作之外，多些属于自己和家人的轻松时光。")
+    elif tone == "concise":
+        lines.append("愿您身体安康、家人常伴，日子里多些开心与从容。")
     else:
-        birthday_line = (
-            f"{salutation}好，{birthday_text}是您的生日，祝您生日快乐！"
-            if birthday_text
-            else f"{salutation}好，祝您生日快乐！"
-        )
-        lines = [birthday_line]
-        if member["join_date"] and member["membership_years"] is not None:
-            joined = _as_date(member["join_date"])
-            lines.append(
-                f"从{joined.year}年{joined.month}月加入盛和塾以来，我们已经同行{member['membership_years']}年。"
-            )
-        if memories:
-            phrases = [
-                f"{item['year']}年{item['month']}月的{item['title']}"
-                for item in memories
-            ]
-            if tone == "concise":
-                lines.append("这些共同经历，也记录着我们一路学习与相聚的时光：" + "、".join(phrases) + "。")
-            else:
-                lines.append(
-                    "还记得我们一起经历过"
-                    + "、".join(phrases)
-                    + "，一次次学习与相聚，也记录着我们共同走过的时光。"
-                )
-        elif tone != "concise":
-            lines.append("这些年的学习与相聚，记录着我们共同走过的时光。")
-    if tone == "concise":
-        lines.append("祝您身心安康、家庭幸福、事业顺遂，愿您在经营与人生的道路上持续精进。")
-    else:
-        if tone != "warm":
-            lines.append("感谢这些年的同行。祝您身心安康、家庭幸福、事业顺遂，愿您在经营与人生的道路上持续精进。")
+        lines.append("祝您身体健康、阖家幸福，经营顺遂，生活从容。")
     lines.append("——苏州盛和塾")
     draft = "\n".join(lines)
     with transaction() as connection:

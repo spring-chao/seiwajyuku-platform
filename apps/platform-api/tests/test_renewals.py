@@ -210,7 +210,8 @@ def test_action_card_falls_back_without_inventing_activity_facts() -> None:
     card = get_action_card(cycle_id, user_id, as_of=date(2099, 8, 19))
     assert card["verified_memories"] == []
     assert card["data_quality"]["memory_fallback_used"] is True
-    assert "有一段时间没和您细聊了" in card["action"]["wechat_reference"]
+    assert "不用急着回复" in card["action"]["wechat_reference"]
+    assert "有一段时间没和您细聊了" not in card["action"]["wechat_reference"]
     assert "报告会" not in card["action"]["wechat_reference"]
 
 

@@ -79,7 +79,7 @@ def _memory_candidate(
     as_of: date,
 ) -> dict[str, Any] | None:
     parsed_date = _as_date(occurred_on)
-    if not parsed_date:
+    if not parsed_date or parsed_date > as_of:
         return None
     normalised_type = str(activity_type or "LEARNING_ACTIVITY").upper()
     normalised_title = _activity_title(normalised_type, title)

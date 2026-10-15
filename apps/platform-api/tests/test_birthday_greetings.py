@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 import pytest
@@ -105,7 +105,8 @@ def test_context_contains_only_verified_deduplicated_memories() -> None:
     assert context["data_quality"]["facts_only"] is True
 
 
-def test_draft_rejects_unverified_memory_ids_and_uses_selected_facts() -> None:
+def test_draft_rejects_unverified_memory_ids_and_uses_selected_facts(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.birthday_greetings.business_today", lambda *args: date(2026, 10, 15))
     center_id, _, member_id = _insert_scope()
     admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
     user_id = create_user(
@@ -128,7 +129,7 @@ def test_draft_rejects_unverified_memory_ids_and_uses_selected_facts() -> None:
         tone="concise",
     )
     assert result["facts_only"] is True
-    assert result["draft"].splitlines()[0] == "生日测试学长好，8月26日是您的生日，祝您生日快乐！"
+    assert result["draft"].splitlines()[0] == "生日测试学长，8月26日是您的生日，送上一份祝福：生日快乐！"
     assert "新的一岁" not in result["draft"]
     assert "2022年6月的经营十二条专题课程" in result["draft"]
     assert "企业收入" not in result["draft"]
@@ -140,8 +141,58 @@ def test_draft_rejects_unverified_memory_ids_and_uses_selected_facts() -> None:
         tone="warm",
     )
     warm_lines = warm_result["draft"].splitlines()
-    assert warm_lines[0] == "生日测试学长好，8月26日是您的生日，祝您生日快乐！"
-    assert warm_lines[1] == "从2021年3月加入盛和塾以来，已经与盛和塾各位学长同行5年。"
-    assert warm_lines[2] == "这些年的学习与相聚，记录着与各位学长共同走过的时光。"
-    assert "感谢您这些年与盛和塾各位学长同行与践行" in warm_lines[3]
-    assert "2022年6月的经营十二条专题课程" not in warm_result["draft"]
+    assert warm_lines[0] == "生日测试学长，8月26日是您的生日，送上一份祝福：生日快乐！"
+    assert warm_lines[1] == "从2021年3月入塾到现在，已有5年，感谢您的同行。"
+    assert "2022年6月的经营十二条专题课程" in warm_result["draft"]
+    assert "一起经历" not in warm_result["draft"]
+    assert "身边有惦念" in warm_result["draft"]
+    assert len(result["draft"]) < len(warm_result["draft"])
+
+
+@pytest.mark.parametrize("tone", ["warm", "standard", "concise"])
+@pytest.mark.parametrize("joined", [None, "2026-08-01", "2027-01-01"])
+def test_birthday_copy_handles_new_or_missing_history_without_inventing_years(monkeypatch, tone, joined):
+    monkeypatch.setattr("app.services.birthday_greetings.business_today", lambda *args: date(2026, 8, 26))
+    _, _, member_id = _insert_scope()
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    with transaction() as connection:
+        execute(connection, "UPDATE members SET join_date=? WHERE id=?", (joined, member_id))
+    result = generate_birthday_greeting_draft(member_id, admin["id"], selected_memory_ids=[], tone=tone)
+    draft = result["draft"]
+    assert "今天是您的生日" in draft
+    assert all(term not in draft for term in ("0年", "这些年", "多年", "践行", "课程", "续费"))
+    if tone == "warm" and joined == "2026-08-01":
+        assert "与您相识" in draft
+    if joined != "2026-08-01":
+        assert "入塾到现在" not in draft
+
+
+def test_missing_birthday_and_empty_memories_still_produces_natural_greeting(monkeypatch):
+    monkeypatch.setattr("app.services.birthday_greetings.business_today", lambda *args: date(2026, 8, 26))
+    _, _, member_id = _insert_scope()
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    with transaction() as connection:
+        execute(connection, "UPDATE members SET birthday=NULL, join_date=NULL WHERE id=?", (member_id,))
+    draft = generate_birthday_greeting_draft(member_id, admin["id"], selected_memory_ids=[])["draft"]
+    assert "生日快乐" in draft
+    assert "今天" not in draft
+    assert "这些年" not in draft
+
+
+def test_birthday_defaults_to_two_memories_but_honors_all_explicit_selections(monkeypatch):
+    monkeypatch.setattr("app.services.birthday_greetings.business_today", lambda *args: date(2026, 8, 26))
+    _, _, member_id = _insert_scope()
+    admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
+    memories = [dict(
+        id=f"test-{index}", year=2025, month=index, title=f"第{index}次专题学习",
+        selected_by_default=True,
+    ) for index in range(1, 5)]
+    monkeypatch.setattr("app.services.birthday_greetings.verified_member_memories", lambda _: memories)
+    context = get_birthday_greeting_context(member_id, admin["id"])
+    assert context["selected_memory_ids"] == ["test-1", "test-2"]
+    for tone in ("warm", "standard", "concise"):
+        draft = generate_birthday_greeting_draft(
+            member_id, admin["id"], selected_memory_ids=[item["id"] for item in memories], tone=tone,
+        )["draft"]
+        assert all(item["title"] in draft for item in memories)
+        assert "一起经历" not in draft
