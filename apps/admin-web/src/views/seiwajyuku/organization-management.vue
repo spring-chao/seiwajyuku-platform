@@ -2,7 +2,6 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
-  applyDuplicateClassCleanup,
   createLearningOrgUnit,
   deactivateLearningOrgUnit,
   getLearningGroupMemberTransferOptions,
@@ -46,7 +45,6 @@ const memberTransferForm = reactive({
   targetByMember: {} as Record<number, string>,
   reason: "清理重复小组关联"
 });
-const kunshanYanwuClasses = ["炎武一班", "炎武二班", "炎武三班", "炎武四班"];
 
 function classReferenceScore(item: ManagedLearningOrgUnit) {
   const counts = item.reference_counts;
@@ -438,27 +436,6 @@ async function transferMember(member: any) {
   }
 }
 
-async function cleanKunshanYanwuDuplicates() {
-  try {
-    await ElMessageBox.confirm(
-      "将保留每个炎武班的正式主班级，迁移无冲突小组及班级关系，并停用重复班级。若发现同名小组或其他业务引用，系统会整体取消，不会部分迁移。",
-      "归并昆山炎武重复班级",
-      { type: "warning", confirmButtonText: "确认归并" }
-    );
-    saving.value = true;
-    const response = await applyDuplicateClassCleanup({
-      class_names: kunshanYanwuClasses,
-      confirmation: "确认合并昆山炎武一至四班重复组织"
-    });
-    ElMessage.success(`已归并 ${response.data.deactivated_duplicate_classes} 个重复班级`);
-    await load();
-  } catch (error) {
-    if (error !== "cancel") ElMessage.error(errorText(error));
-  } finally {
-    saving.value = false;
-  }
-}
-
 async function submitMove() {
   if (!movingUnit.value || !moveForm.target_parent_id || moveForm.reason.trim().length < 6) {
     ElMessage.warning("请选择目标分中心并填写至少6个字符的确认依据");
@@ -535,7 +512,6 @@ onMounted(load);
         <span>这里是分中心、班级和小组关系的唯一维护入口；小组改名只更新组织名称，不改变成员关系或所属班级。</span>
       </div>
       <div class="hero-actions">
-        <el-button type="warning" :disabled="!writeEnabled || saving" @click="cleanKunshanYanwuDuplicates">归并炎武重复班级</el-button>
         <el-button :disabled="!writeEnabled" @click="openCreate('GROUP')">新增小组</el-button>
         <el-button type="primary" :disabled="!writeEnabled" @click="openCreate('CLASS')">新增班级</el-button>
       </div>

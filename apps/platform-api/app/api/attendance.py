@@ -34,6 +34,7 @@ from app.services.attendance_scoring import (
     upsert_score_record,
 )
 from app.services.attendance_sync import sync_from_signin
+from app.services.attendance_registration_totals import attach_registration_counts
 from app.services.attendance_deletion import delete_event_group
 from app.services.signin_engine import SigninEngineError
 from app.services.iam import accessible_org_ids
@@ -389,7 +390,7 @@ def reconciliation_queue(
             + unmatched_month_clause,
             "count_params": (month,) if month else (),
             "rows": "SELECT r.id, r.member_code_snapshot, r.name_snapshot, "
-            "r.attendance_status, r.checked_at, s.session_name, "
+            "r.attendance_status, r.checked_at, s.session_name, s.session_code, eg.activity_type, "
             "eg.title, eg.event_date, eg.org_unit_id, eg.study_org_unit_id "
             "FROM attendance_records r JOIN attendance_sessions s "
             "ON s.id=r.attendance_session_id JOIN attendance_event_groups eg "
@@ -612,7 +613,7 @@ def list_event_groups(
     return {"success": True, "data": rows}
 
 
-def _session_display_title(title: str | None, session_name: str | None, session_code: str) -> str:
+def _session_display_title(title: str | None, session_name: str | None, session_code: str, activity_type: str = "") -> str:
     """Build a stable, human-readable title for one attendance session.
 
     The source system groups several sessions under one event title.  Keep the
@@ -629,15 +630,15 @@ def _session_display_title(title: str | None, session_name: str | None, session_
         "KONPA": "空巴",
         "KONPAI": "空巴",
     }
-    label = (session_name or "").strip() or label_map.get(session_code.upper(), session_code)
+    label = label_map.get(session_code.upper(), "班会场次")
     base = re.sub(
         r"\s*[-－—·]\s*(?:上午|下午|晚上?空巴|空巴|AM|PM|MORNING|AFTERNOON|EVENING|KONPA)\s*$",
         "",
         source_title,
         flags=re.IGNORECASE,
     ).strip()
-    if not label or label in base:
-        return source_title
+    if str(activity_type).upper() != "CLASS_MEETING":
+        return base
     return f"{base} · {label}"
 
 
@@ -691,7 +692,7 @@ def list_activity_sessions(
         "SELECT eg.id, eg.source_key, eg.external_group_id, eg.title, eg.event_date, "
         "eg.activity_type, eg.status, eg.org_unit_id, o.name AS org_name, "
         "o.unit_type AS org_unit_type, eg.study_org_unit_id, class_org.name AS class_name, "
-        "s.id AS session_id, s.session_code, s.session_name, s.session_order, "
+        "s.id AS session_id, s.external_session_id, s.session_code, s.session_name, s.session_order, "
         "s.scheduled_start_at, s.scheduled_end_at, s.status AS session_status, "
         "1 AS session_count, "
         "(SELECT COUNT(*) FROM attendance_records r WHERE r.attendance_session_id=s.id) AS record_count, "
@@ -748,9 +749,10 @@ def list_activity_sessions(
         params.extend(sorted(allowed))
     sql += " ORDER BY eg.event_date DESC, eg.id DESC, s.session_order, s.id"
     rows = fetch_all(sql, tuple(params))
+    attach_registration_counts(rows)
     for row in rows:
         row["display_title"] = _session_display_title(
-            row.get("title"), row.get("session_name"), str(row["session_code"])
+            row.get("title"), row.get("session_name"), str(row["session_code"]), row.get("activity_type", "")
         )
     return {"success": True, "data": rows}
 
@@ -907,6 +909,12 @@ def event_group_detail(
                 group_id,
             ),
         )
+    for session in sessions:
+        session["source_key"] = group["source_key"]
+    attach_registration_counts(sessions)
+    counts = [session["registration_count"] for session in sessions]
+    group["registration_count"] = sum(counts) if all(value is not None for value in counts) else None
+    group["registration_count_status"] = "CONFIRMED" if group["registration_count"] is not None else "UNAVAILABLE"
     return {
         "success": True,
         "data": {
@@ -951,7 +959,7 @@ def download_event_group_records(
     sql = (
         "SELECT r.name_snapshot, r.member_code_snapshot, r.participant_type, "
         "r.attendance_status, r.checked_at, s.session_code, s.session_name, "
-        "s.checkin_start_at, eg.title, eg.event_date, sr.final_points, sr.is_late, "
+        "s.checkin_start_at, eg.title, eg.event_date, eg.activity_type, sr.final_points, sr.is_late, "
         "sr.is_early_leave, sr.id AS score_record_id "
         "FROM attendance_records r "
         "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
@@ -1010,14 +1018,14 @@ def download_event_group_records(
         sheet.append(
             [
                 _session_display_title(
-                    row.get("title"), row.get("session_name"), str(row["session_code"])
+                    row.get("title"), row.get("session_name"), str(row["session_code"]), row.get("activity_type", "")
                 ),
                 row.get("event_date") or "",
-                row.get("session_name") or row.get("session_code") or "",
+                {"MORNING": "上午", "AFTERNOON": "下午", "KONPA": "空巴"}.get(str(row.get("session_code")), "班会场次") if str(row.get("activity_type")).upper() == "CLASS_MEETING" else "整场",
                 row.get("name_snapshot") or "",
                 row.get("member_code_snapshot") or "",
-                participant_labels.get(str(row.get("participant_type") or ""), row.get("participant_type") or ""),
-                status_labels.get(str(row.get("attendance_status") or ""), row.get("attendance_status") or ""),
+                participant_labels.get(str(row.get("participant_type") or ""), "其他参加人"),
+                status_labels.get(str(row.get("attendance_status") or ""), "待核对"),
                 "待核对" if row.get("checked_at_review_status") else row.get("checked_at") or "",
                 _attendance_flag_label(row.get("is_late"), score_present),
                 _attendance_flag_label(row.get("is_early_leave"), score_present),

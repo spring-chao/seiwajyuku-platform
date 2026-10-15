@@ -343,7 +343,7 @@ onMounted(reload);
       >
       <el-table-column label="进度"
         ><template #default="{ row }">{{
-          statuses[row.status] || row.status
+          statuses[row.status] || "待核对"
         }}</template></el-table-column
       >
       <el-table-column label="操作" width="260"

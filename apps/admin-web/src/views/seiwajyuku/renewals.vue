@@ -298,7 +298,7 @@ const statusLabel = (status: string) =>
     NOT_RENEWING: "明确不续费",
     DEFERRED: "延期/暂停",
     EXITED: "已退出"
-  })[status] ?? status;
+  })[status] ?? "待核对";
 
 const cycleStatusLabel = (status: string) => statusLabel(status);
 const coverageStatusLabel = (status: RenewalCoverageRow["sync_status"]) =>

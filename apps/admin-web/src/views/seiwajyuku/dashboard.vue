@@ -779,7 +779,7 @@ const managementExceptionLabels: Record<
   FOLLOWUP_NO_SCHEDULE: "关怀任务缺少下一时间"
 };
 const managementExceptionLabel = (type: MemberCareManagementExceptionType) =>
-  managementExceptionLabels[type] ?? type;
+  managementExceptionLabels[type] ?? "待核对事项";
 const managementExceptionType = (type: MemberCareManagementExceptionType) =>
   type === "CARE_OVERDUE"
     ? "danger"
@@ -1409,7 +1409,7 @@ function changePlan() {
     >
       <div class="section-title care-center-heading">
         <div>
-          <p class="eyebrow dark">MEMBER CARE CENTER</p>
+          <p class="eyebrow dark">学长关怀中心</p>
           <h2>今日行动</h2>
           <p class="business-date-label">
             北京时间 {{ memberCare?.as_of || businessDate }}
@@ -1710,7 +1710,7 @@ function changePlan() {
       >
         <div class="section-title management-heading">
           <div>
-            <p class="eyebrow dark">CARE OPERATIONS HEALTH</p>
+            <p class="eyebrow dark">关爱运营健康</p>
             <h2>关爱运营健康</h2>
             <p>
               只看逾期、未闭环、责任人和下一时间等确定性支持需求，不做员工或分中心排名。
@@ -2069,7 +2069,7 @@ function changePlan() {
       >
         <div class="section-title management-heading">
           <div>
-            <p class="eyebrow dark">ANNUAL RENEWAL INSIGHT</p>
+            <p class="eyebrow dark">年度续费概览</p>
             <h2>年度续费洞察</h2>
             <p>
               年度结果反映当前记录状态；续费节奏只使用可证明完成时点的样本，不做阶段漏斗或分中心排名。
@@ -2229,7 +2229,7 @@ function changePlan() {
       <template v-if="dataSection === 'overview'">
         <section class="section-heading">
           <div>
-            <p class="eyebrow dark">MONTHLY OPERATIONS</p>
+            <p class="eyebrow dark">月度运营</p>
             <h2>{{ year }} 年 {{ month }} 月运营实况</h2>
           </div>
           <span>在册为当前快照；新增、续费和排期按所选月份统计</span>
@@ -2310,7 +2310,7 @@ function changePlan() {
       >
         <div class="section-title rhythm-heading">
           <div>
-            <p class="eyebrow dark">OPERATION RHYTHM</p>
+            <p class="eyebrow dark">运营节奏</p>
             <h2>本月运营节奏</h2>
             <p>
               由核心运营人员维护；微信群、电话和线下沟通继续保留，班主任无需登录。
@@ -3301,7 +3301,7 @@ function changePlan() {
     <template v-if="isDataView && dataSection === 'targets'">
       <section class="section-heading mp-heading">
         <div>
-          <p class="eyebrow dark">ANNUAL MP</p>
+          <p class="eyebrow dark">年度经营数据</p>
           <h2>年度 MP 目标追踪</h2>
         </div>
         <div class="mp-filters">

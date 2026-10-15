@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import dayjs from "dayjs";
+import { activityTypeLabel, activitySessionLabel, registrationCount } from "@/utils/business-labels.mjs";
+import { chinaTimestampDate, chinaTime } from "@/utils/business-date";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
 import { hasPerms } from "@/utils/auth";
@@ -140,9 +142,10 @@ const visibleRows = computed(() =>
       participationScope(row) === participationFilter.value
   )
 );
-const totalEligible = computed(() =>
-  visibleRows.value.reduce((sum, item) => sum + item.record_count, 0)
-);
+const totalEligible = computed<number | null>(() => {
+  const counts: (number | null)[] = visibleRows.value.map(item => registrationCount(item) as number | null);
+  return counts.some(count => count === null) ? null : counts.reduce<number>((sum, count) => sum + (count || 0), 0);
+});
 const totalCompleted = computed(() =>
   visibleRows.value.reduce((sum, item) => sum + item.present_count, 0)
 );
@@ -221,18 +224,7 @@ const activityStatusLabels: Record<string, string> = {
 };
 
 function activityStatusLabel(status: string) {
-  return activityStatusLabels[status] || status;
-}
-const activityTypeLabels: Record<string, string> = {
-  CLASS_MEETING: "班级学习会",
-  CENTER_QUARTERLY_REPORT: "分中心季度报告会",
-  CENTER_MONTHLY_REPORT: "分中心月度报告会",
-  READING_SESSION: "读书会",
-  OTHER: "其他活动"
-};
-
-function activityTypeLabel(activityType: string) {
-  return activityTypeLabels[activityType] || activityType;
+  return activityStatusLabels[status?.toUpperCase()] || "待核对";
 }
 
 const attendanceStatusLabels: Record<string, string> = {
@@ -251,15 +243,15 @@ const participantTypeLabels: Record<string, string> = {
 };
 
 function attendanceStatusLabel(status: string) {
-  return attendanceStatusLabels[status] || status;
+  return attendanceStatusLabels[status?.toUpperCase()] || "待核对";
 }
 
 function participantTypeLabel(type: string) {
-  return participantTypeLabels[type] || type;
+  return participantTypeLabels[type?.toUpperCase()] || "其他参加人";
 }
 
-function recordAttendanceRate(present: number, total: number) {
-  return total > 0 ? `${((present / total) * 100).toFixed(1)}%` : "—";
+function recordAttendanceRate(present: number, total: number | null) {
+  return total !== null && total > 0 ? `${((present / total) * 100).toFixed(1)}%` : "—";
 }
 
 function participationRate(present: number, roster: number) {
@@ -267,7 +259,7 @@ function participationRate(present: number, roster: number) {
 }
 
 function formatDateTime(value?: string | null) {
-  return value ? dayjs(value).format("MM-DD HH:mm") : "—";
+  return value ? `${chinaTimestampDate(value).slice(5)} ${chinaTime(value)}` : "—";
 }
 
 function checkedAtLabel(row: Pick<AttendanceRecord, "checked_at" | "checked_at_review_status">) {
@@ -421,13 +413,12 @@ async function downloadDetailRecords() {
 
     <section class="summary">
       <el-statistic title="活动场次" :value="visibleRows.length" />
-      <el-statistic title="签到记录" :value="totalEligible" />
+      <el-statistic title="报名人数" :value="totalEligible ?? 0" :formatter="() => totalEligible === null ? '待核实' : String(totalEligible)" />
       <el-statistic title="已签到记录" :value="totalCompleted" />
       <el-statistic
         title="签到率"
-        :value="totalEligible ? (totalCompleted / totalEligible) * 100 : 0"
-        suffix="%"
-        :precision="1"
+        :value="0"
+        :formatter="() => recordAttendanceRate(totalCompleted, totalEligible)"
       />
       <el-statistic title="班级参会活动" :value="classRows.length" />
       <el-statistic title="分中心参会活动" :value="regionRows.length" />
@@ -474,7 +465,7 @@ async function downloadDetailRecords() {
 
     <el-card shadow="never">
       <div class="rate-definition">
-        每一行对应一个签到场次。报名人数 = 该场次签到报名记录数；参会人数 = 该场次正常签到人数（含人工确认和非塾生）；应参会人数 = 对应班级或分中心在册人数。签到率 = 参会人数 ÷ 报名人数；班级活动参会率 = 参会人数 ÷ 本班应参会人数，报告会等大型活动参会率 = 参会人数 ÷ 分中心应参会人数。
+        每一行对应一个签到场次。报名人数 = 签到系统本场全部报名名额（含未签到、请假和团队名额）；参会人数 = 该场次正常签到人数（含人工确认和非塾生）；应参会人数 = 对应班级或分中心在册人数。签到率 = 参会人数 ÷ 报名人数；班级活动参会率 = 参会人数 ÷ 本班应参会人数，报告会等大型活动参会率 = 参会人数 ÷ 分中心应参会人数。
       </div>
       <el-table :data="visibleRows" stripe class="activity-table">
         <el-table-column prop="event_date" label="活动日期" min-width="130" />
@@ -491,13 +482,13 @@ async function downloadDetailRecords() {
           </template>
         </el-table-column>
         <el-table-column label="场次" min-width="110">
-          <template #default="{ row }">{{ row.session_name || row.session_code }}</template>
+          <template #default="{ row }">{{ activitySessionLabel(row.activity_type || detail?.group.activity_type, row.session_code) }}</template>
         </el-table-column>
         <el-table-column label="参会口径" width="100">
           <template #default="{ row }">{{ participationScopeLabel(row) }}</template>
         </el-table-column>
         <el-table-column label="报名人数" width="100" align="right">
-          <template #default="{ row }">{{ row.record_count }}</template>
+          <template #default="{ row }">{{ registrationCount(row) ?? "待核实" }}</template>
         </el-table-column>
         <el-table-column label="应参会人数" width="110" align="right">
           <template #default="{ row }">{{ participationRosterCount(row) || "—" }}</template>
@@ -507,7 +498,7 @@ async function downloadDetailRecords() {
         </el-table-column>
         <el-table-column label="签到率" width="100" align="right">
           <template #default="{ row }">
-            {{ recordAttendanceRate(row.present_count, row.record_count) }}
+            {{ recordAttendanceRate(row.present_count, registrationCount(row)) }}
           </template>
         </el-table-column>
         <el-table-column label="参会率" width="100" align="right">
@@ -561,7 +552,7 @@ async function downloadDetailRecords() {
           <template #default="{ row }">{{ row.title || "—" }}</template>
         </el-table-column>
         <el-table-column prop="session_name" label="场次" min-width="140">
-          <template #default="{ row }">{{ row.session_name || "—" }}</template>
+          <template #default="{ row }">{{ activitySessionLabel(row.activity_type, row.session_code) }}</template>
         </el-table-column>
         <el-table-column prop="name_snapshot" label="姓名" width="110" />
         <el-table-column prop="member_code_snapshot" label="学员编号" width="140" />
@@ -611,7 +602,7 @@ async function downloadDetailRecords() {
             </div>
             <div>
               <span>报名人数</span>
-              <strong>{{ detailSummary.record_count }}</strong>
+              <strong>{{ registrationCount(detailSummary) ?? "待核实" }}</strong>
             </div>
             <div>
               <span>应参会人数</span>
@@ -623,7 +614,7 @@ async function downloadDetailRecords() {
             </div>
             <div>
               <span>签到率</span>
-              <strong>{{ recordAttendanceRate(detailSummary.present_count, detailSummary.record_count) }}</strong>
+              <strong>{{ recordAttendanceRate(detailSummary.present_count, registrationCount(detailSummary)) }}</strong>
             </div>
             <div>
               <span>参会率</span>
@@ -655,17 +646,17 @@ async function downloadDetailRecords() {
           <section class="detail-section">
             <div class="detail-section__heading">
               <h3>场次汇总</h3>
-              <span>报名、应参会、参会人数及两种比例统一展示；班级活动按班级组织 ID，报告会等大型活动按分中心组织 ID 统计</span>
+              <span>报名总数按签到系统完整名单统计；参会人数及下方明细按已同步签到记录展示。班级活动按班级统计，报告会等大型活动按分中心统计。</span>
             </div>
             <el-table :data="detail.sessions" size="small" stripe class="activity-table">
               <el-table-column prop="session_name" label="场次" min-width="180">
-                <template #default="{ row }">{{ row.session_name || row.session_code }}</template>
+                <template #default="{ row }">{{ activitySessionLabel(row.activity_type || detail?.group.activity_type, row.session_code) }}</template>
               </el-table-column>
               <el-table-column label="计划时间" width="150">
                 <template #default="{ row }">{{ formatDateTime(row.scheduled_start_at) }}</template>
               </el-table-column>
               <el-table-column label="报名人数" width="100" align="right">
-                <template #default="{ row }">{{ row.record_count }}</template>
+                <template #default="{ row }">{{ registrationCount(row) ?? "待核实" }}</template>
               </el-table-column>
               <el-table-column label="应参会人数" width="110" align="right">
                 <template #default="{ row }">{{ detailParticipationRoster(row) || "—" }}</template>
@@ -674,7 +665,7 @@ async function downloadDetailRecords() {
                 <template #default="{ row }">{{ row.present_count }}</template>
               </el-table-column>
               <el-table-column label="签到率" width="100" align="right">
-                <template #default="{ row }">{{ recordAttendanceRate(row.present_count, row.record_count) }}</template>
+                <template #default="{ row }">{{ recordAttendanceRate(row.present_count, registrationCount(row)) }}</template>
               </el-table-column>
               <el-table-column label="参会率" width="100" align="right">
                 <template #default="{ row }">{{ participationRate(detailParticipationPresent(row), detailParticipationRoster(row)) }}</template>
@@ -705,7 +696,7 @@ async function downloadDetailRecords() {
               <el-table-column prop="name_snapshot" label="姓名" min-width="120" />
               <el-table-column prop="member_code_snapshot" label="学员编号" min-width="150" />
               <el-table-column label="场次" min-width="140">
-                <template #default="{ row }">{{ row.session_name || row.session_code }}</template>
+                <template #default="{ row }">{{ activitySessionLabel(row.activity_type || detail?.group.activity_type, row.session_code) }}</template>
               </el-table-column>
               <el-table-column label="参与类型" width="100">
                 <template #default="{ row }">{{ participantTypeLabel(row.participant_type) }}</template>

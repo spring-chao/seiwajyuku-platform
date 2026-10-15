@@ -571,7 +571,7 @@ onMounted(() => perform(reload));
             ><template #default="{ row }">{{
               row.errors?.length
                 ? "需修正"
-                : rowStatuses[row.credit_status] || row.credit_status
+                : rowStatuses[row.credit_status] || "待核对"
             }}</template></el-table-column
           ><el-table-column label="原因"
             ><template #default="{ row }">{{
@@ -646,7 +646,7 @@ onMounted(() => perform(reload));
           ><el-table-column prop="batch_no" label="批次" /><el-table-column
             label="状态"
             ><template #default="{ row }">{{
-              statuses[row.status] || row.status
+              statuses[row.status] || "待核对"
             }}</template></el-table-column
           ><el-table-column
             prop="proposed_points"

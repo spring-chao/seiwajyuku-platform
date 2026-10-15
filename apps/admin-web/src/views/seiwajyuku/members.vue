@@ -416,6 +416,10 @@ const form = reactive({
   current_volunteer_needs_manual_review: false,
   current_volunteer_review_message: ""
 });
+const selectedGender = computed({
+  get: () => ["MALE", "FEMALE"].includes(form.gender) ? form.gender : "",
+  set: (value: string) => { form.gender = value; }
+});
 const showLegacyVolunteerHint = computed(() => {
   const historical = form.class_committee_name.trim();
   return Boolean(
@@ -426,7 +430,7 @@ const showLegacyVolunteerHint = computed(() => {
   );
 });
 const memberStatusLabel = (status: string) =>
-  ({ ACTIVE: "在册", INACTIVE: "流失", SUSPENDED: "暂停" })[status] ?? status;
+  ({ ACTIVE: "在册", INACTIVE: "流失", SUSPENDED: "暂停" })[status] ?? "待核对";
 const rules = computed<FormRules>(() => ({
   name: [{ required: true, message: "请输入姓名", trigger: "blur" }],
   org_unit_id: [
@@ -842,7 +846,7 @@ function historyTypeLabel(type: string) {
         string,
         string
       >
-    )[type] ?? type
+    )[type] ?? "其他事项"
   );
 }
 
@@ -859,7 +863,7 @@ function timelineTypeLabel(type: string) {
         RENEWAL_CYCLE: "续费周期",
         RENEWAL_FOLLOWUP: "续费跟进"
       } as Record<string, string>
-    )[type] ?? type
+    )[type] ?? "其他事项"
   );
 }
 
@@ -884,7 +888,7 @@ function timelineStatusLabel(status?: string) {
         PROFILE_UPDATE: "档案更新",
         已记录: "已记录"
       } as Record<string, string>
-    )[status] ?? status
+    )[status] ?? "待核对"
   );
 }
 
@@ -901,7 +905,7 @@ function timelineSummaryLabel(type: string) {
         RENEWAL_CYCLE: "续费周期",
         RENEWAL_FOLLOWUP: "续费跟进"
       } as Record<string, string>
-    )[type] ?? type
+    )[type] ?? "其他事项"
   );
 }
 
@@ -1971,11 +1975,11 @@ onMounted(async () => {
             <el-input v-model="form.company_address" />
           </el-form-item>
           <el-form-item label="性别">
-            <el-select v-model="form.gender" clearable placeholder="请选择">
+            <el-select v-model="selectedGender" clearable placeholder="未填写">
               <el-option label="男" value="MALE" />
               <el-option label="女" value="FEMALE" />
-              <el-option label="其他/未说明" value="UNSPECIFIED" />
             </el-select>
+            <div v-if="form.gender && !selectedGender" class="field-help">历史资料未明确性别，请核实后选择。</div>
           </el-form-item>
           <el-form-item label="班级组织">
             <el-select

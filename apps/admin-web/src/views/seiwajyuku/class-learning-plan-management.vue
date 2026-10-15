@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { planTransitionLabel, planBindingStatusLabel } from "@/utils/business-labels.mjs";
 import { chinaDate } from "@/utils/business-date";
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -91,21 +92,21 @@ const issueLabel = (issueType: string) => ({
   INVALID_PLAN_VERSION: "计划版本状态异常",
   INVALID_COHORT_TEMPLATE: "开班模板异常",
   MISSING_CURRENT_CYCLE: "缺少当前学习周期",
-  PLAN_CYCLE_MISMATCH: "plan_cycle 对应错位",
+  PLAN_CYCLE_MISMATCH: "学习周期对应错位",
   GROUP_MEETING_CONFIG_MISSING: "小组学习会配置缺失",
   GROUP_WITHOUT_ACTIVE_MEMBERS: "小组没有有效学员",
   GROUP_CLASS_RELATION_MISMATCH: "小组与班级关系异常",
   NO_ACTIVE_GROUPS: "没有有效小组",
   VOLUNTEER_PERMISSION_MISSING: "志工权限待另行核验",
-  DUPLICATE_CLASS_NAME: "班级名称重复，需按 ID 核对",
+  DUPLICATE_CLASS_NAME: "班级名称重复，需按组织关系核对",
   EXPECTED_CYCLE_MISMATCH: "业务预期周期不一致",
   MONTHLY_ANCHOR_REPAIR_REQUIRED: "月更次数待校准",
   EXPECTED_TEMPLATE_MISMATCH: "业务预期模板不一致",
   EXPECTED_PLAN_VERSION_MISMATCH: "业务预期计划版本不一致",
   EXPECTED_STATUS_MISMATCH: "业务预期状态不一致",
   MANUAL_REVIEW_REQUIRED: "需要人工确认",
-  BASELINE_ID_NAME_MISMATCH: "基线 ID 与名称不一致"
-}[issueType] ?? issueType);
+  BASELINE_ID_NAME_MISMATCH: "基线组织与名称不一致"
+}[issueType] ?? "需核对的计划问题");
 const statusType = (status: string) => status === "READY" ? "success" : status === "NOT_APPLICABLE" ? "info" : "danger";
 const statusLabel = (status: string) => status === "READY" ? "可验收" : status === "NOT_APPLICABLE" ? "无需绑定" : "阻塞";
 const volunteerPermissionLabel = (permission: LearningPlanHealthClass["volunteer_permission"]) => permission === "NOT_APPLICABLE"
@@ -146,7 +147,7 @@ const runtimeStatusLabel = (status?: string | null) => ({
   MISSING_CURRENT_CYCLE: "缺少当前周期",
   UNBOUND: "未绑定",
   NOT_APPLICABLE: "不适用"
-}[status || ""] ?? status ?? "—");
+}[status || ""] ?? "待核对");
 const businessExpectationTitle = (item: LearningPlanHealthClass) => {
   if (!isBindingRequired(item)) return "业务预期：无需绑定学习计划";
   const expectation = item.business_expectation;
@@ -424,7 +425,7 @@ onMounted(load);
         <div class="section-header">
           <div>
             <span>逐班健康扫描</span>
-            <span class="muted">按组织 ID 识别班级，同名班级不会自动合并</span>
+            <span class="muted">按正式组织关系识别班级，同名班级不会自动合并</span>
           </div>
           <el-select
             v-model="selectedClassId"
@@ -437,7 +438,7 @@ onMounted(load);
             <el-option
               v-for="item in classOptions"
               :key="item.class_org_unit_id"
-              :label="`${item.class_name} · ${item.unit_code}`"
+              :label="item.class_name"
               :value="item.class_org_unit_id"
             />
           </el-select>
@@ -451,7 +452,6 @@ onMounted(load);
         @row-click="selectClass"
       >
         <el-table-column prop="class_name" label="班级" min-width="150" />
-        <el-table-column prop="unit_code" label="组织编码" min-width="180" />
         <el-table-column label="学习计划 / 开班月份" min-width="210">
           <template #default="{ row }">
             <span v-if="row.binding">{{ row.binding.version_label }} · {{ row.binding.cohort_month ? `${row.binding.cohort_month}月开班` : "通用模板" }}</span>
@@ -577,19 +577,19 @@ onMounted(load);
         </el-tab-pane>
 
         <el-tab-pane label="轮次历史与审计" name="history">
-          <el-alert title="历史 binding、班会、小组学习会、签到、合影和学分事实均保留；此处只读。" type="info" :closable="false" />
+          <el-alert title="历史计划绑定、班会、小组学习会、签到、合影和学分事实均保留；此处只读。" type="info" :closable="false" />
           <el-table :data="history?.bindings || []" row-key="id" class="history-table">
             <el-table-column label="轮次" width="80"><template #default="{ row }">第{{ row.learning_round }}轮</template></el-table-column>
-            <el-table-column label="变更类型" width="100" prop="transition_type" />
+            <el-table-column label="变更类型" width="100"><template #default="{ row }">{{ planTransitionLabel(row.transition_type) }}</template></el-table-column>
             <el-table-column label="计划" min-width="180"><template #default="{ row }">{{ row.version_label }} · {{ row.plan_name }}</template></el-table-column>
             <el-table-column label="模板/起始期" width="120"><template #default="{ row }">{{ row.cohort_month || "通用" }}月 / 第{{ row.start_cycle_index }}期</template></el-table-column>
-            <el-table-column label="状态" width="90" prop="status" />
+            <el-table-column label="状态" width="90"><template #default="{ row }">{{ planBindingStatusLabel(row.status) }}</template></el-table-column>
             <el-table-column label="开始/结束日期" min-width="190"><template #default="{ row }">{{ formatDateOnly(row.started_at) }}<br />{{ row.ended_at ? formatDateOnly(row.ended_at) : "进行中" }}</template></el-table-column>
             <el-table-column label="结束原因" min-width="200" prop="ended_reason" />
           </el-table>
           <div v-if="history?.events.length" class="audit-list">
             <div v-for="event in history.events" :key="`${event.action}-${event.created_at}`" class="audit-item">
-              <span>{{ formatDateTime(event.created_at) }}</span><strong>{{ event.action }}</strong><span>{{ event.purpose || "—" }}</span>
+              <span>{{ formatDateTime(event.created_at) }}</span><strong>学习计划调整</strong><span>{{ event.purpose || "—" }}</span>
             </div>
           </div>
         </el-tab-pane>

@@ -21,8 +21,10 @@ import {
 } from "@/utils/attendanceImportParser.mjs";
 import {
   activityTypes,
+  activityTypeLabel,
+  activitySessionLabel,
+  activityDisplayTitle,
   lifecycleLabels,
-  sessionLabels,
   checkinLabels,
   rosterSelection,
   chinaLocalDateTime,
@@ -192,6 +194,19 @@ function messageOf(e: any) {
 }
 function timeLabel(value: string) {
   return chinaLocalDateTime(value).replace("T", " ") || "未配置";
+}
+function eventName(event: any) {
+  return activityDisplayTitle(
+    event?.name,
+    event?.activity_type,
+    event?.session_code
+  );
+}
+function sessionName(event: any) {
+  return activitySessionLabel(
+    event?.activity_type || selected.value?.activity_type,
+    event?.session_code
+  );
 }
 function roleLabel(row: any) {
   return (
@@ -610,11 +625,7 @@ async function previewCreation() {
 }
 async function changeLifecycle(next: "DRAFT" | "CONFIRMED" | "CANCELLED") {
   if (!currentEvent.value) return;
-  const targetNames = sessions.value
-    .map(
-      item => item.session_name || sessionLabels[item.session_code] || item.name
-    )
-    .join("、");
+  const targetNames = sessions.value.map(item => sessionName(item)).join("、");
   try {
     await ElMessageBox.confirm(
       `确定将“${selected.value.name}”${lifecycleLabels[next]}？本活动包含 ${targetNames}；操作将作用于全部场次。`,
@@ -640,7 +651,7 @@ async function toggleCheckin() {
     currentEvent.value.manual_status === "closed" ? "active" : "closed";
   try {
     await ElMessageBox.confirm(
-      `${next === "closed" ? "关闭" : "开放"}当前“${currentEvent.value.session_name || currentEvent.value.name}”签到？开放仍受活动确认状态和签到时间限制。`,
+      `${next === "closed" ? "关闭" : "开放"}当前“${sessionName(currentEvent.value)}”签到？开放仍受活动确认状态和签到时间限制。`,
       "场次签到状态"
     );
   } catch {
@@ -835,7 +846,7 @@ async function exportExcel() {
     XLSX.utils.book_append_sheet(workbook, worksheet, "签到名单");
     XLSX.writeFile(
       workbook,
-      `${target?.name || "签到名单"}-${target?.session_code || ""}.xlsx`
+      `${eventName(target)}-${sessionName(target)}.xlsx`
     );
     ElMessage.success("签到明细已导出");
   });
@@ -881,7 +892,7 @@ function downloadCode() {
   anchor.download =
     codeKind.value === "common"
       ? `通用签到码-${code.value.env_version}.png`
-      : `${codeEvent.value?.name || "签到"}-${codeEvent.value?.session_code || ""}-${code.value.env_version}.png`;
+      : `${eventName(codeEvent.value)}-${sessionName(codeEvent.value)}-签到码.png`;
   anchor.click();
 }
 watch(
@@ -1030,7 +1041,7 @@ onUnmounted(() => {
           <el-table-column prop="event_date" label="日期" width="115" />
           <el-table-column prop="name" label="活动" min-width="200"
             ><template #default="{ row }"
-              ><strong>{{ row.name }}</strong>
+              ><strong>{{ eventName(row) }}</strong>
               <div class="muted">
                 {{ row.class_name || row.center_name || "" }}
               </div></template
@@ -1038,8 +1049,7 @@ onUnmounted(() => {
           >
           <el-table-column label="类型" min-width="140"
             ><template #default="{ row }">{{
-              activityTypes.find(item => item[0] === row.activity_type)?.[1] ||
-              row.activity_type
+              activityTypeLabel(row.activity_type)
             }}</template></el-table-column
           >
           <el-table-column label="状态" width="100"
@@ -1048,20 +1058,18 @@ onUnmounted(() => {
                 :type="
                   row.lifecycle_status === 'CONFIRMED' ? 'success' : 'info'
                 "
-                >{{
-                  lifecycleLabels[row.lifecycle_status] || row.lifecycle_status
-                }}</el-tag
+                >{{ lifecycleLabels[row.lifecycle_status] || "待核对" }}</el-tag
               ></template
             ></el-table-column
           >
           <el-table-column label="场次" min-width="150"
             ><template #default="{ row }">{{
               (row.sessions || [row])
-                .map(
-                  item =>
-                    item.session_name ||
-                    sessionLabels[item.session_code] ||
-                    "单场"
+                .map(item =>
+                  sessionName({
+                    ...item,
+                    activity_type: item.activity_type || row.activity_type
+                  })
                 )
                 .join(" / ")
             }}</template></el-table-column
@@ -1110,7 +1118,7 @@ onUnmounted(() => {
           <template #header
             ><div class="heading">
               <div>
-                <h2>{{ selected.name }}</h2>
+                <h2>{{ eventName(selected) }}</h2>
                 <p>
                   {{ selected.event_date }} ·
                   {{
@@ -1148,15 +1156,9 @@ onUnmounted(() => {
               :key="session.event_id"
               :type="activeEventId === session.event_id ? 'primary' : 'default'"
               @click="switchSession(session.event_id)"
-              >{{
-                session.session_name ||
-                sessionLabels[session.session_code] ||
-                "当前场次"
-              }}
+              >{{ sessionName(session) }}
               ·
-              {{
-                checkinLabels[session.checkin_status] || session.checkin_status
-              }}</el-button
+              {{ checkinLabels[session.checkin_status] || "待核对" }}</el-button
             >
           </div>
           <p class="muted">
@@ -1809,7 +1811,7 @@ onUnmounted(() => {
         <el-alert
           :title="
             rosterReconciliation.can_sync
-              ? `可增补至：${(rosterReconciliation.sync_target_sessions || []).map(item => item.session_name || item.name).join('、')}。已有记录保留。`
+              ? `可增补至：${(rosterReconciliation.sync_target_sessions || []).map(item => sessionName(item)).join('、')}。已有记录保留。`
               : '当前场次已开始或结束，保留名单快照。'
           "
           type="info"
@@ -1882,15 +1884,13 @@ onUnmounted(() => {
         class="notice"
       />
       <h3>
-        {{ codeKind === "common" ? "打印一次，重复使用" : codeEvent?.name }}
+        {{
+          codeKind === "common" ? "打印一次，重复使用" : eventName(codeEvent)
+        }}
       </h3>
       <p v-if="codeKind === 'session'">
         {{ codeEvent?.event_date }} ·
-        {{
-          codeEvent?.session_name ||
-          sessionLabels[codeEvent?.session_code] ||
-          "单场"
-        }}
+        {{ sessionName(codeEvent) }}
       </p>
       <el-alert
         v-if="codeKind === 'common'"
@@ -1928,7 +1928,7 @@ onUnmounted(() => {
           :alt="
             codeKind === 'common'
               ? '通用签到小程序码'
-              : `${codeEvent?.name} ${codeEvent?.session_name || ''} 签到小程序码`
+              : `${eventName(codeEvent)} ${sessionName(codeEvent)} 签到小程序码`
           "
         /><el-empty v-else description="点击生成当前版本签到码" />
       </div>

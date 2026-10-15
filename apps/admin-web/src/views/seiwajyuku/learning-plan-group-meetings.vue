@@ -462,11 +462,6 @@ onMounted(loadCatalog);
           <div class="summary-item credit-policy-summary"><span>小组会基础分</span><strong>{{ catalog.credit_policy.credit_points_per_person }}分/人/周期一次</strong></div>
           <div class="summary-item"><span>本地草稿</span><strong>{{ changedCount }}</strong></div>
         </div>
-        <el-descriptions :column="3" border class="fingerprints">
-          <el-descriptions-item label="审核提交"><span class="fingerprint">{{ catalog.source_commit }}</span></el-descriptions-item>
-          <el-descriptions-item label="标准 JSON SHA-256"><span class="fingerprint">{{ catalog.source_json_sha256 }}</span></el-descriptions-item>
-          <el-descriptions-item label="课程积分规则 SHA-256"><span class="fingerprint">{{ catalog.base_course_credit_rules_sha256 }}</span></el-descriptions-item>
-        </el-descriptions>
         <div class="quality-strip"><el-tag type="success">首个空巴边界已识别</el-tag><el-tag type="info">空巴后二维码排除</el-tag><el-tag type="success">流程由系统自动核对</el-tag><el-tag type="warning">待配置课程 {{ creditPendingGroupCount }} 门</el-tag><el-tag type="success">已配置 {{ configuredCreditCount }} 门</el-tag></div>
         <el-card shadow="never" class="c6-card">
           <template #header>

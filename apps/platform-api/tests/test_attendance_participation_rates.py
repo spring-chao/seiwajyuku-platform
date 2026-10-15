@@ -4,6 +4,10 @@ import unittest
 import asyncio
 from io import BytesIO
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import patch
+import httpx
+from fastapi import HTTPException
 from openpyxl import load_workbook
 
 from app.api.attendance import (
@@ -268,6 +272,40 @@ class AttendanceParticipationRateTests(unittest.TestCase):
         )
         self.assertEqual(sheet.max_row, 2)
         self.assertEqual(list(sheet.iter_rows(values_only=True))[1][7:], ("待核对", "—", "—", "—"))
+
+    def test_source_denominator_is_independent_and_read_only_after_scope_check(self):
+        from app.services import attendance_registration_totals as totals
+        group_id = self.group_ids[0]
+        previous = fetch_one("SELECT source_key FROM attendance_event_groups WHERE id=?", (group_id,))["source_key"]
+        calls = []
+        factory = httpx.Client
+        def handler(request):
+            calls.append(request)
+            return httpx.Response(200, json={"items": [{"external_record_id": f"slot-{i}"} for i in range(20)]})
+        def client(**kwargs):
+            return factory(transport=httpx.MockTransport(handler), **kwargs)
+        totals._cache.clear()
+        with transaction() as connection:
+            execute(connection, "UPDATE attendance_event_groups SET source_key='signin' WHERE id=?", (group_id,))
+        try:
+            with patch.object(totals, "get_settings", return_value=SimpleNamespace(signin_api_base_url="https://signin.test", signin_service_api_key="isolated-key")), patch.object(totals.httpx, "Client", client):
+                rows = list_activity_sessions(month="2026-08", user={"id": self.admin["id"]})["data"]
+                row = next(row for row in rows if row["id"] == group_id)
+                self.assertEqual((row["registration_count"], row["record_count"], row["present_count"]), (20, 3, 2))
+                detail = event_group_detail(group_id, user={"id": self.admin["id"]})["data"]
+                self.assertEqual(detail["group"]["registration_count"], 20)
+                self.assertEqual(detail["sessions"][0]["registration_count"], 20)
+                self.assertEqual(len(calls), 1)
+                with patch("app.api.attendance.accessible_org_ids", return_value={"unrelated-organization"}):
+                    self.assertEqual(list_activity_sessions(month="2026-08", user={"id": self.admin["id"]})["data"], [])
+                    with self.assertRaises(HTTPException) as error:
+                        event_group_detail(group_id, user={"id": self.admin["id"]})
+                    self.assertEqual(error.exception.status_code, 403)
+                self.assertEqual(len(calls), 1)
+        finally:
+            with transaction() as connection:
+                execute(connection, "UPDATE attendance_event_groups SET source_key=? WHERE id=?", (previous, group_id))
+            totals._cache.clear()
 
     @staticmethod
     def _detail_rows(response: dict) -> list[dict]:
