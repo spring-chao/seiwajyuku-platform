@@ -12,35 +12,28 @@ import {
 import { useUserStoreHook } from "@/store/modules/user";
 import BulkGroupReassignment from "./components/BulkGroupReassignment.vue";
 import { createSectionLoader } from "@/utils/section-loader";
+import { applyWithRosterReceipt, rosterFieldLabel, rosterReceiptMessage, rosterImportFailure } from "@/utils/member-roster-result";
+import { chinaTime, chinaTimestampDate } from "@/utils/business-date";
 import {
   createMember,
   getMemberEditProfile,
   getMembers,
   getOrgUnits,
-  applyDirectClassWorkbook,
   applyMemberRosterWorkbook,
-  applyFullClassRosterOrganization,
-  applyFullClassRosterRelations,
   getMemberChangeHistory,
   getMemberTimeline,
   getMemberOrgCatalog,
-  applyLegacyVolunteerAdoption,
-  previewLegacyVolunteerAdoption,
   submitMemberServiceSignalFeedback,
   updateMember,
-  previewDirectClassWorkbook,
-  previewFullClassRosterWorkbook,
   previewMemberRosterWorkbook,
-  type DirectClassPreflight,
-  type FullClassRosterPreflight,
   type MemberRosterImportPreview,
+  type MemberRosterImportReceipt,
   type Member,
   type MemberOrgCatalog,
   type MemberChangeHistory,
   type MemberServiceSignal,
   type MemberServiceSignalFeedbackStatus,
   type MemberTimeline,
-  type LegacyVolunteerAdoptionPreview,
   type OrgUnit
 } from "@/api/seiwajyuku";
 import {
@@ -89,24 +82,13 @@ const volunteerEditorForm = reactive({
   class_org_unit_id: "",
   service_target_org_unit_id: ""
 });
-const preflightVisible = ref(false);
-const preflightLoading = ref(false);
-const preflightFiles = ref<UploadUserFile[]>([]);
-const preflightResult = ref<DirectClassPreflight>();
-const fullPreflightVisible = ref(false);
-const fullPreflightLoading = ref(false);
-const fullOrgImportLoading = ref(false);
-const fullRelationImportLoading = ref(false);
-const fullPreflightFiles = ref<UploadUserFile[]>([]);
-const fullPreflightResult = ref<FullClassRosterPreflight>();
 const memberRosterImportVisible = ref(false);
 const memberRosterImportLoading = ref(false);
 const memberRosterFiles = ref<UploadUserFile[]>([]);
 const memberRosterImportResult = ref<MemberRosterImportPreview>();
-const legacyVolunteerPreviewVisible = ref(false);
-const legacyVolunteerPreviewLoading = ref(false);
-const legacyVolunteerApplyLoading = ref(false);
-const legacyVolunteerPreviewResult = ref<LegacyVolunteerAdoptionPreview>();
+const memberRosterReceipt = ref<MemberRosterImportReceipt>();
+const memberRosterOutcome = ref<{ kind: "failed" | "unknown"; message: string }>();
+const memberRosterRefreshWarning = ref("");
 const selectedOrg = ref("");
 const selectedShuku = ref("");
 const keyword = ref("");
@@ -121,9 +103,7 @@ const rows = ref<Member[]>([]);
 const route = useRoute();
 const router = useRouter();
 const suppressEditDialogReturn = ref(false);
-const fullOrgConfirmationText = "确认创建20个普通班和112个普通班小组";
 const memberRosterConfirmationText = "确认补充导入学员主档";
-const legacyVolunteerAdoptionConfirmationText = "确认批量承接历史志工岗位";
 const memberRosterReviewReasonLabels: Record<string, string> = {
   CENTER_NOT_UNIQUE: "分中心无法唯一匹配",
   DUPLICATE_PRODUCTION_PHONE: "生产档案手机号重复",
@@ -136,75 +116,11 @@ const memberRosterReviewReasonLabels: Record<string, string> = {
 const canApplyMemberRosterImport = computed(() => {
   const result = memberRosterImportResult.value;
   return Boolean(
-    result &&
+    result && !result.previous_import && !memberRosterReceipt.value &&
     result.matching.existing_member_count + result.matching.new_member_count >
       0 &&
     (!result.sensitive.requires_enterprise_permission ||
       result.sensitive.enterprise_financial_write_allowed)
-  );
-});
-const canApplyFullOrgImport = computed(() => {
-  const result = fullPreflightResult.value;
-  if (!result) return false;
-  const classActions = Object.fromEntries(
-    result.organization.class_action_summary.map(item => [
-      item.action,
-      item.count
-    ])
-  );
-  const groupActions = Object.fromEntries(
-    result.organization.group_action_summary.map(item => [
-      item.action,
-      item.count
-    ])
-  );
-  const matching = Object.fromEntries(
-    result.matching.summary.map(item => [item.status, item.count])
-  );
-  const issues = Object.fromEntries(
-    result.issues.map(item => [item.code, item.count])
-  );
-  return (
-    result.source.active_member_count === 834 &&
-    result.source.ordinary_class_count === 20 &&
-    result.source.ordinary_group_pair_count === 112 &&
-    classActions.CREATE_OR_RESOLVE === 20 &&
-    classActions.REUSE === 4 &&
-    groupActions.REVIEW === 112 &&
-    groupActions.REUSE === 11 &&
-    matching.UNIQUE_ACTIVE_MATCH === 722 &&
-    matching.NO_PRODUCTION_MATCH === 84 &&
-    matching.MANUAL_REVIEW === 28 &&
-    issues.DUPLICATE_SOURCE_PHONE === 8 &&
-    issues.INVALID_PHONE === 9 &&
-    issues.MISSING_PHONE === 11 &&
-    issues.MISSING_CLASS === 18
-  );
-});
-const canApplyFullRelations = computed(() => {
-  const result = fullPreflightResult.value;
-  if (!result) return false;
-  const classes = Object.fromEntries(
-    result.organization.class_action_summary.map(item => [
-      item.action,
-      item.count
-    ])
-  );
-  const groups = Object.fromEntries(
-    result.organization.group_action_summary.map(item => [
-      item.action,
-      item.count
-    ])
-  );
-  const matching = Object.fromEntries(
-    result.matching.summary.map(item => [item.status, item.count])
-  );
-  return (
-    classes.REUSE === 24 &&
-    groups.REUSE === 123 &&
-    matching.UNIQUE_ACTIVE_MATCH === 722 &&
-    matching.NO_PRODUCTION_MATCH === 84 &&
-    matching.MANUAL_REVIEW === 28
   );
 });
 const orgs = ref<OrgUnit[]>([]);
@@ -1221,22 +1137,21 @@ async function submit() {
   }
 }
 
-function selectPreflightFile(file: UploadFile) {
-  preflightFiles.value = [file];
-  preflightResult.value = undefined;
-  return false;
-}
-
-function selectFullPreflightFile(file: UploadFile) {
-  fullPreflightFiles.value = [file];
-  fullPreflightResult.value = undefined;
-  return false;
-}
-
 function selectMemberRosterFile(file: UploadFile) {
   memberRosterFiles.value = [file];
   memberRosterImportResult.value = undefined;
+  memberRosterReceipt.value = undefined;
+  memberRosterOutcome.value = undefined;
+  memberRosterRefreshWarning.value = "";
   return false;
+}
+
+function removeMemberRosterFile() {
+  memberRosterFiles.value = [];
+  memberRosterImportResult.value = undefined;
+  memberRosterReceipt.value = undefined;
+  memberRosterOutcome.value = undefined;
+  memberRosterRefreshWarning.value = "";
 }
 
 function memberRosterReviewReasonText(reason: string) {
@@ -1309,6 +1224,10 @@ async function runMemberRosterPreflight() {
     memberRosterImportResult.value = (
       await previewMemberRosterWorkbook(workbook)
     ).data;
+    if (memberRosterImportResult.value.previous_import) {
+      memberRosterReceipt.value = memberRosterImportResult.value.previous_import;
+      memberRosterOutcome.value = undefined;
+    }
     ElMessage.success("学员主档补充预检已完成，未写入生产数据");
   } catch (error) {
     ElMessage.error(errorText(error));
@@ -1535,229 +1454,26 @@ async function applyMemberRosterImport() {
     return;
   }
   memberRosterImportLoading.value = true;
+  memberRosterOutcome.value = undefined;
+  memberRosterRefreshWarning.value = "";
   try {
-    const result = await applyMemberRosterWorkbook(workbook, confirmationText);
-    ElMessage.success(
-      `补充导入完成：新增 ${result.data.created ?? 0} 人、更新 ${result.data.updated ?? 0} 人、资料字段 ${result.data.fields ?? 0} 项、销售收入 ${result.data.annual_sales_applied ?? 0} 条、组织关系 ${result.data.relations ?? 0} 条；跳过复核 ${result.data.skipped_manual_review ?? 0} 条`
+    const refreshFailed = await applyWithRosterReceipt(
+      async () => (await applyMemberRosterWorkbook(workbook, confirmationText)).data,
+      receipt => {
+        memberRosterReceipt.value = receipt;
+        ElMessage.success(rosterReceiptMessage(receipt));
+      },
+      async () => {
+        memberRosterImportResult.value = (await previewMemberRosterWorkbook(workbook)).data;
+        await load();
+      }
     );
-    memberRosterImportResult.value = (
-      await previewMemberRosterWorkbook(workbook)
-    ).data;
-    await load();
+    if (refreshFailed) memberRosterRefreshWarning.value = "资料已保存，但预检或列表刷新未完成。结果回执已保留，请稍后刷新；无需重复导入。";
   } catch (error) {
-    ElMessage.error(errorText(error));
+    memberRosterOutcome.value = rosterImportFailure(error);
+    ElMessage.error(memberRosterOutcome.value.message);
   } finally {
     memberRosterImportLoading.value = false;
-  }
-}
-
-async function runLegacyVolunteerPreview() {
-  legacyVolunteerPreviewLoading.value = true;
-  try {
-    legacyVolunteerPreviewResult.value = (
-      await previewLegacyVolunteerAdoption()
-    ).data;
-    legacyVolunteerPreviewVisible.value = true;
-    ElMessage.success("历史岗位承接只读预览已完成，未写入任何数据");
-  } catch (error) {
-    ElMessage.error(errorText(error));
-  } finally {
-    legacyVolunteerPreviewLoading.value = false;
-  }
-}
-
-async function applyLegacyVolunteerPreview() {
-  const preview = legacyVolunteerPreviewResult.value;
-  if (!preview || preview.auto_adoptable_count === 0) {
-    ElMessage.warning("当前预览没有可自动承接的记录");
-    return;
-  }
-  let confirmation = "";
-  try {
-    const prompt = await ElMessageBox.prompt(
-      `将仅承接当前预览中的 ${preview.auto_adoptable_count} 人，${preview.manual_review_count} 人仍保留在人工复核清单。执行前会重新校验预览指纹与每名学员状态。请输入：${legacyVolunteerAdoptionConfirmationText}`,
-      "确认批量承接历史志工岗位",
-      {
-        confirmButtonText: "执行批量承接",
-        cancelButtonText: "取消",
-        type: "warning",
-        inputValidator: value =>
-          value === legacyVolunteerAdoptionConfirmationText ||
-          "确认文字不完整，已禁止写入"
-      }
-    );
-    confirmation = prompt.value;
-  } catch {
-    return;
-  }
-
-  legacyVolunteerApplyLoading.value = true;
-  try {
-    const result = await applyLegacyVolunteerAdoption({
-      preview_fingerprint: preview.preview_fingerprint,
-      member_ids: preview.adoptable_member_ids,
-      confirmation
-    });
-    ElMessage.success(
-      `历史岗位承接完成：成功 ${result.data.adopted_count} 人，幂等或安全跳过 ${result.data.skipped_count} 人`
-    );
-    legacyVolunteerPreviewResult.value = (
-      await previewLegacyVolunteerAdoption()
-    ).data;
-    await load();
-  } catch (error) {
-    ElMessage.error(errorText(error));
-  } finally {
-    legacyVolunteerApplyLoading.value = false;
-  }
-}
-
-async function runFullClassPreflight() {
-  const workbook = fullPreflightFiles.value[0]?.raw;
-  if (!workbook) {
-    ElMessage.warning("请先选择最新学员表 .xlsx 文件");
-    return;
-  }
-  try {
-    await ElMessageBox.confirm(
-      "文件只在服务器内存中用于受保护匹配，结果只返回班级、小组和匹配汇总；不会创建、修改或停用任何生产数据。",
-      "确认进行全量班级只读预检",
-      {
-        confirmButtonText: "开始只读预检",
-        cancelButtonText: "取消",
-        type: "warning"
-      }
-    );
-  } catch {
-    return;
-  }
-  fullPreflightLoading.value = true;
-  try {
-    const result = await previewFullClassRosterWorkbook(workbook);
-    fullPreflightResult.value = result.data;
-    ElMessage.success("全量班级只读预检已完成，未写入生产数据");
-  } catch (error) {
-    ElMessage.error(errorText(error));
-  } finally {
-    fullPreflightLoading.value = false;
-  }
-}
-
-async function applyFullOrgImport() {
-  const workbook = fullPreflightFiles.value[0]?.raw;
-  if (!workbook || !canApplyFullOrgImport.value) return;
-  let confirmationText = "";
-  try {
-    const prompt = await ElMessageBox.prompt(
-      `本阶段仅创建20个普通班和112个普通班小组，不修改任何学员或签到数据。请输入：${fullOrgConfirmationText}`,
-      "第一阶段组织节点生产写入确认",
-      {
-        confirmButtonText: "执行第一阶段",
-        cancelButtonText: "取消",
-        type: "warning",
-        inputValidator: value =>
-          value === fullOrgConfirmationText || "确认文字不完整，已禁止写入"
-      }
-    );
-    confirmationText = prompt.value;
-  } catch {
-    return;
-  }
-  fullOrgImportLoading.value = true;
-  try {
-    const result = await applyFullClassRosterOrganization(
-      workbook,
-      confirmationText
-    );
-    ElMessage.success(
-      `第一阶段完成：创建班级 ${result.data.created_classes} 个、小组 ${result.data.created_groups} 个；学员变更 ${result.data.members_changed} 人`
-    );
-    const refreshed = await previewFullClassRosterWorkbook(workbook);
-    fullPreflightResult.value = refreshed.data;
-  } catch (error) {
-    ElMessage.error(errorText(error));
-  } finally {
-    fullOrgImportLoading.value = false;
-  }
-}
-
-async function applyFullRelationImport() {
-  const workbook = fullPreflightFiles.value[0]?.raw;
-  if (!workbook || !canApplyFullRelations.value) return;
-  fullRelationImportLoading.value = true;
-  try {
-    const result = await applyFullClassRosterRelations(workbook);
-    ElMessage.success(
-      `第二阶段完成：唯一匹配学员 ${result.data.matched_members ?? 722} 人，新增组织关系 ${result.data.relations_added ?? 0} 条`
-    );
-    fullPreflightResult.value = (
-      await previewFullClassRosterWorkbook(workbook)
-    ).data;
-  } catch (error) {
-    ElMessage.error(errorText(error));
-  } finally {
-    fullRelationImportLoading.value = false;
-  }
-}
-
-async function applyDirectClassImport() {
-  const workbook = preflightFiles.value[0]?.raw;
-  if (!workbook || !preflightResult.value) return;
-  try {
-    await ElMessageBox.confirm(
-      "将按已确认工作簿写入直属四班：8 名新建、115 名更新、430 条组织关系和 4 条备注。指纹或实时预检不符将自动停止并回滚。",
-      "执行直属四班生产导入",
-      {
-        confirmButtonText: "确认执行",
-        cancelButtonText: "取消",
-        type: "warning"
-      }
-    );
-  } catch {
-    return;
-  }
-  preflightLoading.value = true;
-  try {
-    const result = await applyDirectClassWorkbook(workbook);
-    ElMessage.success(
-      `导入完成：新建 ${result.data.created}，更新 ${result.data.updated}，关系 ${result.data.relations}`
-    );
-    await load();
-  } catch (error) {
-    ElMessage.error(errorText(error));
-  } finally {
-    preflightLoading.value = false;
-  }
-}
-
-async function runDirectClassPreflight() {
-  const workbook = preflightFiles.value[0]?.raw;
-  if (!workbook) {
-    ElMessage.warning("请先选择直属班级名单 .xlsx 文件");
-    return;
-  }
-  try {
-    await ElMessageBox.confirm(
-      "文件只在服务器内存中用于受保护匹配，结果只返回汇总数量；不会创建、修改或停用任何学员、组织或关系。",
-      "确认进行直属四班只读预检",
-      {
-        confirmButtonText: "开始只读预检",
-        cancelButtonText: "取消",
-        type: "warning"
-      }
-    );
-  } catch {
-    return;
-  }
-  preflightLoading.value = true;
-  try {
-    const result = await previewDirectClassWorkbook(workbook);
-    preflightResult.value = result.data;
-    ElMessage.success("只读预检已完成，未写入生产数据");
-  } catch (error) {
-    ElMessage.error(errorText(error));
-  } finally {
-    preflightLoading.value = false;
   }
 }
 
@@ -1805,27 +1521,21 @@ onMounted(async () => {
       </div>
       <div class="head-actions" v-if="canManage">
         <BulkGroupReassignment :classes="classFilterOptions" :initial-class="classFilter" @saved="reloadAfterGroupReassignment" />
-        <el-button size="large" @click="fullPreflightVisible = true">
-          全量班级预检
-        </el-button>
         <el-button size="large" @click="memberRosterImportVisible = true">
           学员资料补充
-        </el-button>
-        <el-button size="large" @click="preflightVisible = true">
-          直属四班预检
-        </el-button>
-        <el-button
-          size="large"
-          :loading="legacyVolunteerPreviewLoading"
-          @click="runLegacyVolunteerPreview"
-        >
-          历史岗位承接预览
         </el-button>
         <el-button type="primary" size="large" @click="openCreate">
           新增学员
         </el-button>
       </div>
     </section>
+
+    <el-alert v-if="memberRosterReceipt || memberRosterOutcome" class="result-alert"
+      :type="memberRosterOutcome ? (memberRosterOutcome.kind === 'failed' ? 'error' : 'warning') : 'success'"
+      :title="memberRosterOutcome?.message || rosterReceiptMessage(memberRosterReceipt!)"
+      :closable="false" show-icon>
+      <el-button link @click="memberRosterImportVisible = true">查看资料补充结果</el-button>
+    </el-alert>
 
     <el-alert
       title="学员主档补充导入需使用最新学员基本信息表并先完成只读预检；已有非空资料不会被覆盖。"
@@ -1993,145 +1703,6 @@ onMounted(async () => {
     </el-card>
 
     <el-dialog
-      v-model="legacyVolunteerPreviewVisible"
-      title="历史岗位自动承接预览"
-      width="1120px"
-      class="preflight-dialog"
-    >
-      <template v-if="legacyVolunteerPreviewResult">
-        <el-alert
-          title="这是只读预览，不会创建身份、志工任职或审计写入。"
-          description="只有岗位目录唯一匹配、学员在册、组织关系唯一且没有当前任职的记录，才会进入可自动承接清单。批量承接须另行确认。"
-          type="warning"
-          :closable="false"
-          show-icon
-        />
-        <el-descriptions :column="4" border class="preview-summary">
-          <el-descriptions-item label="扫描历史岗位">
-            {{ legacyVolunteerPreviewResult.preview_total }} 人
-          </el-descriptions-item>
-          <el-descriptions-item label="可自动承接">
-            <el-tag type="success">
-              {{ legacyVolunteerPreviewResult.auto_adoptable_count }} 人
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="需人工复核">
-            <el-tag
-              :type="
-                legacyVolunteerPreviewResult.manual_review_count
-                  ? 'warning'
-                  : 'success'
-              "
-            >
-              {{ legacyVolunteerPreviewResult.manual_review_count }} 人
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="环境">
-            {{
-              volunteerPreviewEnvironmentLabel(
-                legacyVolunteerPreviewResult.environment
-              )
-            }}
-          </el-descriptions-item>
-        </el-descriptions>
-
-        <h3 class="preview-section-title">按历史岗位统计</h3>
-        <el-table
-          :data="legacyVolunteerPreviewResult.by_position"
-          size="small"
-          max-height="240"
-        >
-          <el-table-column
-            prop="historical_position_name"
-            label="历史岗位"
-            min-width="150"
-          />
-          <el-table-column label="目标岗位" min-width="150">
-            <template #default="{ row }">{{
-              row.position_name || "需人工复核"
-            }}</template>
-          </el-table-column>
-          <el-table-column prop="total_count" label="合计" width="90" />
-          <el-table-column
-            prop="auto_adoptable_count"
-            label="可承接"
-            width="90"
-          />
-          <el-table-column
-            prop="manual_review_count"
-            label="需复核"
-            width="90"
-          />
-        </el-table>
-
-        <h3 class="preview-section-title">
-          可自动承接清单（{{
-            legacyVolunteerPreviewResult.auto_adoptable_count
-          }}
-          人）
-        </h3>
-        <el-table
-          :data="legacyVolunteerPreviewResult.auto_adoptable_items"
-          size="small"
-          max-height="300"
-          empty-text="暂无可自动承接记录"
-        >
-          <el-table-column prop="name" label="姓名" min-width="100" />
-          <el-table-column
-            prop="historical_position_name"
-            label="历史岗位"
-            min-width="120"
-          />
-          <el-table-column
-            prop="position_name"
-            label="当前岗位"
-            min-width="120"
-          />
-          <el-table-column
-            prop="scope.scope_name"
-            label="自动服务范围"
-            min-width="150"
-          />
-        </el-table>
-
-        <h3 class="preview-section-title">
-          人工复核清单（{{ legacyVolunteerPreviewResult.manual_review_count }}
-          人）
-        </h3>
-        <el-table
-          :data="legacyVolunteerPreviewResult.manual_review_items"
-          size="small"
-          max-height="300"
-          empty-text="暂无人工复核记录"
-        >
-          <el-table-column prop="name" label="姓名" min-width="100" />
-          <el-table-column
-            prop="historical_position_name"
-            label="历史岗位"
-            min-width="140"
-          />
-          <el-table-column prop="reason" label="复核原因" min-width="300" />
-        </el-table>
-        <p class="form-hint">
-          执行时系统会重新校验预览有效性；人工复核记录不会写入。
-        </p>
-      </template>
-      <template #footer>
-        <el-button @click="legacyVolunteerPreviewVisible = false"
-          >关闭</el-button
-        >
-        <el-button
-          type="danger"
-          :disabled="!legacyVolunteerPreviewResult?.auto_adoptable_count"
-          :loading="legacyVolunteerApplyLoading"
-          @click="applyLegacyVolunteerPreview"
-        >
-          承接当前预览中的明确记录
-        </el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog
       v-model="memberRosterImportVisible"
       title="学员主档补充导入"
       width="980px"
@@ -2144,6 +1715,28 @@ onMounted(async () => {
         :closable="false"
         show-icon
       />
+      <section v-if="memberRosterReceipt" class="preflight-result" aria-label="资料补充结果">
+        <el-alert :title="rosterReceiptMessage(memberRosterReceipt)" type="success" :closable="false" show-icon />
+        <el-descriptions :column="3" border class="result-alert">
+          <el-descriptions-item label="导入批次">{{ memberRosterReceipt.batch_id }}</el-descriptions-item>
+          <el-descriptions-item label="保存时间（北京时间）">
+            {{ memberRosterReceipt.applied_at ? `${chinaTimestampDate(memberRosterReceipt.applied_at)} ${chinaTime(memberRosterReceipt.applied_at)}` : '原批次未提供' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="销售收入补充">{{ memberRosterReceipt.annual_sales_applied === undefined ? '原批次未提供' : `${memberRosterReceipt.annual_sales_applied} 条（加密保存）` }}</el-descriptions-item>
+        </el-descriptions>
+        <p v-if="memberRosterReceipt.field_applied_counts?.length">实际补充的信息：</p>
+        <el-tag v-for="item in memberRosterReceipt.field_applied_counts" :key="item.field" class="result-tag" type="success">
+          {{ rosterFieldLabel(item.field) }}：{{ item.count }} 人
+        </el-tag>
+        <p v-if="memberRosterReceipt.field_applied_counts?.length === 0">本次没有需要补充的空白资料；已有非空资料保持原样。</p>
+        <p v-if="memberRosterReceipt.skipped_reasons?.length">
+          跳过原因：{{ memberRosterReceipt.skipped_reasons.map(item => `${memberRosterReviewReasonText(item.code)} ${item.count} 条`).join('；') }}。可在下方人工复核清单查看。
+        </p>
+      </section>
+      <el-alert v-if="memberRosterOutcome" class="result-alert" :title="memberRosterOutcome.message"
+        :type="memberRosterOutcome.kind === 'failed' ? 'error' : 'warning'" :closable="false" show-icon />
+      <el-alert v-if="memberRosterRefreshWarning" class="result-alert" :title="memberRosterRefreshWarning"
+        type="warning" :closable="false" show-icon />
       <el-upload
         class="preflight-upload"
         accept=".xlsx"
@@ -2151,12 +1744,15 @@ onMounted(async () => {
         :limit="1"
         :file-list="memberRosterFiles"
         :on-change="selectMemberRosterFile"
+        :on-remove="removeMemberRosterFile"
+        :disabled="memberRosterImportLoading"
       >
         <el-button>选择最新学员基本信息表 .xlsx</el-button>
       </el-upload>
       <el-button
         type="primary"
         :loading="memberRosterImportLoading"
+        :disabled="!memberRosterFiles.length"
         @click="runMemberRosterPreflight"
       >
         生成补充导入预检
@@ -2169,7 +1765,7 @@ onMounted(async () => {
           <el-descriptions-item label="源表记录">
             {{ memberRosterImportResult.source.row_count }} 条
           </el-descriptions-item>
-          <el-descriptions-item label="可更新">
+          <el-descriptions-item label="匹配已有档案">
             {{ memberRosterImportResult.matching.existing_member_count }} 人
           </el-descriptions-item>
           <el-descriptions-item label="可新增">
@@ -2232,7 +1828,7 @@ onMounted(async () => {
               class="result-tag"
               type="info"
             >
-              {{ item.field }}：{{ item.count }}
+              {{ rosterFieldLabel(item.field) }}：{{ item.count }}
             </el-tag>
           </el-descriptions-item>
         </el-descriptions>
@@ -2301,7 +1897,7 @@ onMounted(async () => {
           执行补充导入
         </el-button>
         <el-alert
-          v-else
+          v-else-if="!memberRosterImportResult.previous_import"
           :title="
             memberRosterImportResult.sensitive.requires_enterprise_permission &&
             !memberRosterImportResult.sensitive
@@ -2317,321 +1913,6 @@ onMounted(async () => {
       </div>
       <template #footer>
         <el-button @click="memberRosterImportVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog
-      v-model="preflightVisible"
-      title="直属四班生产前只读预检"
-      width="860px"
-      class="preflight-dialog"
-    >
-      <el-alert
-        title="本操作不创建或修改任何生产数据"
-        description="工作簿仅在服务器内存中解析；手机号仅用于受保护的匹配，界面只显示汇总数量。"
-        type="success"
-        :closable="false"
-        show-icon
-      />
-      <el-upload
-        class="preflight-upload"
-        accept=".xlsx"
-        :auto-upload="false"
-        :limit="1"
-        :file-list="preflightFiles"
-        :on-change="selectPreflightFile"
-      >
-        <el-button>选择直属班级名单 .xlsx</el-button>
-      </el-upload>
-      <el-button
-        type="primary"
-        :loading="preflightLoading"
-        @click="runDirectClassPreflight"
-      >
-        生成只读预检报告
-      </el-button>
-
-      <div v-if="preflightResult" class="preflight-result">
-        <el-descriptions :column="2" border>
-          <el-descriptions-item label="在册直属学员">
-            {{ preflightResult.source.active_direct_member_count }} 人
-          </el-descriptions-item>
-          <el-descriptions-item label="生产写入"> 已禁止 </el-descriptions-item>
-          <el-descriptions-item label="工作簿班级分布" :span="2">
-            <el-tag
-              v-for="item in preflightResult.source.by_class"
-              :key="item.class_name"
-              class="result-tag"
-              type="success"
-            >
-              {{ item.class_name }} {{ item.count }} 人
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="生产现有直属班记录" :span="2">
-            <el-tag
-              v-for="item in preflightResult.production_existing_direct_class_records"
-              :key="item.class_name"
-              class="result-tag"
-            >
-              {{ item.class_name }} {{ item.count }} 人
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="匹配结果" :span="2">
-            <el-tag
-              v-for="item in preflightResult.matching.summary"
-              :key="item.status"
-              class="result-tag"
-              type="info"
-            >
-              {{ item.status }}：{{ item.count }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="未匹配生产主档" :span="2">
-            <span
-              v-if="
-                !preflightResult.matching.no_production_match_by_class.length
-              "
-            >
-              无
-            </span>
-            <template v-else>
-              <el-tag
-                v-for="item in preflightResult.matching
-                  .no_production_match_by_class"
-                :key="item.class_name"
-                class="result-tag"
-                type="warning"
-              >
-                {{ item.class_name }}：{{ item.count }} 人
-              </el-tag>
-            </template>
-          </el-descriptions-item>
-          <el-descriptions-item label="已匹配但待校正字段" :span="2">
-            <span
-              v-if="
-                !preflightResult.matching
-                  .matched_profile_fields_needing_reconciliation.length
-              "
-            >
-              无
-            </span>
-            <template v-else>
-              <el-tag
-                v-for="item in preflightResult.matching
-                  .matched_profile_fields_needing_reconciliation"
-                :key="item.field"
-                class="result-tag"
-                type="info"
-              >
-                {{ item.field }}：{{ item.count }}
-              </el-tag>
-            </template>
-          </el-descriptions-item>
-          <el-descriptions-item label="直属班组织解析" :span="2">
-            <el-tag
-              v-for="item in preflightResult.organization.direct_class_status"
-              :key="item.class_name"
-              class="result-tag"
-              :type="item.action === 'REUSE' ? 'success' : 'warning'"
-            >
-              {{ item.class_name }}：{{ item.action }}
-            </el-tag>
-          </el-descriptions-item>
-        </el-descriptions>
-        <el-alert
-          v-if="preflightResult.issues.length"
-          class="result-alert"
-          title="存在需人工复核的汇总项；系统不会自动写入"
-          type="warning"
-          :closable="false"
-          show-icon
-        />
-        <el-alert
-          v-if="preflightResult.issues.length"
-          class="result-alert"
-          :title="`复核原因：${preflightResult.issues.map(item => `${item.code} ${item.count}`).join('；')}`"
-          type="warning"
-          :closable="false"
-          show-icon
-        />
-        <p class="form-hint">{{ preflightResult.write_gates[0] }}</p>
-      </div>
-      <template #footer>
-        <el-button
-          v-if="preflightResult && !preflightResult.issues.length"
-          type="danger"
-          :loading="preflightLoading"
-          @click="applyDirectClassImport"
-          >执行确认导入</el-button
-        >
-        <el-button @click="preflightVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog
-      v-model="fullPreflightVisible"
-      title="全量班级与小组生产前只读预检"
-      width="1080px"
-      class="preflight-dialog"
-    >
-      <el-alert
-        title="本操作只生成聚合报告，不创建或修改任何生产数据"
-        description="工作簿只在服务器内存中解析；手机号仅转换为受保护的匹配摘要，界面不显示姓名、手机号、成员编号或组织 ID。"
-        type="success"
-        :closable="false"
-        show-icon
-      />
-      <el-upload
-        class="preflight-upload"
-        accept=".xlsx"
-        :auto-upload="false"
-        :limit="1"
-        :file-list="fullPreflightFiles"
-        :on-change="selectFullPreflightFile"
-      >
-        <el-button>选择最新学员表 .xlsx</el-button>
-      </el-upload>
-      <el-button
-        type="primary"
-        :loading="fullPreflightLoading"
-        @click="runFullClassPreflight"
-      >
-        生成全量只读预检报告
-      </el-button>
-
-      <div v-if="fullPreflightResult" class="preflight-result">
-        <el-descriptions :column="4" border>
-          <el-descriptions-item label="在册学员">
-            {{ fullPreflightResult.source.active_member_count }} 人
-          </el-descriptions-item>
-          <el-descriptions-item label="已有班级">
-            {{ fullPreflightResult.source.with_class_count }} 人
-          </el-descriptions-item>
-          <el-descriptions-item label="未分班">
-            {{ fullPreflightResult.source.missing_class_count }} 人
-          </el-descriptions-item>
-          <el-descriptions-item label="生产写入"> 已禁止 </el-descriptions-item>
-          <el-descriptions-item label="普通班">
-            {{ fullPreflightResult.source.ordinary_class_count }} 个／
-            {{ fullPreflightResult.source.ordinary_class_member_count }} 人
-          </el-descriptions-item>
-          <el-descriptions-item label="直属班">
-            {{ fullPreflightResult.source.direct_class_count }} 个／
-            {{ fullPreflightResult.source.direct_class_member_count }} 人
-          </el-descriptions-item>
-          <el-descriptions-item label="普通班小组">
-            {{ fullPreflightResult.source.ordinary_group_pair_count }} 个
-          </el-descriptions-item>
-          <el-descriptions-item label="直属班小组">
-            {{ fullPreflightResult.source.direct_group_pair_count }} 个
-          </el-descriptions-item>
-          <el-descriptions-item label="生产匹配" :span="4">
-            <el-tag
-              v-for="item in fullPreflightResult.matching.summary"
-              :key="item.status"
-              class="result-tag"
-              type="info"
-            >
-              {{ item.status }}：{{ item.count }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="班级组织解析" :span="4">
-            <el-tag
-              v-for="item in fullPreflightResult.organization.class_status"
-              :key="item.class_name"
-              class="result-tag"
-              :type="
-                item.action === 'REUSE'
-                  ? 'success'
-                  : item.action === 'REVIEW'
-                    ? 'danger'
-                    : 'warning'
-              "
-            >
-              {{ item.class_name }}（{{ item.expected_parent }}）：{{
-                item.action
-              }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="小组组织处理" :span="4">
-            <el-tag
-              v-for="item in fullPreflightResult.organization
-                .group_action_summary"
-              :key="item.action"
-              class="result-tag"
-              :type="item.action === 'REUSE' ? 'success' : 'warning'"
-            >
-              {{ item.action }}：{{ item.count }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="待校正字段或关系" :span="4">
-            <span
-              v-if="
-                !fullPreflightResult.matching
-                  .fields_or_relations_needing_reconciliation.length
-              "
-            >
-              无
-            </span>
-            <template v-else>
-              <el-tag
-                v-for="item in fullPreflightResult.matching
-                  .fields_or_relations_needing_reconciliation"
-                :key="item.field"
-                class="result-tag"
-                type="warning"
-              >
-                {{ item.field }}：{{ item.count }}
-              </el-tag>
-            </template>
-          </el-descriptions-item>
-        </el-descriptions>
-        <el-alert
-          v-if="fullPreflightResult.issues.length"
-          class="result-alert"
-          :title="`需人工复核：${fullPreflightResult.issues.map(item => `${item.code} ${item.count}`).join('；')}`"
-          type="warning"
-          :closable="false"
-          show-icon
-        />
-        <p class="form-hint">
-          {{ fullPreflightResult.write_gates.join(" ") }}
-        </p>
-        <el-alert
-          v-if="canApplyFullOrgImport"
-          class="result-alert"
-          title="第一阶段只创建组织节点：20个普通班、112个普通班小组；不修改任何学员或签到数据。"
-          type="error"
-          :closable="false"
-          show-icon
-        />
-        <el-button
-          v-if="canApplyFullOrgImport"
-          type="danger"
-          :loading="fullOrgImportLoading"
-          @click="applyFullOrgImport"
-        >
-          执行第一阶段组织创建
-        </el-button>
-        <el-alert
-          v-if="fullPreflightResult"
-          class="result-alert"
-          title="第二阶段仅补齐唯一匹配且已分班学员的班级、小组关系；不修改学员字段、发展归属或签到数据。"
-          type="warning"
-          :closable="false"
-          show-icon
-        />
-        <el-button
-          v-if="fullPreflightResult"
-          type="danger"
-          :loading="fullRelationImportLoading"
-          @click="applyFullRelationImport"
-        >
-          执行第二阶段关系写入
-        </el-button>
-      </div>
-      <template #footer>
-        <el-button @click="fullPreflightVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 

@@ -1041,7 +1041,23 @@ export type FullClassRosterPreflight = {
   write_gates: string[];
 };
 
+export type MemberRosterImportReceipt = {
+  batch_id: number;
+  status: "APPLIED" | "ALREADY_APPLIED";
+  source_sha256: string;
+  applied_at?: string;
+  created?: number;
+  updated?: number;
+  fields?: number;
+  relations?: number;
+  annual_sales_applied?: number;
+  skipped_manual_review?: number;
+  field_applied_counts?: { field: string; count: number }[];
+  skipped_reasons?: { code: string; count: number }[];
+};
+
 export type MemberRosterImportPreview = {
+  previous_import?: MemberRosterImportReceipt | null;
   mode: "READ_ONLY_MEMBER_PROFILE_SUPPLEMENT";
   automatic_production_write_allowed: false;
   source_name: string;
@@ -1975,17 +1991,7 @@ export const applyMemberRosterWorkbook = (
   data.append("confirmation_text", confirmationText);
   return http.request<{
     success: boolean;
-    data: {
-      batch_id: number;
-      status: "APPLIED" | "ALREADY_APPLIED";
-      created?: number;
-      updated?: number;
-      fields?: number;
-      relations?: number;
-      annual_sales_applied?: number;
-      skipped_manual_review?: number;
-      source_sha256: string;
-    };
+    data: MemberRosterImportReceipt;
   }>("post", "/api/v1/member-roster-import/apply", {
     data,
     headers: { "Content-Type": "multipart/form-data" },
