@@ -99,6 +99,31 @@ def DecimalText(value):
     return format(Decimal(str(value)),'.2f')
 
 
+def test_export_can_target_one_member_without_other_roster_or_ledger(source_fixture):
+    f = source_fixture
+    iid, _, _ = registered(f, 'DAILY_READING')
+    sources.create_batches(iid, f['actor'])
+    sources.process(iid, f['actor'], 'submit')
+    sources.process(iid, f['reviewer'], 'approve')
+    sources.process(iid, f['actor'], 'post')
+    with transaction() as c:
+        now = credits._db_timestamp(c)
+        other = execute(c, "INSERT INTO members(member_code,name,org_unit_id,status,created_at,updated_at) VALUES (?, '另一位合成学员', ?, 'ACTIVE', ?, ?)",
+                        ('OTHER-' + f['suffix'], f['class_id'], now, now)).lastrowid
+        execute(c, "INSERT INTO member_org_relations(member_id,org_unit_id,relation_type,is_primary,created_at,updated_at) VALUES (?, ?, 'STUDY_CLASS', 1, ?, ?)",
+                (other, f['class_id'], now, now))
+    book = load_workbook(io.BytesIO(exports.export_credits(f['actor'], f['class_id'], DAY, DAY, member_id=f['member_id'])))
+    assert book['学分汇总'].max_row == 2
+    assert book['学分汇总']['A2'].value == f['member_code']
+    assert book['新增学分明细'].max_row == 2
+    assert book['新增学分明细']['B2'].value == f['member_code']
+    assert '另一位合成学员' not in str([list(sheet.values) for sheet in book])
+    with pytest.raises(PermissionError):
+        exports.export_credits(f['actor'], f['class_id'], DAY, DAY, member_id=999999999)
+    with TestClient(app) as client:
+        assert client.get('/api/v1/learning-credits/excel/export', params={'member_id': f['member_id']}).status_code == 401
+
+
 def test_offline_cycle_advances_only_after_successful_settlement(source_fixture,monkeypatch):
     f=source_fixture
     monkeypatch.setenv('LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED','true')

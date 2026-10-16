@@ -1223,7 +1223,8 @@ def list_members_page(
     status: str = "ACTIVE",
     keyword: str | None = None,
     page: int = 1,
-    page_size: int = 50,
+    page_size: int = 20,
+    permission_scopes: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Server-side, IAM-scoped learner query with independent status filter."""
     if not 1 <= int(page):
@@ -1243,6 +1244,10 @@ def list_members_page(
         class_org_unit_id=class_org_unit_id,
         group_org_unit_id=group_org_unit_id,
     )
+    for permission in permission_scopes:
+        permission_ids = accessible_org_ids(user_id, permission)
+        if permission_ids is not None:
+            scope_ids &= permission_ids
     if not scope_ids:
         return {
             "items": [],

@@ -37,6 +37,7 @@ const creditPreview = ref<MeetingCreditPreview>();
 const creditLoading = ref(false);
 const creditError = ref("");
 const exporting = ref(false);
+const exportLayout = ref<"group" | "member">("group");
 const confirming = ref(false);
 const confirmationNote = ref("");
 const reviewing = ref(false);
@@ -95,13 +96,14 @@ const downloadRecords = async (sessionId?: number) => {
   if (exporting.value) return;
   exporting.value = true;
   try {
-    const blob = await exportMeetingRecords(sessionId ? { session_id: sessionId } : {
+    const blob = await exportMeetingRecords(sessionId ? { session_id: sessionId, layout: "member" } : {
+      layout: exportLayout.value,
       status: filters.status || undefined, meeting_date_from: filters.meeting_date_from || undefined,
       meeting_date_to: filters.meeting_date_to || undefined });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = sessionId ? `学习会-${sessionId}-预计学分.csv` : "小组学习会-预计学分.csv";
+    anchor.download = sessionId ? `学习会-${sessionId}-人员学分明细.xlsx` : `小组学习会-${exportLayout.value === 'group' ? '小组汇总' : '人员明细'}.xlsx`;
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (error) { ElMessage.error(studyMeetingErrorMessage(error, "学习会导出")); }
@@ -365,8 +367,12 @@ onMounted(loadRecords);
           clearable
         />
         <el-button type="primary" :loading="loading" @click="loadRecords">查询</el-button>
+        <el-select v-if="canExport" v-model="exportLayout" aria-label="学习会导出格式" style="width: 200px">
+          <el-option label="小组汇总（一组一行）" value="group" />
+          <el-option label="人员明细（一人一行）" value="member" />
+        </el-select>
         <el-button v-if="canExport" :loading="exporting" @click="downloadRecords()">导出筛选结果</el-button>
-        <span v-if="canExport" class="muted">按当前筛选导出，最多500场学习会</span>
+        <span v-if="canExport" class="muted">最多500场学习会；小组汇总含参会率，班级按周期、分中心按月份统计筛选结果</span>
       </div>
 
       <div class="muted records-alert">小组参会率 = 本组参加人数 ÷ 本组当前有效在册人数，跨组参加人员不计入；名单变化需核对。</div>

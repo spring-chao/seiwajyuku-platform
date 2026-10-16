@@ -99,12 +99,14 @@ export const sourceTemplate = (kind: SourceKind, class_id: string) =>
 export const sourceExport = (
   class_id: string,
   occurred_from: string,
-  occurred_to: string
+  occurred_to: string,
+  member_id?: number
 ) =>
   http.request<Blob>("get", base + "/export", {
     params: {
       class_id: class_id || undefined,
       occurred_from,
+      member_id,
       occurred_to: occurred_to || undefined
     },
     responseType: "blob",

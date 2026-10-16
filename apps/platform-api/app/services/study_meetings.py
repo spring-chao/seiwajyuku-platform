@@ -754,6 +754,8 @@ def create_study_meeting(
     if course_keys is not None and course_key is not None:
         raise StudyMeetingError("请使用课程列表，不要同时传入旧课程字段")
     keys = course_keys if course_keys is not None else ([course_key] if course_key else [])
+    if len(set(keys)) != len(keys):
+        raise StudyMeetingError("同一课程不能重复添加")
     if bool(keys) != has_course:
         raise StudyMeetingError("观看课程选项与课程列表不一致")
     meeting_day = _parse_meeting_date(meeting_date)
@@ -761,9 +763,27 @@ def create_study_meeting(
 
     _refresh_monthly_content(target["class_org_unit_id"])
     with transaction() as connection:
+        # Serialize creation on a stable parent row, including the first insert.
+        # A child-only lock cannot prevent two concurrent first submissions.
+        execute(connection, "UPDATE org_units SET id=id WHERE id=?", (target["group_org_unit_id"],))
         cycle_data = _current_cycle(connection, target["class_org_unit_id"])
         cycle = cycle_data["cycle"]
         binding = cycle_data["binding"]
+        existing = execute(connection,
+            "SELECT * FROM study_meeting_sessions WHERE study_group_org_unit_id=? "
+            "AND learning_cycle_id=? AND status<>'CANCELLED' ORDER BY id DESC LIMIT 1",
+            (target["group_org_unit_id"], cycle["id"])).fetchone()
+        if existing:
+            if existing['status'] == 'DRAFT':
+                payload = _session_payload(connection, int(existing['id']))
+                same_home = {r['member_id'] for r in payload['home_attendees']} == set(home_ids)
+                same_cross = {r['member_id'] for r in payload['cross_group_attendees']} == set(cross_ids)
+                same_courses = {r['course_key'] for r in payload['courses']} == set(keys)
+                if same_home and same_cross and same_courses:
+                    # A lost creation response or restarted photo upload retries
+                    # the original draft instead of creating another fact.
+                    return payload
+            raise StudyMeetingError(f"本小组在当前学习周期已有学习会（{existing['session_code']}），请查看原记录；已提交内容请联系运营人员更正，不能重复上传")
         snapshots = _course_snapshots(
             connection,
             keys,
@@ -981,10 +1001,16 @@ def list_study_meeting_records(
     status: str | None = None,
     meeting_date_from: str | None = None,
     meeting_date_to: str | None = None,
+    limit: int = 500,
+    scope_permissions: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
     """Read-only operations view for submitted/draft fact records."""
 
     allowed = accessible_org_ids(actor_user_id)
+    for permission in scope_permissions:
+        scope = accessible_org_ids(actor_user_id, permission)
+        if scope is not None:
+            allowed = scope if allowed is None else allowed & scope
     if allowed == set():
         return []
     conditions = ["1=1"]
@@ -1028,8 +1054,8 @@ def list_study_meeting_records(
         "s.learning_cycle_id, lc.learning_cycle_index, s.meeting_date, s.created_by_member_id, "
         "creator.name, s.has_course, s.course_key, s.course_name_snapshot, s.course_credit_snapshot, "
         "s.status, s.submitted_at, s.created_at, s.updated_at, s.course_details_initialized "
-        "ORDER BY s.meeting_date DESC, s.id DESC LIMIT 500",
-        tuple(params),
+        "ORDER BY s.meeting_date DESC, s.id DESC LIMIT ?",
+        (*params, limit),
     )
     connection = connect()
     try:

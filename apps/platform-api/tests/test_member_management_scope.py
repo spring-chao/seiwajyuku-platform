@@ -67,12 +67,12 @@ def test_member_list_is_server_paginated_with_independent_status_and_keyword() -
     first = list_members_page(_admin_id(), management_org_unit_id=center_id)
     assert first["pagination"] == {
         "page": 1,
-        "page_size": 50,
+        "page_size": 20,
         "total": 55,
-        "total_pages": 2,
+        "total_pages": 3,
     }
     assert first["summary"]["active_count"] == 55
-    assert len(first["items"]) == 50
+    assert len(first["items"]) == 20
     second = list_members_page(
         _admin_id(), management_org_unit_id=center_id, page=2, page_size=50
     )

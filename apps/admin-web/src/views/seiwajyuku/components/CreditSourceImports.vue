@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
+import { getMembers, type Member } from "@/api/seiwajyuku";
 import { creditSettlementErrorMessage } from "@/utils/creditSettlementError";
 import {
   sourceWorkbench,
@@ -49,7 +50,25 @@ const form = reactive({
   actual_start: "",
   source_note: ""
 });
-const exportForm = reactive({ class_id: "", from: "2026-10-01", to: "" });
+const exportForm = reactive({ class_id: "", from: "2026-10-01", to: "", member_id: undefined as number | undefined });
+const exportMembers = ref<Member[]>([]);
+const searchingMembers = ref(false);
+let memberSearch = 0;
+async function searchExportMembers(keyword: string) {
+  const generation = ++memberSearch;
+  searchingMembers.value = true;
+  try {
+    const response = await getMembers({ keyword: keyword.trim() || undefined,
+      class_org_unit_id: exportForm.class_id || undefined, status: "ALL", page_size: 20 });
+    if (generation === memberSearch) exportMembers.value = response.data.items;
+  } catch { if (generation === memberSearch) ElMessage.error("学员检索失败，请重试"); }
+  finally { if (generation === memberSearch) searchingMembers.value = false; }
+}
+watch(() => exportForm.class_id, () => {
+  memberSearch++;
+  exportForm.member_id = undefined;
+  exportMembers.value = [];
+});
 const slotLabel = (value: string) =>
   (
     ({ MORNING: "上午", AFTERNOON: "下午", KONPA: "空巴" }) as Record<
@@ -343,7 +362,7 @@ const exportFile = () =>
   perform(async () => {
     if (!exportForm.from) throw new Error("请选择新增明细开始日期");
     download(
-      await sourceExport(exportForm.class_id, exportForm.from, exportForm.to),
+      await sourceExport(exportForm.class_id, exportForm.from, exportForm.to, exportForm.member_id),
       "学分汇总及新增来源.xlsx"
     );
   });
@@ -371,7 +390,7 @@ onMounted(() => perform(reload));
     <section v-if="canExport" class="section">
       <strong>导出学分</strong>
       <p>
-        文件包含学分汇总、所选日期的新增明细及来源、已导入的历史年度。学分保留账本原始小数，便于核对。
+        可按班级或指定个人导出。文件包含每人学分汇总、所选日期的逐笔明细及来源、已导入的历史年度。
       </p>
       <el-form inline
         ><el-form-item label="班级"
@@ -385,7 +404,14 @@ onMounted(() => perform(reload));
               :key="c.id"
               :label="c.name"
               :value="c.id" /></el-select></el-form-item
-        ><el-form-item label="新增日期"
+        ><el-form-item label="学员">
+          <el-select v-model="exportForm.member_id" filterable remote clearable
+            :remote-method="searchExportMembers" :loading="searchingMembers" placeholder="全部学员；输入姓名或编号搜索"
+            style="width: 290px" @visible-change="value => value && searchExportMembers('')">
+            <el-option v-for="member in exportMembers" :key="member.id" :value="member.id"
+              :label="`${member.name} · ${member.member_code} · ${member.class_name || '未分班'}`" />
+          </el-select>
+        </el-form-item><el-form-item label="新增日期"
           ><el-date-picker
             v-model="exportForm.from"
             type="date"

@@ -5,13 +5,13 @@ import csv
 import io
 from contextlib import contextmanager
 
-from app.db import transaction
+from app.db import transaction, connect, execute
 from app.services.audit import write_audit
 from app.services.iam import (accessible_org_ids, user_context, current_request_permission,
                               set_request_permission, clear_request_permission)
 from app.services.learning_credits import dry_run_study_meeting_settlement
 from app.services.study_meetings import (
-    StudyMeetingPermissionError, get_study_meeting_record_for_operations,
+    StudyMeetingError, StudyMeetingPermissionError, get_study_meeting_record_for_operations,
     list_study_meeting_records,
 )
 
@@ -64,7 +64,7 @@ def _csv_cell(value):
     return value
 
 
-def export_meeting_records(*, actor_user_id: int, session_id: int | None = None, **filters) -> str:
+def _export_records(actor_user_id, session_id, filters):
     user = user_context(actor_user_id) or {}
     if not {"exports:normal", "plans:credit_settlement_preview"}.issubset(user.get("permissions", [])):
         raise StudyMeetingPermissionError("需要普通导出和学分预览权限")
@@ -75,8 +75,17 @@ def export_meeting_records(*, actor_user_id: int, session_id: int | None = None,
             if export_scope is not None and records[0]["class_org_unit_id"] not in export_scope:
                 raise StudyMeetingPermissionError("学习会不在导出授权范围内")
         else:
-            records = list_study_meeting_records(actor_user_id=actor_user_id, **filters)
+            records = list_study_meeting_records(actor_user_id=actor_user_id, limit=501,
+                                                scope_permissions=('exports:normal',), **filters)
             records = [item for item in records if export_scope is None or item["class_org_unit_id"] in export_scope]
+            if len(records) > 500:
+                raise StudyMeetingError('导出超过500场，请缩小日期范围')
+    return records
+
+
+def export_meeting_records(*, actor_user_id: int, session_id: int | None = None, **filters) -> str:
+    records = _export_records(actor_user_id, session_id, filters)
+    with permission_context("plans:credit_settlement_preview"):
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(["学习会编号", "日期", "班级", "小组", "周期", "状态", "学员编号", "姓名", "参加类型", "原小组", "课程", "观看确认", "预计小组会学分", "预计课程学分", "预计新增学分", "说明"])
@@ -104,3 +113,119 @@ def export_meeting_records(*, actor_user_id: int, session_id: int | None = None,
                     resource_type="study_meeting_export", resource_id=str(session_id) if session_id is not None else None,
                     after={"session_count": len(records), "row_count": count, "filters": filters, "sensitive_fields": False})
     return "\ufeff" + output.getvalue()
+
+
+def export_meeting_workbook(*, actor_user_id, session_id=None, layout='group', **filters):
+    from datetime import date
+    from app.services.tabular_exports import workbook_bytes
+    from app.services.study_meetings import _db_timestamp
+
+    if layout not in {'group', 'member'}:
+        raise StudyMeetingError('导出格式无效')
+    records = _export_records(actor_user_id, session_id, filters)
+    if layout == 'member':
+        # Retain the established individual calculation and confirmation columns.
+        csv_rows = list(csv.reader(io.StringIO(export_meeting_records(
+            actor_user_id=actor_user_id, session_id=session_id, **filters).lstrip('\ufeff'))))
+        headers, rows = csv_rows[0], csv_rows[1:]
+        for row in rows:
+            row[1] = date.fromisoformat(row[1])
+            for index in (12, 13, 14):
+                row[index] = float(row[index])
+        return workbook_bytes([('人员明细', headers, rows, ())])
+
+    grouped = {}
+    for record in records:
+        grouped.setdefault((record['study_group_org_unit_id'], record['learning_cycle_id']), []).append(record)
+    duplicate_counts = {}
+    records = []
+    for group in grouped.values():
+        # Historic duplicate facts are retained. The group report follows the
+        # latest submitted record; individual export still exposes every fact.
+        selected = max(group, key=lambda r: (r['status'] == 'SUBMITTED', r['status'] != 'CANCELLED', r['id']))
+        records.append(selected)
+        duplicate_counts[selected['id']] = len(group)
+
+    connection = connect()
+    try:
+        organizations = {r['id']: dict(r) for r in execute(connection, 'SELECT id,name,parent_id,unit_type FROM org_units').fetchall()}
+        class_ids = sorted({record['class_org_unit_id'] for record in records})
+        roster = {}
+        if class_ids:
+            placeholders = ','.join('?' for _ in class_ids)
+            now = _db_timestamp(connection)
+            for row in execute(connection, "SELECT DISTINCT r.org_unit_id,r.member_id FROM member_org_relations r "
+                "JOIN members m ON m.id=r.member_id AND m.status='ACTIVE' "
+                f"WHERE r.org_unit_id IN ({placeholders}) AND r.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
+                "AND (r.valid_from IS NULL OR r.valid_from<=?) AND (r.valid_until IS NULL OR r.valid_until>=?)",
+                (*class_ids, now, now)).fetchall():
+                roster.setdefault(row['org_unit_id'], set()).add(int(row['member_id']))
+    finally:
+        connection.close()
+
+    def region_for(class_id):
+        unit = organizations.get(class_id)
+        visited = set()
+        while unit and unit['id'] not in visited:
+            visited.add(unit['id'])
+            if unit['unit_type'] in {'REGIONAL_CENTER', 'OPERATING_UNIT'}:
+                return unit['id'], unit['name']
+            unit = organizations.get(unit['parent_id'])
+        return class_id, '未设置分中心'
+
+    details, previews, class_stats, region_stats = {}, {}, {}, {}
+    with permission_context('plans:credit_settlement_preview'):
+        for record in records:
+            sid = record['id']
+            details[sid] = get_study_meeting_record_for_operations(actor_user_id=actor_user_id, session_id=sid)
+            previews[sid] = meeting_credit_preview(actor_user_id=actor_user_id, session_id=sid)
+            class_id = record['class_org_unit_id']
+            cycle = record['cycle_index']
+            # Region rows compare the same calendar month, not unrelated class cycle numbers.
+            region_id, region_name = region_for(class_id)
+            month = str(record['meeting_date'])[:7]
+            stat = class_stats.setdefault((class_id, record['learning_cycle_id']), {
+                'label': record['class_name'], 'region': region_name, 'period': cycle,
+                'roster': roster.get(class_id, set()), 'attendees': set()})
+            region_stat = region_stats.setdefault((region_id, month), {
+                'label': region_name, 'period': month, 'roster': set(), 'attendees': set()})
+            region_stat['roster'].update(roster.get(class_id, set()))
+            if record['status'] == 'SUBMITTED':
+                attended = {int(member['member_id']) for member in details[sid]['attendees']}
+                stat['attendees'].update(attended & stat['roster'])
+                region_stat['attendees'].update(attended)
+
+    headers = ['学习会编号', '日期', '分中心/指导团', '班级', '小组', '周期', '状态', '姓名', '其中跨组姓名',
+               '本组参会人数', '本组在册人数', '小组参会率', '班级参会率（筛选范围）', '分中心参会率（筛选班级及月份）',
+               '课程', '预计小组会学分合计', '预计课程学分合计', '预计新增学分合计', '说明']
+    rows = []
+    rate = lambda stat: len(stat['attendees'] & stat['roster']) / len(stat['roster']) if stat['roster'] else None
+    for record in records:
+        sid = record['id']
+        detail, members = details[sid], previews[sid]['members']
+        region_id, region_name = region_for(record['class_org_unit_id'])
+        rows.append([record['session_code'], date.fromisoformat(str(record['meeting_date'])[:10]), region_name,
+            record['class_name'], record['group_name'], record['cycle_index'],
+            {'DRAFT': '草稿', 'SUBMITTED': '已提交', 'CANCELLED': '已取消'}[record['status']],
+            '、'.join(m['name'] for m in detail['attendees']),
+            '、'.join(m['name'] for m in detail['cross_group_attendees']),
+            detail['home_count'], detail['home_group_member_count'],
+            detail['home_group_attendance_rate'] / 100 if detail['home_group_attendance_rate'] is not None else None,
+            rate(class_stats[(record['class_org_unit_id'], record['learning_cycle_id'])]),
+            rate(region_stats[(region_id, str(record['meeting_date'])[:7])]),
+            '；'.join(c['course_name_snapshot'] for c in detail['courses']),
+            sum(m['group_points'] for m in members), sum(m['course_points'] for m in members),
+            sum(m['expected_points'] for m in members), '预计值，以正式结算为准；汇总参会率仅统计筛选结果中的已提交记录与当前有效在册学员'
+            + (f"；同组同周期有{duplicate_counts[sid]}条历史记录，采用最新已提交记录优先，其余见人员明细" if duplicate_counts[sid] > 1 else '')])
+    stats_headers = ['统计层级', '分中心/指导团', '班级', '周期或月份', '参会人数（去重）', '当前在册人数', '参会率', '统计范围']
+    stats_rows = []
+    for stat in class_stats.values():
+        stats_rows.append(['班级', stat['region'], stat['label'], stat['period'], len(stat['attendees']), len(stat['roster']), rate(stat), '筛选结果中的已提交记录；本班当前有效在册学员'])
+    for stat in region_stats.values():
+        stats_rows.append(['分中心', stat['label'], '', stat['period'], len(stat['attendees'] & stat['roster']), len(stat['roster']), rate(stat), '筛选结果涉及的班级及月份；非分中心全部学员'])
+    content = workbook_bytes([('小组汇总', headers, rows, (12, 13, 14)), ('参会率汇总', stats_headers, stats_rows, (7,))])
+    with transaction() as connection:
+        write_audit(connection, actor_user_id=actor_user_id, action='exports.study_meetings.normal',
+                    resource_type='study_meeting_export', resource_id=str(session_id) if session_id else None,
+                    after={'row_count': len(rows), 'layout': layout, 'sensitive_fields': False})
+    return content

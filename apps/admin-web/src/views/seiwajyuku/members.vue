@@ -11,6 +11,7 @@ import {
 } from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
 import BulkGroupReassignment from "./components/BulkGroupReassignment.vue";
+import MemberExport from "./components/MemberExport.vue";
 import { createSectionLoader } from "@/utils/section-loader";
 import { applyWithRosterReceipt, rosterFieldLabel, rosterReceiptMessage, rosterImportFailure } from "@/utils/member-roster-result";
 import { chinaTime, chinaTimestampDate } from "@/utils/business-date";
@@ -96,7 +97,7 @@ const classFilter = ref("");
 const groupFilter = ref("");
 const statusFilter = ref<"ACTIVE" | "SUSPENDED" | "INACTIVE" | "ALL">("ACTIVE");
 const currentPage = ref(1);
-const pageSize = ref(50);
+const pageSize = ref(20);
 const totalMembers = ref(0);
 const activeMemberCount = ref(0);
 const rows = ref<Member[]>([]);
@@ -135,6 +136,17 @@ const formRef = ref<FormInstance>();
 const canManage = computed(() =>
   useUserStoreHook().permissions.includes("members:manage")
 );
+const canExport = computed(() => ["exports:normal", "members:read"].every(
+  permission => useUserStoreHook().permissions.includes(permission)
+));
+const exportFilters = computed(() => ({
+  shuku_org_unit_id: selectedShuku.value || undefined,
+  management_org_unit_id: selectedOrg.value || undefined,
+  class_org_unit_id: classFilter.value || undefined,
+  group_org_unit_id: groupFilter.value || undefined,
+  status: statusFilter.value,
+  keyword: keyword.value.trim() || undefined
+}));
 const canReadRenewals = computed(() =>
   useUserStoreHook().permissions.includes("renewals:read")
 );
@@ -1523,12 +1535,13 @@ onMounted(async () => {
           >手机号加密保存；列表、普通查询和后续任务默认只显示脱敏号码。</span
         >
       </div>
-      <div class="head-actions" v-if="canManage">
-        <BulkGroupReassignment :classes="classFilterOptions" :initial-class="classFilter" @saved="reloadAfterGroupReassignment" />
-        <el-button size="large" @click="memberRosterImportVisible = true">
+      <div class="head-actions" v-if="canManage || canExport">
+        <MemberExport v-if="canExport" :filters="exportFilters" :total="totalMembers" />
+        <BulkGroupReassignment v-if="canManage" :classes="classFilterOptions" :initial-class="classFilter" @saved="reloadAfterGroupReassignment" />
+        <el-button v-if="canManage" size="large" @click="memberRosterImportVisible = true">
           学员资料补充
         </el-button>
-        <el-button type="primary" size="large" @click="openCreate">
+        <el-button v-if="canManage" type="primary" size="large" @click="openCreate">
           新增学员
         </el-button>
       </div>
@@ -1698,7 +1711,7 @@ onMounted(async () => {
           v-model:current-page="currentPage"
           v-model:page-size="pageSize"
           layout="sizes, prev, pager, next, jumper"
-          :page-sizes="[30, 40, 50]"
+          :page-sizes="[20, 30, 40, 50, 100]"
           :total="totalMembers"
           @current-change="onPageChange"
           @size-change="onPageSizeChange"
