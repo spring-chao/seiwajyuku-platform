@@ -7,6 +7,7 @@ import pytest
 
 from app.db import execute, fetch_one, transaction
 from app.services.birthday_greetings import (
+    _participation_phrase,
     generate_birthday_greeting_draft,
     get_birthday_greeting_context,
 )
@@ -129,9 +130,10 @@ def test_draft_rejects_unverified_memory_ids_and_uses_selected_facts(monkeypatch
         tone="concise",
     )
     assert result["facts_only"] is True
-    assert result["draft"].splitlines()[0] == "生日测试学长，8月26日是您的生日，送上一份祝福：生日快乐！"
+    assert result["draft"].splitlines()[0] == "生日测试学长，生日快乐！"
     assert "新的一岁" not in result["draft"]
-    assert "2022年6月的经营十二条专题课程" in result["draft"]
+    assert "课程学习" in result["draft"]
+    assert "2022年" not in result["draft"]
     assert "企业收入" not in result["draft"]
 
     warm_result = generate_birthday_greeting_draft(
@@ -140,13 +142,17 @@ def test_draft_rejects_unverified_memory_ids_and_uses_selected_facts(monkeypatch
         selected_memory_ids=context["selected_memory_ids"],
         tone="warm",
     )
-    warm_lines = warm_result["draft"].splitlines()
-    assert warm_lines[0] == "生日测试学长，8月26日是您的生日，送上一份祝福：生日快乐！"
-    assert warm_lines[1] == "从2021年3月入塾到现在，已有5年，感谢您的同行。"
-    assert "2022年6月的经营十二条专题课程" in warm_result["draft"]
-    assert "一起经历" not in warm_result["draft"]
-    assert "身边有惦念" in warm_result["draft"]
+    assert warm_result["draft"].startswith("🎂 生日测试学长，生日快乐！")
+    assert "学长们因学习而相识" in warm_result["draft"]
+    assert "课程学习" in warm_result["draft"]
+    assert all(term not in warm_result["draft"] for term in (
+        "2022年", "2021年", "5年", "经营十二条专题课程", "一起经历", "还记得", "很高兴在盛和塾与您相识",
+    ))
+    assert "与家人幸福常伴" in warm_result["draft"]
+    assert "新的一岁" in warm_result["draft"]
+    assert "**" not in warm_result["draft"]
     assert len(result["draft"]) < len(warm_result["draft"])
+
 
 
 @pytest.mark.parametrize("tone", ["warm", "standard", "concise"])
@@ -159,12 +165,13 @@ def test_birthday_copy_handles_new_or_missing_history_without_inventing_years(mo
         execute(connection, "UPDATE members SET join_date=? WHERE id=?", (joined, member_id))
     result = generate_birthday_greeting_draft(member_id, admin["id"], selected_memory_ids=[], tone=tone)
     draft = result["draft"]
-    assert "今天是您的生日" in draft
+    assert "生日快乐" in draft
+    assert "学长们" in draft
+    assert "家人" in draft
+    assert "感谢您在" not in draft
     assert all(term not in draft for term in ("0年", "这些年", "多年", "践行", "课程", "续费"))
-    if tone == "warm" and joined == "2026-08-01":
-        assert "与您相识" in draft
-    if joined != "2026-08-01":
-        assert "入塾到现在" not in draft
+    assert "入塾到现在" not in draft
+    assert "与您相识" not in draft
 
 
 def test_missing_birthday_and_empty_memories_still_produces_natural_greeting(monkeypatch):
@@ -179,7 +186,7 @@ def test_missing_birthday_and_empty_memories_still_produces_natural_greeting(mon
     assert "这些年" not in draft
 
 
-def test_birthday_defaults_to_two_memories_but_honors_all_explicit_selections(monkeypatch):
+def test_selected_memories_are_summarized_without_event_names_or_dates(monkeypatch):
     monkeypatch.setattr("app.services.birthday_greetings.business_today", lambda *args: date(2026, 8, 26))
     _, _, member_id = _insert_scope()
     admin = fetch_one("SELECT id FROM app_users WHERE username='admin'")
@@ -194,5 +201,23 @@ def test_birthday_defaults_to_two_memories_but_honors_all_explicit_selections(mo
         draft = generate_birthday_greeting_draft(
             member_id, admin["id"], selected_memory_ids=[item["id"] for item in memories], tone=tone,
         )["draft"]
-        assert all(item["title"] in draft for item in memories)
+        assert all(item["title"] not in draft for item in memories)
+        assert "2025年" not in draft
+        assert "感谢您在学习活动中的参与" in draft
         assert "一起经历" not in draft
+
+
+@pytest.mark.parametrize(("activity_types", "expected"), [
+    (["CLASS_MEETING", "GROUP_MEETING"], "相聚共学"),
+    (["READING_CHECKIN", "READING"], "读书学习"),
+    (["CLASS_MEETING", "REPORT_MEETING"], "相聚共学与交流活动"),
+    (["COURSE", "STUDY_TOUR", "CLASS_MEETING"], "各类学习活动"),
+    (["COURSE", "UNKNOWN"], "学习活动"),
+])
+def test_participation_summary_uses_only_selected_evidence_types(activity_types, expected):
+    memories = [dict(activity_type=kind, title="无需外发的活动全名") for kind in activity_types]
+    phrase = _participation_phrase(memories)
+    assert phrase == expected
+    assert "无需外发" not in phrase
+    if set(activity_types) <= {"READING", "READING_CHECKIN"}:
+        assert "相聚" not in phrase
