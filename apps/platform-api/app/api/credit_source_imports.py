@@ -38,8 +38,8 @@ def create_batches(import_id:int,user=Depends(require_permission('plans:credit_s
 def process(import_id:int,operation:str,user=Depends(require_permission('plans:credit_settlement_manage'))):return _call(service.process,import_id,user['id'],operation)
 
 @router.get('/export')
-def export(class_id:str|None=None,occurred_from:str='2026-10-01',occurred_to:str|None=None,user=Depends(require_permission('exports:normal'))):
-    try:return _xlsx(export_credits(user['id'],class_id,occurred_from,occurred_to),'学分汇总及新增来源.xlsx')
+def export(class_id:str|None=None,occurred_from:str='2026-10-01',occurred_to:str|None=None,member_id:int|None=Query(None,gt=0),user=Depends(require_permission('exports:normal'))):
+    try:return _xlsx(export_credits(user['id'],class_id,occurred_from,occurred_to,member_id),'学分汇总及新增来源.xlsx')
     except (ValueError,PermissionError) as exc:raise HTTPException(403 if isinstance(exc,PermissionError) else 400,str(exc)) from exc
 
 @router.get('/export-options')

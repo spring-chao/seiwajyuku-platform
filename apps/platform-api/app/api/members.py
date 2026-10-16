@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app.api.auth import require_permission
@@ -288,7 +288,7 @@ def members(
     status: str = Query("ACTIVE"),
     keyword: str | None = Query(None, max_length=100),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=100),
     user: dict = Depends(require_permission("members:read")),
 ) -> dict:
     # ``org_unit_id`` remains a compatibility alias for existing callers; the
@@ -570,6 +570,27 @@ def export_members(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": "attachment; filename=members-masked.csv"},
     )
+
+
+@router.get('/exports/members/workbook')
+def export_member_workbook(fields: str = Query(min_length=1, max_length=256),
+                           layout: Literal['member', 'group'] = 'member',
+                           shuku_org_unit_id: str | None = None,
+                           management_org_unit_id: str | None = None,
+                           class_org_unit_id: str | None = None,
+                           group_org_unit_id: str | None = None,
+                           status: Literal['ACTIVE', 'SUSPENDED', 'INACTIVE', 'ALL'] = 'ACTIVE',
+                           keyword: str | None = Query(default=None, max_length=100),
+                           user: dict = Depends(require_permission('exports:normal'))) -> Response:
+    from app.services.member_exports import export_members_xlsx
+    try:
+        content = export_members_xlsx(user['id'], fields=fields.split(','), layout=layout,
+            shuku_org_unit_id=shuku_org_unit_id, management_org_unit_id=management_org_unit_id,
+            class_org_unit_id=class_org_unit_id, group_org_unit_id=group_org_unit_id, status=status, keyword=keyword)
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(403 if isinstance(exc, PermissionError) else 400, str(exc)) from exc
+    return Response(content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': 'attachment; filename="members.xlsx"', 'Cache-Control': 'private, no-store'})
 
 
 @router.post("/exports")

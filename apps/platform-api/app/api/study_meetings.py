@@ -25,7 +25,7 @@ from app.services.study_meetings import (
 from app.services.study_meeting_evidence import upload_evidence, read_evidence
 from app.services.study_evidence_storage import MAX_BYTES
 from app.services.study_meeting_attendees import attendee_options, correct_attendees
-from app.services.study_meeting_operations import meeting_credit_preview, export_meeting_records
+from app.services.study_meeting_operations import meeting_credit_preview, export_meeting_records, export_meeting_workbook
 from app.services.study_meeting_review import confirm_meeting_review
 from app.services.learning_credits import LearningCreditError
 
@@ -167,13 +167,14 @@ def export_records(
     status: str | None = Query(default=None, max_length=16),
     meeting_date_from: str | None = Query(default=None, max_length=32),
     meeting_date_to: str | None = Query(default=None, max_length=32),
+    layout: str = Query(default='group', pattern='^(group|member)$'),
     user: dict = Depends(require_permission("exports:normal")),
 ) -> Response:
     try:
-        content = export_meeting_records(actor_user_id=user["id"], session_id=session_id,
+        content = export_meeting_workbook(actor_user_id=user["id"], session_id=session_id, layout=layout,
             status=status, meeting_date_from=meeting_date_from, meeting_date_to=meeting_date_to)
-        return PlainTextResponse(content, media_type="text/csv; charset=utf-8", headers={
-            "Content-Disposition": 'attachment; filename="study-meetings.csv"', "Cache-Control": "private, no-store"})
+        return Response(content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={
+            "Content-Disposition": 'attachment; filename="study-meetings.xlsx"', "Cache-Control": "private, no-store"})
     except (StudyMeetingError, LearningCreditError, PermissionError) as exc:
         raise HTTPException(403 if isinstance(exc, PermissionError) else 400, str(exc)) from exc
 
