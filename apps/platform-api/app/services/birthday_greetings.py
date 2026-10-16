@@ -6,7 +6,7 @@ from typing import Any, Literal
 from app.core.business_time import business_today
 from app.db import fetch_one, transaction
 from app.services.audit import write_audit
-from app.services.care_copy import member_salutation, memory_phrase
+from app.services.care_copy import member_salutation
 from app.services.iam import accessible_org_ids, user_context
 from app.services.member_memories import verified_member_memories
 from app.services.members import can_access_member
@@ -26,6 +26,34 @@ def _as_date(value: Any) -> date | None:
 def _format_month_day(value: Any) -> str | None:
     parsed = _as_date(value)
     return parsed.strftime("%m-%d") if parsed else None
+
+
+def _participation_phrase(memories: list[dict[str, Any]]) -> str:
+    """Summarize selected evidence without turning a blessing into a roster."""
+    themes = []
+    for memory in memories:
+        activity_type = str(memory.get("activity_type") or "").upper()
+        if activity_type in {"CLASS_MEETING", "GROUP_MEETING", "STUDY_GROUP"}:
+            theme = "相聚共学"
+        elif activity_type in {"READING", "READING_CHECKIN"}:
+            theme = "读书学习"
+        elif activity_type in {"COURSE", "STUDY_COURSE"}:
+            theme = "课程学习"
+        elif activity_type in {"STUDY_TOUR", "ENTERPRISE_VISIT"}:
+            theme = "参访交流"
+        elif activity_type in {
+            "SEMINAR", "CENTER_MONTHLY_REPORT", "ANNUAL_REPORT",
+            "REPORT_MEETING", "CONFERENCE",
+        }:
+            theme = "交流活动"
+        else:
+            # An unknown type does not support a more specific claim.
+            return "学习活动"
+        if theme not in themes:
+            themes.append(theme)
+    if len(themes) > 2:
+        return "各类学习活动"
+    return "与".join(themes)
 
 
 def _completed_years(join_date: Any, stored: Any, overridden: Any) -> int | None:
@@ -107,7 +135,7 @@ def get_birthday_greeting_context(member_id: int, actor_user_id: int) -> dict[st
     memories = verified_member_memories(member_id) if "members:read" in user["permissions"] else []
     notes: list[str] = []
     if not join_date:
-        notes.append("该学长缺少入塾日期，当前祝福不会包含同行年限。")
+        notes.append("入塾日期尚未完善，不影响生成生日祝福。")
     if not memories:
         notes.append("暂无可核验的学习或活动经历，祝福将以日常问候为主。")
     birthday_month_day = _format_month_day(member.get("birthday"))
@@ -180,38 +208,34 @@ def generate_birthday_greeting_draft(
     memories = [memories_by_id[item] for item in selected_memory_ids]
     member = context["member"]
     salutation = member_salutation(member["name"])
-    birthday_month_day = member.get("birthday_month_day")
-    birthday_text = None
-    if birthday_month_day:
-        birthday_month, birthday_day = birthday_month_day.split("-")
-        birthday_text = f"{int(birthday_month)}月{int(birthday_day)}日"
-
-    today = business_today()
-    if birthday_month_day == today.strftime("%m-%d"):
-        opening = f"{salutation}，今天是您的生日，祝您生日快乐！"
-    elif birthday_text:
-        opening = f"{salutation}，{birthday_text}是您的生日，送上一份祝福：生日快乐！"
-    else:
-        opening = f"{salutation}，送上一份生日祝福，祝您生日快乐！"
-    lines = [opening]
-    joined = _as_date(member.get("join_date"))
-    years = member.get("membership_years")
-    if tone != "concise" and joined and joined <= today and years is not None:
-        if years > 0:
-            lines.append(f"从{joined.year}年{joined.month}月入塾到现在，已有{years}年，感谢您的同行。")
-        else:
-            lines.append("很高兴在盛和塾与您相识，也期待往后有更多交流的机会。")
-    if memories:
-        phrases = "、".join(memory_phrase(item) for item in memories)
-        lines.append(f"您参加过{phrases}，期待往后有机会再相聚，聊聊学习，也聊聊近况。")
+    participation = _participation_phrase(memories) if memories else None
+    opening = f"{salutation}，生日快乐！"
     if tone == "warm":
-        lines.append("愿您身体安康，心里有热爱，身边有惦念。也愿工作之外，多些属于自己和家人的轻松时光。")
+        lines = [
+            f"🎂 {opening}",
+            "在盛和塾，学长们因学习而相识。这份难得的缘分，值得珍惜。",
+        ]
+        if participation:
+            lines.append(f"感谢您在{participation}中的参与。曾经的学习时光，也是这份缘分中温暖的一部分。")
+        lines.extend([
+            "愿往后有机会与学长们相聚，交流学习心得，也聊聊工作与生活。",
+            "在这个特别的日子里，苏州盛和塾衷心祝愿您：\n"
+            "🌷 身体安康，心中有热爱，生活有欢喜。\n"
+            "🌷 工作顺遂，也有更多时间陪伴家人、享受生活。",
+            "愿新的一岁，多些从容与欢喜，与家人幸福常伴！",
+        ])
     elif tone == "concise":
-        lines.append("愿您身体安康、家人常伴，日子里多些开心与从容。")
+        lines = [opening, "珍惜因盛和塾而与学长们结下的学习缘分。"]
+        if participation:
+            lines.append(f"感谢您在{participation}中的参与。")
+        lines.append("苏州盛和塾祝您身体安康、生活有欢喜，与家人幸福常伴！")
     else:
-        lines.append("祝您身体健康、阖家幸福，经营顺遂，生活从容。")
+        lines = [opening, "因学习而相识，因盛和塾而结缘。与学长们同行的这份缘分，值得珍惜。"]
+        if participation:
+            lines.append(f"感谢您在{participation}中的参与，也期待往后有更多相聚交流的机会。")
+        lines.append("苏州盛和塾衷心祝您身体安康、工作顺遂，生活中多些从容与欢喜，与家人幸福常伴！")
     lines.append("——苏州盛和塾")
-    draft = "\n".join(lines)
+    draft = ("\n" if tone == "concise" else "\n\n").join(lines)
     with transaction() as connection:
         write_audit(
             connection,
