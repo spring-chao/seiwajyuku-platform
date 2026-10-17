@@ -9,7 +9,7 @@ from openpyxl import load_workbook
 from app.db import execute, fetch_one, transaction
 from app.main import app
 from app.services.iam import authenticate
-from app.services.member_exports import export_members_xlsx
+from app.services.member_exports import export_members_xlsx, member_export_fields
 from app.services.study_meeting_operations import export_meeting_workbook
 from app.services.study_meetings import create_study_meeting, StudyMeetingError
 from app.services.study_meetings import get_study_meeting_record_for_operations
@@ -35,8 +35,15 @@ def test_group_workbook_has_one_row_names_together_and_numeric_rates():
     assert sheet['L2'].number_format == '0.0%'
     assert sheet['B2'].is_date
     assert sheet['R2'].data_type == 'n'
+    assert sheet['L2'].border.bottom.style == 'thin'
+    assert sheet['K1'].border.right.style == 'thin'
+    assert sheet['A2'].fill.fgColor.rgb.endswith('EFF6F2')
+    assert next(iter(sheet.tables.values())).ref == sheet.dimensions
+    assert sheet.freeze_panes == 'A2' and sheet.auto_filter.ref == sheet.dimensions
     assert f['phone'] not in str(list(sheet.values))
     stats = report['参会率汇总']
+    assert stats['A3'].border.top.style == 'thin'
+    assert next(iter(stats.tables)) != next(iter(sheet.tables))
     assert {stats.cell(i, 1).value for i in range(2, stats.max_row + 1)} == {'班级', '分中心'}
 
 
@@ -118,6 +125,11 @@ def test_exports_http_auth_and_default_page_size():
         assert client.get(url, params={'fields': 'name'}).status_code == 401
         token = authenticate('admin', 'test-admin-password')['access_token']
         headers = {'Authorization': 'Bearer ' + token}
+        catalog_url = '/api/v1/exports/members/fields'
+        assert client.get(catalog_url).status_code == 401
+        catalog = client.get(catalog_url, headers=headers).json()['data']
+        assert len(catalog) > 30
+        assert next(field for field in catalog if field['key'] == 'phone')['available'] is False
         response = client.get(url, params={'fields': 'name', 'class_org_unit_id': f['class_id']}, headers=headers)
         assert response.status_code == 200, response.text
         assert response.headers['cache-control'] == 'private, no-store'
@@ -126,6 +138,62 @@ def test_exports_http_auth_and_default_page_size():
         response = client.get('/api/v1/study-meetings/records-export', params={'session_id': session['id']}, headers=headers)
         assert response.status_code == 200, response.text
         assert book(response.content).active.title == '小组汇总'
+
+
+def test_full_member_field_catalog_exports_typed_values_and_preserves_zero():
+    f, session = prepared()
+    with transaction() as c:
+        execute(c, 'UPDATE members SET gender=?, birthday=?, company_name=?, position=?, '
+                'employee_count=0, membership_years=0, membership_years_overridden=1, '
+                'company_products=?, notes=? WHERE id=?',
+                ('FEMALE', '2000-01-02', '=Synthetic Company', '合成职务',
+                 '合成产品', 'PROTECTED_NOTE_FIXTURE', f['member_id']))
+    catalog = member_export_fields(_admin_id())
+    fields = [field['key'] for field in catalog if field['available']]
+    assert {'birthday', 'company_name', 'position', 'employee_count', 'volunteer_positions'} <= set(fields)
+    with TestClient(app) as client:
+        token = authenticate('admin', 'test-admin-password')['access_token']
+        response = client.get('/api/v1/exports/members/workbook', params={
+            'fields': ','.join(fields), 'purpose': '合成资料测试', 'class_org_unit_id': f['class_id']},
+            headers={'Authorization': 'Bearer ' + token})
+    assert response.status_code == 200, response.text
+    sheet = book(response.content).active
+    data = [dict(zip(fields, row)) for row in sheet.iter_rows(min_row=2)]
+    row = next(row for row in data if row['company_name'].value == '=Synthetic Company')
+    assert row['company_name'].data_type == 's'
+    assert row['gender'].value == '女'
+    assert row['birthday'].is_date and row['birthday'].value.year == 2000
+    assert row['employee_count'].value == 0 and row['employee_count'].data_type == 'n'
+    assert row['membership_years'].value == 0
+    assert 'PROTECTED_NOTE_FIXTURE' not in str(list(sheet.values))
+    assert f['phone'] not in str(list(sheet.values))
+    audit = fetch_one("SELECT purpose FROM audit_logs WHERE action='exports.members.normal' ORDER BY id DESC LIMIT 1")
+    assert audit['purpose'] == '合成资料测试'
+
+
+def test_expanded_member_fields_keep_profile_permissions_scopes_and_purpose():
+    f, session = prepared()
+    basic = {'permissions': ['members:read', 'exports:normal']}
+    with patch('app.services.member_exports.user_context', return_value=basic):
+        catalog = {field['key']: field for field in member_export_fields(_admin_id())}
+        assert catalog['company_name']['available']
+        assert not catalog['birthday']['available'] and not catalog['company_address']['available']
+        with pytest.raises(PermissionError):
+            export_members_xlsx(_admin_id(), fields=['birthday'])
+    for protected in ['phone', 'annual_sales', 'profit_margin', 'company_size', 'notes']:
+        with pytest.raises(ValueError):
+            export_members_xlsx(_admin_id(), fields=[protected])
+    with pytest.raises(ValueError, match='用途'):
+        export_members_xlsx(_admin_id(), fields=['company_address'])
+    with patch('app.services.members.accessible_org_ids', side_effect=lambda actor, permission=None: set() if permission == 'members:detail_view' else None):
+        assert book(export_members_xlsx(_admin_id(), fields=['birthday'], class_org_unit_id=f['class_id'])).active.max_row == 1
+    with patch('app.services.members.accessible_org_ids', side_effect=lambda actor, permission=None: set() if permission == 'members:enterprise_view' else None):
+        assert book(export_members_xlsx(_admin_id(), fields=['company_address'], purpose='合成范围测试', class_org_unit_id=f['class_id'])).active.max_row == 1
+    with patch('app.services.member_exports.get_settings') as settings:
+        settings.return_value.identity_authorization_enabled = False
+        assert not next(field for field in member_export_fields(_admin_id()) if field['key'] == 'volunteer_positions')['available']
+        with pytest.raises(PermissionError):
+            export_members_xlsx(_admin_id(), fields=['volunteer_positions'])
 
 
 def test_group_cycle_rejects_duplicate_submitted_but_retries_identical_draft():
