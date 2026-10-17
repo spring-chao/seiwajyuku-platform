@@ -572,9 +572,19 @@ def export_members(
     )
 
 
+@router.get('/exports/members/fields')
+def export_member_fields(user: dict = Depends(require_permission('exports:normal'))) -> dict:
+    from app.services.member_exports import member_export_fields
+    try:
+        return {'success': True, 'data': member_export_fields(user['id'])}
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+
+
 @router.get('/exports/members/workbook')
-def export_member_workbook(fields: str = Query(min_length=1, max_length=256),
+def export_member_workbook(fields: str = Query(min_length=1, max_length=2048),
                            layout: Literal['member', 'group'] = 'member',
+                           purpose: str = Query(default='', max_length=500),
                            shuku_org_unit_id: str | None = None,
                            management_org_unit_id: str | None = None,
                            class_org_unit_id: str | None = None,
@@ -584,7 +594,7 @@ def export_member_workbook(fields: str = Query(min_length=1, max_length=256),
                            user: dict = Depends(require_permission('exports:normal'))) -> Response:
     from app.services.member_exports import export_members_xlsx
     try:
-        content = export_members_xlsx(user['id'], fields=fields.split(','), layout=layout,
+        content = export_members_xlsx(user['id'], fields=fields.split(','), layout=layout, purpose=purpose,
             shuku_org_unit_id=shuku_org_unit_id, management_org_unit_id=management_org_unit_id,
             class_org_unit_id=class_org_unit_id, group_org_unit_id=group_org_unit_id, status=status, keyword=keyword)
     except (ValueError, PermissionError) as exc:
