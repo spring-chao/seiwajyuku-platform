@@ -126,12 +126,12 @@ def opening_summary(connection, *, member_id: int | None = None, allowed: set[st
 
 
 @contextmanager
-def _operation(connection):
+def _operation(connection, *, wait_seconds=0):
     sqlite = isinstance(connection, sqlite3.Connection)
     if not sqlite:
         execute(connection, "SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
-    acquired = _lock.acquire(blocking=False) if sqlite else int(execute(
-        connection, "SELECT GET_LOCK('seiwajyuku:credit-opening',0) AS acquired").fetchone()["acquired"] or 0) == 1
+    acquired = _lock.acquire(timeout=wait_seconds) if sqlite else int(execute(
+        connection, "SELECT GET_LOCK('seiwajyuku:credit-opening',?) AS acquired",(wait_seconds,)).fetchone()["acquired"] or 0) == 1
     if not acquired:
         raise LearningCreditError("其他学分操作正在处理，请稍后刷新状态")
     try:

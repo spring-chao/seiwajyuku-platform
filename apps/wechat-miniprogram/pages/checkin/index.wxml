@@ -17,7 +17,7 @@
     <view class="section-title">本人</view><view class="identity-name">{{member.name || member.name_masked}}</view>
     <view class="detail-line">{{member.class_name || '暂未关联班级'}}{{member.group_name ? ' · ' + member.group_name : ''}}</view>
     <view wx:if="{{registration.registered_name}}" class="section-hint">报名记录：{{registration.registered_name}}</view>
-    <button wx:if="{{canCheckin && !alreadyChecked}}" class="primary-button" style="width:100%;" loading="{{confirming}}" disabled="{{confirming || loading}}" bindtap="confirmCheckin">确认签到</button>
+    <button wx:if="{{canCheckin && !alreadyChecked}}" class="primary-button" style="width:100%;" loading="{{confirming}}" disabled="{{confirming || loading}}" bindtap="confirmCheckin">确认本人签到</button>
   </view>
   <view wx:if="{{!result && !guestAllowed && (notice || alreadyChecked)}}" class="state-card {{alreadyChecked ? 'success' : ''}}">{{notice || '本场次已签到'}}</view>
   <button wx:if="{{member && alreadyChecked && !result}}" class="plain-button" bindtap="openHistory">查看我的参与记录</button>

@@ -14,6 +14,7 @@ from app.services import credit_year_allocations as annual
 from app.services import credit_source_imports as sources
 from app.services.audit import write_audit
 from app.services.credit_monthly_targets import monthly_target
+from app.services.learning_org_catalog import class_catalog, selected_class_ids
 
 LABELS={'CLASS_MEETING_SCORE':'班会签到','DAILY_READING':'读书打卡','EXCELLENT_SHARE':'优秀分享','GROUP_MEETING_ATTENDANCE':'小组学习会','COURSE_COMPLETION':'课程完成'}
 
@@ -75,9 +76,13 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
     if start>end:raise credits.LearningCreditError('导出开始日期不能晚于结束日期')
     export_permissions=('exports:normal','members:read','plans:credit_settlement_preview')
     if class_id and not sources._has_scope(actor,class_id,export_permissions):raise PermissionError('导出班级不在授权范围')
-    scope={class_id} if class_id else sources.effective_scope(actor,export_permissions)
+    scope=sources.effective_scope(actor,export_permissions)
     c=connect()
     try:
+        catalog=class_catalog(c,scope)
+        canonical_ids={cid:r['id'] for r in catalog for cid in r['related_class_ids']}
+        if class_id:
+            scope=selected_class_ids(catalog,class_id)
         # An all-scope export includes confirmed balances held by a centre
         # before class assignment. A class filter still limits that class.
         classes=[dict(r) for r in execute(c,"SELECT id,name FROM org_units ORDER BY name").fetchall() if scope is None or r['id'] in scope]
@@ -87,7 +92,7 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
         roster=execute(c,"SELECT DISTINCT m.id,m.member_code,m.name,r.org_unit_id,o.name AS class_name FROM members m JOIN member_org_relations r ON r.member_id=m.id JOIN org_units o ON o.id=r.org_unit_id WHERE m.status='ACTIVE' AND r.relation_type='STUDY_CLASS' AND r.org_unit_id IN ("+placeholders+") AND (r.valid_from IS NULL OR r.valid_from<=?) AND (r.valid_until IS NULL OR r.valid_until>=?)"+(' AND m.id=?' if member_id else '')+" ORDER BY m.id,r.org_unit_id",(*params,end.isoformat(),end.isoformat(),*((member_id,) if member_id else ()))).fetchall()
         members={}
         for r in roster:
-            member=members.setdefault(int(r['id']),{'member_code':r['member_code'],'name':r['name'],'classes':[],'class_ids':set()});member['classes'].append(r['class_name']);member['class_ids'].add(r['org_unit_id'])
+            member=members.setdefault(int(r['id']),{'member_code':r['member_code'],'name':r['name'],'classes':[],'class_ids':set()});member['classes']=list(dict.fromkeys([*member['classes'],r['class_name']]));member['class_ids'].add(r['org_unit_id'])
         if len(members)>5000:raise credits.LearningCreditError('导出超过5000位学长，请选择班级缩小范围')
         ledger_scope='e.class_org_unit_id IN ('+placeholders+')'
         ledger_params=params
@@ -113,7 +118,7 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
         for r in execute(c,"SELECT DISTINCT r.member_id,o.id AS group_id,o.name,o.parent_id FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id WHERE r.relation_type='STUDY_GROUP' AND o.parent_id IN ("+placeholders+") AND (r.valid_from IS NULL OR r.valid_from<=?) AND (r.valid_until IS NULL OR r.valid_until>=?) ORDER BY o.id",(*params,end.isoformat(),end.isoformat())).fetchall():
             if r['member_id'] in members and r['parent_id'] in members[r['member_id']].get('class_ids',set()):groups.setdefault(r['member_id'],[]).append(r['name'])
         month_start=end.replace(day=1)
-        target_classes={cid for m in members.values() for cid in m.get('class_ids',set())}
+        target_classes={canonical_ids.get(cid,cid) for m in members.values() for cid in m.get('class_ids',set())}
         targets={cid:monthly_target(c,cid,end) for cid in target_classes}
         totals={};added={};monthly={};details=[]
         for e in ledger:
@@ -130,7 +135,7 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
         summaries=[]
         for member,m in members.items():
             base=Decimal(opening.opening_summary(c,member_id=member,allowed=class_ids)['total_points'])
-            ids=m.get('class_ids',set())
+            ids={canonical_ids.get(cid,cid) for cid in m.get('class_ids',set())}
             target=targets[next(iter(ids))] if len(ids)==1 else {'points':None,'reason':'没有唯一有效的班级学习关系','plan':''}
             full=target['points'];earned=monthly.get(member,Decimal(0))
             summaries.append([str(m['member_code']),_safe_text(m['name']),' / '.join(m['classes']),' / '.join(groups.get(member,[])),base,added.get(member,Decimal(0)),base+totals.get(member,Decimal(0)),earned,full if full is not None else '待配置',earned/full if full is not None and full>0 else None,target['reason'],target['plan']])
@@ -156,5 +161,5 @@ def export_options(actor):
     c=connect()
     try:
         scope=sources.effective_scope(actor,('exports:normal','members:read','plans:credit_settlement_preview'))
-        return {'classes':[dict(r) for r in execute(c,"SELECT id,name FROM org_units WHERE unit_type IN ('CLASS','SPECIAL_COHORT') ORDER BY name").fetchall() if scope is None or r['id'] in scope]}
+        return {'classes':[{'id':r['id'],'name':r['name'],'center_name':r['parent_name']} for r in class_catalog(c,scope)]}
     finally:c.close()

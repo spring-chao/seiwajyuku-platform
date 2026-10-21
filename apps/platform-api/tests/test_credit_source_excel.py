@@ -50,6 +50,96 @@ def workbook(f,kind,values=None):
     out=io.BytesIO();wb.save(out);return out.getvalue()
 
 
+@pytest.mark.parametrize('kind',['CLASS_MEETING','DAILY_READING','EXCELLENT_SHARE'])
+def test_excel_source_direct_confirmation_posts_once_without_fabricated_review(source_fixture,kind):
+    f=source_fixture;iid,_,_=registered(f,kind)
+    source=sources.create_batches(iid,f['actor'])
+    assert source['member_count']==1 and source['member_results'][0]['member_name']==f['name']
+    assert source['batches'][0]['period_start'] and source['batches'][0]['member_count']==1
+    assert source['settlement_summary']['entry_count']>0
+    posted=sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'])
+    assert all(b['status']=='POSTED' for b in posted['batches'])
+    row=fetch_one('SELECT approved_by,approved_at,approval_fingerprint FROM learning_credit_settlement_batches WHERE id=?',(source['batches'][0]['id'],))
+    assert all(v is None for v in row.values())
+    assert fetch_one("SELECT COUNT(*) AS n FROM audit_logs WHERE action='learning_credit.source.confirm' AND resource_id=?",(str(source['batches'][0]['id']),))['n']==1
+    assert sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'])['settlement_summary']==posted['settlement_summary']
+
+
+def test_direct_confirmation_requires_current_preview_and_post_scope(source_fixture):
+    f=source_fixture;iid,_,_=registered(f,'DAILY_READING');source=sources.create_batches(iid,f['actor'])
+    with pytest.raises(credits.LearningCreditError,match='预览已变化'):
+        sources.process(iid,f['actor'],'confirm','0'*64)
+    with patch.object(sources,'_has_scope',return_value=False),pytest.raises(PermissionError):
+        sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'])
+
+    with pytest.raises(credits.LearningCreditError):
+        batches.post_daily_reading_batch(actor_user_id=f['actor'],batch_id=source['batches'][0]['id'])
+    with transaction() as c:
+        execute(c,"UPDATE learning_credit_activity_facts SET participation_status='CANCELLED' WHERE member_id=? AND source_type='CREDIT_EXCEL_DAILY_READING'",(f['member_id'],))
+    with pytest.raises(credits.LearningCreditError):
+        sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'])
+
+
+def test_source_confirmation_failure_requires_explicit_resume_without_review(source_fixture):
+    f=source_fixture;iid,_,_=registered(f,'DAILY_READING')
+    source=sources.create_batches(iid,f['actor'])
+    with patch.object(credits,'post_credit_entry',side_effect=RuntimeError('isolated failure')):
+        with pytest.raises(credits.LearningCreditError,match='未全部完成'):
+            sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'])
+    failed=sources.get_import(iid,f['actor'])
+    assert failed['batches'][0]['status']=='PARTIAL_FAILED'
+    with pytest.raises(credits.LearningCreditError,match='明确请求续跑'):
+        sources.process(iid,f['actor'],'confirm',failed['settlement_fingerprint'])
+    completed=sources.process(iid,f['actor'],'confirm',failed['settlement_fingerprint'],True)
+    assert completed['batches'][0]['status']=='POSTED'
+    assert sources.create_batches(iid,f['actor'])['batches'][0]['id']==source['batches'][0]['id']
+
+
+def test_source_register_waits_for_competing_operation_and_retry_is_idempotent(source_fixture):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from app.services import credit_opening_balances as opening
+    f=source_fixture;data=workbook(f,'DAILY_READING')
+    preview=sources.preview(data,'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
+    locked=Event();release=Event()
+    def competing():
+        with transaction() as c,opening._operation(c):
+            locked.set();release.wait(3)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        holder=pool.submit(competing);assert locked.wait(2)
+        saved=pool.submit(sources.register,data,'DAILY_READING',f['class_id'],'{}',NOTE,'测试.xlsx',preview['fingerprint'],f['actor'])
+        release.set();result=saved.result(timeout=10);holder.result()
+    retry=sources.register(data,'DAILY_READING',f['class_id'],'{}',NOTE,'测试.xlsx',preview['fingerprint'],f['actor'])
+    assert result['id']==retry['id'] and retry['idempotent']
+
+
+def test_class_choices_share_management_canonical_ids_and_keep_scoped_historical_aliases(source_fixture):
+    from app.services.learning_org_catalog import class_catalog, selected_class_ids
+    from app.services.organization_management import list_learning_org_units
+    from app.services.study_meetings import study_meeting_filter_options
+    f=source_fixture
+    original=fetch_one('SELECT * FROM org_units WHERE id=?',(f['class_id'],))
+    duplicate=f['class_id']+'-duplicate';inactive=f['class_id']+'-inactive'
+    foreign=f['class_id']+'-other-center'
+    with transaction() as c:
+        for oid,parent,active in [(duplicate,original['parent_id'],1),(inactive,original['parent_id'],0),(foreign,'org-suzhou',1)]:
+            # Ensure the same name in a distinct parent is never merged.
+            if oid==foreign and parent==original['parent_id']:
+                parent='org-wuxi'
+            execute(c,'INSERT INTO org_units(id,unit_code,name,unit_type,parent_id,is_active,created_at,updated_at) VALUES (?,?,?,\'CLASS\',?,?,?,?)',
+                (oid,oid,original['name'],parent,active,'2099-01-01','2099-01-01'))
+        catalog=class_catalog(c)
+        chosen=next(r for r in catalog if f['class_id'] in r['related_class_ids'])
+        assert chosen['id']==f['class_id']
+        assert selected_class_ids(catalog,f['class_id'])=={f['class_id'],duplicate,inactive}
+        limited=class_catalog(c,{duplicate})
+        assert limited[0]['id']==duplicate and limited[0]['related_class_ids']==[duplicate]
+    for options in [exports.export_options(f['actor']),sources.workbench(f['actor']),
+                    study_meeting_filter_options(actor_user_id=f['actor']),list_learning_org_units(f['actor'])]:
+        ids={r['id'] for r in options['classes']}
+        assert f['class_id'] in ids and duplicate not in ids and inactive not in ids
+
+
 def options(f,kind):return json.dumps({'cycle_id':f['cycle_id'],'actual_start':DAY+'T09:00:00+08:00'}) if kind=='CLASS_MEETING' else '{}'
 
 

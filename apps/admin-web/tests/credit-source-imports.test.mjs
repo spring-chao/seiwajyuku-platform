@@ -11,7 +11,7 @@ const compiled = ts.transpileModule(script, { compilerOptions: { target: ts.Scri
 function harness(api = {}, permissions = ["members:read", "plans:credit_settlement_manage", "plans:credit_settlement_preview", "plans:credit_settlement_approve", "plans:credit_settlement_post", "exports:normal"]) {
   const storage = new Map();
   const context = vm.createContext({ computed, reactive, ref, watch, onMounted: () => {}, defineEmits: () => () => {}, useUserStoreHook: () => ({ permissions }), creditSettlementErrorMessage: e => e.message, ElMessage: { success() {}, error() {} }, ElMessageBox: { confirm: async () => {} }, localStorage: { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) }, URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} }, document: { createElement: () => ({ click() {} }) }, setTimeout: () => {}, ...api });
-  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail};", context);
+  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail,act,batchSummary};", context);
   return context.result;
 }
 
@@ -33,15 +33,16 @@ test("export staff can download without source-management permission", async () 
   await ui.exportFile(); assert.equal(downloaded, 1);
 });
 
-test("batch review controls retain independent review and do not offer failed-batch retry", () => {
+test("source confirmation requires posting rights and accepts the source creator", () => {
   const ui = harness();
   const row = { id: 1, batches: [{ status: "PENDING_APPROVAL", proposed_entry_count: 1, created_by_current_actor: true }] };
   ui.state.value = { imports: [row] };
-  assert.equal(ui.eligible(row, "approve"), false);
-  row.batches[0].created_by_current_actor = false;
-  assert.equal(ui.eligible(row, "approve"), true);
+  assert.equal(ui.eligible(row), true);
   row.batches[0].status = "PARTIAL_FAILED";
-  assert.equal(ui.eligible(row, "post"), false);
+  assert.equal(ui.eligible(row), true);
+  const limited = harness({}, ["members:read", "plans:credit_settlement_manage", "plans:credit_settlement_preview"]);
+  row.batches[0].status = "DRY_RUN"; limited.state.value = {imports:[row]};
+  assert.equal(limited.eligible(row), false);
 });
 
 test("lost setup response keeps a durable no-replay journal", async () => {
@@ -82,4 +83,19 @@ test("reading preview with ignored rows can save the validated fingerprint", asy
   ui.state.value={storage_available:true,can_import_activity:true};await nextTick();
   ui.preview.value={fingerprint:'valid-selection',error_count:2,accepted_count:1,ignored_count:2,rows:[]};
   await ui.register();assert.equal(fingerprint,'valid-selection');
+});
+
+
+test("confirm uses the refreshed displayed settlement and does not call review actions",async()=>{
+  const calls=[];let release;
+  const source={id:9,class_name:'合成班级',source_kind:'DAILY_READING',period_start:'2026-10-09',period_end:'2026-10-10',member_count:2,
+    batches:[{status:'DRY_RUN',proposed_entry_count:2}],settlement_fingerprint:'fresh',settlement_summary:{entry_count:2,proposed_points:'2.00',posted_points:'0.00'}};
+  const ui=harness({sourceGet:async()=>({data:source}),sourceAction:async(...args)=>{calls.push(args);await new Promise(r=>release=r);return{data:source};},sourceWorkbench:async()=>({data:{imports:[source]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
+  ui.state.value={imports:[source]};
+  const first=ui.act(source,'confirm');
+  await new Promise(r=>setImmediate(r));
+  await ui.act(source,'confirm');
+  assert.equal(calls.length,1);assert.deepEqual(Array.from(calls[0]),[9,'confirm','fresh',false]);
+  release();await first;
+  assert.equal((ui.batchSummary(source).match(/待确认入账/g)||[]).length,1);
 });

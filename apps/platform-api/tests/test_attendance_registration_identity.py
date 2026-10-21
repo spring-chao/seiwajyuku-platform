@@ -75,7 +75,7 @@ def test_name_scan_requires_selection_and_lookup_never_confirms_a_missing_enroll
         assert "openid" not in str(request.call_args)
 
 
-def test_bound_blank_phone_requires_unique_active_full_name_and_exact_bound_identity():
+def test_bound_name_confirmation_uses_exact_active_bound_identity_despite_namesakes():
     fixture = _seed_group_leader_fixture()
     name = '合成唯一报名' + uuid4().hex
     with transaction() as connection:
@@ -87,7 +87,7 @@ def test_bound_blank_phone_requires_unique_active_full_name_and_exact_bound_iden
     assert registration_identities([row], bound_member=bound)[0]['platform_member_id'] == bound['member_id']
     for wrong in [{**bound, 'member_id': 'wrong'}, {**bound, 'member_code': 'wrong'}, {**bound, 'name': '其他报名人'}]:
         assert registration_identities([row], bound_member=wrong) == [None]
-    assert registration_identities([{**row, 'phone': 'invalid'}], bound_member=bound) == [None]
+    assert registration_identities([{**row, 'phone': 'invalid'}], bound_member=bound)[0]['identity_match']=='BOUND_NAME_SELF_CONFIRMATION'
     assert registration_identities([{**row, 'member_code': 'OTHER'}], bound_member=bound) == [None]
     with patch.dict(os.environ, ENV), TestClient(app) as client:
         path = '/api/v1/checkin-rosters/registration-identities'
@@ -101,7 +101,7 @@ def test_bound_blank_phone_requires_unique_active_full_name_and_exact_bound_iden
     other = _seed_group_leader_fixture()
     with transaction() as connection:
         execute(connection, 'UPDATE members SET name=? WHERE id=?', (name, other['member_id']))
-    assert registration_identities([row], bound_member=bound) == [None], 'active same-name ambiguity must not guess'
+    assert registration_identities([row], bound_member=bound)[0]['platform_member_id']==bound['member_id'], 'bound ID resolves the person despite an active namesake'
     with transaction() as connection:
         execute(connection, "UPDATE members SET status='INACTIVE' WHERE id=?", (other['member_id'],))
     assert registration_identities([row], bound_member=bound)[0]['platform_member_id'] == bound['member_id']
