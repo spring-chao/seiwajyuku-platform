@@ -1893,7 +1893,7 @@ def _post_batch(
             raise credits.LearningCreditError("部分失败批次必须明确请求续跑")
         allowed_statuses = ({"DRY_RUN", "PENDING_APPROVAL", "APPROVED", "PARTIAL_FAILED"} if resume_partial_failure else {"DRY_RUN", "PENDING_APPROVAL", "APPROVED"}) if source_confirmation else {"APPROVED", "PARTIAL_FAILED"}
         if row["status"] not in allowed_statuses:
-            raise credits.LearningCreditError("结算状态不允许入账，请刷新查看实际结果")
+            raise credits.LearningCreditError("结算状态不允许入账，请刷新查看实际结果" if source_confirmation else "只有已审批或部分失败批次可以入账")
         if source_confirmation is None and (row["approved_by"] is None or not row["approval_fingerprint"]):
             raise credits.LearningCreditError("批次审批或阻塞门禁不完整")
         items = execute(
@@ -1905,7 +1905,7 @@ def _post_batch(
         approved_items = [item for item in items if item["status"] != "BLOCKED"]
         expected_items_fp = source_confirmation['fingerprint'] if source_confirmation else row['approval_fingerprint']
         if _approval_fingerprint(row, approved_items) != expected_items_fp:
-            raise credits.LearningCreditError("结算冻结条目指纹不匹配")
+            raise credits.LearningCreditError("结算冻结条目指纹不匹配" if source_confirmation else "批次审批指纹不匹配")
         posted_keys = {item["idempotency_key"] for item in items if item["status"] == "POSTED"}
         _assert_current_preview(connection, row, actor_user_id=actor_user_id, posted_keys=posted_keys)
         _reconcile_posted_items(connection, row)
