@@ -60,6 +60,8 @@ export type SourceWorkbench = {
   can_import_attendance: boolean;
 };
 export type SourcePreview = {
+  accepted_count: number;
+  ignored_count: number;
   rows: SourceRow[];
   row_count: number;
   error_count: number;

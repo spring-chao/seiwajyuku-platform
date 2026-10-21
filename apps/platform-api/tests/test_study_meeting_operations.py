@@ -39,6 +39,29 @@ def prepared(course=False):
     return f, session
 
 
+def test_region_class_filters_apply_to_records_export_and_authorized_options():
+    from app.services.study_meetings import study_meeting_filter_options
+    from app.services.study_meeting_operations import export_meeting_workbook
+    from openpyxl import load_workbook
+    f,session=prepared();other,other_session=prepared()
+    actor=_admin_id()
+    with patch('app.services.study_meetings.accessible_org_ids',return_value={f['class_id']}):
+        options=study_meeting_filter_options(actor_user_id=actor)
+        assert [r['id'] for r in options['classes']]==[f['class_id']]
+        region=options['classes'][0]['management_org_unit_id']
+        assert region and len(options['regions'])==1
+        assert list_study_meeting_records(actor_user_id=actor,class_org_unit_id=other['class_id'])==[]
+        assert list_study_meeting_records(actor_user_id=actor,management_org_unit_id='unknown')==[]
+        selected=list_study_meeting_records(actor_user_id=actor,management_org_unit_id=region,class_org_unit_id=f['class_id'])
+        assert [r['id'] for r in selected]==[session['id']]
+    report=load_workbook(io.BytesIO(export_meeting_workbook(actor_user_id=actor,class_org_unit_id=f['class_id'],management_org_unit_id=region)))
+    assert report['小组汇总'].max_row==2
+    assert report['小组汇总']['A2'].value==session['session_code']
+    # The export permission intersection still applies after selecting a class.
+    with patch('app.services.study_meetings.accessible_org_ids',side_effect=lambda _actor,permission=None: set() if permission=='exports:normal' else None):
+        assert list_study_meeting_records(actor_user_id=actor,class_org_unit_id=f['class_id'],scope_permissions=('exports:normal',))==[]
+
+
 def test_preview_confirmation_removal_export_share_real_calculation():
     f, session = prepared(course=True)
     args = {"actor_user_id": _admin_id(), "session_id": session["id"]}

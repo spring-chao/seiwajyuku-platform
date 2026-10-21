@@ -194,6 +194,7 @@ const perform = async (action: () => Promise<void>) => {
       err,
       "操作未完成，请刷新查看实际结果"
     );
+    ElMessage.error(error.value);
   } finally {
     busy.value = false;
   }
@@ -391,6 +392,7 @@ onMounted(() => perform(reload));
       <strong>导出学分</strong>
       <p>
         可按班级或指定个人导出。文件包含每人学分汇总、所选日期的逐笔明细及来源、已导入的历史年度。
+        汇总含小组、当月满分和学分率；当月指截止日期所在月，学分率按月初至截止日已获学分除以整月计划满分计算，配置不全时显示“待配置”。
       </p>
       <el-form inline
         ><el-form-item label="班级"
@@ -525,13 +527,13 @@ onMounted(() => perform(reload));
             ></template
           >
         </div>
-        <el-form-item label="来源确认说明"
+        <el-form-item label="来源确认说明" required
           ><el-input
             v-model="form.source_note"
             :disabled="busy"
             type="textarea"
             maxlength="1000"
-            placeholder="例如：学习条线已核对本次线下签到原表"
+            placeholder="必填，至少4字，例如：已核对本班读书打卡原表"
         /></el-form-item>
         <el-form-item label="填写后的表格"
           ><input
@@ -564,7 +566,7 @@ onMounted(() => perform(reload));
         ><p>
           共{{ preview.row_count }}行，{{
             preview.error_count
-          }}行需修正，预计新增{{
+          }}行需修正{{ form.kind === 'DAILY_READING' ? '（保存时跳过，不参与结算）' : '' }}，预计新增{{
             preview.proposed_points
           }}分。保存来源后再生成正式结算预览，规则与账本会重新核对。
         </p>
@@ -596,7 +598,7 @@ onMounted(() => perform(reload));
           ><el-table-column label="结果" width="160"
             ><template #default="{ row }">{{
               row.errors?.length
-                ? "需修正"
+                ? (form.kind === 'DAILY_READING' ? "将跳过 · 需修正" : "需修正")
                 : rowStatuses[row.credit_status] || "待核对"
             }}</template></el-table-column
           ><el-table-column label="原因"

@@ -7,6 +7,14 @@ export function creditSettlementErrorMessage(error: unknown, action: string): st
   };
   const status = failure?.response?.status;
   const detail = failure?.response?.data?.detail;
+  const inputMessages = new Set([
+    "学员 ID 必须为正整数",
+    "请先选择班级",
+    "请选择班级，并填写至少4字的来源确认说明",
+    "请选择本次学习日并填写实际班会开始时间",
+    "请先选择填写后的.xlsx表格"
+  ]);
+  if (!status && inputMessages.has(failure?.message || "")) return failure.message!;
   if (status === 503 && typeof detail === "object" && detail !== null &&
       "code" in detail && detail.code === "CREDIT_LEDGER_SCHEMA_UNAVAILABLE") {
     return "学分账本期间结构尚未就绪，请联系管理员完成升级后再使用账本。";
@@ -26,8 +34,5 @@ export function creditSettlementErrorMessage(error: unknown, action: string): st
   const reason = safeDetail || reasons[status || 0] ||
     (status ? "请求未完成，请核对输入后重试。" :
       "无法连接学分接口，请检查网络；若其他页面正常，请联系管理员检查该接口。");
-  if (!status && error instanceof Error && error.message === "学员 ID 必须为正整数") {
-    return error.message;
-  }
   return `${action}${status ? `（HTTP ${status}）` : ""}：${reason}`;
 }

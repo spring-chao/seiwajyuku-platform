@@ -112,7 +112,7 @@ export function manualCheckinReason(event, row, busy = false) {
   if (row?.checked === true || row?.checked_at)
     return "已签到，保留原有签到记录";
   if (row?.is_team)
-    return "团队名额请通过小程序团队确认入口填写实际参加人，不能直接将报名联系人记为到场";
+    return "团队名额需先核对实际参加人，不能直接将报名联系人记为到场";
   if (!event) return "请先选择签到场次";
   if (event.lifecycle_status === "CANCELLED") return "活动已取消，无法人工签到";
   if (event.lifecycle_status !== "CONFIRMED")

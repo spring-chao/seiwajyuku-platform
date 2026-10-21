@@ -6,6 +6,8 @@ import { useUserStoreHook } from "@/store/modules/user";
 import {
   getStudyMeetingRecord,
   getStudyMeetingRecords,
+  getStudyMeetingFilters,
+  type StudyMeetingFilters,
   getStudyMeetingPhoto,
   correctStudyMeetingCourses,
   getStudyMeetingAttendeeOptions,
@@ -98,6 +100,8 @@ const downloadRecords = async (sessionId?: number) => {
   try {
     const blob = await exportMeetingRecords(sessionId ? { session_id: sessionId, layout: "member" } : {
       layout: exportLayout.value,
+      management_org_unit_id: filters.management_org_unit_id || undefined,
+      class_org_unit_id: filters.class_org_unit_id || undefined,
       status: filters.status || undefined, meeting_date_from: filters.meeting_date_from || undefined,
       meeting_date_to: filters.meeting_date_to || undefined });
     const url = URL.createObjectURL(blob);
@@ -153,14 +157,22 @@ const releasePhoto = () => {
 watch(detailVisible, visible => { if (!visible) releasePhoto(); });
 onBeforeUnmount(releasePhoto);
 const filters = reactive<{
+  management_org_unit_id: string;
+  class_org_unit_id: string;
   status: "" | StudyMeetingRecord["status"];
   meeting_date_from: string;
   meeting_date_to: string;
 }>({
+  management_org_unit_id: "",
+  class_org_unit_id: "",
   status: "",
   meeting_date_from: "",
   meeting_date_to: ""
 });
+const filterOptions = ref<StudyMeetingFilters>({ regions: [], classes: [] });
+const filteredClasses = computed(() => filterOptions.value.classes.filter(item =>
+  !filters.management_org_unit_id || item.management_org_unit_id === filters.management_org_unit_id));
+watch(() => filters.management_org_unit_id, () => { filters.class_org_unit_id = ""; });
 
 const statusLabel = (status: StudyMeetingRecord["status"]) =>
   ({ DRAFT: "草稿", SUBMITTED: "已提交", CANCELLED: "已取消" })[status];
@@ -193,22 +205,27 @@ const courseLabel = (record: any) => {
   return `${record.course_name_snapshot || "已选课程"}${record.course_credit_snapshot == null ? "" : ` · ${record.course_credit_snapshot} 分`}`;
 };
 
+let recordsRequest = 0;
 const loadRecords = async () => {
+  const request = ++recordsRequest;
   loading.value = true;
   error.value = "";
   try {
     const response = await getStudyMeetingRecords({
+      management_org_unit_id: filters.management_org_unit_id || undefined,
+      class_org_unit_id: filters.class_org_unit_id || undefined,
       status: filters.status || undefined,
       meeting_date_from: filters.meeting_date_from || undefined,
       meeting_date_to: filters.meeting_date_to || undefined
     });
-    records.value = response.data.records || [];
+    if (request === recordsRequest) records.value = response.data.records || [];
   } catch (requestError) {
+    if (request !== recordsRequest) return;
     records.value = [];
     error.value = studyMeetingErrorMessage(requestError);
     ElMessage.error(error.value);
   } finally {
-    loading.value = false;
+    if (request === recordsRequest) loading.value = false;
   }
 };
 
@@ -316,7 +333,12 @@ const saveAttendees = async () => {
   } finally { savingAttendees.value = false; }
 };
 
-onMounted(loadRecords);
+onMounted(async () => {
+  await Promise.allSettled([loadRecords(), (async () => {
+    try { filterOptions.value = (await getStudyMeetingFilters()).data; }
+    catch (err) { ElMessage.error(studyMeetingErrorMessage(err, "筛选选项加载")); }
+  })()]);
+});
 </script>
 
 <template>
@@ -346,6 +368,12 @@ onMounted(loadRecords);
       <div v-if="error" class="muted records-alert">接口：GET /api/v1/study-meetings/records</div>
 
       <div class="records-filters">
+        <el-select v-model="filters.management_org_unit_id" clearable filterable placeholder="全部分中心/指导团" class="status-select" aria-label="筛选分中心">
+          <el-option v-for="item in filterOptions.regions" :key="item.id" :label="item.name" :value="item.id" />
+        </el-select>
+        <el-select v-model="filters.class_org_unit_id" clearable filterable placeholder="全部班级" class="status-select" aria-label="筛选班级">
+          <el-option v-for="item in filteredClasses" :key="item.id" :label="item.name" :value="item.id" />
+        </el-select>
         <el-select v-model="filters.status" clearable placeholder="全部状态" class="status-select">
           <el-option label="草稿" value="DRAFT" />
           <el-option label="已提交" value="SUBMITTED" />
