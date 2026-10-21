@@ -996,20 +996,29 @@ def _operation_scope_allows(actor_user_id: int, class_org_unit_id: str) -> bool:
 
 
 def study_meeting_filter_options(*, actor_user_id: int) -> dict:
+    from app.services.learning_org_catalog import class_catalog
+    from app.db import connect
     allowed = accessible_org_ids(actor_user_id)
+    c = connect()
+    try:
+        catalog = class_catalog(c, allowed)
+    finally:
+        c.close()
     organizations = {r['id']: r for r in fetch_all('SELECT id,name,parent_id,unit_type FROM org_units')}
     classes=[];regions={}
-    for item in organizations.values():
-        if item['unit_type'] not in {'CLASS','SPECIAL_COHORT'} or (allowed is not None and item['id'] not in allowed):continue
+    for item in catalog:
         parent=item;visited=set();region=None
         while parent and parent['id'] not in visited:
             visited.add(parent['id'])
             if parent['unit_type'] in {'REGIONAL_CENTER','OPERATING_UNIT'}:
                 region=parent;break
             parent=organizations.get(parent['parent_id'])
-        classes.append({'id':item['id'],'name':item['name'],'management_org_unit_id':region['id'] if region else None})
+        classes.append({'id':item['id'],'name':item['name'],
+                        'related_class_ids':item['related_class_ids'],
+                        'management_org_unit_id':region['id'] if region else None})
         if region:regions[region['id']]={'id':region['id'],'name':region['name']}
-    return {'classes':sorted(classes,key=lambda v:(v['name'],v['id'])), 'regions':sorted(regions.values(),key=lambda v:(v['name'],v['id']))}
+    return {'classes':classes, 'regions':sorted(regions.values(),key=lambda v:(v['name'],v['id']))}
+
 
 
 def list_study_meeting_records(
@@ -1034,8 +1043,8 @@ def list_study_meeting_records(
         return []
     if management_org_unit_id or class_org_unit_id:
         options=study_meeting_filter_options(actor_user_id=actor_user_id)
-        selected={r['id'] for r in options['classes']
-                  if (not class_org_unit_id or r['id']==class_org_unit_id)
+        selected={cid for r in options['classes'] for cid in r['related_class_ids']
+                  if (not class_org_unit_id or class_org_unit_id in r['related_class_ids'])
                   and (not management_org_unit_id or r['management_org_unit_id']==management_org_unit_id)}
         allowed=selected if allowed is None else allowed & selected
         if not allowed:return []

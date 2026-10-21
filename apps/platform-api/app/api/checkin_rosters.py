@@ -62,7 +62,7 @@ def registration_identity_lookup(payload: RegistrationIdentityPayload,
                     resource_type="signin_event", resource_id=payload.event_id,
                     purpose="本人签到报名核对" if bound_member else "报名姓名和手机号核对在册学员",
                     after={"row_count": len(rows), "matched_count": sum(bool(m) for m in matches),
-                           "bound_unique_name_allowed": bound_member is not None})
+                           "bound_self_name_confirmation": bound_member is not None})
     return {"success": True, "data": {"source": "PLATFORM_BOUND_REGISTRATION_IDENTITY" if bound_member else "PLATFORM_ACTIVE_NAME_PHONE",
         "matches": [{"registration_id": row["registration_id"], **match}
                     for row, match in zip(rows, matches) if match]}}

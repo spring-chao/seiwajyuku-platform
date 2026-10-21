@@ -55,21 +55,6 @@ function classReferenceScore(item: ManagedLearningOrgUnit) {
   );
 }
 
-function preferClass(
-  candidate: ManagedLearningOrgUnit,
-  current: ManagedLearningOrgUnit
-) {
-  const scoreDifference =
-    classReferenceScore(candidate) - classReferenceScore(current);
-  if (scoreDifference !== 0) return scoreDifference > 0;
-  const candidateCreatedAt = candidate.created_at || "9999";
-  const currentCreatedAt = current.created_at || "9999";
-  if (candidateCreatedAt !== currentCreatedAt) {
-    return candidateCreatedAt < currentCreatedAt;
-  }
-  return candidate.id < current.id;
-}
-
 const deduplicatedCenters = computed(() => {
   const centerScores = new Map<string, number>();
   data.value.units
@@ -113,30 +98,9 @@ const selectedCenterIds = computed(() => {
   return ids;
 });
 
-const deduplicatedClasses = computed(() => {
-  const centerNames = new Map(
-    data.value.centers.map(item => [item.id, item.name])
-  );
-  const winners = new Map<string, ManagedLearningOrgUnit>();
-  data.value.classes.forEach(item => {
-    const centerScope =
-      centerNames.get(item.parent_id || "") || item.parent_id || "";
-    const key = `${centerScope}\u0000${item.name.trim()}`;
-    const current = winners.get(key);
-    if (!current || preferClass(item, current)) {
-      winners.set(key, item);
-    }
-  });
-  return Array.from(winners.values()).sort((left, right) => {
-    const leftCenter = centerNames.get(left.parent_id || "") || "";
-    const rightCenter = centerNames.get(right.parent_id || "") || "";
-    return (
-      leftCenter.localeCompare(rightCenter, "zh-CN") ||
-      left.name.localeCompare(right.name, "zh-CN") ||
-      left.id.localeCompare(right.id)
-    );
-  });
-});
+// The server supplies the same scoped canonical classes used by exports and
+// study-meeting filters. Do not choose a different class ID in the browser.
+const deduplicatedClasses = computed(() => data.value.classes);
 
 const classFilterOptions = computed(() =>
   deduplicatedClasses.value.filter(item => {

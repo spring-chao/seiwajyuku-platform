@@ -24,6 +24,7 @@ from app.services import credit_settlement_batches as batches
 from app.services import credit_opening_balances as opening
 from app.services.attendance_scoring import calculate_score, upsert_score_record
 from app.services.audit import write_audit
+from app.services.learning_org_catalog import class_catalog
 
 MIGRATION = '0072_learning_credit_source_imports.sql'
 TABLES = {'learning_credit_source_imports','learning_credit_source_rows','learning_credit_source_batches'}
@@ -345,7 +346,39 @@ def _receipt(c,actor,import_id,*,allowed_scope=...,summary=False):
     stats=execute(c,'SELECT COUNT(DISTINCT excel_row) AS n,COUNT(fact_id) AS fact_count FROM learning_credit_source_rows WHERE import_id=?',(import_id,)).fetchone() if summary else None
     item['rows']=rows;item['row_count']=int(stats['n']) if summary else len({r['excel_row'] for r in rows})
     item['source_only']=item['source_kind']=='DAILY_READING' and (int(stats['fact_count'])==0 if summary else not any(r['fact_id'] is not None for r in rows))
-    item['batches']=[dict(r) for r in execute(c,'SELECT b.id,b.batch_no,b.status,b.blocked_count,b.proposed_entry_count,b.proposed_points,b.posted_entry_count,b.posted_points,b.created_by FROM learning_credit_source_batches l JOIN learning_credit_settlement_batches b ON b.id=l.batch_id WHERE l.import_id=? ORDER BY b.id',(import_id,)).fetchall()]
+    source_stats=execute(c,'SELECT COUNT(DISTINCT member_id) AS members,MIN(occurred_on) AS first_day,MAX(occurred_on) AS last_day FROM learning_credit_source_rows WHERE import_id=?',(import_id,)).fetchone()
+    item['member_count']=int(source_stats['members'])
+    item['period_start']=str(source_stats['first_day'])[:10] if source_stats['first_day'] else None
+    item['period_end']=str(source_stats['last_day'])[:10] if source_stats['last_day'] else None
+
+    item['batches']=[dict(r) for r in execute(c,'SELECT b.id,b.batch_no,b.status,b.period_start,b.period_end,b.blocked_count,b.proposed_entry_count,b.proposed_points,b.posted_entry_count,b.posted_points,b.created_by,b.source_fingerprint,b.rule_fingerprint FROM learning_credit_source_batches l JOIN learning_credit_settlement_batches b ON b.id=l.batch_id WHERE l.import_id=? ORDER BY b.id',(import_id,)).fetchall()]
+    for batch in item['batches']:
+        if summary:
+            count=execute(c,"SELECT COUNT(DISTINCT member_id) AS n FROM learning_credit_settlement_batch_items WHERE batch_id=? AND status<>'BLOCKED'",(batch['id'],)).fetchone()
+            batch['member_count']=int(count['n'])
+            continue
+        batch_items=execute(c,"SELECT * FROM learning_credit_settlement_batch_items WHERE batch_id=? AND status<>'BLOCKED' ORDER BY id",(batch['id'],)).fetchall()
+        batch['confirmation_fingerprint']=batches._approval_fingerprint({**batch,'id':batch['id']},batch_items)
+        batch['member_count']=len({r['member_id'] for r in batch_items})
+    item['settlement_fingerprint']='' if summary else _hash([(b['id'],b['confirmation_fingerprint']) for b in item['batches']])
+    item['settlement_summary']={'proposed_points':format(sum((Decimal(str(b['proposed_points'])) for b in item['batches']),Decimal(0)),'.2f'),
+        'posted_points':format(sum((Decimal(str(b['posted_points'])) for b in item['batches']),Decimal(0)),'.2f'),
+        'entry_count':sum(int(b['proposed_entry_count']) for b in item['batches'])}
+    if not summary:
+        people={r['member_id']:{'member_code':r['member_code'],'member_name':r['member_name'],
+            'credit_count':0,'proposed_points':Decimal(0),'posted_points':Decimal(0),'blocked_count':0} for r in rows}
+        entries=execute(c,"SELECT i.*,m.name AS result_member_name,m.member_code AS result_member_code FROM learning_credit_settlement_batch_items i JOIN members m ON m.id=i.member_id JOIN learning_credit_source_batches l ON l.batch_id=i.batch_id WHERE l.import_id=? ORDER BY i.id",(import_id,)).fetchall()
+        for entry in entries:
+            person=people.setdefault(entry['member_id'],{'member_code':entry['result_member_code'],'member_name':entry['result_member_name'],
+                'credit_count':0,'proposed_points':Decimal(0),'posted_points':Decimal(0),'blocked_count':0})
+            if entry['status']=='BLOCKED':person['blocked_count']+=1;continue
+            person['credit_count']+=1
+            person['proposed_points']+=Decimal(str(entry['points']))
+            if entry['status']=='POSTED':person['posted_points']+=Decimal(str(entry['points']))
+        item['source_member_count']=item['member_count']
+        item['member_count']=len(people)
+        item['member_results']=[{**r,'proposed_points':format(r['proposed_points'],'.2f'),
+            'posted_points':format(r['posted_points'],'.2f')} for r in people.values()]
     for batch in item['batches']:
         if summary:break
         stored=execute(c,'SELECT source_type,source_snapshot_json FROM learning_credit_settlement_batches WHERE id=?',(batch['id'],)).fetchone()
@@ -395,12 +428,13 @@ def _validate_receipt(c,source,rows):
 def register(content,kind,class_id,options_text,note,filename,fingerprint,actor):
     _principal(actor,kind,write=True)
     _write_scope(actor,class_id,kind)
-    with transaction() as c,opening._operation(c):
+    with transaction() as c,opening._operation(c,wait_seconds=10):
         if not available(c):raise credits.LearningCreditError('来源导入存储待管理员准备')
         prior=execute(c,'SELECT id,file_sha256,source_kind,class_org_unit_id,options_json,source_note FROM learning_credit_source_imports WHERE fingerprint=?',(fingerprint,)).fetchone()
         digest=hashlib.sha256(content).hexdigest()
         if prior:
             if prior['file_sha256']!=digest or prior['source_kind']!=kind or prior['class_org_unit_id']!=class_id or prior['options_json']!=_json(_options(kind,options_text)) or prior['source_note']!=note.strip():raise credits.LearningCreditError('来源已变化，请重新检查')
+            c.commit()
             return {'id':int(prior['id']),'idempotent':True}
         binding,options,rows,current,note,event_id,source_snapshot=_checked(c,actor,content,kind,class_id,options_text,note)
         if current!=fingerprint or (kind!='DAILY_READING' and any(r['errors'] for r in rows)):raise credits.LearningCreditError('来源、名册、规则或账本已变化，请重新检查')
@@ -423,6 +457,9 @@ def register(content,kind,class_id,options_text,note,filename,fingerprint,actor)
                     fact_id=int(fact['id'])
                 execute(c,'INSERT INTO learning_credit_source_rows(import_id,member_id,excel_row,occurred_on,source_reference,record_json,fact_id) VALUES (?,?,?,?,?,?,?)',(import_id,r['member_id'],r['excel_row'],r['occurred_on'],r['source_reference'],_json(r['raw']),fact_id))
         write_audit(c,actor_user_id=actor,action='learning.credit_source.import',resource_type='credit_source_import',resource_id=str(import_id),org_unit_id=class_id,after={'kind':kind,'count':len(rows),'ignored_count':ignored_count,'file_sha256':digest,'fingerprint':fingerprint,'ledger_write':False})
+        # Publish the receipt before releasing the shared operation lock so a
+        # waiting retry observes this committed idempotency key.
+        c.commit()
         return {'id':import_id,'idempotent':False}
 
 
@@ -473,6 +510,10 @@ def create_batches(import_id,actor):
         source=_receipt(c,actor,import_id)
     finally:c.close()
     kind=source['source_kind']
+    if any(b['status'] in {'POSTING','PARTIAL_FAILED'} for b in source['batches']):
+        raise credits.LearningCreditError('本次来源正在入账或有部分失败，请先核对结果并继续入账')
+    if source['batches'] and all(b['status']=='POSTED' or not int(b['proposed_entry_count']) for b in source['batches']):
+        return source
     if kind=='CLASS_MEETING':
         _principal(actor,kind,write=True)
         _write_scope(actor,source['class_org_unit_id'],kind)
@@ -502,11 +543,20 @@ def create_batches(import_id,actor):
             if len(rows)>500:raise credits.LearningCreditError('同一天读书或同月分享超过500行，请缩小班级/文件范围')
             dates=sorted(str(r['occurred_on'])[:10] for r in rows)
             plans.append({'occurred_from':dates[0],'occurred_to':dates[-1],'fact_ids':sorted({int(r['fact_id']) for r in rows})})
+    new_ids=set()
     for plan in plans:
         if kind=='CLASS_MEETING':batch=batches.dry_run_class_meeting_batch(actor_user_id=actor,**plan)
         else:batch=batches.dry_run_activity_import_batch(actor_user_id=actor,activity_type=kind,class_org_unit_id=source['class_org_unit_id'],**plan)
+        new_ids.add(batch['id'])
         with transaction() as c:
             if not execute(c,'SELECT batch_id FROM learning_credit_source_batches WHERE import_id=? AND batch_id=?',(import_id,batch['id'])).fetchone():execute(c,'INSERT INTO learning_credit_source_batches(import_id,batch_id) VALUES (?,?)',(import_id,batch['id']))
+    with transaction() as c:
+        for old in source['batches']:
+            if old['id'] not in new_ids and old['status'] in {'DRY_RUN','PENDING_APPROVAL','APPROVED'}:
+                changed=execute(c,"UPDATE learning_credit_settlement_batches SET status='CANCELLED',updated_at=? WHERE id=? AND status=?",(credits._db_timestamp(c),old['id'],old['status']))
+                if changed.rowcount!=1:raise credits.LearningCreditError('原结算状态已变化，请刷新查看实际结果')
+                execute(c,'DELETE FROM learning_credit_source_batches WHERE import_id=? AND batch_id=?',(import_id,old['id']))
+                write_audit(c,actor_user_id=actor,action='learning.credit_source.replace_preview',resource_type='credit_source_import',resource_id=str(import_id),org_unit_id=source['class_org_unit_id'],after={'previous_batch_id':old['id'],'new_batch_ids':sorted(new_ids),'ledger_write':False})
     return get_import(import_id,actor)
 
 
@@ -516,16 +566,27 @@ def get_import(import_id,actor):
     finally:c.close()
 
 
-def process(import_id,actor,operation):
+def process(import_id,actor,operation,expected_fingerprint=None,resume_partial_failure=False):
     source=get_import(import_id,actor)
-    if operation not in ('submit','approve','post'):raise credits.LearningCreditError('不支持的结算操作')
-    capability={'submit':'plans:credit_settlement_manage','approve':'plans:credit_settlement_approve','post':'plans:credit_settlement_post'}[operation]
+    if operation not in ('submit','approve','post','confirm'):raise credits.LearningCreditError('不支持的结算操作')
+    capability={'submit':'plans:credit_settlement_manage','approve':'plans:credit_settlement_approve','post':'plans:credit_settlement_post','confirm':'plans:credit_settlement_post'}[operation]
     if not _has_scope(actor,source['class_org_unit_id'],(capability,)):raise PermissionError('这份来源不在当前复核或入账授权范围')
     if not source['batches']:raise credits.LearningCreditError('请先生成结算预览')
+    if operation=='confirm':
+        if not expected_fingerprint or expected_fingerprint!=source['settlement_fingerprint']:
+            raise credits.LearningCreditError('结算预览已变化，请重新查看后确认入账')
+        _principal(actor,source['source_kind'],write=True)
+        _write_scope(actor,source['class_org_unit_id'],source['source_kind'])
     for b in source['batches']:
         status=b['status']
         if not int(b['proposed_entry_count']):continue
-        if operation=='submit' and status=='DRY_RUN':batches.submit_settlement_batch_for_approval(actor_user_id=actor,batch_id=b['id'])
+        if operation=='confirm':
+            if status not in {'DRY_RUN','PENDING_APPROVAL','APPROVED','POSTED','PARTIAL_FAILED'}:
+                raise credits.LearningCreditError('入账未全部完成，请核对结算结果；部分失败请到日常活动结算处理')
+            result=batches._post_batch(actor_user_id=actor,batch_id=b['id'],source_type=source['source_kind'],resume_partial_failure=resume_partial_failure,
+                source_confirmation={'import_id':import_id,'fingerprint':b['confirmation_fingerprint']})
+            if result['status']!='POSTED':raise credits.LearningCreditError('本次入账未全部完成，请查看结果；已入账条目会保留，未入账条目请核对后处理')
+        elif operation=='submit' and status=='DRY_RUN':batches.submit_settlement_batch_for_approval(actor_user_id=actor,batch_id=b['id'])
         elif operation=='approve' and status=='PENDING_APPROVAL':batches.approve_settlement_batch(actor_user_id=actor,batch_id=b['id'])
         elif operation=='post' and status=='APPROVED':batches.post_settlement_batch(actor_user_id=actor,batch_id=b['id'])
         elif status not in {'POSTED','PENDING_APPROVAL','APPROVED'}:raise credits.LearningCreditError('批次状态需要核对，请到日常活动结算查看具体原因')
@@ -536,7 +597,8 @@ def workbench(actor):
     user=_principal(actor);c=connect()
     try:
         scope=effective_scope(actor)
-        classes=[dict(r) for r in execute(c,"SELECT DISTINCT b.class_org_unit_id AS id,o.name FROM class_learning_bindings b JOIN org_units o ON o.id=b.class_org_unit_id WHERE b.status='ACTIVE' AND o.is_active=1 ORDER BY o.name").fetchall() if scope is None or r['id'] in scope]
+        bound={r['class_org_unit_id'] for r in execute(c,"SELECT DISTINCT class_org_unit_id FROM class_learning_bindings WHERE status='ACTIVE'").fetchall()}
+        classes=[{'id':r['id'],'name':r['name'],'center_name':r['parent_name']} for r in class_catalog(c,scope) if r['id'] in bound]
         ids={r['id'] for r in classes}
         cycles=[dict(r) for r in execute(c,"SELECT c.id,c.class_org_unit_id,c.learning_cycle_index,c.cycle_status,c.class_meeting_status,c.actual_class_meeting_at,c.planned_class_meeting_at FROM class_learning_cycles c JOIN class_learning_bindings b ON b.id=c.binding_id WHERE b.status='ACTIVE' AND c.cycle_status IN ('OPEN','CLOSED') ORDER BY c.id DESC").fetchall() if r['class_org_unit_id'] in ids]
         ready=available(c);imports=[]

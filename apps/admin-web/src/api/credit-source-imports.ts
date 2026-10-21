@@ -15,6 +15,9 @@ export type SourceRow = {
 export type SourceBatch = {
   id: number;
   batch_no: string;
+  period_start: string;
+  period_end: string;
+  member_count: number;
   status: string;
   proposed_entry_count: number;
   proposed_points: string;
@@ -25,6 +28,12 @@ export type SourceBatch = {
 };
 export type SourceImport = {
   source_only?: boolean;
+  member_count: number;
+  period_start?: string;
+  period_end?: string;
+  settlement_fingerprint: string;
+  settlement_summary: { proposed_points: string; posted_points: string; entry_count: number };
+  member_results?: { member_code: string; member_name: string; credit_count: number; proposed_points: string; posted_points: string; blocked_count: number }[];
   id: number;
   class_name: string;
   original_filename: string;
@@ -41,7 +50,7 @@ export type SourceWorkbench = {
     day_count: number;
     version_label: string | null;
   };
-  classes: { id: string; name: string }[];
+  classes: { id: string; name: string; center_name?: string }[];
   cycles: {
     id: number;
     class_org_unit_id: string;
@@ -88,7 +97,7 @@ export const sourceGet = (id: number) =>
     timeout: 60000
   });
 export const sourceExportOptions = () =>
-  http.request<Result<{ classes: { id: string; name: string }[] }>>(
+  http.request<Result<{ classes: { id: string; name: string; center_name?: string }[] }>>(
     "get",
     base + "/export-options",
     { timeout: 60000 }
@@ -122,7 +131,7 @@ const payload = (file: File, form: SourceForm, fingerprint?: string) => {
   return {
     data,
     headers: { "Content-Type": "multipart/form-data" },
-    timeout: 60000
+    timeout: 180000
   };
 };
 export const sourcePreview = (file: File, form: SourceForm) =>
@@ -143,16 +152,18 @@ export const sourceRegister = (
   );
 export const sourceCreateBatches = (id: number) =>
   http.request<Result<SourceImport>>("post", `${base}/imports/${id}/batches`, {
-    timeout: 60000
+    timeout: 180000
   });
 export const sourceAction = (
   id: number,
-  operation: "submit" | "approve" | "post"
+  operation: "confirm",
+  expected_fingerprint: string,
+  resume_partial_failure = false
 ) =>
   http.request<Result<SourceImport>>(
     "post",
     `${base}/imports/${id}/actions/${operation}`,
-    { timeout: 60000 }
+    { data: { expected_fingerprint, resume_partial_failure }, timeout: 180000 }
   );
 export const sourceSetup = (state: SourceWorkbench) =>
   http.request<Result<{ status: string }>>("post", base + "/setup", {

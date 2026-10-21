@@ -1555,7 +1555,7 @@ def _reconcile_posted_items(connection: Any, row: Any) -> tuple[int, Decimal]:
                 raise credits.LearningCreditError("批次条目与正式账本不一致")
             count += 1
             points += Decimal(str(item["entry_points"]))
-        elif item["ledger_entry_id"] is not None or item["status"] not in {"APPROVED", "FAILED"}:
+        elif item["ledger_entry_id"] is not None or item["status"] not in {"PROPOSED", "APPROVED", "FAILED"}:
             raise credits.LearningCreditError("批次条目状态与账本关联不一致")
     return count, points
 
@@ -1841,7 +1841,7 @@ def _validate_historical_source_item(
 
 def _post_batch(
     *, actor_user_id: int, batch_id: int, source_type: str, resume_partial_failure: bool = False,
-    batch_type: str = "REGULAR",
+    batch_type: str = "REGULAR", source_confirmation: dict | None = None,
 ) -> dict[str, Any]:
     """POST frozen items once, with per-item transactions and reconciliation.
 
@@ -1862,14 +1862,27 @@ def _post_batch(
     if batch_type == HISTORICAL_BATCH_TYPE and "plans:historical_credit_import_manage" not in user.get("permissions", []):
         raise PermissionError("无权正式入账历史学分批次")
     with transaction() as connection:
+        lock_clause = " FOR UPDATE" if not isinstance(connection, sqlite3.Connection) else ""
         row = execute(
-            connection, "SELECT * FROM learning_credit_settlement_batches WHERE id=?",
+            connection, "SELECT * FROM learning_credit_settlement_batches WHERE id=?" + lock_clause,
             (batch_id,),
         ).fetchone()
         if not row or row["source_type"] != source_type or row["batch_type"] != batch_type:
             raise credits.LearningCreditError("结算批次不存在或来源不匹配")
         if not credits._scope_allows(actor_user_id, row["class_org_unit_id"]):
             raise PermissionError("结算批次不在当前组织授权范围内")
+        if source_confirmation is not None:
+            # This path belongs ONLY to a validated Excel receipt. It never
+            # fabricates an independent approval or broadens the generic API.
+            from app.services import credit_source_imports as imports
+            source=execute(connection,"SELECT s.* FROM learning_credit_source_imports s JOIN learning_credit_source_batches l ON l.import_id=s.id WHERE s.id=? AND l.batch_id=?",(source_confirmation['import_id'],batch_id)).fetchone()
+            if not source:raise credits.LearningCreditError('结算与原文件来源不同，请重新生成结算')
+            imports._principal(actor_user_id,source['source_kind'],write=True)
+            imports._write_scope(actor_user_id,source['class_org_unit_id'],source['source_kind'])
+            if (not imports._has_scope(actor_user_id,source['class_org_unit_id']) or
+                batch_type!='REGULAR' or source_type!=source['source_kind'] or
+                row['class_org_unit_id']!=source['class_org_unit_id']):
+                raise credits.LearningCreditError('结算来源或预览已变化，请重新查看后确认入账')
         if row["status"] == "POSTED":
             count, points = _reconcile_posted_items(connection, row)
             if count != int(row["proposed_entry_count"]) or points != Decimal(str(row["proposed_points"])):
@@ -1878,9 +1891,10 @@ def _post_batch(
             return _batch_summary(connection, batch_id, idempotent=True)
         if row["status"] == "PARTIAL_FAILED" and not resume_partial_failure:
             raise credits.LearningCreditError("部分失败批次必须明确请求续跑")
-        if row["status"] not in {"APPROVED", "PARTIAL_FAILED"}:
-            raise credits.LearningCreditError("只有已审批或部分失败批次可以入账")
-        if row["approved_by"] is None or not row["approval_fingerprint"]:
+        allowed_statuses = ({"DRY_RUN", "PENDING_APPROVAL", "APPROVED", "PARTIAL_FAILED"} if resume_partial_failure else {"DRY_RUN", "PENDING_APPROVAL", "APPROVED"}) if source_confirmation else {"APPROVED", "PARTIAL_FAILED"}
+        if row["status"] not in allowed_statuses:
+            raise credits.LearningCreditError("结算状态不允许入账，请刷新查看实际结果" if source_confirmation else "只有已审批或部分失败批次可以入账")
+        if source_confirmation is None and (row["approved_by"] is None or not row["approval_fingerprint"]):
             raise credits.LearningCreditError("批次审批或阻塞门禁不完整")
         items = execute(
             connection,
@@ -1889,8 +1903,9 @@ def _post_batch(
             (batch_id,),
         ).fetchall()
         approved_items = [item for item in items if item["status"] != "BLOCKED"]
-        if _approval_fingerprint(row, approved_items) != row["approval_fingerprint"]:
-            raise credits.LearningCreditError("批次审批指纹不匹配")
+        expected_items_fp = source_confirmation['fingerprint'] if source_confirmation else row['approval_fingerprint']
+        if _approval_fingerprint(row, approved_items) != expected_items_fp:
+            raise credits.LearningCreditError("结算冻结条目指纹不匹配" if source_confirmation else "批次审批指纹不匹配")
         posted_keys = {item["idempotency_key"] for item in items if item["status"] == "POSTED"}
         _assert_current_preview(connection, row, actor_user_id=actor_user_id, posted_keys=posted_keys)
         _reconcile_posted_items(connection, row)
@@ -1903,7 +1918,14 @@ def _post_batch(
         )
         if changed.rowcount != 1:
             raise credits.LearningCreditError("批次入账状态已被其他执行者占用")
-        pending_ids = [int(item["id"]) for item in items if item["status"] in {"APPROVED", "FAILED"}]
+        pending_statuses = {"PROPOSED", "APPROVED", "FAILED"} if source_confirmation else {"APPROVED", "FAILED"}
+        pending_ids = [int(item["id"]) for item in items if item["status"] in pending_statuses]
+        if source_confirmation:
+            write_audit(connection, actor_user_id=actor_user_id,
+                action="learning_credit.source.confirm", resource_type="learning_credit_settlement_batch",
+                resource_id=str(batch_id), org_unit_id=row['class_org_unit_id'],
+                purpose="操作者核对表格结算后确认入账，不经独立复核",
+                after={'import_id':source_confirmation['import_id'],'confirmation_fingerprint':expected_items_fp})
 
     for item_id in pending_ids:
         try:
@@ -1928,6 +1950,10 @@ def _post_batch(
                 ).fetchone()
                 if not active_batch or active_batch["status"] != "POSTING":
                     raise credits.LearningCreditError("批次入账上下文已变化")
+                if source_confirmation:
+                    current_items=execute(connection,"SELECT * FROM learning_credit_settlement_batch_items WHERE batch_id=? AND status<>'BLOCKED' ORDER BY id",(batch_id,)).fetchall()
+                    if _approval_fingerprint(active_batch,current_items)!=expected_items_fp:
+                        raise credits.LearningCreditError('确认后的结算条目已变化')
                 posted_rows = execute(
                     connection,
                     "SELECT idempotency_key FROM learning_credit_settlement_batch_items "
@@ -1944,7 +1970,7 @@ def _post_batch(
                     "SELECT * FROM learning_credit_settlement_batch_items WHERE id=? AND batch_id=?",
                     (item_id, batch_id),
                 ).fetchone()
-                if not item or item["status"] not in {"APPROVED", "FAILED"} or item["ledger_entry_id"] is not None:
+                if not item or item["status"] not in pending_statuses or item["ledger_entry_id"] is not None:
                     raise credits.LearningCreditError("批次条目状态已变化")
                 source = json.loads(item["source_snapshot_json"])
                 entry_item = {
@@ -1987,7 +2013,7 @@ def _post_batch(
                 changed = execute(
                     connection,
                     "UPDATE learning_credit_settlement_batch_items SET status='POSTED',ledger_entry_id=?,"
-                    "error_code=NULL,updated_at=? WHERE id=? AND status IN ('APPROVED','FAILED')",
+                    "error_code=NULL,updated_at=? WHERE id=? AND status IN ('PROPOSED','APPROVED','FAILED')",
                     (entry["id"], credits._db_timestamp(connection), item_id),
                 )
                 if changed.rowcount != 1:
@@ -2016,7 +2042,7 @@ def _post_batch(
                 execute(
                     connection,
                     "UPDATE learning_credit_settlement_batch_items SET status='FAILED',error_code=?,"
-                    "updated_at=? WHERE id=? AND batch_id=? AND status IN ('APPROVED','FAILED')",
+                    "updated_at=? WHERE id=? AND batch_id=? AND status IN ('PROPOSED','APPROVED','FAILED')",
                     (type(exc).__name__[:128], heartbeat, item_id, batch_id),
                 )
                 execute(
@@ -2050,7 +2076,7 @@ def _post_batch(
             connection, actor_user_id=actor_user_id,
             action="learning_credit.batch.post", resource_type="learning_credit_settlement_batch",
             resource_id=str(batch_id), org_unit_id=current["class_org_unit_id"],
-            purpose="按已审批冻结条目正式入账；失败仅续跑未入账条目",
+            purpose="按表格来源确认入账" if source_confirmation else "按已审批冻结条目正式入账；失败仅续跑未入账条目",
             after={"status": final_status, "posted_entry_count": count, "posted_points": str(points)},
         )
         return _batch_summary(connection, batch_id, idempotent=False)

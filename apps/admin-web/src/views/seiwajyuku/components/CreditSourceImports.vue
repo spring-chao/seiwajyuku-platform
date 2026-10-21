@@ -42,7 +42,7 @@ const detail = ref<SourceImport>();
 const file = ref<File>();
 const busy = ref(false);
 const error = ref("");
-const exportClasses = ref<{ id: string; name: string }[]>([]);
+const exportClasses = ref<{ id: string; name: string; center_name?: string }[]>([]);
 const form = reactive({
   kind: "CLASS_MEETING" as SourceKind,
   class_id: "",
@@ -79,9 +79,10 @@ const slotLabel = (value: string) =>
 const batchSummary = (value: unknown) => {
   const r = resolveRow(value);
   if (r?.source_only) return "原表已保存，未完成录音，无需入账";
-  return r?.batches.length
-    ? r.batches.map(b => statuses[b.status] || b.status).join("、")
-    : "来源已保存，待生成预览";
+  if (!r?.batches.length) return "来源已保存，待生成结算";
+  const states = [...new Set(r.batches.filter(b => b.proposed_entry_count > 0).map(b => statuses[b.status] || b.status))];
+  return (states.join("、") || "无新增学分") +
+    (r.settlement_summary ? ` · 预计${r.settlement_summary.proposed_points}分 / 已入账${r.settlement_summary.posted_points}分` : "");
 };
 const choose = (event: Event) => {
   file.value = (event.target as HTMLInputElement).files?.[0];
@@ -124,8 +125,8 @@ const labels: Record<string, string> = {
   EXCELLENT_SHARE: "优秀分享"
 };
 const statuses: Record<string, string> = {
-  DRY_RUN: "待提交复核",
-  PENDING_APPROVAL: "待复核",
+  DRY_RUN: "待确认入账",
+  PENDING_APPROVAL: "待确认入账",
   APPROVED: "待入账",
   POSTING: "入账中",
   POSTED: "已入账",
@@ -192,7 +193,7 @@ const perform = async (action: () => Promise<void>) => {
   } catch (err) {
     error.value = creditSettlementErrorMessage(
       err,
-      "操作未完成，请刷新查看实际结果"
+      "操作未完成，请刷新查看实际结果；保存来源可用同一检查结果重试，不会重复保存"
     );
     ElMessage.error(error.value);
   } finally {
@@ -273,10 +274,11 @@ const register = () =>
       !canImport.value
     )
       return;
-    await sourceRegister(file.value, uploadForm(), preview.value.fingerprint);
+    const saved = await sourceRegister(file.value, uploadForm(), preview.value.fingerprint);
     preview.value = undefined;
     await reload();
-    ElMessage.success("来源已保存，请在下方生成结算预览并复核入账");
+    ElMessage.success("来源已保存，请生成结算并核对每人分数后确认入账");
+    if (saved?.data?.id) detail.value = (await sourceGet(saved.data.id)).data;
   });
 const resolveRow = (value: unknown) =>
   value && typeof value === "object" && "id" in value
@@ -287,60 +289,44 @@ const show = (value: unknown) =>
     const row = resolveRow(value);
     if (row) detail.value = (await sourceGet(row.id)).data;
   });
-const eligible = (value: unknown, operation: "submit" | "approve" | "post") => {
+const eligible = (value: unknown) => {
   const r = resolveRow(value);
-  return (
-    !!r &&
-    r.batches.some(
-      b =>
-        b.proposed_entry_count > 0 &&
-        b.status ===
-          { submit: "DRY_RUN", approve: "PENDING_APPROVAL", post: "APPROVED" }[
-            operation
-          ]
-    ) &&
-    (operation !== "approve" ||
-      !r.batches.some(
-        b => b.status === "PENDING_APPROVAL" && b.created_by_current_actor
-      )) &&
-    (operation === "submit" ||
-      permissions.value.includes(
-        operation === "approve"
-          ? "plans:credit_settlement_approve"
-          : "plans:credit_settlement_post"
-      ))
-  );
+  const active = r?.batches.filter(b => b.proposed_entry_count > 0) || [];
+  return !!r && permissions.value.includes("plans:credit_settlement_post") &&
+    active.some(b => ["DRY_RUN", "PENDING_APPROVAL", "APPROVED", "PARTIAL_FAILED"].includes(b.status)) &&
+    active.every(b => ["DRY_RUN", "PENDING_APPROVAL", "APPROVED", "POSTED", "PARTIAL_FAILED"].includes(b.status));
 };
-const act = async (
-  value: unknown,
-  operation: "generate" | "submit" | "approve" | "post"
-) => {
+const periodLabel = (row: {period_start?: string; period_end?: string}) =>
+  row.period_start === row.period_end ? row.period_start : `${row.period_start || ""} 至 ${row.period_end || ""}`;
+const act = async (value: unknown, operation: "generate" | "confirm") => {
   const r = resolveRow(value);
   if (!r || busy.value) return;
-  if (operation === "post") {
-    try {
-      await ElMessageBox.confirm(
-        `${r.class_name}，${labels[r.source_kind]}，${r.original_filename}。本次将入账已复核的学分，重复来源会跳过。`,
-        "确认来源学分入账",
-        { confirmButtonText: "确认入账", cancelButtonText: "返回检查" }
-      );
-    } catch {
+  await perform(async () => {
+    if (operation === "generate") {
+      detail.value = (await sourceCreateBatches(r.id)).data;
+      await reload();
+      ElMessage.success("结算已生成，请核对每人分数后确认入账");
       return;
     }
-  }
-  await perform(async () => {
-    const result =
-      operation === "generate"
-        ? await sourceCreateBatches(r.id)
-        : await sourceAction(r.id, operation);
-    detail.value = result.data;
+    const current = (await sourceGet(r.id)).data;
+    detail.value = current;
+    const resume = current.batches.some(b => b.status === "PARTIAL_FAILED");
+    try {
+      await ElMessageBox.confirm(
+        `${current.class_name} · ${labels[current.source_kind]} · ${periodLabel(current)}，共${current.member_count}人、${current.settlement_summary.entry_count}笔，预计${current.settlement_summary.proposed_points}分，已入账${current.settlement_summary.posted_points}分。确认将其余有效学分入账？已入账条目不会重复计分。`,
+        resume ? "确认继续入账未完成条目" : "确认学分入账", { confirmButtonText: resume ? "继续入账" : "确认入账", cancelButtonText: "返回检查" }
+      );
+    } catch { return; }
+    try {
+      detail.value = (await sourceAction(r.id, "confirm", current.settlement_fingerprint, resume)).data;
+    } catch (err) {
+      try { detail.value = (await sourceGet(r.id)).data; } catch { /* Preserve the known receipt when status reload is unavailable. */ }
+      await reload();
+      throw err;
+    }
     await reload();
-    if (operation === "post") emit("posted");
-    ElMessage.success(
-      operation === "generate"
-        ? "结算预览已生成，请核对分数后提交复核"
-        : "来源结算状态已更新"
-    );
+    emit("posted");
+    ElMessage.success("学分已入账");
   });
 };
 const setup = () =>
@@ -404,7 +390,7 @@ onMounted(() => perform(reload));
             ><el-option
               v-for="c in exportClasses"
               :key="c.id"
-              :label="c.name"
+              :label="c.center_name ? `${c.name} · ${c.center_name}` : c.name"
               :value="c.id" /></el-select></el-form-item
         ><el-form-item label="学员">
           <el-select v-model="exportForm.member_id" filterable remote clearable
@@ -433,11 +419,11 @@ onMounted(() => perform(reload));
       <strong>上传10月以后的学习记录</strong>
       <p v-if="form.kind === 'DAILY_READING'">
         ①选择班级 → ②上传该班原始读书打卡表 → ③检查预计学分并保存来源 →
-        ④生成结算预览、复核、确认入账。
+        ④生成结算、核对每人分数、确认入账。
       </p>
       <p v-else>
         ①选择班级下载预填名册的模板 → ②填写实际签到或已评定优秀的分享 →
-        ③上传检查并保存来源 → ④生成结算预览、复核、确认入账。
+        ③上传检查并保存来源 → ④生成结算、核对每人分数、确认入账。
       </p>
       <el-alert
         v-if="state && !state.storage_available"
@@ -462,7 +448,7 @@ onMounted(() => perform(reload));
             ><el-option
               v-for="c in state?.classes"
               :key="c.id"
-              :label="c.name"
+              :label="c.center_name ? `${c.name} · ${c.center_name}` : c.name"
               :value="c.id" /></el-select
         ></el-form-item>
         <el-form-item label="记录类型"
@@ -611,7 +597,7 @@ onMounted(() => perform(reload));
         ></template
       >
       <p>
-        日常活动结算沿用现有复核规则：生成批次的人不能复核自己生成的批次，请另一位有复核权限的专职人员核对。历史期初余额的规则保持原有口径。
+        保存来源 → 生成结算 → 核对每位学长的学分 → 确认入账。无效记录与已计分来源会跳过，只有确认入账才会增加正式学分。
       </p>
       <el-table
         :data="state?.imports || []"
@@ -638,22 +624,12 @@ onMounted(() => perform(reload));
               link
               :disabled="busy || row.source_only"
               @click="act(row, 'generate')"
-              >生成结算预览</el-button
-            ><el-button
-              link
-              :disabled="busy || !eligible(row, 'submit')"
-              @click="act(row, 'submit')"
-              >提交复核</el-button
-            ><el-button
-              link
-              :disabled="busy || !eligible(row, 'approve')"
-              @click="act(row, 'approve')"
-              >复核通过</el-button
+              >生成结算</el-button
             ><el-button
               link
               type="primary"
-              :disabled="busy || !eligible(row, 'post')"
-              @click="act(row, 'post')"
+              :disabled="busy || !eligible(row)"
+              @click="act(row, 'confirm')"
               >确认入账</el-button
             ></template
           ></el-table-column
@@ -670,19 +646,31 @@ onMounted(() => perform(reload));
           {{ detail.class_name }} · {{ detail.original_filename }} ·
           {{ detail.source_note }}
         </p>
-        <el-table :data="detail.batches"
-          ><el-table-column prop="batch_no" label="批次" /><el-table-column
-            label="状态"
-            ><template #default="{ row }">{{
-              statuses[row.status] || "待核对"
-            }}</template></el-table-column
-          ><el-table-column
-            prop="proposed_points"
-            label="预计学分" /><el-table-column
-            prop="posted_points"
-            label="已入账" /><el-table-column
-            prop="blocked_count"
-            label="待修正" /></el-table
+        <p>
+          {{ periodLabel(detail) }} · 结算涉及{{ detail.member_count }}人 · {{ detail.row_count }}行原表记录。
+          预计新增 {{ detail.settlement_summary.proposed_points }} 分，已入账 {{ detail.settlement_summary.posted_points }} 分。
+          <el-button v-if="!detail.batches.length && !detail.source_only" :disabled="busy" @click="act(detail, 'generate')">生成结算</el-button>
+          <el-button v-if="detail.batches.length" type="primary" :disabled="busy || !eligible(detail)" @click="act(detail, 'confirm')">确认入账</el-button>
+        </p>
+        <el-table v-if="detail.batches.length" :data="detail.member_results || []" max-height="420" empty-text="请先生成结算，即可查看每位学长的学分">
+          <el-table-column prop="member_name" min-width="120" label="姓名" />
+          <el-table-column prop="member_code" min-width="145" label="学长编号" />
+          <el-table-column prop="credit_count" min-width="100" label="计分笔数" />
+          <el-table-column prop="proposed_points" min-width="140" label="预计新增学分" />
+          <el-table-column prop="posted_points" min-width="140" label="已入账学分" />
+          <el-table-column prop="blocked_count" min-width="110" label="跳过待核对" />
+        </el-table>
+        <el-collapse>
+          <el-collapse-item title="按日期查看结算与原表记录" name="dates">
+        <el-table :data="detail.batches">
+          <el-table-column label="学习日期"><template #default="{ row }">{{ periodLabel(row) }}</template></el-table-column>
+          <el-table-column prop="member_count" label="计分人数" />
+          <el-table-column prop="proposed_entry_count" label="计分笔数" />
+          <el-table-column label="状态"><template #default="{ row }">{{ row.proposed_entry_count ? (statuses[row.status] || "待核对") : "无新增学分" }}</template></el-table-column>
+          <el-table-column prop="proposed_points" min-width="140" label="预计学分" />
+          <el-table-column prop="posted_points" min-width="140" label="已入账" />
+          <el-table-column prop="blocked_count" min-width="110" label="待核对" />
+        </el-table
         ><el-table :data="detail.rows" max-height="420"
           ><el-table-column
             prop="excel_row"
@@ -711,8 +699,8 @@ onMounted(() => perform(reload));
           ></el-table
         >
         <p>
-          需要核对单笔计分或处理失败时，可展开下方“日常活动结算”查看对应批次。
-        </p></template
+          已有学分不会重复计入；系统保留来源和内部结算编号供追溯。部分失败请核对后再次点击“确认入账”，将继续处理未入账条目。
+        </p></el-collapse-item></el-collapse></template
       ></el-dialog
     >
   </el-card>
