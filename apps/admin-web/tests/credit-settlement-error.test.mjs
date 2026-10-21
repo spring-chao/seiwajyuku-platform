@@ -11,6 +11,8 @@ const { creditSettlementErrorMessage: message } = await import(`data:text/javasc
 test('network failures identify the failed section and do not claim an empty ledger', () => {
   assert.match(message({ code: 'ERR_NETWORK', message: 'Network Error' }, '学分账本读取失败'), /学分账本读取失败.*无法连接学分接口/);
   assert.match(message(new Error('学员 ID 必须为正整数'), '读取失败'), /^学员 ID 必须为正整数$/);
+  assert.equal(message(new Error('请选择班级，并填写至少4字的来源确认说明'),'检查失败'),'请选择班级，并填写至少4字的来源确认说明');
+  assert.doesNotMatch(message(new Error('private raw exception'),'检查失败'),/private/);
 });
 test('a partial schema upgrade has a specific explanation', () => {
   assert.match(message({ response: { status: 503, data: { detail: { code: 'CREDIT_LEDGER_SCHEMA_UNAVAILABLE' } } } }, '账本读取失败'), /期间结构尚未就绪/);

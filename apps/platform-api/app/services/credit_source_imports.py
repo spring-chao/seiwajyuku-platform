@@ -253,20 +253,26 @@ def _checked(c,actor,content,kind,class_id,options_text,note):
                 if existing and r.get('original_report') and json.loads(existing['metadata_json'] or '{}').get('source_format')!='READING_REPORT':raise credits.LearningCreditError('这一天已有其他格式的读书事实，请核对原来源，不能重复改写')
                 # Existing IDs sort before new IDs, matching the durable insert order.
                 fact={'id':int(existing['id']) if existing else 10**15+r['excel_row'],'activity_type':kind,'member_id':m['id'],'member_name':m['name'],'class_org_unit_id':class_id,'class_name':binding['class_name'],'binding_id':binding['id'],'occurred_on':day.isoformat(),'_occurred_date':day,'participation_status':r['participation_status'],'source_type':'CREDIT_EXCEL_'+kind,'source_id':r['source_id'],'title':r['raw'].get('分享标题'),'metadata':{'source_format':'READING_REPORT'} if r.get('original_report') else {}}
-                facts.append(fact);r['fact_id']=fact['id'] if existing else None
+                r['fact_id']=fact['id'] if existing else None
                 key=(m['id'],day.isoformat(),reference)
             if key in seen:raise credits.LearningCreditError('同一学长的同一来源在表内重复，请只保留一行')
-            seen.add(key)
+            if not r['errors']:seen.add(key)
+            if kind!='CLASS_MEETING' and not r['errors']:facts.append((r,fact))
         except (ValueError,TypeError) as exc:r['errors'].append(str(exc))
     if kind=='CLASS_MEETING':_class_preview(c,binding,cycle,event_id,options,rows)
     elif facts:
-        proposals=activity._daily_entries(c,facts) if kind=='DAILY_READING' else activity._excellent_entries(c,facts)
+        valid_facts=[f for _,f in facts]
+        proposals=activity._daily_entries(c,valid_facts) if kind=='DAILY_READING' else activity._excellent_entries(c,valid_facts)
         by_fact={fid:p for p in proposals for fid in p['fact_ids']}
-        for r,f in zip([r for r in rows if 'source_id' in r],facts):
+        for r,f in facts:
             p=by_fact[f['id']];r.update(proposed_points=format(Decimal(str(p['points'])),'.2f'),credit_status=p['status'],credit_reasons=p['reasons'],rule_snapshot=p['rule_snapshot'])
             if p['status']=='BLOCKED':r['errors'].extend(_reason(x) for x in p['reasons'])
     material={'kind':kind,'class_id':class_id,'binding_id':binding['id'],'options':options,'note':note,'file_sha256':hashlib.sha256(content).hexdigest(),
-              'rows':[{k:r.get(k) for k in ('excel_row','member_id','member_code','member_name','raw','occurred_on','source_reference','source_id','participation_status')} for r in rows]}
+              'rows':[{k:r.get(k) for k in ('excel_row','member_id','member_code','member_name','raw','occurred_on','source_reference','source_id','participation_status')} for r in rows if kind!='DAILY_READING' or not r['errors']]}
+    if kind=='DAILY_READING':
+        # Keep row numbers and reasons for traceability, never persist rejected
+        # raw cells (which may contain an unmasked account or formula).
+        material['ignored_rows']=[{'excel_row':r['excel_row'],'reasons':r['errors']} for r in rows if r['errors']]
     if len(_json(material).encode())>8*1024*1024:raise credits.LearningCreditError('来源记录过大，请分批导入')
     return binding,options,rows,_hash(material),note,event_id,material
 
@@ -321,7 +327,8 @@ def preview(content,kind,class_id,options,note,actor):
     try:
         binding,options,rows,fingerprint,note,_,_=_checked(c,actor,content,kind,class_id,options,note)
         errors=sum(bool(r['errors']) for r in rows)
-        return {'rows':rows,'row_count':len(rows),'error_count':errors,'fingerprint':fingerprint if not errors else None,'proposed_points':format(sum((Decimal(r.get('proposed_points','0')) for r in rows if not r['errors'] and r.get('credit_status')=='READY'),Decimal(0)),'.2f'),'class_name':binding['class_name'],'storage_available':available(c)}
+        accepted=len(rows)-errors
+        return {'rows':rows,'row_count':len(rows),'error_count':errors,'accepted_count':accepted,'ignored_count':errors if kind=='DAILY_READING' else 0,'fingerprint':fingerprint if accepted and (not errors or kind=='DAILY_READING') else None,'proposed_points':format(sum((Decimal(r.get('proposed_points','0')) for r in rows if not r['errors'] and r.get('credit_status')=='READY'),Decimal(0)),'.2f'),'class_name':binding['class_name'],'storage_available':available(c)}
     finally:c.close()
 
 
@@ -334,6 +341,7 @@ def _receipt(c,actor,import_id,*,allowed_scope=...,summary=False):
     item=dict(row);item['class_name']=execute(c,'SELECT name FROM org_units WHERE id=?',(row['class_org_unit_id'],)).fetchone()['name']
     rows=[] if summary else [dict(r) for r in execute(c,'SELECT r.*,m.member_code,m.name AS member_name FROM learning_credit_source_rows r JOIN members m ON m.id=r.member_id WHERE r.import_id=? ORDER BY r.excel_row,r.id',(import_id,)).fetchall()]
     if not summary:_validate_receipt(c,item,rows)
+    if not summary:item['ignored_rows']=json.loads(item['source_snapshot_json']).get('ignored_rows',[])
     stats=execute(c,'SELECT COUNT(DISTINCT excel_row) AS n,COUNT(fact_id) AS fact_count FROM learning_credit_source_rows WHERE import_id=?',(import_id,)).fetchone() if summary else None
     item['rows']=rows;item['row_count']=int(stats['n']) if summary else len({r['excel_row'] for r in rows})
     item['source_only']=item['source_kind']=='DAILY_READING' and (int(stats['fact_count'])==0 if summary else not any(r['fact_id'] is not None for r in rows))
@@ -395,7 +403,10 @@ def register(content,kind,class_id,options_text,note,filename,fingerprint,actor)
             if prior['file_sha256']!=digest or prior['source_kind']!=kind or prior['class_org_unit_id']!=class_id or prior['options_json']!=_json(_options(kind,options_text)) or prior['source_note']!=note.strip():raise credits.LearningCreditError('来源已变化，请重新检查')
             return {'id':int(prior['id']),'idempotent':True}
         binding,options,rows,current,note,event_id,source_snapshot=_checked(c,actor,content,kind,class_id,options_text,note)
-        if current!=fingerprint or any(r['errors'] for r in rows):raise credits.LearningCreditError('来源、名册、规则或账本已变化，请重新检查')
+        if current!=fingerprint or (kind!='DAILY_READING' and any(r['errors'] for r in rows)):raise credits.LearningCreditError('来源、名册、规则或账本已变化，请重新检查')
+        ignored_count=sum(bool(r['errors']) for r in rows)
+        if kind=='DAILY_READING':rows=[r for r in rows if not r['errors']]
+        if not rows:raise credits.LearningCreditError('没有可保存的有效记录，请核对表格后重新检查')
         now=credits._db_timestamp(c)
         if kind=='CLASS_MEETING' and not event_id:
             event_id=int(execute(c,"INSERT INTO attendance_event_groups(source_key,external_group_id,org_unit_id,study_org_unit_id,title,activity_type,event_date,status,source_updated_at,created_at,updated_at) VALUES ('CREDIT_EXCEL',?,?,?,?,'CLASS_MEETING',?,'ACTIVE',?,?,?)",('cycle:'+str(options['cycle_id']),class_id,class_id,binding['class_name']+'线下班会',rows[0]['occurred_on'],now,now,now)).lastrowid)
@@ -411,7 +422,7 @@ def register(content,kind,class_id,options_text,note,filename,fingerprint,actor)
                     fact=activity.record_learning_activity_fact(actor_user_id=actor,activity_type=kind,member_id=r['member_id'],class_org_unit_id=class_id,occurred_on=r['occurred_on'],source_type='CREDIT_EXCEL_'+kind,source_id=r['source_id'],participation_status=r['participation_status'],title=r['raw'].get('分享标题'),metadata={'source_import_id':import_id,'file_sha256':digest,'excel_row':r['excel_row'],'reference':r['source_reference'],**({'source_format':'READING_REPORT'} if r.get('original_report') else {})},binding_id=binding['id'],_connection=c)
                     fact_id=int(fact['id'])
                 execute(c,'INSERT INTO learning_credit_source_rows(import_id,member_id,excel_row,occurred_on,source_reference,record_json,fact_id) VALUES (?,?,?,?,?,?,?)',(import_id,r['member_id'],r['excel_row'],r['occurred_on'],r['source_reference'],_json(r['raw']),fact_id))
-        write_audit(c,actor_user_id=actor,action='learning.credit_source.import',resource_type='credit_source_import',resource_id=str(import_id),org_unit_id=class_id,after={'kind':kind,'count':len(rows),'file_sha256':digest,'fingerprint':fingerprint,'ledger_write':False})
+        write_audit(c,actor_user_id=actor,action='learning.credit_source.import',resource_type='credit_source_import',resource_id=str(import_id),org_unit_id=class_id,after={'kind':kind,'count':len(rows),'ignored_count':ignored_count,'file_sha256':digest,'fingerprint':fingerprint,'ledger_write':False})
         return {'id':import_id,'idempotent':False}
 
 

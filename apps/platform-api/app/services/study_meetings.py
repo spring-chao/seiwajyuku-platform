@@ -995,12 +995,31 @@ def _operation_scope_allows(actor_user_id: int, class_org_unit_id: str) -> bool:
     return allowed is None or class_org_unit_id in allowed
 
 
+def study_meeting_filter_options(*, actor_user_id: int) -> dict:
+    allowed = accessible_org_ids(actor_user_id)
+    organizations = {r['id']: r for r in fetch_all('SELECT id,name,parent_id,unit_type FROM org_units')}
+    classes=[];regions={}
+    for item in organizations.values():
+        if item['unit_type'] not in {'CLASS','SPECIAL_COHORT'} or (allowed is not None and item['id'] not in allowed):continue
+        parent=item;visited=set();region=None
+        while parent and parent['id'] not in visited:
+            visited.add(parent['id'])
+            if parent['unit_type'] in {'REGIONAL_CENTER','OPERATING_UNIT'}:
+                region=parent;break
+            parent=organizations.get(parent['parent_id'])
+        classes.append({'id':item['id'],'name':item['name'],'management_org_unit_id':region['id'] if region else None})
+        if region:regions[region['id']]={'id':region['id'],'name':region['name']}
+    return {'classes':sorted(classes,key=lambda v:(v['name'],v['id'])), 'regions':sorted(regions.values(),key=lambda v:(v['name'],v['id']))}
+
+
 def list_study_meeting_records(
     *,
     actor_user_id: int,
     status: str | None = None,
     meeting_date_from: str | None = None,
     meeting_date_to: str | None = None,
+    management_org_unit_id: str | None = None,
+    class_org_unit_id: str | None = None,
     limit: int = 500,
     scope_permissions: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
@@ -1013,6 +1032,13 @@ def list_study_meeting_records(
             allowed = scope if allowed is None else allowed & scope
     if allowed == set():
         return []
+    if management_org_unit_id or class_org_unit_id:
+        options=study_meeting_filter_options(actor_user_id=actor_user_id)
+        selected={r['id'] for r in options['classes']
+                  if (not class_org_unit_id or r['id']==class_org_unit_id)
+                  and (not management_org_unit_id or r['management_org_unit_id']==management_org_unit_id)}
+        allowed=selected if allowed is None else allowed & selected
+        if not allowed:return []
     conditions = ["1=1"]
     params: list[Any] = []
     if status:

@@ -142,8 +142,16 @@ def create_meeting(
     return {"success": True, "data": data}
 
 
+@router.get("/record-filter-options")
+def record_filter_options(user: dict = Depends(require_permission("plans:read"))) -> dict:
+    from app.services.study_meetings import study_meeting_filter_options
+    return {"success": True, "data": study_meeting_filter_options(actor_user_id=user['id'])}
+
+
 @router.get("/records")
 def operations_records(
+    management_org_unit_id: str | None = Query(default=None, max_length=128),
+    class_org_unit_id: str | None = Query(default=None, max_length=128),
     status: str | None = Query(default=None, max_length=16),
     meeting_date_from: str | None = Query(default=None, max_length=32),
     meeting_date_to: str | None = Query(default=None, max_length=32),
@@ -152,6 +160,8 @@ def operations_records(
     try:
         data = list_study_meeting_records(
             actor_user_id=user["id"],
+            management_org_unit_id=management_org_unit_id,
+            class_org_unit_id=class_org_unit_id,
             status=status,
             meeting_date_from=meeting_date_from,
             meeting_date_to=meeting_date_to,
@@ -163,6 +173,8 @@ def operations_records(
 
 @router.get("/records-export")
 def export_records(
+    management_org_unit_id: str | None = Query(default=None, max_length=128),
+    class_org_unit_id: str | None = Query(default=None, max_length=128),
     session_id: int | None = Query(default=None, gt=0),
     status: str | None = Query(default=None, max_length=16),
     meeting_date_from: str | None = Query(default=None, max_length=32),
@@ -172,6 +184,7 @@ def export_records(
 ) -> Response:
     try:
         content = export_meeting_workbook(actor_user_id=user["id"], session_id=session_id, layout=layout,
+            management_org_unit_id=management_org_unit_id, class_org_unit_id=class_org_unit_id,
             status=status, meeting_date_from=meeting_date_from, meeting_date_to=meeting_date_to)
         return Response(content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={
             "Content-Disposition": 'attachment; filename="study-meetings.xlsx"', "Cache-Control": "private, no-store"})

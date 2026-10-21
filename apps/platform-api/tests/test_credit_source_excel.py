@@ -89,9 +89,9 @@ def test_sources_use_existing_rules_post_once_and_trace_file_rows(source_fixture
     result=exports.export_credits(f['actor'],f['class_id'],DAY,DAY)
     book=load_workbook(io.BytesIO(result),data_only=False)
     assert book.sheetnames==['学分汇总','新增学分明细','已导入历史年度']
-    assert book['新增学分明细']['J2'].data_type=='s' and '测试原文件.xlsx' in book['新增学分明细']['J2'].value
-    assert book['新增学分明细']['F2'].data_type=='n'
-    assert book['新增学分明细']['E2'].is_date
+    assert book['新增学分明细']['K2'].data_type=='s' and '测试原文件.xlsx' in book['新增学分明细']['K2'].value
+    assert book['新增学分明细']['G2'].data_type=='n'
+    assert book['新增学分明细']['F2'].is_date
 
 
 def DecimalText(value):
@@ -348,7 +348,7 @@ def test_full_export_keeps_authorized_opening_balance_without_class_assignment(s
     book=load_workbook(io.BytesIO(exports.export_credits(f['actor'])))
     rows=list(book['学分汇总'].iter_rows(min_row=2,values_only=True))
     row=next((r for r in rows if r[0]==f['member_code']),None)
-    assert row is not None and row[3]==12.75 and row[5]==12.75
+    assert row is not None and row[4]==12.75 and row[6]==12.75
     assert '余额归属' in row[2]
     with patch.object(credits,'accessible_org_ids',return_value={f['class_id']}):
         restricted=load_workbook(io.BytesIO(exports.export_credits(f['actor'])))
@@ -393,7 +393,7 @@ def test_original_reading_export_trusts_supplied_dates_and_keeps_source(source_f
     sources.process(import_id,f['reviewer'],'approve');sources.process(import_id,f['actor'],'post')
     assert fetch_one("SELECT SUM(points) AS p FROM learning_credit_entries WHERE member_id=? AND credit_type='DAILY_READING'",(f['member_id'],))['p']==2
     exported=load_workbook(io.BytesIO(exports.export_credits(f['actor'],f['class_id'],'2026-10-01','2026-10-13')))
-    assert '读书会打卡统计列表.xlsx' in exported['新增学分明细']['J2'].value
+    assert '读书会打卡统计列表.xlsx' in exported['新增学分明细']['K2'].value
 
 
 def test_original_reading_export_rejects_unmatched_masked_account(source_fixture):
@@ -403,3 +403,83 @@ def test_original_reading_export_rejects_unmatched_masked_account(source_fixture
     preview=sources.preview(raw.getvalue(),'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
     assert preview['error_count']==1 and preview['fingerprint'] is None
     assert '账户尾号' in preview['rows'][0]['errors'][0]
+
+
+def test_reading_partial_import_skips_invalid_and_duplicate_rows_then_posts_once(source_fixture):
+    f=source_fixture
+    book=Workbook();sheet=book.active;sheet.title=sources.SHEETS['DAILY_READING'];sheet.append(sources.HEADERS['DAILY_READING'])
+    sheet.append(['UNKNOWN','无匹配学员',date.fromisoformat(DAY),'是'])
+    sheet.append([f['member_code'],f['name'],date.fromisoformat(DAY),'=1+1'])
+    sheet.append([f['member_code'],f['name'],date.fromisoformat(DAY),'是'])
+    sheet.append([f['member_code'],f['name'],date.fromisoformat(DAY),'是'])
+    output=io.BytesIO();book.save(output);raw=output.getvalue()
+    p=sources.preview(raw,'DAILY_READING',f['class_id'],'{}',NOTE,f['actor'])
+    assert p['error_count']==3 and p['ignored_count']==3 and p['accepted_count']==1
+    assert p['fingerprint'] and p['proposed_points']=='1.00'
+    iid=sources.register(raw,'DAILY_READING',f['class_id'],'{}',NOTE,'混合读书记录.xlsx',p['fingerprint'],f['actor'])['id']
+    receipt=sources.get_import(iid,f['actor'])
+    assert [r['excel_row'] for r in receipt['rows']]==[4]
+    assert [r['excel_row'] for r in receipt['ignored_rows']]==[2,3,5]
+    frozen=fetch_one('SELECT source_snapshot_json FROM learning_credit_source_imports WHERE id=?',(iid,))['source_snapshot_json']
+    assert '=1+1' not in frozen and 'UNKNOWN' not in frozen
+    sources.create_batches(iid,f['actor']);sources.process(iid,f['actor'],'submit')
+    sources.process(iid,f['reviewer'],'approve');sources.process(iid,f['actor'],'post')
+    assert sources.register(raw,'DAILY_READING',f['class_id'],'{}',NOTE,'重传.xlsx',p['fingerprint'],f['actor'])['idempotent']
+    assert fetch_one("SELECT SUM(points) AS p FROM learning_credit_entries WHERE member_id=? AND credit_type='DAILY_READING'",(f['member_id'],))['p']==1
+
+
+def test_credit_export_derives_full_month_target_from_dated_published_plan(source_fixture):
+    from decimal import Decimal
+    from app.services.credit_monthly_targets import monthly_target
+    f=source_fixture
+    _calendar(f,year=2026,label='full-month-'+f['suffix'],day_types={f'2026-10-{d:02}':'NORMAL_WORKDAY' for d in range(1,32)})
+    with transaction() as c:
+        now=credits._db_timestamp(c)
+        execute(c,"UPDATE class_learning_cycles SET planned_class_meeting_at='2026-10-15T01:00:00+00:00' WHERE id=?",(f['cycle_id'],))
+        plan=execute(c,'SELECT plan_cycle_id FROM class_learning_cycles WHERE id=?',(f['cycle_id'],)).fetchone()['plan_cycle_id']
+        for task in ('GROUP_MEETING','GROUP_MEETING'):
+            execute(c,'INSERT INTO learning_plan_tasks(plan_cycle_id,task_type,title,is_required,sort_order,created_at,updated_at) VALUES (?,?,?,1,1,?,?)',(plan,task,'小组学习',now,now))
+        rule_id=execute(c,'SELECT credit_rule_version_id FROM class_learning_bindings WHERE id=?',(f['binding_id'],)).fetchone()['credit_rule_version_id']
+        from app.services.credit_rule_mapping import bound_generic_rule
+        expected=Decimal(str(bound_generic_rule(c,rule_id,'DAILY_READING')['points']))*31+Decimal(str(bound_generic_rule(c,rule_id,'EXCELLENT_SHARE')['cap_points']))+Decimal(str(bound_generic_rule(c,rule_id,'GROUP_MEETING_ATTENDANCE')['points']))
+        assert monthly_target(c,f['class_id'],date(2026,10,9))['points']==expected
+        group_id='export-group-'+f['suffix']
+        execute(c,"INSERT INTO org_units(id,unit_code,name,unit_type,parent_id,is_active,created_at,updated_at) VALUES (?,?,'合成学习小组','GROUP',?,1,?,?)",(group_id,group_id,f['class_id'],now,now))
+        execute(c,"INSERT INTO member_org_relations(member_id,org_unit_id,relation_type,is_primary,created_at,updated_at) VALUES (?,?,'STUDY_GROUP',1,?,?)",(f['member_id'],group_id,now,now))
+    iid,_,_=registered(f,'DAILY_READING')
+    sources.create_batches(iid,f['actor']);sources.process(iid,f['actor'],'submit');sources.process(iid,f['reviewer'],'approve');sources.process(iid,f['actor'],'post')
+    # Export starts after the earning day: the monthly numerator still starts
+    # at month-day 1, independently of the detail date filter.
+    book=load_workbook(io.BytesIO(exports.export_credits(f['actor'],f['class_id'],'2026-10-10','2026-10-15')))
+    row=dict(zip([c.value for c in book['学分汇总'][1]],[c.value for c in book['学分汇总'][2]]))
+    assert row['小组']=='合成学习小组' and row['当月满分']==float(expected)
+    assert row['学分率']==pytest.approx(1/float(expected))
+    assert book['学分汇总']['J2'].number_format=='0.0%'
+    with transaction() as c:execute(c,"UPDATE learning_plan_versions SET status='DRAFT' WHERE id=?",(f['plan_id'],))
+    book=load_workbook(io.BytesIO(exports.export_credits(f['actor'],f['class_id'],DAY,DAY)))
+    assert book['学分汇总']['I2'].value=='待配置' and book['学分汇总']['J2'].value is None
+
+
+def test_month_target_counts_class_and_unique_courses_but_missing_policy_is_unresolved(source_fixture):
+    from decimal import Decimal
+    from app.services.credit_monthly_targets import monthly_target
+    f=source_fixture
+    _calendar(f,year=2026,label='target-policies-'+f['suffix'],day_types={f'2026-10-{d:02}':'NORMAL_WORKDAY' for d in range(1,32)})
+    with transaction() as c:
+        now=credits._db_timestamp(c)
+        execute(c,"UPDATE class_learning_cycles SET planned_class_meeting_at='2026-10-15T01:00:00+00:00' WHERE id=?",(f['cycle_id'],))
+        plan=execute(c,'SELECT plan_cycle_id FROM class_learning_cycles WHERE id=?',(f['cycle_id'],)).fetchone()['plan_cycle_id']
+        version=execute(c,"INSERT INTO learning_plan_credit_rule_versions(plan_key,version_label,status,created_at,updated_at) VALUES (?,'test','PUBLISHED',?,?)",('target-'+f['suffix'],now,now)).lastrowid
+        execute(c,"INSERT INTO learning_plan_credit_rules(rule_version_id,course_key,course_name,credit_points,status,source,created_at,updated_at) VALUES (?,'TARGET_COURSE','合成目标课程',40,'CONFIGURED','OPERATIONS',?,?)",(version,now,now))
+        execute(c,'UPDATE class_learning_bindings SET course_credit_rule_version_id=? WHERE id=?',(version,f['binding_id']))
+        for task in ('READING','CLASS_MEETING','CLASS_MEETING','KONPA','ONLINE_COURSE','OFFLINE_COURSE'):
+            execute(c,'INSERT INTO learning_plan_tasks(plan_cycle_id,task_type,title,is_required,sort_order,metadata_json,created_at,updated_at) VALUES (?,?,?,1,1,?, ?,?)',(plan,task,'合成目标课程' if task.endswith('COURSE') else '学习任务',json.dumps({'course_key':'TARGET_COURSE'}) if task.endswith('COURSE') else '{}',now,now))
+        result=monthly_target(c,f['class_id'],date(2026,10,15))
+        assert result['points'] is not None,result
+        assert result['reason'].count('同课程去重')==1
+        assert result['reason'].count('MORNING')==1 and result['reason'].count('AFTERNOON')==1 and result['reason'].count('KONPA')==1
+        execute(c,"UPDATE learning_plan_credit_rules SET status='PENDING' WHERE rule_version_id=?",(version,))
+        missing=monthly_target(c,f['class_id'],date(2026,10,15))
+        assert missing['points'] is None and '课程学分待配置' in missing['reason']
+        execute(c,"UPDATE class_learning_cycles SET planned_class_meeting_at=NULL WHERE id=?",(f['cycle_id'],))
+        assert '日期' in monthly_target(c,f['class_id'],date(2026,10,15))['reason']
