@@ -470,7 +470,7 @@ def test_month_target_counts_class_and_unique_courses_but_missing_policy_is_unre
         execute(c,"UPDATE class_learning_cycles SET planned_class_meeting_at='2026-10-15T01:00:00+00:00' WHERE id=?",(f['cycle_id'],))
         plan=execute(c,'SELECT plan_cycle_id FROM class_learning_cycles WHERE id=?',(f['cycle_id'],)).fetchone()['plan_cycle_id']
         version=execute(c,"INSERT INTO learning_plan_credit_rule_versions(plan_key,version_label,status,created_at,updated_at) VALUES (?,'test','PUBLISHED',?,?)",('target-'+f['suffix'],now,now)).lastrowid
-        execute(c,"INSERT INTO learning_plan_credit_rules(rule_version_id,course_key,course_name,credit_points,status,source,created_at,updated_at) VALUES (?,'TARGET_COURSE','合成目标课程',40,'CONFIGURED','OPERATIONS',?,?)",(version,now,now))
+        execute(c,"INSERT INTO learning_plan_credit_rules(rule_version_id,course_key,course_name,credit_points,status,source,aliases_json,created_at,updated_at) VALUES (?,'TARGET_COURSE','合成目标课程',40,'CONFIGURED','OPERATIONS','[]',?,?)",(version,now,now))
         execute(c,'UPDATE class_learning_bindings SET course_credit_rule_version_id=? WHERE id=?',(version,f['binding_id']))
         for task in ('READING','CLASS_MEETING','CLASS_MEETING','KONPA','ONLINE_COURSE','OFFLINE_COURSE'):
             execute(c,'INSERT INTO learning_plan_tasks(plan_cycle_id,task_type,title,is_required,sort_order,metadata_json,created_at,updated_at) VALUES (?,?,?,1,1,?, ?,?)',(plan,task,'合成目标课程' if task.endswith('COURSE') else '学习任务',json.dumps({'course_key':'TARGET_COURSE'}) if task.endswith('COURSE') else '{}',now,now))
