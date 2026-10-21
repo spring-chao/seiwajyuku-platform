@@ -110,7 +110,7 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
         if len(members)>5000:raise credits.LearningCreditError('导出超过5000位学长，请选择班级缩小范围')
         if member_id and member_id not in members:raise PermissionError('该学员不在当前学分导出范围内')
         groups={}
-        for r in execute(c,"SELECT DISTINCT r.member_id,o.name,o.parent_id FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id WHERE r.relation_type='STUDY_GROUP' AND (r.valid_from IS NULL OR r.valid_from<=?) AND (r.valid_until IS NULL OR r.valid_until>=?) ORDER BY o.id",(end.isoformat(),end.isoformat())).fetchall():
+        for r in execute(c,"SELECT DISTINCT r.member_id,o.id AS group_id,o.name,o.parent_id FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id WHERE r.relation_type='STUDY_GROUP' AND o.parent_id IN ("+placeholders+") AND (r.valid_from IS NULL OR r.valid_from<=?) AND (r.valid_until IS NULL OR r.valid_until>=?) ORDER BY o.id",(*params,end.isoformat(),end.isoformat())).fetchall():
             if r['member_id'] in members and r['parent_id'] in members[r['member_id']].get('class_ids',set()):groups.setdefault(r['member_id'],[]).append(r['name'])
         month_start=end.replace(day=1)
         target_classes={cid for m in members.values() for cid in m.get('class_ids',set())}
