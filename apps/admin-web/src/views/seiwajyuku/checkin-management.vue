@@ -1432,7 +1432,7 @@ onUnmounted(() => {
                     ></el-tooltip
                   >
                   <div v-if="row.is_team && permission('manage')" class="muted">
-                    团队名额：请通过小程序确认实际参加人
+                    团队名额：请先核对实际参加人
                   </div>
                   <el-button
                     v-if="permission('manage')"

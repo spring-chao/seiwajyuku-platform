@@ -35,10 +35,18 @@ class RegistrationIdentityRow(BaseModel):
     phone: str = Field(max_length=32)
 
 
+class BoundRegistrationMember(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    member_id: str = Field(min_length=1, max_length=128)
+    member_code: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=120)
+
+
 class RegistrationIdentityPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_id: str = Field(min_length=1, max_length=128)
     rows: list[RegistrationIdentityRow] = Field(max_length=5000)
+    bound_member: BoundRegistrationMember | None = None
 
 
 @router.post("/registration-identities")
@@ -46,14 +54,16 @@ def registration_identity_lookup(payload: RegistrationIdentityPayload,
                                  x_api_key: str | None = Header(default=None)) -> dict:
     _verify_api_key(x_api_key)
     rows = [row.model_dump() for row in payload.rows]
-    matches = registration_identities(rows)
+    bound_member = payload.bound_member.model_dump() if payload.bound_member else None
+    matches = registration_identities(rows, bound_member=bound_member)
     with transaction() as connection:
         write_audit(connection, actor_user_id=None,
                     action="integrations.checkin_roster.registration_identity",
                     resource_type="signin_event", resource_id=payload.event_id,
-                    purpose="报名姓名和手机号核对在册学员",
-                    after={"row_count": len(rows), "matched_count": sum(bool(m) for m in matches)})
-    return {"success": True, "data": {"source": "PLATFORM_ACTIVE_NAME_PHONE",
+                    purpose="本人签到报名核对" if bound_member else "报名姓名和手机号核对在册学员",
+                    after={"row_count": len(rows), "matched_count": sum(bool(m) for m in matches),
+                           "bound_unique_name_allowed": bound_member is not None})
+    return {"success": True, "data": {"source": "PLATFORM_BOUND_REGISTRATION_IDENTITY" if bound_member else "PLATFORM_ACTIVE_NAME_PHONE",
         "matches": [{"registration_id": row["registration_id"], **match}
                     for row, match in zip(rows, matches) if match]}}
 

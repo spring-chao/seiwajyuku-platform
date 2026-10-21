@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import os
 from unittest.mock import patch
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
 from app.core.privacy import phone_hash
-from app.db import execute, transaction
+from app.db import execute, fetch_one, transaction
 from app.main import app
 from app.services import signin_engine
 from app.services.attendance_registration_identity import registration_identities
@@ -72,3 +73,38 @@ def test_name_scan_requires_selection_and_lookup_never_confirms_a_missing_enroll
         assert response.json()["data"]["candidates"] == []
         assert request.call_args.args[0].endswith("/lookup")
         assert "openid" not in str(request.call_args)
+
+
+def test_bound_blank_phone_requires_unique_active_full_name_and_exact_bound_identity():
+    fixture = _seed_group_leader_fixture()
+    name = '合成唯一报名' + uuid4().hex
+    with transaction() as connection:
+        execute(connection, 'UPDATE members SET name=? WHERE id=?', (name, fixture['member_id']))
+    bound = {'member_id': str(fixture['member_id']), 'member_code':
+             fetch_one('SELECT member_code FROM members WHERE id=?', (fixture['member_id'],))['member_code'], 'name': name}
+    row = {'registration_id': 'existing-slot', 'name': name, 'phone': ''}
+    assert registration_identities([row]) == [None], 'imports must still require name+phone'
+    assert registration_identities([row], bound_member=bound)[0]['platform_member_id'] == bound['member_id']
+    for wrong in [{**bound, 'member_id': 'wrong'}, {**bound, 'member_code': 'wrong'}, {**bound, 'name': '其他报名人'}]:
+        assert registration_identities([row], bound_member=wrong) == [None]
+    assert registration_identities([{**row, 'phone': 'invalid'}], bound_member=bound) == [None]
+    assert registration_identities([{**row, 'member_code': 'OTHER'}], bound_member=bound) == [None]
+    with patch.dict(os.environ, ENV), TestClient(app) as client:
+        path = '/api/v1/checkin-rosters/registration-identities'
+        payload = {'event_id': 'isolated-event', 'rows': [row], 'bound_member': bound}
+        assert client.post(path, json=payload).status_code == 401
+        response = client.post(path, headers={'X-API-Key': ENV['SIGNIN_SERVICE_API_KEY']}, json=payload)
+        assert response.status_code == 200, response.text
+        assert response.json()['data']['source'] == 'PLATFORM_BOUND_REGISTRATION_IDENTITY'
+        assert response.json()['data']['matches'][0]['platform_member_id'] == bound['member_id']
+        assert 'phone' not in response.text
+    other = _seed_group_leader_fixture()
+    with transaction() as connection:
+        execute(connection, 'UPDATE members SET name=? WHERE id=?', (name, other['member_id']))
+    assert registration_identities([row], bound_member=bound) == [None], 'active same-name ambiguity must not guess'
+    with transaction() as connection:
+        execute(connection, "UPDATE members SET status='INACTIVE' WHERE id=?", (other['member_id'],))
+    assert registration_identities([row], bound_member=bound)[0]['platform_member_id'] == bound['member_id']
+    with transaction() as connection:
+        execute(connection, "UPDATE members SET status='INACTIVE' WHERE id=?", (fixture['member_id'],))
+    assert registration_identities([row], bound_member=bound) == [None]

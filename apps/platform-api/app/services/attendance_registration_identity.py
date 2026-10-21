@@ -1,11 +1,11 @@
-"""Associate registration slots only with a unique active name/phone identity."""
+"""Resolve enrollment identities without guessing among same-name members."""
 from __future__ import annotations
 
 from app.core.privacy import phone_hash
 from app.db import fetch_all
 
 
-def registration_identities(rows: list[dict]) -> list[dict | None]:
+def registration_identities(rows: list[dict], *, bound_member: dict | None = None) -> list[dict | None]:
     keys = []
     for row in rows:
         name = str(row.get("name") or "").strip()
@@ -34,6 +34,20 @@ def registration_identities(rows: list[dict]) -> list[dict | None]:
         result.append({"platform_member_id": str(matches[0]["id"]),
                        "member_code": str(matches[0]["member_code"])}
                       if len(matches) == 1 else None)
+    # Import remains name+phone only. During authenticated self check-in only,
+    # a blank-phone enrollment can use the already bound identity if that full
+    # name identifies exactly one active platform member. Never override a
+    # supplied phone, a same-name ambiguity, or a conflicting ID/member code.
+    if bound_member:
+        name = str(bound_member.get('name') or '').strip()
+        candidates = fetch_all('SELECT id,member_code,name FROM members WHERE status=\'ACTIVE\' AND name=?', (name,)) if name else []
+        if (len(candidates) == 1 and str(candidates[0]['id']) == str(bound_member.get('member_id'))
+                and str(candidates[0]['member_code']) == str(bound_member.get('member_code'))):
+            for index, row in enumerate(rows):
+                if (not row.get('platform_member_id') and not row.get('member_code')
+                        and not str(row.get('phone') or '').strip() and str(row.get('name') or '').strip() == name):
+                    result[index] = {'platform_member_id': str(candidates[0]['id']),
+                                     'member_code': str(candidates[0]['member_code'])}
     return result
 
 
