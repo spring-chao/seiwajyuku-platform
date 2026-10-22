@@ -63,7 +63,7 @@ Page({
       const meetingPlanError = hasCurrentCycle && !meetingPlan
         ? (assignment.meeting_plan_error || "当前学习周期内容配置尚未完成，请联系运营人员。")
         : "";
-      const draft = appDraftForGroup(selected);
+      const draft = appDraftForGroup(selected, meetingPlan && meetingPlan.learningCycleIndex);
       const learningContents = meetingPlan ? meetingPlan.learningContents : [];
       const learningContentResults = applyLearningContentResults(
         learningContents,
@@ -105,7 +105,7 @@ Page({
       allRequiredContentConfirmed: requiredLearningContentConfirmed(learningContentResults),
       allRequiredContentCompleted: requiredLearningContentComplete(learningContentResults)
     });
-    saveLearningContentResults(this.data.selectedGroupId, learningContentResults);
+    saveLearningContentResults(this.data.selectedGroupId, learningContentResults, this.data.assignment.current_cycle.learning_cycle_index);
   },
 
   openLearningContent(event) {
@@ -122,24 +122,29 @@ Page({
       wx.showToast({ title: "当前学习周期内容尚未配置", icon: "none" });
       return;
     }
-    saveLearningContentResults(this.data.selectedGroupId, this.data.learningContentResults);
+    if (this.data.learningContentResults.some(item => item.confirmed !== true)) {
+      wx.showToast({ title: "请选择视频是否已完成", icon: "none" });
+      return;
+    }
+    saveLearningContentResults(this.data.selectedGroupId, this.data.learningContentResults, this.data.assignment.current_cycle.learning_cycle_index);
     wx.navigateTo({
       url: `/pages/study-meeting/members?groupId=${encodeURIComponent(this.data.selectedGroupId)}`
     });
   }
 });
 
-function appDraftForGroup(groupId) {
+function appDraftForGroup(groupId, cycleIndex) {
   const draft = app.globalData.studyMeetingDraft || {};
-  return draft.group_org_unit_id === groupId ? draft : {};
+  return draft.group_org_unit_id === groupId && draft.learning_cycle_index === cycleIndex ? draft : {};
 }
 
-function saveLearningContentResults(groupId, results) {
+function saveLearningContentResults(groupId, results, cycleIndex) {
   if (!groupId) return;
-  const previous = appDraftForGroup(groupId);
+  const previous = appDraftForGroup(groupId, cycleIndex);
   app.globalData.studyMeetingDraft = {
     ...previous,
     group_org_unit_id: groupId,
+    learning_cycle_index: cycleIndex,
     learning_content_results: serializeLearningContentResults(results)
   };
 }

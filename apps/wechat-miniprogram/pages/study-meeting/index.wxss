@@ -18,5 +18,5 @@
 .empty-card { color: #5d4a4a; }
 .notice-card { border-left: 8rpx solid #d79a83; }
 .checkmark { position: absolute; top: 24rpx; right: 22rpx; color: #741f2b; font-size: 32rpx; }
-.primary-button { margin-top: 24rpx; border-radius: 12rpx; background: #741f2b; color: #fff; font-size: 29rpx; }
+.primary-button { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 88rpx; padding: 12rpx 16rpx; box-sizing: border-box; white-space: nowrap; line-height: 1.4; margin-top: 24rpx; border-radius: 12rpx; background: #741f2b; color: #fff; font-size: 29rpx; }
 .error { color: #b33b44; }

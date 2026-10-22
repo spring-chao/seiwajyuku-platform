@@ -203,7 +203,7 @@ test("index renders current cycle and meeting plan, then preserves completion st
   }
 });
 
-for (const choice of ["no", null]) test(`incomplete or unconfirmed content can advance: ${choice}`, async () => {
+for (const choice of ["no", null]) test(`only an explicit video choice can advance: ${choice}`, async () => {
   const harness = loadIndexPage({
     data: {
       selection_required: false,
@@ -221,9 +221,15 @@ for (const choice of ["no", null]) test(`incomplete or unconfirmed content can a
     await harness.page.loadContext();
     if (choice) harness.page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: "video-1", completed: choice } } });
     harness.page.openMembers();
-    assert.equal(harness.calls.at(-1).navigation, "/pages/study-meeting/members?groupId=group-1");
-    assert.equal(harness.app.globalData.studyMeetingDraft.learning_content_results[0].completed, false);
-    assert.equal(harness.app.globalData.studyMeetingDraft.learning_content_results[0].confirmed, Boolean(choice));
+    if (choice) {
+      assert.equal(harness.calls.at(-1).navigation, "/pages/study-meeting/members?groupId=group-1");
+      assert.equal(harness.app.globalData.studyMeetingDraft.learning_content_results[0].completed, false);
+      assert.equal(harness.app.globalData.studyMeetingDraft.learning_content_results[0].confirmed, true);
+    } else {
+      assert.equal(harness.calls.at(-1).toast, "请选择视频是否已完成");
+      assert.equal(harness.calls.some(call => call.navigation), false);
+      assert.equal(harness.app.globalData.studyMeetingDraft, null);
+    }
   } finally {
     harness.cleanup();
   }
@@ -294,4 +300,34 @@ test("normal submit page no longer contains the legacy course picker", () => {
   assert.match(template, /尚未完成/);
   assert.match(template, /setLearningContentCompletion/);
   assert.match(template, /catchtap="openLearningContent"/);
+});
+
+
+for (const mode of ['multiple', 'empty', 'restore', 'older-cycle']) test(`video choices are explicit and scoped to this cycle: ${mode}`, async () => {
+  const plan = samplePlan(8);
+  if (mode === 'multiple') {
+    plan.steps[0].learning_content_keys.push('video-2');
+    plan.learning_contents.push({ content_key: 'video-2', title: '第二个视频', required: false, sort_order: 2, content_access: { type: 'NONE' } });
+  }
+  if (mode === 'empty') { plan.steps[0].learning_content_keys = []; plan.learning_contents = []; }
+  const h = loadIndexPage({ data: { selected_group_org_unit_id: 'group-1', assignment: {
+    class_name: '测试班', group_name: '第一小组', current_cycle: { learning_cycle_index: 8 }, meeting_plan: plan } } });
+  try {
+    if (mode === 'older-cycle') h.app.globalData.studyMeetingDraft = { group_org_unit_id: 'group-1', learning_cycle_index: 7,
+      learning_content_results: [{ content_key: 'video-1', completed: true, confirmed: true }] };
+    await h.page.loadContext();
+    assert.ok(h.page.data.learningContentResults.every(item => item.confirmed === false));
+    if (mode === 'empty') { h.page.openMembers(); assert.ok(h.calls.at(-1).navigation); return; }
+    if (mode === 'older-cycle') { h.page.openMembers(); assert.equal(h.calls.at(-1).toast, '请选择视频是否已完成'); return; }
+    h.page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: 'video-1', completed: 'no' } } });
+    if (mode === 'multiple') {
+      h.page.openMembers(); assert.equal(h.calls.at(-1).toast, '请选择视频是否已完成');
+      h.page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: 'video-2', completed: 'yes' } } });
+    } else {
+      await h.page.loadContext();
+      assert.equal(h.page.data.learningContentResults[0].confirmed, true);
+      assert.equal(h.page.data.learningContentResults[0].completed, false);
+    }
+    h.page.openMembers(); assert.ok(h.calls.at(-1).navigation);
+  } finally { h.cleanup(); }
 });
