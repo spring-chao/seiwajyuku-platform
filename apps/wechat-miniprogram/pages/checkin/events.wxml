@@ -9,6 +9,6 @@
   <button wx:if="{{!loading}}" class="plain-button" bindtap="loadEvents">刷新活动</button>
   <view wx:if="{{!loading && !errorMessage && !events.length}}" class="state-card">当前没有可签到的活动，请联系工作人员。</view>
   <view wx:for="{{events}}" wx:key="event_id" class="section-card" data-event-id="{{item.event_id}}" bindtap="openEvent">
-    <view class="section-title">{{item.title}}</view><view class="detail-line">{{item.event_date_display}} · {{item.session_name}}</view><view class="section-hint">{{item.checkin_status === 'open' ? '当前可签到，进入本场次 →' : '签到尚未开放'}}</view>
+    <view class="section-title">{{item.title}}</view><view class="detail-line">{{item.event_date_display}} · {{item.session_name}}</view><view class="section-hint">{{item.checkin_status === 'open' ? '当前可签到，进入本场次 →' : item.checkin_status === 'upcoming' ? '签到尚未开放' : '签到已结束'}}</view>
   </view>
 </view>

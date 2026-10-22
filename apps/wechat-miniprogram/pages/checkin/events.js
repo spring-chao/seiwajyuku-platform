@@ -17,7 +17,8 @@ Page({
       const events = response.data && response.data.events;
       if (!Array.isArray(events)) throw new Error("当前活动暂时无法加载，请重试。");
       const shown = events.filter(event => checkinTarget({ event_id: event.event_id }) &&
-        event.lifecycle_status === "CONFIRMED" && ["open", "upcoming"].includes(event.checkin_status)).map(displayEvent);
+        event.lifecycle_status === "CONFIRMED" && ["open", "upcoming", "ended", "closed"].includes(event.checkin_status))
+        .sort((a, b) => ({open:0,upcoming:1,ended:2,closed:2}[a.checkin_status] ?? 3) - ({open:0,upcoming:1,ended:2,closed:2}[b.checkin_status] ?? 3)).map(displayEvent);
       this.setData({ events: shown });
       const open = shown.filter(event => event.checkin_status === "open");
       // Only the server's currently open session may be selected automatically.
