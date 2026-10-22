@@ -10,6 +10,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from pillow_heif import register_heif_opener
+
+register_heif_opener(thumbnails=False)
 
 from app.core.settings import get_settings
 
@@ -106,12 +109,10 @@ def normalize_image(content: bytes, declared_type: str) -> tuple[bytes, str, str
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(content)) as probe:
                 fmt = probe.format
-                expected = {"JPEG": "image/jpeg", "PNG": "image/png"}.get(fmt)
-                declared = declared_type.lower().split(";", 1)[0].strip()
-                if not expected or declared not in {expected, "", "application/octet-stream"}:
-                    raise EvidenceStorageError("请上传真实的 JPG/JPEG/PNG 图片")
-                if probe.width * probe.height > MAX_PIXELS or getattr(probe, "n_frames", 1) != 1:
-                    raise EvidenceStorageError("图片尺寸过大或包含多帧，请重新选择合影")
+                # No extension/MIME/format whitelist: decode actual image pixels.
+                # Animation/multipage files contribute their first image only.
+                if probe.width * probe.height > MAX_PIXELS:
+                    raise EvidenceStorageError("图片尺寸过大，请压缩后重试")
                 probe.verify()
             with Image.open(io.BytesIO(content)) as source:
                 source.load()
@@ -119,6 +120,8 @@ def normalize_image(content: bytes, declared_type: str) -> tuple[bytes, str, str
                 clean = Image.new("RGB", oriented.size)
                 clean.paste(oriented)
                 output = io.BytesIO()
+                fmt = "PNG" if fmt == "PNG" else "JPEG"
+                expected = "image/png" if fmt == "PNG" else "image/jpeg"
                 clean.save(output, format=fmt, **({"quality": 88} if fmt == "JPEG" else {}))
                 result = output.getvalue()
                 if len(result) > MAX_BYTES:

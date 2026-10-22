@@ -170,10 +170,8 @@ def test_decoding_metadata_and_private_storage_guards(monkeypatch):
         assert not decoded.getexif()
     assert b"payload" not in clean and kind == "image/jpeg" and ext == "jpg"
     assert normalize_image(photo("PNG"), "image/png")[1] == "image/png"
-    with pytest.raises(EvidenceStorageError):
-        normalize_image(photo("PNG"), "image/jpeg")
-    with pytest.raises(EvidenceStorageError):
-        normalize_image(photo("GIF"), "image/gif")
+    assert normalize_image(photo("PNG"), "image/jpeg")[1] == "image/png"
+    assert normalize_image(photo("GIF"), "image/gif")[1] == "image/jpeg"
     with pytest.raises(EvidenceStorageError):
         EvidenceStorage().get("../outside.jpg")
     monkeypatch.setenv("APP_ENV", "production")
@@ -449,3 +447,71 @@ def test_0041_sqlite_forward_rollback_preserves_legacy_record():
     connection.executescript((MIGRATION_ROOT / "rollback/sqlite/0041_study_meeting_courses_evidence.down.sql").read_text(encoding="utf-8"))
     assert connection.execute("SELECT course_key, course_credit_snapshot FROM study_meeting_sessions").fetchone() == original
     connection.close()
+
+
+@pytest.mark.parametrize("fmt,mime", [("HEIF", "application/octet-stream"), ("TIFF", "wrong/type"), ("GIF", "image/gif"), ("WEBP", "image/webp"), ("WEBP", "image/jpeg"), ("BMP", "image/bmp"), ("BMP", "image/jpeg"), ("JPEG", "image/jpg")])
+def test_phone_photo_formats_decode_and_transcode_to_private_jpeg(fmt, mime):
+    clean, content_type, extension = normalize_image(photo(fmt) + b"trailing-private-data", mime)
+    assert content_type == "image/jpeg" and extension == "jpg"
+    assert b"trailing-private-data" not in clean
+    with Image.open(io.BytesIO(clean)) as decoded:
+        assert decoded.format == "JPEG" and decoded.size == (32, 24)
+        assert not decoded.getexif()
+
+
+def test_animated_webp_saves_first_image_only():
+    output = io.BytesIO()
+    Image.new("RGB", (32,24), "white").save(output, "WEBP", save_all=True,
+        append_images=[Image.new("RGB", (32,24), "black")], duration=100, loop=0)
+    clean, kind, extension = normalize_image(output.getvalue(), "image/webp")
+    assert kind == "image/jpeg" and extension == "jpg"
+    with Image.open(io.BytesIO(clean)) as decoded:
+        assert getattr(decoded, 'n_frames', 1) == 1
+
+
+def test_operator_can_finish_photo_ready_draft_without_faking_member_submit(monkeypatch):
+    from app.services.study_meeting_review import confirm_meeting_review
+    monkeypatch.setenv("STUDY_MEETING_ATTENDEE_EDIT_ENABLED", "true")
+    f = _seed_group_leader_fixture()
+    session = create(f)
+    args = {"actor_user_id": admin_id(), "session_id": session['id']}
+    missing = get_study_meeting_record_for_operations(**args)
+    assert not missing['can_confirm_review'] and "补传" in missing['draft_submission_message']
+    with pytest.raises(StudyMeetingError, match="合影"):
+        confirm_meeting_review(**args, expected_fingerprint=missing['review_fingerprint'])
+    assert fetch_one("SELECT status FROM study_meeting_sessions WHERE id=?", (session['id'],))['status'] == 'DRAFT'
+    upload(f,session)
+    ready = get_study_meeting_record_for_operations(**args)
+    assert ready['can_confirm_review'] and ready['submitted_at'] is None
+    with pytest.raises(StudyMeetingError, match="内容已变化"):
+        confirm_meeting_review(**args, expected_fingerprint=missing['review_fingerprint'])
+    result = confirm_meeting_review(**args, expected_fingerprint=ready['review_fingerprint'])
+    assert result['status'] == 'SUBMITTED' and result['review_status'] == 'CONFIRMED'
+    assert result['submitted_at'] and not result['draft_submission_message']
+    audit = fetch_one("SELECT actor_user_id,after_json FROM audit_logs WHERE action='study_meeting.operator_submit' AND resource_id=?", (str(session['id']),))
+    assert audit['actor_user_id'] == args['actor_user_id'] and 'submitted_by_member_id' not in audit['after_json']
+    confirm_meeting_review(**args, expected_fingerprint=result['review_fingerprint'])
+
+
+def test_operator_draft_completion_auto_settles_once_and_respects_scope(monkeypatch):
+    from app.services.study_meeting_review import confirm_and_settle_meeting_review
+    from test_study_meeting_operations import _automatic_flags
+    from test_learning_credit_ledger import _use_credit_plan
+    _automatic_flags(monkeypatch)
+    f = _seed_group_leader_fixture()
+    _use_credit_plan(f, None)
+    session = create(f)
+    upload(f, session)
+    args = {"actor_user_id": admin_id(), "session_id": session['id']}
+    ready = get_study_meeting_record_for_operations(**args)
+    with patch('app.services.study_meeting_review.accessible_org_ids', return_value=set()):
+        with pytest.raises(StudyMeetingPermissionError, match="范围"):
+            confirm_and_settle_meeting_review(**args, expected_fingerprint=ready['review_fingerprint'])
+    assert fetch_one("SELECT status FROM study_meeting_sessions WHERE id=?", (session['id'],))['status'] == 'DRAFT'
+    result = confirm_and_settle_meeting_review(**args, expected_fingerprint=ready['review_fingerprint'])
+    assert result['credit_settlement']['status'] == 'POSTED'
+    assert float(result['credit_settlement']['posted_points']) == 8.0
+    count = fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")['n']
+    again = confirm_and_settle_meeting_review(**args, expected_fingerprint=result['review_fingerprint'])
+    assert again['credit_settlement']['status'] == 'POSTED'
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries")['n'] == count

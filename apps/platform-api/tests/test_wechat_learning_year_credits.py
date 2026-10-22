@@ -108,13 +108,23 @@ def test_unconfirmed_or_future_learning_days_do_not_advance_year(school):
     assert result['current_learning_year_completed_days'] == 11
 
 
-def test_resumed_history_without_first_learning_days_does_not_invent_year_one(school):
-    # A configured cycle number cannot prove how many actual days were held.
+def test_resumed_history_uses_valid_published_cycle_year_without_inventing_held_days(school):
     with transaction() as c:
-        execute(c, 'UPDATE class_learning_cycles SET learning_cycle_index=100 WHERE id=?', (school['cycles'][0],))
+        execute(c, 'DELETE FROM class_learning_cycles WHERE binding_id=? AND id<>?', (school['binding_id'], school['cycles'][-1]))
+        execute(c, 'UPDATE learning_plan_cycles SET year_index=3 WHERE id=(SELECT plan_cycle_id FROM class_learning_cycles WHERE id=?)', (school['cycles'][-1],))
+    credit(school, school['cycles'][-1], '4.00')
+    credit(school, None, '8.00', snapshot={'binding_id': school['binding_id'], 'occurred_on': '2025-03-01'})
     result = get_member_credit_summary(school['member_id'])
-    assert result['current_learning_year'] is None
-    assert result['current_learning_year_points'] is None
+    assert result['current_learning_year'] == 3
+    assert result['current_learning_year_points'] == '12.00'
+    assert result['current_learning_year_completed_days'] is None
+    assert result['unallocated_learning_year_points'] == '0.00'
+    # An incompatible plan cannot infer attribution from an index alone.
+    with transaction() as c:
+        execute(c, 'UPDATE class_learning_cycles SET learning_cycle_index=100 WHERE id=?', (school['cycles'][-1],))
+    unknown = get_member_credit_summary(school['member_id'])
+    assert unknown['current_learning_year'] is None
+    assert unknown['unallocated_learning_year_points'] == '12.00'
 
 
 def test_reading_facts_use_frozen_binding_and_business_date_with_boundary_ambiguity(school):

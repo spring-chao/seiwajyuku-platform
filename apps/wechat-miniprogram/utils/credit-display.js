@@ -20,6 +20,7 @@ function creditSummaryDisplay(summary) {
   return {
     ...summary,
     currentLearningYearLabel: currentYearKnown ? yearLabel(year) : "学习年度待配置",
+    hasCurrentLearningYear: currentYearKnown,
     hasLearningYearProgress: currentYearKnown && Number.isInteger(summary.current_learning_year_completed_days),
     currentLearningYearPointsLabel: currentYearKnown ? pointsLabel(summary.current_learning_year_points) : "—",
     learningYears: yearIndexes.map(index => {
