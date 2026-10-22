@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import Response, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 from app.api.auth import require_permission
 from app.core.settings import get_settings
@@ -34,6 +34,13 @@ router = APIRouter(prefix="/api/v1/study-meetings", tags=["study-meetings"])
 bearer = HTTPBearer(auto_error=False)
 
 
+class LearningContentResultPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    content_key: str = Field(min_length=1, max_length=128)
+    completed: StrictBool
+    confirmed: StrictBool
+
+
 class StudyMeetingCreatePayload(BaseModel):
     group_org_unit_id: str = Field(min_length=1, max_length=64)
     meeting_date: str | None = Field(default=None, max_length=32)
@@ -42,6 +49,8 @@ class StudyMeetingCreatePayload(BaseModel):
     has_course: bool = False
     course_key: str | None = Field(default=None, max_length=128)
     course_keys: list[str] | None = Field(default=None, max_length=500)
+    learning_cycle_id: StrictInt | None = Field(default=None, gt=0)
+    learning_content_results: list[LearningContentResultPayload] | None = Field(default=None, max_length=500)
 
 
 class CourseCorrectionPayload(BaseModel):
@@ -136,6 +145,11 @@ def create_meeting(
             has_course=payload.has_course,
             course_key=payload.course_key,
             course_keys=payload.course_keys,
+            learning_cycle_id=payload.learning_cycle_id,
+            learning_content_results=(
+                [item.model_dump() for item in payload.learning_content_results]
+                if payload.learning_content_results is not None else None
+            ),
         )
     except (StudyMeetingError, StudyMeetingPermissionError) as exc:
         raise _business_error(exc) from exc

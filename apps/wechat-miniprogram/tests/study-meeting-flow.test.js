@@ -57,7 +57,7 @@ test("study meeting submits one complete fact without legacy course selection", 
           assignment: {
             class_name: "测试班",
             group_name: "测试组",
-            current_cycle: { learning_cycle_index: 1 },
+            current_cycle: { id: 17, learning_cycle_index: 1 },
             meeting_plan: meetingPlan
           },
           evidence_enabled: true
@@ -75,7 +75,8 @@ test("study meeting submits one complete fact without legacy course selection", 
             { member_id: 12, attendance_type: "HOME_GROUP" },
             { member_id: 21, attendance_type: "CROSS_GROUP" }
           ],
-          courses: []
+          courses: [],
+          learning_content_results: calls.find(item => item.url === "/api/v1/study-meetings").options.data.learning_content_results
         }
       };
     }
@@ -135,6 +136,11 @@ test("study meeting submits one complete fact without legacy course selection", 
     );
     const create = calls.find(item => item.kind === "request" && item.url === "/api/v1/study-meetings");
     assert.equal(Object.keys(create.options.data).some(key => key.includes("course")), false);
+    assert.equal(create.options.data.learning_cycle_id, 17);
+    assert.deepEqual(create.options.data.learning_content_results, [
+      { content_key: "content-1", completed: true, confirmed: true }
+    ]);
+    assert.deepEqual(app.globalData.studyMeetingResult.learning_content_results, create.options.data.learning_content_results);
     assert.equal(app.globalData.studyMeetingDraft, null);
     assert.equal(app.globalData.studyMeetingResult.status, "SUBMITTED");
   } finally {

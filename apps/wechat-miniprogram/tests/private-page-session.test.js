@@ -89,6 +89,7 @@ for (const boundary of ["create", "upload"]) {
       return { data: { id: 42 } };
     }, () => new Promise(yes => { finish = yes; }));
     Object.assign(page.data, { meetingPlanReady: true, allRequiredContentConfirmed: true,
+      assignment: { current_cycle: { id: 104, learning_cycle_index: 4 } },
       allRequiredContentCompleted: true, evidenceEnabled: true, photoPath: "synthetic.jpg" });
     const pending = page.submit();
     await new Promise(resolve => setImmediate(resolve));

@@ -18,7 +18,7 @@ function harness() {
   const state = { picker: null, compress: null, size: 2048, uploadCount: 0, createCount: 0,
     submitCount: 0, redirects: [], previews: [], toasts: [], session: null };
   const context = { data: { evidence_enabled: true, assignment: {
-    current_cycle: { learning_cycle_index: 4 }, meeting_plan: { learning_cycle_index: 4,
+    current_cycle: { id: 104, learning_cycle_index: 4 }, meeting_plan: { learning_cycle_index: 4,
       steps: [{ step_no: 1, content: "空巴。", is_terminal: true }], learning_contents: [] }
   } } };
   const request = async (url, options = {}) => {
