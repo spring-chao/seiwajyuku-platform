@@ -18,6 +18,13 @@ test('a partial schema upgrade has a specific explanation', () => {
   assert.match(message({ response: { status: 503, data: { detail: { code: 'CREDIT_LEDGER_SCHEMA_UNAVAILABLE' } } } }, '账本读取失败'), /期间结构尚未就绪/);
   assert.match(message({ response: { status: 503, data: {} } }, '账本读取失败'), /HTTP 503.*服务尚未就绪/);
 });
+test('Axios timeouts are distinguished from network failures without claiming rollback',()=>{
+  for(const code of ['ECONNABORTED','ETIMEDOUT']) {
+    const result=message({code,message:'timeout of 180000ms exceeded'},'保存来源未收到结果');
+    assert.match(result,/响应超时.*可能已保存/);
+    assert.doesNotMatch(result,/无法连接|检查网络|180000/);
+  }
+});
 test('HTTP errors retain useful status while traces and transport config stay private', () => {
   for (const status of [401, 403, 404, 500, 502, 504]) {
     assert.match(message({ response: { status, data: { detail: 'Traceback password token secret' } }, config: { Authorization: 'secret' } }, '账本读取失败'), new RegExp(`HTTP ${status}`));

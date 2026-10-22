@@ -457,34 +457,10 @@ def _activity_fact_payload(row: Any) -> dict[str, Any]:
     return result
 
 
-def record_learning_activity_fact(
-    *,
-    actor_user_id: int,
-    activity_type: str,
-    member_id: int,
-    class_org_unit_id: str,
-    occurred_on: str,
-    source_type: str,
-    source_id: str,
-    participation_status: str = "RECORDED",
-    title: str | None = None,
-    metadata: dict[str, Any] | None = None,
-    binding_id: int | None = None,
-    _allow_controlled_source: bool = False,
-    _connection=None,
-) -> dict[str, Any]:
-    """Persist one source fact, never a score or a ledger entry.
-
-    The payload intentionally has no points field.  The server records the
-    trusted activity fact and later derives points from the frozen rule.
-    """
-
-    _require_permission(
-        actor_user_id,
-        "plans:credit_activity_fact_manage",
-        "无权维护每日读书与优秀分享事实",
-    )
-    _write_allowed()
+def _fact_input(*, activity_type, member_id, class_org_unit_id, occurred_on,
+                source_type, source_id, participation_status="RECORDED", title=None,
+                metadata=None, _allow_controlled_source=False):
+    """Shared field validation for single writes and transactional Excel batches."""
     final_type = str(activity_type or "").upper()
     if final_type not in ACTIVITY_TYPES:
         raise LearningCreditError("学习活动事实类型无效")
@@ -495,8 +471,6 @@ def record_learning_activity_fact(
         raise LearningCreditError("学员编号无效")
     if not class_org_unit_id:
         raise LearningCreditError("事实必须包含班级组织范围")
-    if not _scope_allows(actor_user_id, class_org_unit_id):
-        raise PermissionError("学习活动事实不在当前组织授权范围内")
     normalized_date = _date_text(occurred_on, "事实发生日期")
     final_source_type = str(source_type or "").strip()
     final_source_id = str(source_id or "").strip()
@@ -527,6 +501,52 @@ def record_learning_activity_fact(
     }.intersection(metadata):
         raise LearningCreditError("事实元数据不能携带学分或评分字段")
     metadata_json = _json(metadata or {})
+    return {
+        "activity_type": final_type, "member_id": int(member_id),
+        "class_org_unit_id": class_org_unit_id, "occurred_on": normalized_date,
+        "participation_status": final_status, "source_type": final_source_type,
+        "source_id": final_source_id, "title": title, "metadata_json": metadata_json,
+    }
+
+
+def record_learning_activity_fact(
+    *,
+    actor_user_id: int,
+    activity_type: str,
+    member_id: int,
+    class_org_unit_id: str,
+    occurred_on: str,
+    source_type: str,
+    source_id: str,
+    participation_status: str = "RECORDED",
+    title: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    binding_id: int | None = None,
+    _allow_controlled_source: bool = False,
+    _connection=None,
+) -> dict[str, Any]:
+    """Persist one source fact, never a score or a ledger entry.
+
+    The payload intentionally has no points field.  The server records the
+    trusted activity fact and later derives points from the frozen rule.
+    """
+
+    _require_permission(
+        actor_user_id,
+        "plans:credit_activity_fact_manage",
+        "无权维护每日读书与优秀分享事实",
+    )
+    _write_allowed()
+    if not _scope_allows(actor_user_id, class_org_unit_id):
+        raise PermissionError("学习活动事实不在当前组织授权范围内")
+    checked = _fact_input(activity_type=activity_type, member_id=member_id,
+        class_org_unit_id=class_org_unit_id, occurred_on=occurred_on,
+        source_type=source_type, source_id=source_id, participation_status=participation_status,
+        title=title, metadata=metadata, _allow_controlled_source=_allow_controlled_source)
+    final_type, final_status = checked["activity_type"], checked["participation_status"]
+    normalized_date = checked["occurred_on"]
+    final_source_type, final_source_id = checked["source_type"], checked["source_id"]
+    metadata_json = checked["metadata_json"]
     with (transaction() if _connection is None else nullcontext(_connection)) as connection:
         class_row = execute(
             connection,
@@ -650,6 +670,77 @@ def record_learning_activity_fact(
         return payload
 
 
+def record_learning_activity_facts(*, actor_user_id, class_org_unit_id, facts, _connection):
+    """Save an Excel fact set atomically, with one request-local authorization.
+
+    All fields use the single-fact validator. Existing source keys must match;
+    every new fact retains its own audit. This never creates ledger entries.
+    The caller owns the transaction and commits only with the source receipt.
+    """
+    _require_permission(actor_user_id, "plans:credit_activity_fact_manage", "无权维护每日读书与优秀分享事实")
+    _write_allowed()
+    if not _scope_allows(actor_user_id, class_org_unit_id):
+        raise PermissionError("学习活动事实不在当前组织授权范围内")
+    if not facts or len(facts) > 5000:
+        raise LearningCreditError("事实清单需为1到5000条")
+    connection = _connection
+    if not execute(connection, "SELECT id FROM org_units WHERE id=? AND unit_type IN ('CLASS','SPECIAL_COHORT')", (class_org_unit_id,)).fetchone():
+        raise LearningCreditError("班级组织不存在")
+    normalized = []
+    bindings = _binding_rows(connection, class_org_unit_id)
+    member_ids = sorted({int(f["member_id"]) for f in facts})
+    members = set()
+    for start in range(0, len(member_ids), 200):
+        chunk = member_ids[start:start+200]
+        members.update(int(r['id']) for r in execute(connection, 'SELECT id FROM members WHERE id IN ('+','.join('?' for _ in chunk)+')', tuple(chunk)).fetchall())
+    keys = set()
+    for raw in facts:
+        item = _fact_input(class_org_unit_id=class_org_unit_id, **{k:v for k,v in raw.items() if k != 'binding_id'})
+        if item['member_id'] not in members:
+            raise LearningCreditError("学员不存在")
+        binding, reason = _resolve_binding_for_fact(connection, {**item, 'binding_id':raw.get('binding_id')}, _rows=bindings)
+        if raw.get('binding_id') is not None and reason:
+            raise LearningCreditError(f"{reason}:指定学习轮次与事实不匹配")
+        item['binding_id'] = int(binding['id']) if binding and not reason else None
+        item['binding_resolution'] = reason or 'RESOLVED'
+        key = (item['source_type'], item['source_id'])
+        if key in keys:
+            raise LearningCreditError("事实清单中含有重复来源")
+        keys.add(key)
+        normalized.append(item)
+    result = {}
+    now = datetime.now(UTC).isoformat()
+    fields = ('activity_type','member_id','class_org_unit_id','binding_id','occurred_on','participation_status','source_type','source_id','title','metadata_json')
+    # One source type per Excel import; keep the helper correct for mixed types.
+    for source_type in sorted({f['source_type'] for f in normalized}):
+        items = [f for f in normalized if f['source_type'] == source_type]
+        for start in range(0, len(items), 100):
+            chunk = items[start:start+100]
+            ids = tuple(f['source_id'] for f in chunk)
+            query = 'SELECT * FROM learning_credit_activity_facts WHERE source_type=? AND source_id IN ('+','.join('?' for _ in ids)+')'
+            existing = {r['source_id']:dict(r) for r in execute(connection, query, (source_type,*ids)).fetchall()}
+            pending = []
+            for item in chunk:
+                old = existing.get(item['source_id'])
+                if old and any(str(old.get(k)) != str(item.get(k)) for k in fields):
+                    raise LearningCreditError("相同事实来源编号已存在，但内容不一致")
+                if not old:
+                    pending.append(item)
+            if pending:
+                values = [tuple(item[k] for k in fields)+(actor_user_id,now,now) for item in pending]
+                execute(connection, 'INSERT INTO learning_credit_activity_facts ('+','.join(fields)+',created_by,created_at,updated_at) VALUES '+','.join('('+','.join('?' for _ in range(13))+')' for _ in values), tuple(v for row in values for v in row))
+            stored = {r['source_id']:dict(r) for r in execute(connection, query, (source_type,*ids)).fetchall()}
+            for item in chunk:
+                row = stored[item['source_id']]
+                result[(source_type,item['source_id'])] = int(row['id'])
+                if item['source_id'] not in existing:
+                    write_audit(connection, actor_user_id=actor_user_id, action='learning.activity_fact.create',
+                        resource_type='learning_credit_activity_fact', resource_id=str(row['id']), org_unit_id=class_org_unit_id,
+                        purpose='记录每日读书或优秀分享事实，不直接赋分',
+                        after={**{k:item[k] for k in ('activity_type','member_id','class_org_unit_id','binding_id','occurred_on','participation_status','source_type','source_id','binding_resolution')},'id':int(row['id'])})
+    return result
+
+
 def _load_activity_facts(
     connection,
     *,
@@ -748,12 +839,12 @@ def _binding_interval_contains(binding: dict[str, Any], occurred_on: date) -> bo
 
 
 def _resolve_binding_for_fact(
-    connection, fact: dict[str, Any]
+    connection, fact: dict[str, Any], *, _rows=None
 ) -> tuple[dict[str, Any] | None, str | None]:
     occurred_on = fact.get("_occurred_date") or _parse_business_date(
         fact.get("occurred_on"), "事实发生日期"
     )
-    rows = _binding_rows(connection, str(fact["class_org_unit_id"]))
+    rows = _binding_rows(connection, str(fact["class_org_unit_id"])) if _rows is None else _rows
     requested_id = fact.get("binding_id")
     if requested_id is not None:
         match = next((row for row in rows if int(row["id"]) == int(requested_id)), None)
@@ -770,16 +861,20 @@ def _resolve_binding_for_fact(
     return candidates[0], None
 
 
-def _member_relation_reason(
-    connection, member_id: int, class_org_unit_id: str, occurred_on: date
-) -> str | None:
-    rows = execute(
+def _member_relation_rows(connection, member_id, class_org_unit_id):
+    return execute(
         connection,
         "SELECT r.valid_from, r.valid_until, o.active_from, o.active_until "
         "FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id "
         "WHERE r.member_id=? AND r.org_unit_id=? AND r.relation_type='STUDY_CLASS'",
         (member_id, class_org_unit_id),
     ).fetchall()
+
+
+def _member_relation_reason(
+    connection, member_id: int, class_org_unit_id: str, occurred_on: date, *, _rows=None
+) -> str | None:
+    rows = _member_relation_rows(connection, member_id, class_org_unit_id) if _rows is None else _rows
     active = []
     for row in rows:
         try:
@@ -864,7 +959,7 @@ def _fact_context(
     *,
     rule_key: str,
     settlement_model: str,
-    cache: dict[tuple[Any, ...], dict[str, Any]],
+    cache: dict[tuple[Any, ...], Any],
 ) -> dict[str, Any]:
     occurred_on = fact.get("_occurred_date")
     cache_key = (
@@ -880,27 +975,27 @@ def _fact_context(
         result = {"binding": None, "rule": None, "reason": "INVALID_OCCURRED_DATE"}
         cache[cache_key] = result
         return result
-    relation_reason = _member_relation_reason(
-        connection,
-        int(fact["member_id"]),
-        str(fact["class_org_unit_id"]),
-        occurred_on,
-    )
+    relation_key = ("relations", fact["member_id"], fact["class_org_unit_id"])
+    if relation_key not in cache:
+        cache[relation_key] = _member_relation_rows(connection, int(fact["member_id"]), str(fact["class_org_unit_id"]))
+    relation_reason = _member_relation_reason(connection, int(fact["member_id"]),
+        str(fact["class_org_unit_id"]), occurred_on, _rows=cache[relation_key])
     if relation_reason:
         result = {"binding": None, "rule": None, "reason": relation_reason}
         cache[cache_key] = result
         return result
-    binding, binding_reason = _resolve_binding_for_fact(connection, fact)
+    bindings_key = ("bindings", fact["class_org_unit_id"])
+    if bindings_key not in cache:
+        cache[bindings_key] = _binding_rows(connection, str(fact["class_org_unit_id"]))
+    binding, binding_reason = _resolve_binding_for_fact(connection, fact, _rows=cache[bindings_key])
     if binding_reason:
         result = {"binding": None, "rule": None, "reason": binding_reason}
         cache[cache_key] = result
         return result
-    rule, rule_reason = _resolve_rule(
-        connection,
-        binding,
-        rule_key=rule_key,
-        settlement_model=settlement_model,
-    )
+    rule_cache_key = ("rule", binding["id"], rule_key, settlement_model)
+    if rule_cache_key not in cache:
+        cache[rule_cache_key] = _resolve_rule(connection, binding, rule_key=rule_key, settlement_model=settlement_model)
+    rule, rule_reason = cache[rule_cache_key]
     result = {"binding": binding, "rule": rule, "reason": rule_reason}
     cache[cache_key] = result
     return result
@@ -984,11 +1079,11 @@ def _entry_common(
     }
 
 
-def _daily_entries(connection, facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _daily_entries(connection, facts: list[dict[str, Any]], *, _cache=None) -> list[dict[str, Any]]:
     groups: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
     for fact in facts:
         groups[(int(fact["member_id"]), str(fact.get("occurred_on") or ""))].append(fact)
-    cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+    cache: dict[tuple[Any, ...], Any] = {} if _cache is None else _cache
     result: list[dict[str, Any]] = []
     for (_, occurred_text), group in sorted(groups.items(), key=lambda item: item[0]):
         first = group[0]
@@ -1055,7 +1150,10 @@ def _daily_entries(connection, facts: list[dict[str, Any]]) -> list[dict[str, An
         binding = context["binding"]
         rule = context["rule"]
         occurred_on = representative.get("_occurred_date")
-        calendar = _calendar_day(connection, occurred_on) if occurred_on else None
+        calendar_key = ("calendar", occurred_on)
+        if calendar_key not in cache:
+            cache[calendar_key] = _calendar_day(connection, occurred_on) if occurred_on else None
+        calendar = cache[calendar_key]
         workday = _is_workday_row(calendar) if calendar and occurred_on else None
         original_report = (
             representative.get("source_type") == "CREDIT_EXCEL_DAILY_READING"
@@ -1120,7 +1218,7 @@ def _existing_month_points(connection, member_id: int, period_month: str) -> flo
 
 
 def _excellent_entries(connection, facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+    cache: dict[tuple[Any, ...], Any] = {}
     by_period: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
     for fact in facts:
         occurred = fact.get("_occurred_date")

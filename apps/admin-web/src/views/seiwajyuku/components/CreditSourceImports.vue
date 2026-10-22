@@ -12,6 +12,7 @@ import {
   sourceExport,
   sourcePreview,
   sourceRegister,
+  sourceFindSaved,
   sourceCreateBatches,
   sourceAction,
   sourceReconcile,
@@ -276,11 +277,36 @@ const register = () =>
       !canImport.value
     )
       return;
-    const saved = await sourceRegister(file.value, uploadForm(), preview.value.fingerprint);
+    const checkedFingerprint = preview.value.fingerprint;
+    const checkedForm = uploadForm();
+    let saved;
+    let recovered = false;
+    try {
+      saved = await sourceRegister(file.value, checkedForm, checkedFingerprint);
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status && status < 500) throw err;
+      // A missing reply is not a failed transaction. Read the receipt first;
+      // never auto-submit the workbook again or claim that points were posted.
+      try {
+        const found = (await sourceFindSaved(checkedFingerprint, checkedForm.class_id, checkedForm.kind)).data;
+        if (found.id) {
+          saved = { data: { id: found.id, idempotent: true } };
+          recovered = true;
+        }
+      } catch { /* Keep the original error and checked fingerprint for a safe retry. */ }
+      if (!saved) throw err;
+    }
     preview.value = undefined;
     await reload();
-    ElMessage.success(saved?.data?.idempotent ? "这份来源已保存，已打开原记录；本次没有新增学分" : "来源已保存，请生成结算并核对每人分数后确认入账");
-    if (saved?.data?.id) detail.value = (await sourceGet(saved.data.id)).data;
+    ElMessage.success(recovered ? "已核实来源保存成功；请生成结算并核对后确认入账" : saved?.data?.idempotent ? "这份来源已保存，已打开原记录；本次没有新增学分" : "来源已保存，请生成结算并核对每人分数后确认入账");
+    if (saved?.data?.id) {
+      try { detail.value = (await sourceGet(saved.data.id)).data; }
+      catch (err) {
+        error.value = creditSettlementErrorMessage(err, "来源已保存，但明细读取失败，请刷新来源记录");
+        ElMessage.error(error.value);
+      }
+    }
   });
 const resolveRow = (value: unknown) => {
   if (!value || typeof value !== "object" || !("id" in value)) return;

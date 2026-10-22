@@ -50,6 +50,99 @@ def workbook(f,kind,values=None):
     out=io.BytesIO();wb.save(out);return out.getvalue()
 
 
+def test_312_reading_rows_save_in_bulk_and_retry_without_extra_facts(source_fixture,monkeypatch,record_property):
+    import sys
+    from app import db
+    f=source_fixture;identities=[(f['member_code'],f['name'])]
+    with transaction() as c:
+        now=credits._db_timestamp(c)
+        for i in range(25):
+            code=f['member_code']+'-bulk-'+str(i);name='批量合成学员'+str(i)
+            mid=execute(c,"INSERT INTO members(member_code,name,org_unit_id,status,created_at,updated_at) VALUES (?,?,?,'ACTIVE',?,?)",(code,name,f['class_id'],now,now)).lastrowid
+            execute(c,"INSERT INTO member_org_relations(member_id,org_unit_id,relation_type,is_primary,valid_from,created_at,updated_at) VALUES (?,?,'STUDY_CLASS',1,'2020-01-01',?,?)",(mid,f['class_id'],now,now))
+            identities.append((code,name))
+    days={f'2026-10-{day:02d}':'NORMAL_WORKDAY' for day in range(1,13)}
+    _calendar(f,year=2026,day_types=days,label='bulk-'+f['suffix'])
+    wb=Workbook();sheet=wb.active;sheet.title=sources.SHEETS['DAILY_READING'];sheet.append(sources.HEADERS['DAILY_READING'])
+    for code,name in identities:
+        for day in days:sheet.append([code,name,day,'是'])
+    out=io.BytesIO();wb.save(out);data=out.getvalue()
+    preview=sources.preview(data,'DAILY_READING',f['class_id'],'{}','',f['actor'])
+    assert preview['row_count']==312 and preview['error_count']==0
+    calls=[];original=db.execute
+    def counted(c,sql,params=()):
+        calls.append(sql.split()[0])
+        return original(c,sql,params)
+    # Count imported aliases too, including repeated IAM reads. No production DB.
+    with monkeypatch.context() as scoped:
+        for module_name,module in list(sys.modules.items()):
+            if module_name.startswith('app.') and getattr(module,'execute',None) is original:
+                scoped.setattr(module,'execute',counted)
+        saved=sources.register(data,'DAILY_READING',f['class_id'],'{}','','合成312行.xlsx',preview['fingerprint'],f['actor'])
+    record_property('source_save_sql_calls',len(calls))
+    assert len(calls)<1000, f'source save still executes {len(calls)} SQL calls'
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_source_rows WHERE import_id=?',(saved['id'],))['n']==312
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_activity_facts WHERE class_org_unit_id=?",(f['class_id'],))['n']==312
+    assert fetch_one("SELECT COUNT(*) AS n FROM audit_logs WHERE action='learning.activity_fact.create' AND org_unit_id=?",(f['class_id'],))['n']==312
+    assert sources.find_saved_source(preview['fingerprint'],f['class_id'],'DAILY_READING',f['actor'])=={'id':saved['id']}
+    retry=sources.register(data,'DAILY_READING',f['class_id'],'{}','补充','改名.xlsx',preview['fingerprint'],f['actor'])
+    assert retry=={'id':saved['id'],'idempotent':True}
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_source_rows WHERE import_id=?',(saved['id'],))['n']==312
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries WHERE member_id=?',(f['member_id'],))['n']==0
+
+
+def test_bulk_source_audit_failure_rolls_back_entire_receipt_and_retry(source_fixture):
+    f=source_fixture;data=workbook(f,'DAILY_READING')
+    preview=sources.preview(data,'DAILY_READING',f['class_id'],'{}','',f['actor'])
+    with patch.object(activity,'write_audit',side_effect=RuntimeError('isolated audit failure')),pytest.raises(RuntimeError):
+        sources.register(data,'DAILY_READING',f['class_id'],'{}','','test.xlsx',preview['fingerprint'],f['actor'])
+    assert sources.find_saved_source(preview['fingerprint'],f['class_id'],'DAILY_READING',f['actor'])=={'id':None}
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_activity_facts WHERE class_org_unit_id=?',(f['class_id'],))['n']==0
+    saved=sources.register(data,'DAILY_READING',f['class_id'],'{}','','test.xlsx',preview['fingerprint'],f['actor'])
+    assert saved['id'] and not saved['idempotent']
+
+
+def test_saved_source_lookup_and_bulk_writer_enforce_scope_and_permissions(source_fixture):
+    f=source_fixture
+    with patch.object(sources,'_has_scope',return_value=False),pytest.raises(PermissionError):
+        sources.find_saved_source('a'*64,f['class_id'],'DAILY_READING',f['actor'])
+    with patch.object(activity,'user_context',return_value={'permissions':[]}),transaction() as c,pytest.raises(PermissionError):
+        activity.record_learning_activity_facts(actor_user_id=f['actor'],class_org_unit_id=f['class_id'],facts=[{}],_connection=c)
+    with patch.object(activity,'_scope_allows',return_value=False),transaction() as c,pytest.raises(PermissionError):
+        activity.record_learning_activity_facts(actor_user_id=f['actor'],class_org_unit_id=f['class_id'],facts=[{}],_connection=c)
+
+
+@pytest.mark.parametrize('bad',[
+    {'metadata':{'points':99}}, {'binding_id':-1}, {'source_type':'HQ_READING_EXPORT'},
+    {'participation_status':'WRONG'}, {'member_id':-1},
+])
+def test_bulk_fact_validation_fails_before_any_insert(source_fixture,bad):
+    f=source_fixture
+    good=dict(activity_type='DAILY_READING',member_id=f['member_id'],occurred_on=DAY,source_type='BULK_TEST',source_id='good',binding_id=f['binding_id'])
+    with transaction() as c,pytest.raises(credits.LearningCreditError):
+        activity.record_learning_activity_facts(actor_user_id=f['actor'],class_org_unit_id=f['class_id'],facts=[good,{**good,'source_id':'bad',**bad}],_connection=c)
+        pytest.fail('invalid batch accepted')
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_activity_facts WHERE class_org_unit_id=?',(f['class_id'],))['n']==0
+
+
+def test_preview_context_is_reloaded_when_saving_and_lookup_is_authorized_http(source_fixture):
+    from app.api.auth import current_user
+    f=source_fixture;data=workbook(f,'DAILY_READING')
+    preview=sources.preview(data,'DAILY_READING',f['class_id'],'{}','',f['actor'])
+    with transaction() as c:
+        execute(c,"UPDATE member_org_relations SET valid_until='2026-10-01' WHERE member_id=? AND org_unit_id=?",(f['member_id'],f['class_id']))
+    with pytest.raises(credits.LearningCreditError,match='已变化'):
+        sources.register(data,'DAILY_READING',f['class_id'],'{}','','test.xlsx',preview['fingerprint'],f['actor'])
+    app.dependency_overrides[current_user]=lambda:{'id':f['actor'],'permissions':credits.user_context(f['actor'])['permissions']}
+    try:
+        with TestClient(app) as client:
+            params={'fingerprint':preview['fingerprint'],'class_id':f['class_id'],'kind':'DAILY_READING'}
+            assert client.get('/api/v1/learning-credits/excel/saved-source',params=params).json()['data']=={'id':None}
+            with patch.object(sources,'_has_scope',return_value=False):
+                assert client.get('/api/v1/learning-credits/excel/saved-source',params=params).status_code==403
+    finally:app.dependency_overrides.pop(current_user,None)
+
+
 @pytest.mark.parametrize('kind',['CLASS_MEETING','DAILY_READING','EXCELLENT_SHARE'])
 def test_excel_source_direct_confirmation_posts_once_without_fabricated_review(source_fixture,kind):
     f=source_fixture;iid,_,_=registered(f,kind)

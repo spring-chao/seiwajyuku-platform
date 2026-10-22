@@ -152,6 +152,10 @@ export const sourceRegister = (
     base + "/imports",
     payload(file, form, fingerprint)
   );
+export const sourceFindSaved = (fingerprint: string, class_id: string, kind: SourceKind) =>
+  http.request<Result<{ id: number | null }>>("get", base + "/saved-source", {
+    params: { fingerprint, class_id, kind }, timeout: 30000
+  });
 export const sourceCreateBatches = (id: number) =>
   http.request<Result<SourceImport>>("post", `${base}/imports/${id}/batches`, {
     timeout: 180000

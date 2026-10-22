@@ -31,7 +31,9 @@ export function creditSettlementErrorMessage(error: unknown, action: string): st
   const safeDetail = status && status < 500 && typeof detail === "string" &&
     detail.length <= 200 && !/Traceback|<\/?\w|password|secret|token/i.test(detail)
       ? detail : "";
-  const reason = safeDetail || reasons[status || 0] ||
+  const timedOut = !status && ["ECONNABORTED", "ETIMEDOUT"].includes(failure?.code || "");
+  const reason = safeDetail || reasons[status || 0] || (timedOut ?
+    "学分接口响应超时，结果可能已保存；请先核对处理结果，再决定是否重试。" : "") ||
     (status ? "请求未完成，请核对输入后重试。" :
       "无法连接学分接口，请检查网络；若其他页面正常，请联系管理员检查该接口。");
   return `${action}${status ? `（HTTP ${status}）` : ""}：${reason}`;
