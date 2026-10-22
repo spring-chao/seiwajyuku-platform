@@ -52,7 +52,10 @@ const confirmReview = async () => {
     const response = await confirmStudyMeetingReview(sessionId, fingerprint);
     if (detailVisible.value && detail.value?.id === sessionId) detail.value = response.data;
     await loadRecords();
-    ElMessage.success("本场学习会已核实");
+    await loadCredit();
+    if (response.data.credit_settlement?.message) ElMessage.warning(response.data.credit_settlement.message);
+    else if (response.data.credit_settlement?.status === "POSTED") ElMessage.success("本场已核实，学分已自动结算入账");
+    else ElMessage.warning("本场已核实，学分尚未完成入账，请刷新后重试");
   } catch (error) {
     ElMessage.error(studyMeetingErrorMessage(error, "学习会核实"));
   } finally { reviewing.value = false; }
@@ -482,9 +485,15 @@ onMounted(async () => {
 
           <div class="attendee-section">
             <el-button v-if="detail.can_confirm_review" type="primary" :loading="reviewing"
-              :disabled="detail.review_status === 'CONFIRMED' || editingCourses || editingAttendees || confirming || savingCourses || savingAttendees"
-              @click="confirmReview">{{ detail.review_status === 'CONFIRMED' ? '已核实' : '确认核实' }}</el-button>
-            <div class="muted">核对合影、参加人员和观看情况后确认；人员、课程或观看情况修改后需重新核实。</div>
+              :disabled="editingCourses || editingAttendees || confirming || savingCourses || savingAttendees"
+              @click="confirmReview">{{ detail.credit_settlement?.status === 'POSTING' ? '核对入账进度' : detail.review_status === 'CONFIRMED' ? '重试自动结算' : '确认核实并自动结算' }}</el-button>
+            <el-alert v-if="detail.credit_settlement" class="notice" :closable="false" show-icon
+              :type="detail.credit_settlement.status === 'POSTED' ? 'success' : 'warning'"
+              :title="detail.credit_settlement.message || (detail.credit_settlement.status === 'POSTED'
+                ? `已自动入账 ${detail.credit_settlement.posted_points} 分${detail.credit_settlement.blocked_count ? '；部分记录未满足计分条件' : ''}`
+                : detail.credit_settlement.status === 'POSTING' ? '学分正在入账，请刷新查看实际结果'
+                : detail.review_status === 'CONFIRMED' ? '本场已核实，学分待自动结算；可在本页重试' : '核实确认后自动结算学分')" />
+            <div class="muted">核对合影、参加人员和观看情况后确认，系统自动结算有效学分；重复确认不会重复计分。</div>
           </div>
 
           <el-alert v-if="detail.correction_lock_reason" :title="detail.correction_lock_reason" type="warning" :closable="false" class="correction-note" />
@@ -532,8 +541,8 @@ onMounted(async () => {
             <div class="muted">仅修正本场名单，不转组、不替换合影、不改课程或积分。</div>
           </section>
           <div class="attendee-section">
-            <div class="detail-title">逐人观看确认与预计学分</div>
-            <div class="muted">先查看合影核对实际参加人员和观看情况。预计新增学分已扣除重复记录，以正式结算为准。</div>
+            <div class="detail-title">逐人观看确认与学分明细</div>
+            <div class="muted">先查看合影核对实际参加人员和观看情况。核实后自动结算；已计入的学分不会再次增加。</div>
             <el-alert v-if="creditError" :title="creditError" type="warning" :closable="false" />
             <el-button v-if="creditError" @click="loadCredit">重新加载预计学分</el-button>
             <div v-if="!canPreviewCredit" class="muted">当前账号未取得学分预览权限。</div>
@@ -560,6 +569,7 @@ onMounted(async () => {
               </el-table-column>
               <el-table-column label="小组会学分" width="100"><template #default="{ row }">{{ personCredit(row.member_id)?.group_points ?? '—' }}</template></el-table-column>
               <el-table-column label="课程学分" width="100"><template #default="{ row }">{{ personCredit(row.member_id)?.course_points ?? '—' }}</template></el-table-column>
+              <el-table-column label="已计入学分" width="110"><template #default="{ row }">{{ personCredit(row.member_id)?.credited_points ?? '—' }}</template></el-table-column>
               <el-table-column label="预计新增" width="100" fixed="right"><template #default="{ row }"><strong>{{ personCredit(row.member_id)?.expected_points ?? '—' }}</strong></template></el-table-column>
               <el-table-column label="计分说明" min-width="220"><template #default="{ row }">{{ personCredit(row.member_id)?.reasons.join('；') || (personCredit(row.member_id) ? '可计入本次预计学分' : '预计学分尚未加载') }}</template></el-table-column>
             </el-table>

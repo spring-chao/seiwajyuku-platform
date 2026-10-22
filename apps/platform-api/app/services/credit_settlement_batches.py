@@ -1876,20 +1876,32 @@ def _post_reading_step(*, actor_user_id, batch_id, selected, expected_items_fp, 
             _assert_current_preview(connection,active_batch,actor_user_id=actor_user_id,
                 posted_keys={item['idempotency_key'] for item in items if item['status']=='POSTED'})
             by_id={int(item['id']):item for item in items}
-            started=time.monotonic()
+            frozen=[]
             for chosen in selected:
-                if processed and time.monotonic()-started>=8:break
                 current_item_id=int(chosen['id']);item=by_id.get(current_item_id)
                 if (not item or item['status'] not in pending_statuses or item['ledger_entry_id'] is not None
                     or int(item['member_id'])!=int(chosen['member_id']) or item['credit_type']!=activity_credits.DAILY_READING):
                     raise credits.LearningCreditError('批次条目状态或学员已变化')
-                entry=credits.post_credit_entry(actor_user_id=actor_user_id,item=_frozen_entry_item(item,active_batch['class_org_unit_id']))
+                frozen.append(item)
+            entries=credits.post_reading_entries(connection=connection,actor_user_id=actor_user_id,
+                items=[_frozen_entry_item(item,active_batch['class_org_unit_id']) for item in frozen])
+            if len(entries)!=len(frozen):
+                raise credits.LearningCreditError('正式账本返回条目不完整')
+            links=[]
+            for item,entry in zip(frozen,entries):
+                current_item_id=int(item['id'])
                 if entry['idempotency_key']!=item['idempotency_key'] or Decimal(str(entry['points']))!=Decimal(str(item['points'])):
                     raise credits.LearningCreditError('正式账本结果与冻结条目不一致')
-                changed=execute(connection,"UPDATE learning_credit_settlement_batch_items SET status='POSTED',ledger_entry_id=?,error_code=NULL,updated_at=? WHERE id=? AND batch_id=? AND status IN ('PROPOSED','APPROVED','FAILED') AND ledger_entry_id IS NULL",
-                    (entry['id'],credits._db_timestamp(connection),current_item_id,batch_id))
-                if changed.rowcount!=1:raise credits.LearningCreditError('批次条目被并发修改')
-                processed+=1
+                links.extend((current_item_id,entry['id']))
+            ids=[int(item['id']) for item in frozen]
+            changed=execute(connection,
+                "UPDATE learning_credit_settlement_batch_items SET status='POSTED',ledger_entry_id=CASE id "
+                + ' '.join('WHEN ? THEN ?' for _ in ids)
+                + " END,error_code=NULL,updated_at=? WHERE batch_id=? AND id IN (" + ','.join('?' for _ in ids)
+                + ") AND status IN ('PROPOSED','APPROVED','FAILED') AND ledger_entry_id IS NULL",
+                (*links,credits._db_timestamp(connection),batch_id,*ids))
+            if changed.rowcount!=len(ids):raise credits.LearningCreditError('批次条目被并发修改')
+            processed=len(ids)
             execute(connection,"UPDATE learning_credit_settlement_batches SET updated_at=? WHERE id=? AND status='POSTING'",(credits._db_timestamp(connection),batch_id))
         return processed,False
     except Exception as exc:
@@ -1907,7 +1919,7 @@ def _post_reading_step(*, actor_user_id, batch_id, selected, expected_items_fp, 
 def _post_batch(
     *, actor_user_id: int, batch_id: int, source_type: str, resume_partial_failure: bool = False,
     batch_type: str = "REGULAR", source_confirmation: dict | None = None,
-    max_items: int | None = None,
+    meeting_confirmation: dict | None = None, max_items: int | None = None,
 ) -> dict[str, Any]:
     """POST frozen items once, with atomic steps and reconciliation.
 
@@ -1915,6 +1927,9 @@ def _post_batch(
     Only an explicitly requested PARTIAL_FAILED resume processes failed items.
     """
 
+    if source_confirmation is not None and meeting_confirmation is not None:
+        raise credits.LearningCreditError("结算确认来源冲突")
+    confirmation = source_confirmation or meeting_confirmation
     step_limit=25 if source_type==activity_credits.DAILY_READING and batch_type=='REGULAR' else 10
     if max_items is not None and (source_confirmation is None or not 1 <= max_items <= step_limit):
         raise credits.LearningCreditError("分段入账仅适用于已核对的表格来源")
@@ -1952,6 +1967,9 @@ def _post_batch(
                 batch_type!='REGULAR' or source_type!=source['source_kind'] or
                 row['class_org_unit_id']!=source['class_org_unit_id']):
                 raise credits.LearningCreditError('结算来源或预览已变化，请重新查看后确认入账')
+        if meeting_confirmation is not None:
+            from app.services.study_meeting_review import assert_settlement_confirmation
+            assert_settlement_confirmation(connection, actor_user_id, row, meeting_confirmation)
         if row["status"] == "POSTED":
             count, points = _reconcile_posted_items(connection, row)
             if count != int(row["proposed_entry_count"]) or points != Decimal(str(row["proposed_points"])):
@@ -1960,10 +1978,10 @@ def _post_batch(
             return _batch_summary(connection, batch_id, idempotent=True)
         if row["status"] == "PARTIAL_FAILED" and not resume_partial_failure:
             raise credits.LearningCreditError("部分失败批次必须明确请求续跑")
-        allowed_statuses = ({"DRY_RUN", "PENDING_APPROVAL", "APPROVED", "PARTIAL_FAILED"} if resume_partial_failure else {"DRY_RUN", "PENDING_APPROVAL", "APPROVED"}) if source_confirmation else {"APPROVED", "PARTIAL_FAILED"}
+        allowed_statuses = ({"DRY_RUN", "PENDING_APPROVAL", "APPROVED", "PARTIAL_FAILED"} if resume_partial_failure else {"DRY_RUN", "PENDING_APPROVAL", "APPROVED"}) if confirmation else {"APPROVED", "PARTIAL_FAILED"}
         if row["status"] not in allowed_statuses:
-            raise credits.LearningCreditError("结算状态不允许入账，请刷新查看实际结果" if source_confirmation else "只有已审批或部分失败批次可以入账")
-        if source_confirmation is None and (row["approved_by"] is None or not row["approval_fingerprint"]):
+            raise credits.LearningCreditError("结算状态不允许入账，请刷新查看实际结果" if confirmation else "只有已审批或部分失败批次可以入账")
+        if confirmation is None and (row["approved_by"] is None or not row["approval_fingerprint"]):
             raise credits.LearningCreditError("批次审批或阻塞门禁不完整")
         items = execute(
             connection,
@@ -1972,9 +1990,9 @@ def _post_batch(
             (batch_id,),
         ).fetchall()
         approved_items = [item for item in items if item["status"] != "BLOCKED"]
-        expected_items_fp = source_confirmation['fingerprint'] if source_confirmation else row['approval_fingerprint']
+        expected_items_fp = confirmation['fingerprint'] if confirmation else row['approval_fingerprint']
         if _approval_fingerprint(row, approved_items) != expected_items_fp:
-            raise credits.LearningCreditError("结算冻结条目指纹不匹配" if source_confirmation else "批次审批指纹不匹配")
+            raise credits.LearningCreditError("结算冻结条目指纹不匹配" if confirmation else "批次审批指纹不匹配")
         posted_keys = {item["idempotency_key"] for item in items if item["status"] == "POSTED"}
         _assert_current_preview(connection, row, actor_user_id=actor_user_id, posted_keys=posted_keys)
         _reconcile_posted_items(connection, row)
@@ -1987,7 +2005,7 @@ def _post_batch(
         )
         if changed.rowcount != 1:
             raise credits.LearningCreditError("批次入账状态已被其他执行者占用")
-        pending_statuses = {"PROPOSED", "APPROVED", "FAILED"} if source_confirmation else {"APPROVED", "FAILED"}
+        pending_statuses = {"PROPOSED", "APPROVED", "FAILED"} if confirmation else {"APPROVED", "FAILED"}
         pending_ids = [int(item["id"]) for item in items if item["status"] in pending_statuses]
         if source_confirmation:
             write_audit(connection, actor_user_id=actor_user_id,
@@ -1995,6 +2013,14 @@ def _post_batch(
                 resource_id=str(batch_id), org_unit_id=row['class_org_unit_id'],
                 purpose="操作者核对表格结算后确认入账，不经独立复核",
                 after={'import_id':source_confirmation['import_id'],'confirmation_fingerprint':expected_items_fp})
+
+        if meeting_confirmation:
+            write_audit(connection, actor_user_id=actor_user_id,
+                action="learning_credit.meeting.confirm", resource_type="learning_credit_settlement_batch",
+                resource_id=str(batch_id), org_unit_id=row['class_org_unit_id'],
+                purpose="学习会人工核实后自动结算，不再独立审批",
+                after={'session_id':meeting_confirmation['session_id'],'review_fingerprint':meeting_confirmation['review_fingerprint'],
+                    'confirmation_fingerprint':expected_items_fp})
 
     # Reading confirms bounded locked groups; other paths retain individual
     # item transactions. Every commit has a live preview and unique ledger keys.
@@ -2031,10 +2057,12 @@ def _post_batch(
                 ).fetchone()
                 if not active_batch or active_batch["status"] != "POSTING":
                     raise credits.LearningCreditError("批次入账上下文已变化")
-                if source_confirmation:
+                if confirmation:
                     current_items=execute(connection,"SELECT * FROM learning_credit_settlement_batch_items WHERE batch_id=? AND status<>'BLOCKED' ORDER BY id",(batch_id,)).fetchall()
                     if _approval_fingerprint(active_batch,current_items)!=expected_items_fp:
                         raise credits.LearningCreditError('确认后的结算条目已变化')
+                if meeting_confirmation:
+                    assert_settlement_confirmation(connection, actor_user_id, active_batch, meeting_confirmation)
                 posted_rows = execute(
                     connection,
                     "SELECT idempotency_key FROM learning_credit_settlement_batch_items "
@@ -2163,7 +2191,7 @@ def _post_batch(
             connection, actor_user_id=actor_user_id,
             action="learning_credit.batch.post", resource_type="learning_credit_settlement_batch",
             resource_id=str(batch_id), org_unit_id=current["class_org_unit_id"],
-            purpose="按表格来源确认入账" if source_confirmation else "按已审批冻结条目正式入账；失败仅续跑未入账条目",
+            purpose="学习会核实后自动入账" if meeting_confirmation else "按表格来源确认入账" if source_confirmation else "按已审批冻结条目正式入账；失败仅续跑未入账条目",
             after={"status": final_status, "posted_entry_count": count, "posted_points": str(points)},
         )
         return _batch_summary(connection, batch_id, idempotent=False)

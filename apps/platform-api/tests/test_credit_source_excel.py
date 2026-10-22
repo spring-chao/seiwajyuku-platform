@@ -295,7 +295,11 @@ def test_249_reading_entries_use_bounded_steps_without_per_item_batch_preview(so
     iid,_,_=registered(f,'DAILY_READING',out.getvalue());source=sources.create_batches(iid,f['actor'])
     assert source['settlement_summary']['proposed_points']=='249.00'
     calls=[];original=db.execute;requests=0;started=time.monotonic()
-    def counted(c,sql,params=()):calls.append(sql.split()[0]);return original(c,sql,params)
+    ledger_inserts=[]
+    def counted(c,sql,params=()):
+        calls.append(sql.split()[0])
+        if sql.startswith('INSERT INTO learning_credit_entries '):ledger_inserts.append(sql)
+        return original(c,sql,params)
     with monkeypatch.context() as scoped,patch.object(batches,'_assert_current_preview',wraps=batches._assert_current_preview) as live:
         for module_name,module in list(sys.modules.items()):
             if module_name.startswith('app.') and getattr(module,'execute',None) is original:scoped.setattr(module,'execute',counted)
@@ -306,7 +310,8 @@ def test_249_reading_entries_use_bounded_steps_without_per_item_batch_preview(so
         record_property('posting_sql_calls',len(calls));record_property('posting_requests',requests)
         record_property('posting_full_preview_calls',live.call_count);record_property('posting_seconds',round(time.monotonic()-started,3))
         assert live.call_count==requests*2
-    assert requests<=16 and len(calls)<18000
+    assert requests<=16 and len(calls)<5000
+    assert len(ledger_inserts)==requests  # one multi-row ledger INSERT per step
     assert source['settlement_summary']['posted_points']=='249.00'
     assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries WHERE class_org_unit_id=?",(f['class_id'],))['n']==249
     assert sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)['settlement_summary']['posted_points']=='249.00'
@@ -324,13 +329,13 @@ def test_reading_step_rolls_back_all_items_on_mid_step_failure(source_fixture):
     wb=Workbook();s=wb.active;s.title=sources.SHEETS['DAILY_READING'];s.append(sources.HEADERS['DAILY_READING'])
     for code,name in identities:s.append([code,name,DAY,'是'])
     out=io.BytesIO();wb.save(out);iid,_,_=registered(f,'DAILY_READING',out.getvalue());source=sources.create_batches(iid,f['actor'])
-    original=credits.post_credit_entry;calls=0
-    def fail_second(**kwargs):
-        nonlocal calls
-        calls+=1
-        if calls==2:raise RuntimeError('isolated second-item failure')
-        return original(**kwargs)
-    with patch.object(credits,'post_credit_entry',side_effect=fail_second),pytest.raises(credits.LearningCreditError,match='未全部完成'):
+    original=credits.execute
+    def fail_after_insert(connection, sql, params=()):
+        result=original(connection, sql, params)
+        if sql.startswith('INSERT INTO learning_credit_entries '):
+            raise RuntimeError('isolated failure after multi-row insert')
+        return result
+    with patch.object(credits,'execute',side_effect=fail_after_insert),pytest.raises(credits.LearningCreditError,match='未全部完成'):
         sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)
     failed=sources.get_import(iid,f['actor']);assert failed['posting_progress']['posted_entries']==0
     assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries WHERE class_org_unit_id=?',(f['class_id'],))['n']==0
@@ -361,12 +366,12 @@ def test_mysql_reading_step_concurrent_confirmations_never_duplicate(source_fixt
 def test_abandoned_source_posting_shows_live_progress_and_uses_existing_recovery_gate(source_fixture):
     from datetime import UTC,datetime,timedelta
     f=source_fixture;iid,_,_=registered(f,'DAILY_READING');source=sources.create_batches(iid,f['actor'])
-    real_insert=credits.post_credit_entry
+    real_insert=credits.post_reading_entries
     class Interrupted(BaseException):pass
     def post_then_interrupt(**kwargs):
         real_insert(**kwargs)
         raise Interrupted()
-    with patch.object(credits,'post_credit_entry',side_effect=post_then_interrupt),pytest.raises(Interrupted):
+    with patch.object(credits,'post_reading_entries',side_effect=post_then_interrupt),pytest.raises(Interrupted):
         sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)
     # The item and ledger write share one atomic transaction; even a process
     # interruption cannot leave an unlinked ledger fact to be posted twice.
@@ -831,7 +836,7 @@ def test_reading_partial_import_skips_invalid_and_duplicate_rows_then_posts_once
     assert fetch_one("SELECT SUM(points) AS p FROM learning_credit_entries WHERE member_id=? AND credit_type='DAILY_READING'",(f['member_id'],))['p']==1
 
 
-def test_credit_export_derives_full_month_target_from_dated_published_plan(source_fixture):
+def test_credit_export_uses_workdays_plus_fixed_basic_points(source_fixture):
     from decimal import Decimal
     from app.services.credit_monthly_targets import monthly_target
     f=source_fixture
@@ -844,7 +849,7 @@ def test_credit_export_derives_full_month_target_from_dated_published_plan(sourc
             execute(c,'INSERT INTO learning_plan_tasks(plan_cycle_id,task_type,title,is_required,sort_order,created_at,updated_at) VALUES (?,?,?,1,1,?,?)',(plan,task,'小组学习',now,now))
         rule_id=execute(c,'SELECT credit_rule_version_id FROM class_learning_bindings WHERE id=?',(f['binding_id'],)).fetchone()['credit_rule_version_id']
         from app.services.credit_rule_mapping import bound_generic_rule
-        expected=Decimal(str(bound_generic_rule(c,rule_id,'DAILY_READING')['points']))*31+Decimal(str(bound_generic_rule(c,rule_id,'EXCELLENT_SHARE')['cap_points']))+Decimal(str(bound_generic_rule(c,rule_id,'GROUP_MEETING_ATTENDANCE')['points']))
+        expected=Decimal(31+5+18+4)
         assert monthly_target(c,f['class_id'],date(2026,10,9))['points']==expected
         group_id='export-group-'+f['suffix']
         execute(c,"INSERT INTO org_units(id,unit_code,name,unit_type,parent_id,is_active,created_at,updated_at) VALUES (?,?,'合成学习小组','GROUP',?,1,?,?)",(group_id,group_id,f['class_id'],now,now))
@@ -855,34 +860,49 @@ def test_credit_export_derives_full_month_target_from_dated_published_plan(sourc
     # at month-day 1, independently of the detail date filter.
     book=load_workbook(io.BytesIO(exports.export_credits(f['actor'],f['class_id'],'2026-10-10','2026-10-15')))
     row=dict(zip([c.value for c in book['学分汇总'][1]],[c.value for c in book['学分汇总'][2]]))
-    assert row['小组']=='合成学习小组' and row['当月满分']==float(expected)
+    assert row['小组']=='合成学习小组' and row['当月基础满分']==float(expected)
     assert row['学分率']==pytest.approx(1/float(expected))
     assert book['学分汇总']['J2'].number_format=='0.0%'
     with transaction() as c:execute(c,"UPDATE learning_plan_versions SET status='DRAFT' WHERE id=?",(f['plan_id'],))
     book=load_workbook(io.BytesIO(exports.export_credits(f['actor'],f['class_id'],DAY,DAY)))
-    assert book['学分汇总']['I2'].value=='待配置' and book['学分汇总']['J2'].value is None
+    assert book['学分汇总']['I2'].value==float(expected) and book['学分汇总']['J2'].value==pytest.approx(1/float(expected))
 
 
-def test_month_target_counts_class_and_unique_courses_but_missing_policy_is_unresolved(source_fixture):
+def test_month_target_uses_latest_complete_calendar_independent_of_plan(source_fixture):
     from decimal import Decimal
     from app.services.credit_monthly_targets import monthly_target
     f=source_fixture
-    _calendar(f,year=2026,label='target-policies-'+f['suffix'],day_types={f'2026-10-{d:02}':'NORMAL_WORKDAY' for d in range(1,32)})
+    types={f'2026-10-{d:02}':'NORMAL_WORKDAY' for d in range(1,32)}
+    types['2026-10-01']='HOLIDAY';types['2026-10-02']='WEEKEND';types['2026-10-03']='ADJUSTED_WORKDAY'
+    _calendar(f,year=2026,label='basic-target-'+f['suffix'],day_types=types)
     with transaction() as c:
-        now=credits._db_timestamp(c)
-        execute(c,"UPDATE class_learning_cycles SET planned_class_meeting_at='2026-10-15T01:00:00+00:00' WHERE id=?",(f['cycle_id'],))
-        plan=execute(c,'SELECT plan_cycle_id FROM class_learning_cycles WHERE id=?',(f['cycle_id'],)).fetchone()['plan_cycle_id']
-        version=execute(c,"INSERT INTO learning_plan_credit_rule_versions(plan_key,version_label,status,created_at,updated_at) VALUES (?,'test','PUBLISHED',?,?)",('target-'+f['suffix'],now,now)).lastrowid
-        execute(c,"INSERT INTO learning_plan_credit_rules(rule_version_id,course_key,course_name,credit_points,status,source,aliases_json,created_at,updated_at) VALUES (?,'TARGET_COURSE','合成目标课程',40,'CONFIGURED','OPERATIONS','[]',?,?)",(version,now,now))
-        execute(c,'UPDATE class_learning_bindings SET course_credit_rule_version_id=? WHERE id=?',(version,f['binding_id']))
-        for task in ('READING','CLASS_MEETING','CLASS_MEETING','KONPA','ONLINE_COURSE','OFFLINE_COURSE'):
-            execute(c,'INSERT INTO learning_plan_tasks(plan_cycle_id,task_type,title,is_required,sort_order,metadata_json,created_at,updated_at) VALUES (?,?,?,1,1,?, ?,?)',(plan,task,'合成目标课程' if task.endswith('COURSE') else '学习任务',json.dumps({'course_key':'TARGET_COURSE'}) if task.endswith('COURSE') else '{}',now,now))
+        execute(c,'UPDATE class_learning_cycles SET planned_class_meeting_at=NULL WHERE id=?',(f['cycle_id'],))
+        execute(c,"UPDATE learning_plan_versions SET status='DRAFT' WHERE id=?",(f['plan_id'],))
         result=monthly_target(c,f['class_id'],date(2026,10,15))
-        assert result['points'] is not None,result
-        assert result['reason'].count('同课程去重')==1
-        assert result['reason'].count('MORNING')==1 and result['reason'].count('AFTERNOON')==1 and result['reason'].count('KONPA')==1
-        execute(c,"UPDATE learning_plan_credit_rules SET status='PENDING' WHERE rule_version_id=?",(version,))
-        missing=monthly_target(c,f['class_id'],date(2026,10,15))
-        assert missing['points'] is None and '课程学分待配置' in missing['reason']
-        execute(c,"UPDATE class_learning_cycles SET planned_class_meeting_at=NULL WHERE id=?",(f['cycle_id'],))
-        assert '日期' in monthly_target(c,f['class_id'],date(2026,10,15))['reason']
+        assert result['points']==Decimal(29+27)
+        assert '29个工作日' in result['reason']
+        version=execute(c,"SELECT id FROM learning_business_calendar_versions WHERE calendar_key='CHINA_MAINLAND' AND calendar_year=2026 AND status='PUBLISHED' ORDER BY id DESC LIMIT 1").fetchone()['id']
+        execute(c,"DELETE FROM learning_business_calendar_days WHERE calendar_version_id=? AND business_date='2026-10-31'",(version,))
+        assert monthly_target(c,f['class_id'],date(2026,10,15))['points'] is None
+        assert '2026-10-31' in monthly_target(c,None,date(2026,10,15))['reason']
+
+
+def test_monthly_basic_rate_excludes_courses_and_keeps_reversal_net(source_fixture):
+    from decimal import Decimal
+    f=source_fixture
+    _calendar(f,year=2026,label='basic-earned-'+f['suffix'],day_types={f'2026-10-{d:02}':'NORMAL_WORKDAY' for d in range(1,32)})
+    iid,_,_=registered(f,'DAILY_READING');source=sources.create_batches(iid,f['actor'])
+    sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)
+    with transaction() as c:
+        template=dict(execute(c,"SELECT * FROM learning_credit_entries WHERE member_id=? AND credit_type='DAILY_READING'",(f['member_id'],)).fetchone())
+        base={**template,'rule_snapshot':json.loads(template['rule_snapshot_json'])}
+        for kind,points in [('EXCELLENT_SHARE',3),('CLASS_MEETING_SCORE',18),('GROUP_MEETING_ATTENDANCE',4),('COURSE_COMPLETION',40)]:
+            row=credits._insert_entry(c,{**base,'credit_type':kind,'points':str(points),'idempotency_key':'basic-export-'+f['suffix']+kind},status='POSTED',actor_user_id=f['actor'])
+            if kind=='EXCELLENT_SHARE':
+                credits._insert_entry(c,{**base,'credit_type':kind,'source_type':'REVERSAL','points':'-1','reversal_of_entry_id':row['id'],'idempotency_key':'basic-reversal-'+f['suffix']},status='POSTED',actor_user_id=f['actor'])
+    book=load_workbook(io.BytesIO(exports.export_credits(f['actor'],f['class_id'],DAY,'2026-10-15')))
+    sheet=book['学分汇总'];row=dict(zip([c.value for c in sheet[1]],[c.value for c in sheet[2]]))
+    assert row['当月基础满分']==58
+    assert row['2026-10-01至2026-10-15当月基础获得学分']==25
+    assert row['学分率']==pytest.approx(25/58)
+    assert row['2026-10-09至2026-10-15新增学分']==65

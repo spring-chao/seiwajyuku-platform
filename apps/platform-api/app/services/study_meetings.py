@@ -1148,6 +1148,9 @@ def get_study_meeting_record_for_operations(
         if result:
             from app.services.study_meeting_review import add_operation_metadata
             add_operation_metadata(connection, [result])
+            from app.services.study_meeting_review import settlement_metadata
+            if {"plans:credit_settlement_preview", "plans:credit_settlement_manage", "plans:credit_settlement_post"} & set((user_context(actor_user_id) or {}).get("permissions", [])):
+                result["credit_settlement"] = settlement_metadata(connection,session_id)
         correction_lock_reason = _correction_lock_reason(connection, result) if result else None
         can_edit_courses = (
             bool(result)
@@ -1168,7 +1171,7 @@ def get_study_meeting_record_for_operations(
     from app.services.study_meeting_attendees import can_edit_attendees
     result["can_edit_attendees"] = can_edit_attendees(actor_user_id) and result["status"] == "SUBMITTED" and not correction_lock_reason
     review_scope = accessible_org_ids(actor_user_id, "study_meetings:attendees_edit")
-    result["can_confirm_review"] = result["can_edit_attendees"] and (review_scope is None or result["class_org_unit_id"] in review_scope)
+    result["can_confirm_review"] = (result["can_edit_attendees"] or (result["review_status"] == "CONFIRMED" and can_edit_attendees(actor_user_id) and result.get("credit_settlement", {}).get("status") not in {"POSTED","CLOSED"})) and (review_scope is None or result["class_org_unit_id"] in review_scope)
     result["correction_lock_reason"] = correction_lock_reason
     result["course_options"] = course_options
     return result

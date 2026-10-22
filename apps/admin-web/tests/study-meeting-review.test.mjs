@@ -15,7 +15,7 @@ function harness(confirm) {
   const context = vm.createContext({ ref, computed, reactive, watch,
     defineOptions() {}, onMounted() {}, onBeforeUnmount() {},
     useUserStoreHook: () => ({ permissions: [] }),
-    ElMessage: { success: value => calls.push({ message: value }), error: value => calls.push({ error: value }) },
+    ElMessage: { success: value => calls.push({ message: value }), error: value => calls.push({ error: value }), warning: value => calls.push({ warning: value }) },
     studyMeetingErrorMessage: () => "失败",
     confirmStudyMeetingReview: async (id, fingerprint) => { calls.push({ id, fingerprint }); return confirm(id); },
     getStudyMeetingRecords: async () => ({ data: { records: [{ id: 1, review_status: "CONFIRMED" }] } })
@@ -64,4 +64,16 @@ test("edited detail immediately updates the corresponding list verification stat
   assert.equal(h.state.records.value[0].review_status, "UNCONFIRMED");
   assert.equal(h.state.records.value[0].home_group_attendance_rate, 50);
   assert.equal(h.state.records.value[1].review_status, "CONFIRMED");
+});
+
+
+test("automatic settlement reports posted success and retains explicit retry warnings", async () => {
+  const posted = harness(async () => ({ data: { id: 1, review_status: "CONFIRMED", credit_settlement: { status: "POSTED", posted_points: "8.00" } } }));
+  await posted.run();
+  assert.ok(posted.calls.some(x => x.message === "本场已核实，学分已自动结算入账"));
+  assert.ok(!posted.calls.some(x => x.error || x.warning));
+  const partial = harness(async () => ({ data: { id: 1, review_status: "CONFIRMED", credit_settlement: { status: "PARTIAL_FAILED", message: "本场已核实，学分尚未全部入账" } } }));
+  await partial.run();
+  assert.ok(partial.calls.some(x => x.warning === "本场已核实，学分尚未全部入账"));
+  assert.ok(!partial.calls.some(x => x.message));
 });

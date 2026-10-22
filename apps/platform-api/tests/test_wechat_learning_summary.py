@@ -432,3 +432,32 @@ def test_wechat_credit_summary_returns_zero_without_posted_entries() -> None:
         assert data["standard_learning_points"] == "0.00"
         assert data["extension_activity_points"] == "0.00"
         assert data["recent_entries"] == []
+
+
+def test_current_learning_uses_primary_then_newest_group_in_each_class():
+    from app.services.wechat_learning import _current_learning
+    f = _seed_group_leader_fixture()
+    with transaction() as c:
+        now = _stamp()
+        execute(c, "INSERT INTO member_org_relations(member_id,org_unit_id,relation_type,is_primary,created_at,updated_at) VALUES (?,?,'STUDY_GROUP',0,?,?)",
+            (f['member_id'],f['other_group_id'],now,now))
+        rows = _current_learning(c,f['member_id'])
+        assert len(rows)==1 and rows[0]['group_name']=='第一小组'
+        execute(c,"UPDATE member_org_relations SET is_primary=1 WHERE member_id=? AND org_unit_id=?",(f['member_id'],f['other_group_id']))
+        rows = _current_learning(c,f['member_id'])
+        assert len(rows)==1 and rows[0]['group_name']=='第二小组'
+        execute(c,"UPDATE member_org_relations SET valid_until='2020-01-01' WHERE member_id=? AND org_unit_id=?",(f['member_id'],f['other_group_id']))
+        assert _current_learning(c,f['member_id'])[0]['group_name']=='第一小组'
+        execute(c,"UPDATE member_org_relations SET valid_until=NULL,valid_from='2099-01-01' WHERE member_id=? AND org_unit_id=?",(f['member_id'],f['other_group_id']))
+        assert _current_learning(c,f['member_id'])[0]['group_name']=='第一小组'
+
+
+def test_current_learning_keeps_distinct_class_ids_with_identical_names():
+    from app.services.wechat_learning import _current_learning
+    f = _seed_group_leader_fixture()
+    with transaction() as c:
+        now = _stamp()
+        execute(c,"UPDATE org_units SET name='同名班' WHERE id IN (?,?)",(f['class_id'],f['other_class_id']))
+        execute(c,"INSERT INTO member_org_relations(member_id,org_unit_id,relation_type,is_primary,created_at,updated_at) VALUES (?,?,'STUDY_CLASS',0,?,?)",(f['member_id'],f['other_class_id'],now,now))
+        rows=_current_learning(c,f['member_id'])
+        assert len(rows)==2 and all(row['class_name']=='同名班' for row in rows)

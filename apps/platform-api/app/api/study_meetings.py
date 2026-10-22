@@ -26,7 +26,7 @@ from app.services.study_meeting_evidence import upload_evidence, read_evidence
 from app.services.study_evidence_storage import MAX_BYTES
 from app.services.study_meeting_attendees import attendee_options, correct_attendees
 from app.services.study_meeting_operations import meeting_credit_preview, export_meeting_records, export_meeting_workbook
-from app.services.study_meeting_review import confirm_meeting_review
+from app.services.study_meeting_review import confirm_and_settle_meeting_review
 from app.services.learning_credits import LearningCreditError
 
 
@@ -229,7 +229,7 @@ def correct_courses(session_id: int, payload: CourseCorrectionPayload,
 def confirm_record_review(session_id: int, payload: MeetingReviewPayload,
                           user: dict = Depends(require_permission("study_meetings:attendees_edit"))) -> dict:
     try:
-        return {"success": True, "data": confirm_meeting_review(
+        return {"success": True, "data": confirm_and_settle_meeting_review(
             actor_user_id=user["id"], session_id=session_id, **payload.model_dump())}
     except (StudyMeetingError, StudyMeetingPermissionError) as exc:
         raise _business_error(exc) from exc
