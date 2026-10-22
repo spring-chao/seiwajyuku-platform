@@ -199,9 +199,9 @@ const courseLabel = (record: any) => {
   if (Array.isArray(record.courses)) {
     return record.courses.map(course =>
       `${course.course_name_snapshot}（${course.course_rule_status === "PENDING" ? "学分待配置" : course.course_credit_snapshot + "学分"}）`
-    ).join("；") || "未观看课程";
+    ).join("；") || "未登记观看课程";
   }
-  if (!record.has_course) return "未观看课程";
+  if (!record.has_course) return "未登记观看课程";
   if (record.course_rule_status === "PENDING") {
     return `${record.course_name_snapshot || "已选课程"}（学分待配置）`;
   }

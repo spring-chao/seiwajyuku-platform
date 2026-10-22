@@ -46,13 +46,13 @@ function harness() {
   const request = async (path, options) => {
     calls.push({ path, options });
     if (path.endsWith("/submit") && failSubmit) { failSubmit = false; throw new Error("retry"); }
-    if (path.endsWith("/submit")) return { data: { id: 42, status: "SUBMITTED", courses: [], evidence: { id: 1 } } };
+    if (path.endsWith("/submit")) return { data: { id: 42, status: "SUBMITTED", courses: [], learning_content_results: calls.find(item => item.path === "/api/v1/study-meetings").options.data.learning_content_results, evidence: { id: 1 } } };
     if (path.includes("/context?")) return {
       data: {
         assignment: {
           class_name: "测试班",
           group_name: "测试组",
-          current_cycle: { learning_cycle_index: 5 },
+          current_cycle: { id: 105, learning_cycle_index: 5 },
           meeting_plan: meetingPlan
         },
         evidence_enabled: true
@@ -71,7 +71,7 @@ function harness() {
   return { page, app, calls, failNextSubmit: () => { failSubmit = true; } };
 }
 
-test("meeting content is confirmed locally and submit payload has no legacy course fields", async () => {
+test("meeting content confirmations reach the server without client pricing or course guesses", async () => {
   const { page, calls } = harness();
   await page.loadContext();
   assert.equal(page.data.learningContentResults.length, 1);
@@ -85,6 +85,10 @@ test("meeting content is confirmed locally and submit payload has no legacy cour
   assert.ok(create);
   assert.equal(Object.keys(create.options.data).some(key => key.includes("course")), false);
   assert.equal(Object.keys(create.options.data).includes("has_course"), false);
+  assert.equal(create.options.data.learning_cycle_id, 105);
+  assert.equal(JSON.stringify(create.options.data.learning_content_results), JSON.stringify([
+    { content_key: "content-1", completed: true, confirmed: true }
+  ]));
 });
 
 for (const choice of ["no", null]) test(`registration submits without course completion: ${choice}`, async () => {
@@ -131,4 +135,19 @@ test("concurrent taps submit once and points are never sent by the leader", asyn
   assert.equal(creates.length, 1);
   assert.equal(Object.keys(creates[0].options.data).some(key => key.includes("course")), false);
   assert.equal(Object.keys(creates[0].options.data).some(key => key.includes("credit")), false);
+});
+
+test("changing a viewing choice after failed submission resends the draft content", async () => {
+  const { page, calls, failNextSubmit } = harness();
+  await page.loadContext();
+  page.data.photoPath = "/tmp/small.jpg";
+  page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: "content-1", completed: "yes" } } });
+  failNextSubmit();
+  await page.submit();
+  page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: "content-1", completed: "no" } } });
+  await page.submit();
+  const creates = calls.filter(item => item.path === "/api/v1/study-meetings");
+  assert.equal(creates.length, 2);
+  assert.equal(creates[0].options.data.learning_content_results[0].completed, true);
+  assert.equal(creates[1].options.data.learning_content_results[0].completed, false);
 });

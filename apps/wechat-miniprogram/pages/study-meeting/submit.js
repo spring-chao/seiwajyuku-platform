@@ -57,7 +57,8 @@ Page({
       const crossCount = (draft.cross_group_member_ids || []).length;
       const learningContentResults = applyLearningContentResults(
         meetingPlan ? meetingPlan.learningContents : [],
-        draft.learning_content_results
+        draft.learning_cycle_index === (assignment.current_cycle && assignment.current_cycle.learning_cycle_index)
+          ? draft.learning_content_results : []
       );
       const requiredContentCount = learningContentResults.filter(item => item.required).length;
       const completedRequiredCount = learningContentResults.filter(item => item.required && item.completed).length;
@@ -183,7 +184,8 @@ Page({
     if (this.data.submitting || this.data.choosingPhoto) return;
     const current = beginPrivateRequest(this, "submit");
     if (!current()) return;
-    if (!this.data.meetingPlanReady) {
+    const cycle = this.data.assignment && this.data.assignment.current_cycle;
+    if (!this.data.meetingPlanReady || !cycle || !cycle.id) {
       wx.showToast({ title: "当前学习周期内容尚未配置", icon: "none" }); return;
     }
     if (!this.data.photoPath) {
@@ -198,7 +200,9 @@ Page({
     const draft = app.globalData.studyMeetingDraft || {};
     const payload = {
       group_org_unit_id: draft.group_org_unit_id, meeting_date: localDateString(),
-      member_ids: draft.member_ids || [], cross_group_member_ids: draft.cross_group_member_ids || []
+      member_ids: draft.member_ids || [], cross_group_member_ids: draft.cross_group_member_ids || [],
+      learning_cycle_id: cycle.id,
+      learning_content_results: serializeLearningContentResults(this.data.learningContentResults)
     };
     const fingerprint = JSON.stringify(payload);
     this.setData({ submitting: true, submitStage: "正在准备登记…", submitError: "", photoFeedback: "" });
@@ -246,10 +250,7 @@ Page({
   },
 
   complete(session) {
-    app.globalData.studyMeetingResult = {
-      ...session,
-      learning_content_results: serializeLearningContentResults(this.data.learningContentResults)
-    };
+    app.globalData.studyMeetingResult = session;
     app.globalData.studyMeetingDraft = null;
     wx.redirectTo({ url: "/pages/study-meeting/result" });
   }

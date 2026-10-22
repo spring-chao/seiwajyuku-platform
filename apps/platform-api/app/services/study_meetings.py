@@ -380,6 +380,16 @@ def _session_payload(connection, session_id: int) -> dict[str, Any] | None:
     result["id"] = int(result["id"])
     result["courses"] = _read_courses(connection, result)
     result["has_course"] = bool(result["courses"])
+    confirmation = execute(
+        connection,
+        "SELECT after_json FROM audit_logs WHERE resource_type='study_meeting_session' "
+        "AND resource_id=? AND action IN ('study_meeting.create', 'study_meeting.draft_content_update') "
+        "ORDER BY id DESC LIMIT 1", (str(session_id),),
+    ).fetchone()
+    result["learning_content_results"] = (
+        json.loads(confirmation["after_json"]).get("learning_content_results")
+        if confirmation and confirmation["after_json"] else None
+    )
     from app.services.study_meeting_evidence import evidence_metadata
     result["evidence"] = evidence_metadata(connection, session_id)
     result["course_rule_status"] = (
@@ -724,6 +734,47 @@ def _validate_course_completions(connection, session_row: dict[str, Any]) -> Non
             )
 
 
+def _learning_content_course_keys(connection, cycle_data: dict, results: list[dict],
+                                  learning_cycle_id: int | None) -> list[str]:
+    cycle = cycle_data["cycle"]
+    if learning_cycle_id != int(cycle["id"]):
+        raise StudyMeetingError("当前学习周期已变化，请重新加载学习内容后提交")
+    plan_cycle = _plan_cycle_payload(connection, int(cycle["plan_cycle_id"]))
+    if not plan_cycle:
+        raise StudyMeetingError("当前学习周期缺少对应的学习计划内容")
+    try:
+        plan = build_group_meeting_plan(
+            plan_cycle=plan_cycle, cohort_month=cycle_data["binding"].get("cohort_month"),
+            learning_cycle_index=int(cycle["learning_cycle_index"]),
+        )
+    except GroupMeetingPlanConfigError as exc:
+        raise StudyMeetingError(str(exc)) from exc
+    visible = set()
+    terminal_found = False
+    for step in plan["steps"]:
+        visible.update(step.get("learning_content_keys", []))
+        if step.get("is_terminal"):
+            terminal_found = True
+            break
+    if not terminal_found:
+        raise StudyMeetingError("当前小组学习会流程配置不完整")
+    contents = {item["content_key"]: item for item in plan["learning_contents"]
+                if item["content_key"] in visible}
+    submitted = [item.get("content_key") for item in results]
+    if len(set(submitted)) != len(submitted) or set(submitted) != set(contents):
+        raise StudyMeetingError("学习内容与当前周期不一致，请重新加载后提交")
+    keys = []
+    for item in results:
+        if type(item.get("completed")) is not bool or type(item.get("confirmed")) is not bool:
+            raise StudyMeetingError("学习内容完成选项无效")
+        if item["completed"] and not item["confirmed"]:
+            raise StudyMeetingError("已完成的学习内容需要明确确认")
+        key = contents[item["content_key"]].get("credit_rule_key")
+        if item["completed"] and key and key not in keys:
+            keys.append(key)
+    return keys
+
+
 def create_study_meeting(
     *,
     member_id: int,
@@ -734,6 +785,8 @@ def create_study_meeting(
     has_course: bool,
     course_key: str | None = None,
     course_keys: list[str] | None = None,
+    learning_cycle_id: int | None = None,
+    learning_content_results: list[dict] | None = None,
 ) -> dict[str, Any]:
     _require_enabled()
     _require_write()
@@ -758,6 +811,8 @@ def create_study_meeting(
         raise StudyMeetingError("同一课程不能重复添加")
     if bool(keys) != has_course:
         raise StudyMeetingError("观看课程选项与课程列表不一致")
+    if learning_content_results is not None and (has_course or course_key is not None or course_keys is not None):
+        raise StudyMeetingError("学习内容确认不能同时传入旧课程字段")
     meeting_day = _parse_meeting_date(meeting_date)
     now = _now()
 
@@ -769,16 +824,42 @@ def create_study_meeting(
         cycle_data = _current_cycle(connection, target["class_org_unit_id"])
         cycle = cycle_data["cycle"]
         binding = cycle_data["binding"]
+        if learning_content_results is not None:
+            keys = _learning_content_course_keys(connection, cycle_data, learning_content_results, learning_cycle_id)
         existing = execute(connection,
             "SELECT * FROM study_meeting_sessions WHERE study_group_org_unit_id=? "
             "AND learning_cycle_id=? AND status<>'CANCELLED' ORDER BY id DESC LIMIT 1",
             (target["group_org_unit_id"], cycle["id"])).fetchone()
         if existing:
+            # Submit and operator corrections lock this same parent session.
+            # Recheck status under that lock before changing a draft's courses.
+            existing = _lock_session(connection, int(existing['id']))
             if existing['status'] == 'DRAFT':
                 payload = _session_payload(connection, int(existing['id']))
                 same_home = {r['member_id'] for r in payload['home_attendees']} == set(home_ids)
                 same_cross = {r['member_id'] for r in payload['cross_group_attendees']} == set(cross_ids)
                 same_courses = {r['course_key'] for r in payload['courses']} == set(keys)
+                if (learning_content_results is not None and same_home and same_cross
+                        and int(existing['created_by_member_id']) == member_id
+                        and str(existing['meeting_date']) == meeting_day):
+                    # Only the creator may sync the same unsubmitted draft.
+                    # Keep photo/attendees and retain existing pricing snapshots.
+                    retained = {item['course_key']: item for item in payload['courses']}
+                    additions = _course_snapshots(connection, [key for key in keys if key not in retained], binding=binding)
+                    by_key = {**retained, **{item['course_key']: item for item in additions}}
+                    snapshots = [by_key[key] for key in keys]
+                    if not same_courses:
+                        _write_courses(connection, int(existing['id']), snapshots,
+                                       attendee_member_ids=[*home_ids, *cross_ids],
+                                       confirmed_by_member_id=member_id)
+                    if not same_courses or payload.get('learning_content_results') != learning_content_results:
+                        write_audit(connection, actor_user_id=None, action="study_meeting.draft_content_update",
+                                    resource_type="study_meeting_session", resource_id=str(existing['id']),
+                                    org_unit_id=target['class_org_unit_id'],
+                                    before={"courses": payload['courses'], "learning_content_results": payload.get('learning_content_results')},
+                                    after={"courses": snapshots, "learning_content_results": learning_content_results,
+                                           "created_by_member_id": member_id})
+                    return _session_payload(connection, int(existing['id']))
                 if same_home and same_cross and same_courses:
                     # A lost creation response or restarted photo upload retries
                     # the original draft instead of creating another fact.
@@ -894,6 +975,7 @@ def create_study_meeting(
                 "home_count": len(home_ids),
                 "cross_group_count": len(cross_ids),
                 "courses": snapshots,
+                "learning_content_results": learning_content_results,
                 "created_by_member_id": member_id,
             },
         )
