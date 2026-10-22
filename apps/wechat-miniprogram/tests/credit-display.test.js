@@ -47,3 +47,16 @@ test('cumulative score survives missing learning year for every member', () => {
   const view = fs.readFileSync(path.join(__dirname, '../pages/learning/index.wxml'), 'utf8');
   assert.match(view, /class="credit-total">{{creditSummary.totalPointsLabel}}/);
 });
+
+
+test('published cycle year remains visible when historical held-day count is unknown', () => {
+  const display = creditSummaryDisplay({ current_learning_year: 1, current_learning_year_points: '8.00',
+    current_learning_year_completed_days: null, total_points: '339.00',
+    learning_years: [{ year_index: 1, points: '8.00' }, { year_index: 2, points: null }],
+    unallocated_learning_year_points: '331.00' });
+  assert.equal(display.hasCurrentLearningYear, true);
+  assert.equal(display.hasLearningYearProgress, false);
+  assert.equal(display.currentLearningYearPointsLabel, '8分');
+  assert.equal(display.learningYears[1].pointsLabel, '待补充');
+  assert.equal(display.totalPointsLabel, '339分');
+});

@@ -53,7 +53,7 @@
       <block wx:elif="{{creditSummary}}">
         <view class="learning-copy">累计总学分</view>
         <view class="credit-total">{{creditSummary.totalPointsLabel}}</view>
-        <view wx:if="{{creditSummary.hasLearningYearProgress}}" class="learning-copy">{{creditSummary.currentLearningYearLabel}}学分：{{creditSummary.currentLearningYearPointsLabel}}</view>
+        <view wx:if="{{creditSummary.hasCurrentLearningYear}}" class="learning-copy">{{creditSummary.currentLearningYearLabel}}学分：{{creditSummary.currentLearningYearPointsLabel}}</view>
         <view wx:else class="learning-copy">学习年度待配置，已入账学分已计入累计总分。</view>
         <view wx:if="{{creditSummary.hasLearningYearProgress}}" class="learning-copy">本学年已完成 {{creditSummary.current_learning_year_completed_days}} / 12 次学习日</view>
         <view class="learning-copy">每 12 次学习日进入下一学年，新学年学分从 0 开始，往年学分保留。</view>

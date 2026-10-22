@@ -903,6 +903,25 @@ def create_study_meeting(
     return payload
 
 
+def _validate_session_before_submit(connection, row) -> None:
+    current_cycle = _current_cycle(connection, row["class_org_unit_id"])["cycle"]
+    if int(current_cycle["id"]) != int(row["learning_cycle_id"]):
+        raise StudyMeetingError("当前学习周期已变化，请重新登记本场学习会")
+    _validate_session_attendees(connection, row)
+    plan = _session_plan(connection, row)
+    course_rule_directory = _course_rule_directory_for_binding(connection, plan)
+    course_rules = {
+        str(rule["course_key"]): rule
+        for rule in course_rule_directory["rules"]
+    }
+    if any(item["course_key"] not in course_rules for item in _read_courses(connection, row)):
+        raise StudyMeetingError("课程不在当前课程积分目录中")
+    _validate_course_completions(connection, row)
+    from app.services.study_meeting_evidence import evidence_metadata
+    if not evidence_metadata(connection, int(row["id"])):
+        raise StudyMeetingError("请先上传一张学习合影")
+
+
 def submit_study_meeting(*, member_id: int, session_id: int) -> dict[str, Any]:
     _require_enabled()
     _require_write()
@@ -928,22 +947,7 @@ def submit_study_meeting(*, member_id: int, session_id: int) -> dict[str, Any]:
         if row["status"] != "DRAFT":
             raise StudyMeetingError("当前学习会记录不能提交")
 
-        current_cycle = _current_cycle(connection, row["class_org_unit_id"])["cycle"]
-        if int(current_cycle["id"]) != int(row["learning_cycle_id"]):
-            raise StudyMeetingError("当前学习周期已变化，请重新登记本场学习会")
-        _validate_session_attendees(connection, row)
-        plan = _session_plan(connection, row)
-        course_rule_directory = _course_rule_directory_for_binding(connection, plan)
-        course_rules = {
-            str(rule["course_key"]): rule
-            for rule in course_rule_directory["rules"]
-        }
-        if any(item["course_key"] not in course_rules for item in _read_courses(connection, row)):
-            raise StudyMeetingError("课程不在当前课程积分目录中")
-        _validate_course_completions(connection, row)
-        from app.services.study_meeting_evidence import evidence_metadata
-        if not evidence_metadata(connection, session_id):
-            raise StudyMeetingError("请先上传一张学习合影")
+        _validate_session_before_submit(connection, row)
 
         now = _db_timestamp(connection)
         execute(
@@ -1171,7 +1175,11 @@ def get_study_meeting_record_for_operations(
     from app.services.study_meeting_attendees import can_edit_attendees
     result["can_edit_attendees"] = can_edit_attendees(actor_user_id) and result["status"] == "SUBMITTED" and not correction_lock_reason
     review_scope = accessible_org_ids(actor_user_id, "study_meetings:attendees_edit")
-    result["can_confirm_review"] = (result["can_edit_attendees"] or (result["review_status"] == "CONFIRMED" and can_edit_attendees(actor_user_id) and result.get("credit_settlement", {}).get("status") not in {"POSTED","CLOSED"})) and (review_scope is None or result["class_org_unit_id"] in review_scope)
+    result["draft_submission_message"] = (
+        "合影尚未上传成功，本次登记未提交；请登记人补传合影后重试。" if not result.get("evidence") else
+        "登记尚未完成最后提交；核对合影和参加人员后，可在本页完成提交并自动结算。"
+    ) if result["status"] == "DRAFT" else None
+    result["can_confirm_review"] = ((result["status"] == "DRAFT" and bool(result.get("evidence")) and can_edit_attendees(actor_user_id) and not correction_lock_reason) or result["can_edit_attendees"] or (result["review_status"] == "CONFIRMED" and can_edit_attendees(actor_user_id) and result.get("credit_settlement", {}).get("status") not in {"POSTED","CLOSED"})) and (review_scope is None or result["class_org_unit_id"] in review_scope)
     result["correction_lock_reason"] = correction_lock_reason
     result["course_options"] = course_options
     return result

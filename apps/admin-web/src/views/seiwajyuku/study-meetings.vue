@@ -178,7 +178,7 @@ const filteredClasses = computed(() => filterOptions.value.classes.filter(item =
 watch(() => filters.management_org_unit_id, () => { filters.class_org_unit_id = ""; });
 
 const statusLabel = (status: StudyMeetingRecord["status"]) =>
-  ({ DRAFT: "草稿", SUBMITTED: "已提交", CANCELLED: "已取消" })[status];
+  ({ DRAFT: "待完成提交", SUBMITTED: "已提交", CANCELLED: "已取消" })[status];
 
 const statusType = (status: StudyMeetingRecord["status"]) =>
   ({ DRAFT: "info", SUBMITTED: "success", CANCELLED: "warning" })[status] as
@@ -468,7 +468,7 @@ onMounted(async () => {
             <el-descriptions-item label="小组">{{ detail.group_name }}</el-descriptions-item>
             <el-descriptions-item label="学习周期">第 {{ detail.cycle_index }} 周期</el-descriptions-item>
             <el-descriptions-item label="提交人">{{ detail.creator_name }}</el-descriptions-item>
-            <el-descriptions-item label="提交时间">{{ formatDateTime(detail.submitted_at || detail.created_at) }}</el-descriptions-item>
+            <el-descriptions-item :label="detail.submitted_at ? '提交时间' : '创建时间'">{{ formatDateTime(detail.submitted_at || detail.created_at) }}</el-descriptions-item>
             <el-descriptions-item label="课程" :span="2">{{ courseLabel(detail) }}</el-descriptions-item>
             <el-descriptions-item label="小组参会率">
               {{ detail.home_group_attendance_rate == null ? '待核对' : `${detail.home_group_attendance_rate}%` }}
@@ -483,10 +483,12 @@ onMounted(async () => {
             <el-descriptions-item v-if="detail.reviewed_at" label="核实时间">{{ formatReviewTime(detail.reviewed_at) }}</el-descriptions-item>
           </el-descriptions>
 
+          <el-alert v-if="detail.status === 'DRAFT'" class="notice" :closable="false" show-icon type="warning"
+            :title="detail.draft_submission_message || '登记尚未提交，请完成合影上传和最后提交。'" />
           <div class="attendee-section">
             <el-button v-if="detail.can_confirm_review" type="primary" :loading="reviewing"
               :disabled="editingCourses || editingAttendees || confirming || savingCourses || savingAttendees"
-              @click="confirmReview">{{ detail.credit_settlement?.status === 'POSTING' ? '核对入账进度' : detail.review_status === 'CONFIRMED' ? '重试自动结算' : '确认核实并自动结算' }}</el-button>
+              @click="confirmReview">{{ detail.status === 'DRAFT' ? '核实并完成提交、自动结算' : detail.credit_settlement?.status === 'POSTING' ? '核对入账进度' : detail.review_status === 'CONFIRMED' ? '重试自动结算' : '确认核实并自动结算' }}</el-button>
             <el-alert v-if="detail.credit_settlement" class="notice" :closable="false" show-icon
               :type="detail.credit_settlement.status === 'POSTED' ? 'success' : 'warning'"
               :title="detail.credit_settlement.message || (detail.credit_settlement.status === 'POSTED'

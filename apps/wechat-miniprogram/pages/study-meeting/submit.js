@@ -236,7 +236,7 @@ Page({
         const uploadFailed = this.data.photoUploadState === "uploading";
         this.setData({
           photoUploadState: uploadFailed ? "failed" : this.data.photoUploadState,
-          photoFeedback: uploadFailed ? "已保留这张合影，请检查网络后重试提交。" : "",
+          photoFeedback: uploadFailed ? `${error.message || "上传暂未完成"}。已保留这张合影；可重试提交，格式不支持时请重新选择合影。` : "",
           submitError: uploadFailed ? "合影上传失败，本次登记尚未提交。" : this.data.photoUploadState === "uploaded"
             ? "合影已上传，本次登记尚未完成，请重试提交。" : "本次登记尚未提交成功，请重试。"
         });

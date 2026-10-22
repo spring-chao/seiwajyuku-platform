@@ -9,7 +9,7 @@ from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids
 from app.services.study_meetings import (
     StudyMeetingError, StudyMeetingPermissionError, _db_timestamp, _lock_session,
-    _require_correctable_session, _require_write, _serialize,
+    _require_correctable_session, _require_write, _serialize, _validate_session_before_submit,
     get_study_meeting_record_for_operations,
 )
 from app.services.study_meeting_attendees import can_edit_attendees
@@ -89,11 +89,21 @@ def confirm_meeting_review(*, actor_user_id: int, session_id: int, expected_fing
         session = _lock_session(connection, session_id)
         if allowed is not None and session["class_org_unit_id"] not in allowed:
             raise StudyMeetingPermissionError("学习会记录不在当前组织授权范围内")
-        if session["status"] != "SUBMITTED":
-            raise StudyMeetingError("仅能核实已提交的学习会")
+        if session["status"] not in {"DRAFT", "SUBMITTED"}:
+            raise StudyMeetingError("当前学习会不能核实")
         fingerprint = _fingerprints(connection, (session_id,))[session_id]
         if fingerprint != expected_fingerprint:
             raise StudyMeetingError("学习会内容已变化，请刷新详情并重新核实")
+        if session["status"] == "DRAFT":
+            _require_correctable_session(connection, session)
+            _validate_session_before_submit(connection, session)
+            now = _db_timestamp(connection)
+            execute(connection, "UPDATE study_meeting_sessions SET status='SUBMITTED',submitted_at=?,updated_at=? WHERE id=?",
+                    (now, now, session_id))
+            write_audit(connection, actor_user_id=actor_user_id, action="study_meeting.operator_submit",
+                resource_type="study_meeting_session", resource_id=str(session_id),
+                org_unit_id=session["class_org_unit_id"], after={"status": "SUBMITTED"})
+            fingerprint = _fingerprints(connection, (session_id,))[session_id]
         last = execute(connection, "SELECT after_json FROM audit_logs WHERE action='study_meeting.review_confirm' "
             "AND resource_type='study_meeting_session' AND resource_id=? AND result='SUCCESS' ORDER BY id DESC LIMIT 1",
             (str(session_id),)).fetchone()
@@ -165,7 +175,7 @@ def confirm_and_settle_meeting_review(*, actor_user_id: int, session_id: int, ex
                 batches.reconcile_stale_posting_batch(actor_user_id=actor_user_id,batch_id=batch['id'])
             posted=batches._post_batch(actor_user_id=actor_user_id,batch_id=batch['id'],source_type='STUDY_MEETING',
                 resume_partial_failure=True,meeting_confirmation={'session_id':session_id,
-                    'review_fingerprint':expected_fingerprint,'fingerprint':fingerprint})
+                    'review_fingerprint':detail['review_fingerprint'],'fingerprint':fingerprint})
             if posted['status']!='POSTED':failure='本场已核实，学分尚未全部入账，请在本页重试结算。'
     except (credits.LearningCreditError,PermissionError) as exc:
         failure=f'本场已核实，学分尚未入账完成：{exc}'

@@ -57,8 +57,13 @@ async function uploadPhoto(path, filePath) {
   const bytes = new Uint8Array(file.data);
   if (!bytes.length || bytes.length > 5 * 1024 * 1024) throw new Error("请选择不超过5MB的合影");
   const png = bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71;
+  const jpeg = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+  const webp = bytes.length >= 12 && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
+  const bmp = bytes[0] === 66 && bytes[1] === 77;
+  const format = png ? ["png", "png"] : jpeg ? ["jpg", "jpeg"] : webp ? ["webp", "webp"] : bmp ? ["bmp", "bmp"] : null;
+  if (!format) throw new Error("图片格式不支持，请重新选择 JPG、PNG 或静态 WebP 合影");
   const boundary = `study-photo-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
-  const header = `--${boundary}\r\nContent-Disposition: form-data; name="photo"; filename="photo.${png ? "png" : "jpg"}"\r\nContent-Type: image/${png ? "png" : "jpeg"}\r\n\r\n`;
+  const header = `--${boundary}\r\nContent-Disposition: form-data; name="photo"; filename="photo.${format[0]}"\r\nContent-Type: image/${format[1]}\r\n\r\n`;
   const trailer = `\r\n--${boundary}--\r\n`;
   const body = new Uint8Array(header.length + bytes.length + trailer.length);
   for (let index = 0; index < header.length; index++) body[index] = header.charCodeAt(index);

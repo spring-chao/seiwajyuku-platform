@@ -40,6 +40,18 @@ def learning_year_summary(connection, member_id, opening):
             progress_cache[binding_id] = row['first_index'] == 1
         return progress_cache[binding_id]
 
+    def plan_year(cycle_id, binding_id):
+        # A published plan is the same authority displayed by study meetings.
+        # Use it only where historical held-day progress cannot be established.
+        row = execute(connection,
+            "SELECT pc.year_index FROM class_learning_cycles lc "
+            "JOIN class_learning_bindings b ON b.id=lc.binding_id "
+            "JOIN learning_plan_cycles pc ON pc.id=lc.plan_cycle_id AND pc.plan_version_id=b.plan_version_id "
+            "JOIN learning_plan_versions p ON p.id=pc.plan_version_id "
+            "WHERE lc.id=? AND lc.binding_id=? AND pc.cycle_index=lc.learning_cycle_index "
+            "AND p.status IN ('PUBLISHED','RETIRED')", (cycle_id, binding_id)).fetchone()
+        return int(row['year_index']) if row and int(row['year_index']) > 0 else None
+
     def held_days(binding_id):
         if binding_id not in cache:
             rows = _optional_rows(connection,
@@ -60,8 +72,8 @@ def learning_year_summary(connection, member_id, opening):
         if not any(text in str(exc).lower() for text in ("no such table", "doesn't exist", "does not exist")):
             raise
         relations = []
-    classes = {str(r["org_unit_id"] if r["relation_type"] == "STUDY_CLASS" else r["parent_id"])
-               for r in relations if r["relation_type"] == "STUDY_CLASS" or r.get("parent_id")}
+    classes = {str(r["org_unit_id"] if r["relation_type"] in {"STUDY_CLASS", "SPECIAL_COHORT"} else r["parent_id"])
+               for r in relations if r["relation_type"] in {"STUDY_CLASS", "SPECIAL_COHORT"} or (r["relation_type"] == "STUDY_GROUP" and r.get("parent_id"))}
     if not classes and annual_storage:
         # Same direct class fallback as the scoped import roster; no fabricated relation.
         direct = execute(connection, "SELECT m.org_unit_id FROM members m JOIN org_units o ON o.id=m.org_unit_id WHERE m.id=? AND m.status='ACTIVE' AND o.is_active=1 AND o.unit_type='CLASS'", (member_id,)).fetchone()
@@ -72,8 +84,11 @@ def learning_year_summary(connection, member_id, opening):
     for class_id in classes:
         binding = _active_binding(connection, class_id)
         cycle = _cycle_at(connection, int(binding["id"]), _now_for_database(connection)) if binding else None
-        if not binding or (not cycle and int(binding['id']) not in baselines) or not complete_progress(int(binding['id'])):
+        if not binding or (not cycle and int(binding['id']) not in baselines):
             current_years.add(None)
+            continue
+        if not complete_progress(int(binding['id'])):
+            current_years.add(plan_year(int(cycle['id']), int(binding['id'])) if cycle else None)
             continue
         count = offset(int(binding['id'])) + len(held_days(int(binding["id"])))
         current_years.add(count // 12 + 1)
@@ -94,7 +109,13 @@ def learning_year_summary(connection, member_id, opening):
     totals = {1: Decimal(0), 2: Decimal(0), 3: Decimal(0)}
     allocated_count = 0
     for row in rows:
-        if not row["cycle_id"] or not row["binding_id"] or not complete_progress(int(row['binding_id'])):
+        if not row["cycle_id"] or not row["binding_id"]:
+            continue
+        if not complete_progress(int(row['binding_id'])):
+            year = plan_year(int(row['cycle_id']), int(row['binding_id']))
+            if year and row['opened_at'] and parse_utc_datetime(row['opened_at']) <= now:
+                totals[year] = totals.get(year, Decimal(0)) + Decimal(str(row['points']))
+                allocated_count += int(row['entry_count'])
             continue
         days = held_days(int(row["binding_id"]))
         position = next((i for i, (_, cid) in enumerate(days) if cid == int(row["cycle_id"])), None)
@@ -134,7 +155,7 @@ def learning_year_summary(connection, member_id, opening):
                 continue
             binding = execute(connection, 'SELECT * FROM class_learning_bindings WHERE id=? AND class_org_unit_id=?',
                               (snapshot['binding_id'], row['class_id'])).fetchone()
-            if not binding or not complete_progress(int(binding['id'])) or row['time_precision'] != 'EXACT_DATE':
+            if not binding or row['time_precision'] != 'EXACT_DATE':
                 continue
             try:
                 # These facts explicitly retain the original Shanghai business
@@ -145,6 +166,15 @@ def learning_year_summary(connection, member_id, opening):
             start = datetime.combine(occurred, time.min, ZoneInfo('Asia/Shanghai')).astimezone(UTC)
             end = start + timedelta(days=1)
             if start > now or parse_utc_datetime(binding['started_at']) >= end or not after_baseline(int(binding['id']), start):
+                continue
+            if not complete_progress(int(binding['id'])):
+                first = _cycle_at(connection, int(binding['id']), start.isoformat())
+                last = _cycle_at(connection, int(binding['id']), (end - timedelta(microseconds=1)).isoformat())
+                year = plan_year(int(first['id']), int(binding['id'])) if first else None
+                last_year = plan_year(int(last['id']), int(binding['id'])) if last else None
+                if year and year == last_year:
+                    totals[year] = totals.get(year, Decimal(0)) + Decimal(str(row['points']))
+                    allocated_count += 1
                 continue
             days = held_days(int(binding['id']))
             year = (offset(int(binding['id'])) + sum(at <= start for at, _ in days)) // 12 + 1
@@ -176,9 +206,12 @@ def learning_year_summary(connection, member_id, opening):
     # An annual sheet for year 2 does not establish a zero for year 1.
     supplied_years = {int(r['year_index']) for r in annual_rows}
     unknown_years = {i for i in range(1,min(supplied_years)) if i not in supplied_years and totals.get(i,Decimal(0))==0} if supplied_years else set()
+    if unallocated_count > 0 and (remaining_opening != 0 or not current_days):
+        # Unassigned historical credits do not establish an annual zero.
+        unknown_years |= {i for i, points in totals.items() if points == 0 and i not in supplied_years}
     return {
         "current_learning_year": current,
-        "current_learning_year_points": format(totals[current], ".2f") if current else None,
+        "current_learning_year_points": format(totals[current], ".2f") if current and current not in unknown_years else None,
         "current_learning_year_completed_days": next(iter(current_days)) if current and len(current_days) == 1 else None,
         "learning_days_per_year": 12,
         "learning_years": [{"year_index": i, "points": None if i in unknown_years else format(totals[i], ".2f")} for i in sorted(totals)],

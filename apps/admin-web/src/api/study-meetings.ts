@@ -59,6 +59,7 @@ export type StudyMeetingRecordDetail = StudyMeetingRecord & {
   can_edit_courses: boolean;
   can_edit_attendees: boolean;
   can_confirm_review: boolean;
+  draft_submission_message?: string | null;
   credit_settlement?: { status: string; posted_points: string; proposed_points: string; blocked_count: number; message?: string };
   correction_lock_reason?: string | null;
   course_options: { course_key: string; course_name: string; credit_points: number; status: string }[];
