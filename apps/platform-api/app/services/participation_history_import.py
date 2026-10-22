@@ -24,9 +24,16 @@ class ParticipationHistoryImportScope:
     deadline_utc: datetime
 
 
-# USER-20261007-ONE-BUNDLE-HISTORY: approved frozen package only.
-# Successful apply closes further writes for this SHA; the deadline is UTC.
+# Each user approval fixes one package, count and UTC deadline.
+# Successful apply closes further writes for that SHA.
 APPROVED_IMPORT_SCOPES: tuple[ParticipationHistoryImportScope, ...] = (
+    # USER-20261022-KUNSHAN-76: strictly matched signed attendees, one fact/member.
+    # Approval excludes the 28 unmatched signed rows and all attendance/credit writes.
+    ParticipationHistoryImportScope(
+        bundle_sha256="3e576124196aa2cc08a643b9cf5879a98af431475718f25ddcbbebebd66e826b",
+        verified_fact_count=76,
+        deadline_utc=datetime(2026, 10, 23, 15, 59, 59, tzinfo=UTC),
+    ),
     ParticipationHistoryImportScope(
         bundle_sha256="e431a047d3c91cbaa38fe8df7207527849a2abab4eaf9b8fbe8b81c438706d96",
         verified_fact_count=7582,

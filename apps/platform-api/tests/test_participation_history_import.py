@@ -178,6 +178,33 @@ def test_all_six_workbook_categories_share_the_transaction(history_import):
     assert counts(content) == {"batches": 1, "facts": 6, "audits": 1}
 
 
+def test_verified_report_fact_restores_history_without_modifying_unlinked_scan(history_import):
+    from app.services.wechat_learning import get_member_participation_history
+    case = history_import
+    now = datetime.now(UTC).isoformat()
+    with transaction() as connection:
+        group = execute(connection,
+            "INSERT INTO attendance_event_groups(source_key,external_group_id,org_unit_id,title,activity_type,event_date,status,created_at,updated_at) "
+            "VALUES ('isolated-report-restore',?,'org-suzhou','合成半年度报告会','OTHER','2026-07-19','ACTIVE',?,?)",
+            (uuid4().hex, now, now)).lastrowid
+        session = execute(connection,
+            "INSERT INTO attendance_sessions(event_group_id,external_session_id,session_code,session_order,status,created_at,updated_at) "
+            "VALUES (?,?,'MORNING',1,'ACTIVE',?,?)", (group, uuid4().hex, now, now)).lastrowid
+        record = execute(connection,
+            "INSERT INTO attendance_records(attendance_session_id,external_record_id,participant_type,score_eligible,attendance_status,received_at,created_at,updated_at) "
+            "VALUES (?,?,'MEMBER',0,'PRESENT',?,?,?)", (session, uuid4().hex, now, now, now)).lastrowid
+    assert get_member_participation_history(case.member_id)["total"] == 0
+    content = case.bundle([{**case.fact, "source_table": "other_activities",
+                           "title": "合成半年度报告会", "occurred_on": "2026-07-19"}])
+    case.approve(content)
+    assert request(case, "apply", content).status_code == 200
+    history = get_member_participation_history(case.member_id, kind="activity")
+    assert history["total"] == history["activity_count"] == 1
+    assert history["records"][0]["title"] == "合成半年度报告会"
+    scan = fetch_one("SELECT member_id,attendance_status,score_eligible FROM attendance_records WHERE id=?", (record,))
+    assert dict(scan) == {"member_id": None, "attendance_status": "PRESENT", "score_eligible": 0}
+
+
 @pytest.mark.parametrize("change", [
     {"participation_status": "ABSENT"},
     {"source_table": "reading_shares"},

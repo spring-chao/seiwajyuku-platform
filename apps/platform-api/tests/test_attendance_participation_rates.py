@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 import asyncio
 from io import BytesIO
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 import httpx
@@ -312,6 +312,18 @@ class AttendanceParticipationRateTests(unittest.TestCase):
         rows = response["data"]
         # Use the known test titles to identify the two rows without relying on IDs.
         return [row for row in rows if row["title"] in {"参会率测试班级活动", "参会率测试分中心报告会"}]
+
+    def test_activity_date_range_is_inclusive_and_keeps_scope(self):
+        args = dict(month=None, user={"id": self.admin["id"]})
+        rows = list_activity_sessions(date_from=date(2026, 8, 4), date_to=date(2026, 8, 4), **args)["data"]
+        self.assertTrue(set(self.group_ids).issubset({row["id"] for row in rows}))
+        excluded = list_activity_sessions(date_from=date(2026, 8, 5), date_to=date(2026, 8, 6), **args)["data"]
+        self.assertFalse(set(self.group_ids) & {row["id"] for row in excluded})
+        with self.assertRaises(HTTPException) as error:
+            list_activity_sessions(date_from=date(2026, 8, 6), date_to=date(2026, 8, 5), **args)
+        self.assertEqual(error.exception.status_code, 422)
+        with patch("app.api.attendance.accessible_org_ids", return_value={"outside-scope"}):
+            self.assertEqual(list_activity_sessions(date_from=date(2026, 8, 4), date_to=date(2026, 8, 4), **args)["data"], [])
 
 
 if __name__ == "__main__":

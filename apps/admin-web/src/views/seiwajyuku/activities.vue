@@ -1,28 +1,25 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import dayjs from "dayjs";
 import { activityTypeLabel, activitySessionLabel, registrationCount } from "@/utils/business-labels.mjs";
+import { activityCenter, filterActivitySessions, groupActivitySessions } from "@/utils/activity-list.mjs";
 import { chinaTimestampDate, chinaTime } from "@/utils/business-date";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
 import { hasPerms } from "@/utils/auth";
 import {
   getAttendanceActivityRows,
+  getMemberOrgCatalog,
+  type MemberOrgCatalog,
   deleteAttendanceEventGroup,
   getAttendanceEventGroupDetail,
   getAttendanceRecords,
   downloadAttendanceRecords,
-  getAttendanceReconciliationBreakdown,
-  getAttendanceReconciliationQueue,
-  getAttendanceReconciliationSummary,
   getAttendanceSyncStatus,
   type AttendanceActivityRow,
   type AttendanceEventGroupDetail,
   type AttendanceClassParticipation,
   type AttendanceRecord,
-  type AttendanceReconciliationBreakdownRow,
-  type AttendanceReconciliationQueueRow,
-  type AttendanceReconciliationItem,
   type AttendanceSyncStatus
 } from "@/api/seiwajyuku";
 
@@ -40,7 +37,7 @@ async function deleteActivity(row: any) {
   if (deletingGroupId.value !== null) return;
   if (!Number.isInteger(row.id)) return;
   deletingGroupId.value = row.id;
-  const related = rows.value.filter(item => item.id === row.id);
+  const related = row.sessions || [];
   try {
     try {
       await ElMessageBox.confirm(
@@ -57,23 +54,38 @@ async function deleteActivity(row: any) {
     deletingGroupId.value = null;
   }
 }
-const month = ref(dayjs().format("YYYY-MM"));
+const dateRange = ref<[string, string] | null>([
+  dayjs().startOf("month").format("YYYY-MM-DD"), dayjs().endOf("month").format("YYYY-MM-DD")
+]);
+const filters = reactive({ center_id: "", class_id: "", activity_type: "" });
 const rows = ref<AttendanceActivityRow[]>([]);
+const catalog = ref<MemberOrgCatalog | null>(null);
+const organizations = computed(() => catalog.value ? [
+  ...catalog.value.units, ...catalog.value.shukus, ...catalog.value.management_units, ...catalog.value.classes, ...catalog.value.groups
+] : []);
+const centers = computed(() => {
+  const items = new Map<string, { id: string; name: string }>();
+  for (const row of rows.value) {
+    const center = activityCenter(row, organizations.value);
+    items.set(center.id, center);
+  }
+  return [...items.values()].sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+});
+const classes = computed(() => {
+  const items = new Map<string, { id: string; name: string }>();
+  for (const row of rows.value) {
+    if (filters.center_id && activityCenter(row, organizations.value).id !== filters.center_id) continue;
+    const id = row.study_org_unit_id || (row.org_unit_type === "CLASS" ? row.org_unit_id : "");
+    if (id) items.set(id, { id, name: row.class_name || row.org_name });
+  }
+  return [...items.values()].sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+});
+watch(() => filters.center_id, () => { filters.class_id = ""; });
+const activityTypes = computed(() => [...new Set(rows.value.map(row => row.activity_type))].sort());
 const syncStatus = ref<AttendanceSyncStatus | null>(null);
-const reconciliationItems = ref<AttendanceReconciliationItem[]>([]);
-const reviewRows = ref<AttendanceReconciliationQueueRow[]>([]);
-const reviewBreakdownRows = ref<AttendanceReconciliationBreakdownRow[]>([]);
-const reviewTotal = ref(0);
-const reviewVisible = ref(false);
-const reviewLoading = ref(false);
-const reviewPage = ref(1);
-const reviewPageSize = 20;
-const reviewIssue = ref<AttendanceReconciliationItem["key"]>(
-  "unmatched_attendance_records"
-);
 const detailVisible = ref(false);
 const detailLoading = ref(false);
-const detailSessionId = ref<number | null>(null);
+const detailSessionId = ref(0);
 const detailDisplayTitle = ref("");
 const downloadingRecords = ref(false);
 const detail = ref<AttendanceEventGroupDetail | null>(null);
@@ -88,9 +100,6 @@ const detailSummary = computed<any>(() => {
   );
   return session ? { ...detail.value.group, ...session } : detail.value.group;
 });
-type ParticipationFilter = "AUTO" | "CLASS" | "REGION";
-const participationFilter = ref<ParticipationFilter>("AUTO");
-
 function participationScope(row: any) {
   const activityType = String(row.activity_type || "").toUpperCase();
   if (activityType.includes("REPORT") || activityType.startsWith("CENTER_")) {
@@ -135,41 +144,22 @@ function detailParticipationPresent(session: any) {
     : 0;
 }
 
-const visibleRows = computed(() =>
-  rows.value.filter(
-    (row) =>
-      participationFilter.value === "AUTO" ||
-      participationScope(row) === participationFilter.value
-  )
-);
+const visibleSessionRows = computed(() => filterActivitySessions(rows.value, filters, organizations.value));
+const visibleRows = computed(() => groupActivitySessions(visibleSessionRows.value));
 const totalEligible = computed<number | null>(() => {
-  const counts: (number | null)[] = visibleRows.value.map(item => registrationCount(item) as number | null);
-  return counts.some(count => count === null) ? null : counts.reduce<number>((sum, count) => sum + (count || 0), 0);
+  const counts = visibleRows.value.map(item => registrationCount(item));
+  return counts.some(count => count === null) ? null : counts.reduce((sum, count) => sum + (count || 0), 0);
 });
-const totalCompleted = computed(() =>
-  visibleRows.value.reduce((sum, item) => sum + item.present_count, 0)
-);
-const classRows = computed(() =>
-  visibleRows.value.filter((item) => participationScope(item) === "CLASS")
-);
-const regionRows = computed(() =>
-  visibleRows.value.filter((item) => participationScope(item) === "REGION")
-);
-const participationRows = computed(() =>
-  visibleRows.value.filter((item) => participationRateValue(item) !== null)
-);
-const totalParticipationPresent = computed(() =>
-  visibleRows.value.reduce((sum, item) => sum + item.present_count, 0)
-);
-const averageParticipationRate = computed(() => {
-  if (!participationRows.value.length) return 0;
-  return (
-    participationRows.value.reduce(
-      (sum, item) => sum + (participationRateValue(item) || 0),
-      0
-    ) / participationRows.value.length
-  );
-});
+const totalCompleted = computed(() => visibleRows.value.reduce((sum, item) => sum + item.present_count, 0));
+const visibleDetailSessions = computed(() => detail.value?.sessions.filter(session =>
+  detailSessionId.value === 0 || session.id === detailSessionId.value) || []);
+const visibleDetailRecords = computed(() => detailRecords.value.filter(record =>
+  detailSessionId.value === 0 || record.attendance_session_id === detailSessionId.value));
+function resetFilters() {
+  filters.center_id = ""; filters.class_id = ""; filters.activity_type = "";
+  dateRange.value = [dayjs().startOf("month").format("YYYY-MM-DD"), dayjs().endOf("month").format("YYYY-MM-DD")];
+  void load();
+}
 const syncAlert = computed(() => {
   const status = syncStatus.value;
   if (!status || status.state === "NO_RUNS") {
@@ -207,14 +197,6 @@ const syncAlert = computed(() => {
     title: `签到自动同步正常，最近完成于 ${finishedAt}`
   };
 });
-const reconciliationLabels: Record<AttendanceReconciliationItem["key"], string> = {
-  unmatched_attendance_records: "待人工匹配签到",
-  active_members_missing_phone_hash: "在册学员缺少手机号摘要",
-  active_members_missing_primary_region: "在册学员缺少发展归属",
-  active_members_missing_study_class: "在册学员未分学习班级",
-  active_members_missing_study_group: "在册学员未分学习小组",
-  active_members_expected_no_study_group: "按规则不建学习小组"
-};
 const activityStatusLabels: Record<string, string> = {
   ACTIVE: "正常",
   INACTIVE: "已停用",
@@ -277,75 +259,49 @@ function attendancePointsLabel(value?: number | string | null) {
   return value === null || value === undefined ? "—" : String(value);
 }
 
-function reconciliationTagType(item: AttendanceReconciliationItem) {
-  return item.key === "active_members_expected_no_study_group"
-    ? "success"
-    : item.count
-      ? "warning"
-      : "success";
-}
-
+let loadRequest = 0;
 async function load() {
+  const request = ++loadRequest;
   loading.value = true;
   try {
-    const [eventResponse, syncResponse, reconciliationResponse] = await Promise.all([
-      getAttendanceActivityRows(month.value),
-      getAttendanceSyncStatus(),
-      getAttendanceReconciliationSummary(month.value)
+    const [eventResponse, syncResponse, catalogResponse] = await Promise.all([
+      getAttendanceActivityRows({ date_from: dateRange.value?.[0], date_to: dateRange.value?.[1] }),
+      getAttendanceSyncStatus(), getMemberOrgCatalog()
     ]);
+    if (request !== loadRequest) return;
     rows.value = eventResponse.data;
     syncStatus.value = syncResponse.data;
-    reconciliationItems.value = reconciliationResponse.data.items;
+    catalog.value = catalogResponse.data;
+  } catch {
+    if (request === loadRequest) { rows.value = []; ElMessage.error("活动加载失败，请重试查询"); }
   } finally {
-    loading.value = false;
+    if (request === loadRequest) loading.value = false;
   }
 }
 
 onMounted(load);
 
-async function loadReviewQueue() {
-  reviewLoading.value = true;
-  try {
-    const [queueResponse, breakdownResponse] = await Promise.all([
-      getAttendanceReconciliationQueue({
-        issue: reviewIssue.value,
-        month: month.value,
-        limit: reviewPageSize,
-        offset: (reviewPage.value - 1) * reviewPageSize
-      }),
-      getAttendanceReconciliationBreakdown(reviewIssue.value, month.value)
-    ]);
-    reviewRows.value = queueResponse.data.rows;
-    reviewTotal.value = queueResponse.data.total;
-    reviewBreakdownRows.value = breakdownResponse.data.rows;
-  } finally {
-    reviewLoading.value = false;
-  }
-}
-
-async function openReviewQueue(issue: AttendanceReconciliationItem["key"]) {
-  reviewIssue.value = issue;
-  reviewPage.value = 1;
-  reviewVisible.value = true;
-  await loadReviewQueue();
-}
-
+let detailRequest = 0;
 async function openActivityDetail(row: any) {
+  const request = ++detailRequest;
   detailVisible.value = true;
   detailLoading.value = true;
   detail.value = null;
   detailRecords.value = [];
-  detailSessionId.value = row.session_id || null;
+  detailSessionId.value = 0;
   detailDisplayTitle.value = row.display_title || row.title || "未命名活动";
   try {
     const [detailResponse, recordsResponse] = await Promise.all([
       getAttendanceEventGroupDetail(row.id),
-      getAttendanceRecords(row.id, row.session_id)
+      getAttendanceRecords(row.id)
     ]);
+    if (request !== detailRequest) return;
     detail.value = detailResponse.data;
     detailRecords.value = recordsResponse.data;
+  } catch {
+    if (request === detailRequest) ElMessage.error("活动明细加载失败，请关闭后重试");
   } finally {
-    detailLoading.value = false;
+    if (request === detailRequest) detailLoading.value = false;
   }
 }
 
@@ -389,20 +345,25 @@ async function downloadDetailRecords() {
         <router-link v-if="hasPerms('attendance:view')" to="/operations/checkin-management">
           <el-button type="primary">签到现场管理</el-button>
         </router-link>
-        <el-date-picker
-          v-model="month"
-          type="month"
-          value-format="YYYY-MM"
-          format="YYYY年MM月"
-          @change="load"
-        />
-        <el-select v-model="participationFilter" aria-label="参会率查询口径" style="width: 190px">
-          <el-option label="全部活动（按活动自动）" value="AUTO" />
-          <el-option label="只看班级参会率" value="CLASS" />
-          <el-option label="只看分中心参会率" value="REGION" />
-        </el-select>
       </div>
     </section>
+    <el-card shadow="never" class="filter-card">
+      <div class="activity-filters">
+        <el-select v-model="filters.center_id" clearable filterable placeholder="全部分中心" aria-label="分中心筛选">
+          <el-option v-for="item in centers" :key="item.id" :label="item.name" :value="item.id" />
+        </el-select>
+        <el-select v-model="filters.class_id" clearable filterable placeholder="全部班级" aria-label="班级筛选">
+          <el-option v-for="item in classes" :key="item.id" :label="item.name" :value="item.id" />
+        </el-select>
+        <el-select v-model="filters.activity_type" clearable placeholder="全部活动类型" aria-label="活动类型筛选">
+          <el-option v-for="type in activityTypes" :key="type" :label="activityTypeLabel(type)" :value="type" />
+        </el-select>
+        <el-date-picker v-model="dateRange" type="daterange" value-format="YYYY-MM-DD"
+          start-placeholder="开始日期" end-placeholder="结束日期" aria-label="活动日期范围" />
+        <el-button type="primary" :loading="loading" @click="load">查询</el-button>
+        <el-button @click="resetFilters">重置</el-button>
+      </div>
+    </el-card>
 
     <el-alert
       :title="syncAlert.title"
@@ -412,62 +373,17 @@ async function downloadDetailRecords() {
     />
 
     <section class="summary">
-      <el-statistic title="活动场次" :value="visibleRows.length" />
-      <el-statistic title="报名人数" :value="totalEligible ?? 0" :formatter="() => totalEligible === null ? '待核实' : String(totalEligible)" />
-      <el-statistic title="已签到记录" :value="totalCompleted" />
-      <el-statistic
-        title="签到率"
-        :value="0"
-        :formatter="() => recordAttendanceRate(totalCompleted, totalEligible)"
-      />
-      <el-statistic title="班级参会活动" :value="classRows.length" />
-      <el-statistic title="分中心参会活动" :value="regionRows.length" />
-      <el-statistic title="参会人数" :value="totalParticipationPresent" />
-      <el-statistic
-        title="平均参会率"
-        :value="averageParticipationRate"
-        suffix="%"
-        :precision="1"
-      />
+      <el-statistic title="活动数" :value="visibleRows.length" />
+      <el-statistic title="扫码场次数" :value="visibleSessionRows.length" />
+      <el-statistic title="报名人次" :value="totalEligible ?? 0" :formatter="() => totalEligible === null ? '待核实' : String(totalEligible)" />
+      <el-statistic title="已签到人次" :value="totalCompleted" />
     </section>
-
-    <el-card shadow="never" class="reconciliation-card">
-      <template #header>
-        <div class="card-heading">
-          <strong>数据复核待办</strong>
-          <span>仅显示汇总数量，不显示个人资料；本页不提供写入或自动修正。</span>
-        </div>
-      </template>
-      <div class="reconciliation-grid">
-        <div
-          v-for="item in reconciliationItems"
-          :key="item.key"
-          class="reconciliation-item"
-          :class="`is-${reconciliationTagType(item)}`"
-        >
-          <div class="reconciliation-item__top">
-            <span>{{ reconciliationLabels[item.key] }}</span>
-            <strong>{{ item.count }}</strong>
-          </div>
-          <el-button
-            v-if="item.count && item.key !== 'active_members_expected_no_study_group'"
-            class="review-button"
-            type="warning"
-            link
-            @click="openReviewQueue(item.key)"
-          >
-            查看明细
-          </el-button>
-          <span v-else class="reconciliation-item__hint">按规则保留，不需处理</span>
-        </div>
-      </div>
-    </el-card>
 
     <el-card shadow="never">
       <div class="rate-definition">
-        每一行对应一个签到场次。报名人数 = 签到系统本场全部报名名额（含未签到、请假和团队名额）；参会人数 = 该场次正常签到人数（含人工确认和非塾生）；应参会人数 = 对应班级或分中心在册人数。签到率 = 参会人数 ÷ 报名人数；班级活动参会率 = 参会人数 ÷ 本班应参会人数，报告会等大型活动参会率 = 参会人数 ÷ 分中心应参会人数。
+        每行显示一场活动，上午、下午和空巴在“查看明细”中分别展示。报名和签到合计按扫码场次统计为人次，同一学长多次扫码会分别计入；各场次人数与参会率请查看明细。
       </div>
-      <el-table :data="visibleRows" stripe class="activity-table">
+      <el-table :data="visibleRows" row-key="id" stripe class="activity-table">
         <el-table-column prop="event_date" label="活动日期" min-width="130" />
         <el-table-column label="活动" min-width="220">
           <template #default="{ row }">{{ row.display_title || row.title || "未命名活动" }}</template>
@@ -475,44 +391,15 @@ async function downloadDetailRecords() {
         <el-table-column prop="class_name" label="所属班级" min-width="130">
           <template #default="{ row }">{{ row.class_name || "—" }}</template>
         </el-table-column>
-        <el-table-column prop="org_name" label="所属分中心" min-width="150" />
+        <el-table-column label="所属分中心" min-width="150"><template #default="{ row }">{{ activityCenter(row, organizations).name }}</template></el-table-column>
         <el-table-column label="活动类型" min-width="150">
           <template #default="{ row }">
             {{ activityTypeLabel(row.activity_type) }}
           </template>
         </el-table-column>
-        <el-table-column label="场次" min-width="110">
-          <template #default="{ row }">{{ activitySessionLabel(row.activity_type || detail?.group.activity_type, row.session_code) }}</template>
-        </el-table-column>
-        <el-table-column label="参会口径" width="100">
-          <template #default="{ row }">{{ participationScopeLabel(row) }}</template>
-        </el-table-column>
-        <el-table-column label="报名人数" width="100" align="right">
-          <template #default="{ row }">{{ registrationCount(row) ?? "待核实" }}</template>
-        </el-table-column>
-        <el-table-column label="应参会人数" width="110" align="right">
-          <template #default="{ row }">{{ participationRosterCount(row) || "—" }}</template>
-        </el-table-column>
-        <el-table-column label="参会人数" width="100" align="right">
-          <template #default="{ row }">{{ row.present_count }}</template>
-        </el-table-column>
-        <el-table-column label="签到率" width="100" align="right">
-          <template #default="{ row }">
-            {{ recordAttendanceRate(row.present_count, registrationCount(row)) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="参会率" width="100" align="right">
-          <template #default="{ row }">
-            <span :class="{ 'rate-low': participationRateValue(row) !== null && (participationRateValue(row) || 0) < 50 }">
-              {{ participationRateValue(row) === null ? "—" : participationRate(participationPresentCount(row), participationRosterCount(row)) }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            {{ activityStatusLabel(row.status) }}
-          </template>
-        </el-table-column>
+        <el-table-column label="扫码场次" width="100"><template #default="{ row }">{{ row.session_count }} 场次</template></el-table-column>
+        <el-table-column label="报名人次" width="110" align="right"><template #default="{ row }">{{ registrationCount(row) ?? "待核实" }}</template></el-table-column>
+        <el-table-column prop="present_count" label="已签到人次" width="120" align="right" />
         <el-table-column label="操作" width="190" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="openActivityDetail(row)">
@@ -528,47 +415,6 @@ async function downloadDetailRecords() {
         </el-table-column>
       </el-table>
     </el-card>
-
-    <el-dialog
-      v-model="reviewVisible"
-      :title="`${reconciliationLabels[reviewIssue]}（只读）`"
-      width="920px"
-    >
-      <el-alert
-        title="本窗口只提供人工核对所需的最小信息，不会自动修正或写入生产数据。"
-        type="warning"
-        :closable="false"
-        show-icon
-      />
-      <el-table :data="reviewBreakdownRows" size="small" stripe class="review-breakdown">
-        <el-table-column prop="org_name" label="分布组织" min-width="220" />
-        <el-table-column prop="count" label="数量" width="100" align="right" />
-      </el-table>
-      <el-table v-loading="reviewLoading" :data="reviewRows" stripe>
-        <el-table-column prop="event_date" label="日期" width="120">
-          <template #default="{ row }">{{ row.event_date || "—" }}</template>
-        </el-table-column>
-        <el-table-column prop="title" label="活动" min-width="180">
-          <template #default="{ row }">{{ row.title || "—" }}</template>
-        </el-table-column>
-        <el-table-column prop="session_name" label="场次" min-width="140">
-          <template #default="{ row }">{{ activitySessionLabel(row.activity_type, row.session_code) }}</template>
-        </el-table-column>
-        <el-table-column prop="name_snapshot" label="姓名" width="110" />
-        <el-table-column prop="member_code_snapshot" label="学员编号" width="140" />
-        <el-table-column label="状态" width="100">
-          <template #default>{{ reviewIssue === "unmatched_attendance_records" ? "待人工匹配" : "待人工核对" }}</template>
-        </el-table-column>
-      </el-table>
-      <el-pagination
-        v-model:current-page="reviewPage"
-        class="review-pagination"
-        layout="prev, pager, next, total"
-        :page-size="reviewPageSize"
-        :total="reviewTotal"
-        @current-change="loadReviewQueue"
-      />
-    </el-dialog>
 
     <el-dialog
       v-model="detailVisible"
@@ -590,7 +436,7 @@ async function downloadDetailRecords() {
             </div>
             <div>
               <span>所属分中心</span>
-              <strong>{{ detail.group.org_name }}</strong>
+              <strong>{{ activityCenter(detail.group, organizations).name }}</strong>
             </div>
             <div>
               <span>活动类型</span>
@@ -601,25 +447,11 @@ async function downloadDetailRecords() {
               <strong>{{ participationScopeLabel(detail.group) }}</strong>
             </div>
             <div>
-              <span>报名人数</span>
+              <span>报名人次</span>
               <strong>{{ registrationCount(detailSummary) ?? "待核实" }}</strong>
             </div>
-            <div>
-              <span>应参会人数</span>
-              <strong>{{ participationRosterCount(detailSummary) || "—" }}</strong>
-            </div>
-            <div>
-              <span>参会人数</span>
-              <strong>{{ detailSummary.present_count }}</strong>
-            </div>
-            <div>
-              <span>签到率</span>
-              <strong>{{ recordAttendanceRate(detailSummary.present_count, registrationCount(detailSummary)) }}</strong>
-            </div>
-            <div>
-              <span>参会率</span>
-              <strong class="detail-rate">{{ participationRateValue(detailSummary) === null ? "—" : participationRate(participationPresentCount(detailSummary), participationRosterCount(detailSummary)) }}</strong>
-            </div>
+            <div><span>已签到人次</span><strong>{{ detailSummary.present_count }}</strong></div>
+            <div><span>扫码场次</span><strong>{{ visibleDetailSessions.length }}</strong></div>
           </div>
 
           <section v-if="detailClassBreakdown.length" class="detail-section">
@@ -644,11 +476,17 @@ async function downloadDetailRecords() {
           </section>
 
           <section class="detail-section">
+            <el-radio-group v-model="detailSessionId" class="session-switch" aria-label="查看扫码场次">
+              <el-radio-button :value="0">全部场次</el-radio-button>
+              <el-radio-button v-for="session in detail.sessions" :key="session.id" :value="session.id">
+                {{ activitySessionLabel(detail.group.activity_type, session.session_code) }}
+              </el-radio-button>
+            </el-radio-group>
             <div class="detail-section__heading">
               <h3>场次汇总</h3>
               <span>报名总数按签到系统完整名单统计；参会人数及下方明细按已同步签到记录展示。班级活动按班级统计，报告会等大型活动按分中心统计。</span>
             </div>
-            <el-table :data="detail.sessions" size="small" stripe class="activity-table">
+            <el-table :data="visibleDetailSessions" size="small" stripe class="activity-table">
               <el-table-column prop="session_name" label="场次" min-width="180">
                 <template #default="{ row }">{{ activitySessionLabel(row.activity_type || detail?.group.activity_type, row.session_code) }}</template>
               </el-table-column>
@@ -692,7 +530,7 @@ async function downloadDetailRecords() {
                 </el-button>
               </div>
             </div>
-            <el-table :data="detailRecords" size="small" stripe max-height="380">
+            <el-table :data="visibleDetailRecords" size="small" stripe max-height="380">
               <el-table-column prop="name_snapshot" label="姓名" min-width="120" />
               <el-table-column prop="member_code_snapshot" label="学员编号" min-width="150" />
               <el-table-column label="场次" min-width="140">
@@ -760,6 +598,10 @@ async function downloadDetailRecords() {
   align-items: center;
   gap: 10px;
 }
+.activity-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.activity-filters .el-select { width: 180px; }
+.activity-filters :deep(.el-date-editor) { max-width: 340px; }
+.session-switch { margin-bottom: 18px; }
 .summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -770,64 +612,6 @@ async function downloadDetailRecords() {
   background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-light);
   border-radius: 14px;
-}
-.reconciliation-card :deep(.el-card__header) div {
-  display: grid;
-  gap: 6px;
-}
-.card-heading span {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-.reconciliation-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(220px, 1fr));
-  gap: 12px;
-}
-.reconciliation-item {
-  min-height: 88px;
-  padding: 14px 16px 10px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 10px;
-  background: var(--el-fill-color-lighter);
-}
-.reconciliation-item.is-warning {
-  border-color: var(--el-color-warning-light-5);
-  background: var(--el-color-warning-light-9);
-}
-.reconciliation-item.is-success {
-  border-color: var(--el-color-success-light-5);
-  background: var(--el-color-success-light-9);
-}
-.reconciliation-item__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--el-text-color-regular);
-  font-size: 14px;
-}
-.reconciliation-item__top strong {
-  color: var(--el-text-color-primary);
-  font-size: 22px;
-  line-height: 1;
-}
-.reconciliation-item__hint {
-  display: inline-block;
-  margin-top: 12px;
-  color: var(--el-color-success);
-  font-size: 12px;
-}
-.review-button {
-  margin-top: 10px;
-  padding: 0;
-}
-.review-pagination {
-  justify-content: flex-end;
-  margin-top: 16px;
-}
-.review-breakdown {
-  margin: 16px 0;
 }
 .rate-definition {
   margin-bottom: 12px;
@@ -917,13 +701,11 @@ async function downloadDetailRecords() {
   .summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .reconciliation-grid,
   .detail-overview {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 600px) {
-  .reconciliation-grid,
   .detail-overview {
     grid-template-columns: 1fr;
   }

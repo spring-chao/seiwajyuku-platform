@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import dayjs from "dayjs";
-import { computed, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 
 function harness(confirm) {
   const source = readFileSync(new URL("../src/views/seiwajyuku/activities.vue", import.meta.url), "utf8");
@@ -13,13 +13,13 @@ function harness(confirm) {
     module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022
   }}).outputText.replace(/^import [\s\S]*?;\r?\n/gm, "").replace(/export \{\};?/, "");
   const calls = [], messages = [];
-  const context = vm.createContext({ computed, ref, dayjs, defineOptions() {}, onMounted() {},
+  const context = vm.createContext({ computed, reactive, ref, watch, dayjs, defineOptions() {}, onMounted() {},
     useUserStoreHook: () => ({permissions:["attendance:manage", "attendance:view"]}),
     ElMessageBox: { confirm }, ElMessage: { success: text => messages.push(text) },
     deleteAttendanceEventGroup: async (...args) => calls.push(args),
     getAttendanceActivityRows: async () => ({data:[]}),
     getAttendanceSyncStatus: async () => ({data:null}),
-    getAttendanceReconciliationSummary: async () => ({data:{items:[]}})
+    getMemberOrgCatalog: async () => ({data:{units:[],shukus:[],management_units:[],classes:[],groups:[]}})
   });
   vm.runInContext(output + "\nglobalThis.testApi={rows,deleteActivity,deletingGroupId,canDeleteActivity};", context);
   return { ...context.testApi, calls, messages };
@@ -36,7 +36,7 @@ test("deletion confirms the whole activity group and prevents duplicate requests
   let complete, message;
   const ui=harness(text=>{message=text;return new Promise(resolve=>{complete=resolve;});});
   ui.rows.value=[{id:9,session_id:1},{id:9,session_id:2},{id:10,session_id:3}];
-  const first=ui.deleteActivity({id:9,title:"合成测试活动"});
+  const first=ui.deleteActivity({id:9,title:"合成测试活动",sessions:ui.rows.value.filter(row=>row.id===9)});
   await ui.deleteActivity({id:9,title:"合成测试活动"});
   assert.equal(ui.calls.length,0);
   assert.match(message,/2 个场次/);
