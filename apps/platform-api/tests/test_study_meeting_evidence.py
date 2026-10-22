@@ -170,10 +170,8 @@ def test_decoding_metadata_and_private_storage_guards(monkeypatch):
         assert not decoded.getexif()
     assert b"payload" not in clean and kind == "image/jpeg" and ext == "jpg"
     assert normalize_image(photo("PNG"), "image/png")[1] == "image/png"
-    with pytest.raises(EvidenceStorageError):
-        normalize_image(photo("PNG"), "image/jpeg")
-    with pytest.raises(EvidenceStorageError):
-        normalize_image(photo("GIF"), "image/gif")
+    assert normalize_image(photo("PNG"), "image/jpeg")[1] == "image/png"
+    assert normalize_image(photo("GIF"), "image/gif")[1] == "image/jpeg"
     with pytest.raises(EvidenceStorageError):
         EvidenceStorage().get("../outside.jpg")
     monkeypatch.setenv("APP_ENV", "production")
@@ -451,7 +449,7 @@ def test_0041_sqlite_forward_rollback_preserves_legacy_record():
     connection.close()
 
 
-@pytest.mark.parametrize("fmt,mime", [("WEBP", "image/webp"), ("WEBP", "image/jpeg"), ("BMP", "image/bmp"), ("BMP", "image/jpeg"), ("JPEG", "image/jpg")])
+@pytest.mark.parametrize("fmt,mime", [("HEIF", "application/octet-stream"), ("TIFF", "wrong/type"), ("GIF", "image/gif"), ("WEBP", "image/webp"), ("WEBP", "image/jpeg"), ("BMP", "image/bmp"), ("BMP", "image/jpeg"), ("JPEG", "image/jpg")])
 def test_phone_photo_formats_decode_and_transcode_to_private_jpeg(fmt, mime):
     clean, content_type, extension = normalize_image(photo(fmt) + b"trailing-private-data", mime)
     assert content_type == "image/jpeg" and extension == "jpg"
@@ -461,12 +459,14 @@ def test_phone_photo_formats_decode_and_transcode_to_private_jpeg(fmt, mime):
         assert not decoded.getexif()
 
 
-def test_animated_webp_remains_rejected():
+def test_animated_webp_saves_first_image_only():
     output = io.BytesIO()
     Image.new("RGB", (32,24), "white").save(output, "WEBP", save_all=True,
         append_images=[Image.new("RGB", (32,24), "black")], duration=100, loop=0)
-    with pytest.raises(EvidenceStorageError, match="多帧"):
-        normalize_image(output.getvalue(), "image/webp")
+    clean, kind, extension = normalize_image(output.getvalue(), "image/webp")
+    assert kind == "image/jpeg" and extension == "jpg"
+    with Image.open(io.BytesIO(clean)) as decoded:
+        assert getattr(decoded, 'n_frames', 1) == 1
 
 
 def test_operator_can_finish_photo_ready_draft_without_faking_member_submit(monkeypatch):

@@ -36,7 +36,7 @@ test("multipart request preserves exact binary bytes and uses the existing authe
   assert.deepEqual([...body.subarray(split, split + bytes.length)], bytes);
   const boundary = request.header["content-type"].split("boundary=")[1];
   assert.equal(body.subarray(split + bytes.length).toString(), `\r\n--${boundary}--\r\n`);
-  assert.match(body.subarray(0, split).toString(), /name="photo"; filename="photo.png"/);
+  assert.match(body.subarray(0, split).toString(), /name="photo"; filename="photo.bin"/);
 });
 
 test("account switch during file read never sends the old account photo", async () => {
@@ -59,18 +59,18 @@ test("upload preserves permission errors and rejects an empty photo", async () =
 });
 
 
-test("compressed WebP is labeled from actual bytes, not a jpg path", async () => {
+test("compressed WebP uses a format-neutral binary upload", async () => {
   const bytes = [...Buffer.from("RIFF1234WEBP"), 0, 255];
   const h = harness(bytes, options => options.success({ statusCode: 200, data: { success: true } }));
   const pending = h.upload("/evidence", "compressed.jpg"); h.read(); await pending;
   const body = Buffer.from(h.calls[0].data).toString("latin1");
-  assert.match(body, /filename="photo.webp"/);
-  assert.match(body, /Content-Type: image\/webp/);
+  assert.match(body, /filename="photo.bin"/);
+  assert.match(body, /Content-Type: application\/octet-stream/);
 });
 
-test("unknown image format gives an actionable error before sending", async () => {
-  const h = harness([...Buffer.from("not-an-image")]);
+test("unknown phone format is sent without a client whitelist", async () => {
+  const h = harness([...Buffer.from("unrecognized-phone-header")], options => options.success({ statusCode: 200, data: { success: true } }));
   const pending = h.upload("/evidence", "misnamed.jpg"); h.read();
-  await assert.rejects(pending, /图片格式不支持/);
-  assert.equal(h.calls.length, 0);
+  await pending;
+  assert.equal(h.calls.length, 1);
 });

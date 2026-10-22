@@ -10,6 +10,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from pillow_heif import register_heif_opener
+
+register_heif_opener(thumbnails=False)
 
 from app.core.settings import get_settings
 
@@ -106,19 +109,10 @@ def normalize_image(content: bytes, declared_type: str) -> tuple[bytes, str, str
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(content)) as probe:
                 fmt = probe.format
-                expected = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp", "BMP": "image/bmp"}.get(fmt)
-                declared = declared_type.lower().split(";", 1)[0].strip()
-                accepted = {expected, "", "application/octet-stream"}
-                if fmt == "JPEG":
-                    accepted.add("image/jpg")
-                # Older WeChat clients labeled every non-PNG file as JPEG.
-                # Decode actual pixels and transcode static phone formats below.
-                if fmt in {"WEBP", "BMP"}:
-                    accepted.add("image/jpeg")
-                if not expected or declared not in accepted:
-                    raise EvidenceStorageError("图片格式不支持，请重新选择 JPG、PNG 或静态 WebP 合影")
-                if probe.width * probe.height > MAX_PIXELS or getattr(probe, "n_frames", 1) != 1:
-                    raise EvidenceStorageError("图片尺寸过大或包含多帧，请重新选择合影")
+                # No extension/MIME/format whitelist: decode actual image pixels.
+                # Animation/multipage files contribute their first image only.
+                if probe.width * probe.height > MAX_PIXELS:
+                    raise EvidenceStorageError("图片尺寸过大，请压缩后重试")
                 probe.verify()
             with Image.open(io.BytesIO(content)) as source:
                 source.load()
