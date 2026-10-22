@@ -233,14 +233,60 @@ def test_history_masks_phone_embedded_in_legacy_title() -> None:
         assert "****" in response.json()["data"]["records"][0]["title"]
 
 
-def test_history_preserves_distinct_explicit_categories_on_same_day() -> None:
+def test_history_counts_same_named_same_day_activity_once_across_import_categories() -> None:
     fixture = _seed_group_leader_fixture()
     _fact(fixture, "COURSE", "2025-08-01", "八月班级活动")
     _fact(fixture, "CLASS_OPENING", "2025-08-01", "八月班级活动")
     data = get_member_participation_history(fixture["member_id"])
-    assert data["total"] == data["learning_count"] == 2
-    assert data["category_counts"]["课程"] == data["category_counts"]["开班"] == 1
-    assert {row["learning_type"] for row in data["records"]} == {"课程", "开班"}
+    assert data["total"] == data["learning_count"] == 1
+    assert len(data["records"]) == 1
+
+
+@pytest.mark.parametrize("activity_type,kind", [("CLASS_MEETING", "learning"), ("CENTER_QUARTERLY_REPORT", "activity"), ("OTHER", "activity")])
+def test_scan_sessions_have_one_base_title_and_one_participation(activity_type, kind):
+    fixture = _seed_group_leader_fixture()
+    base = "本期学习活动"
+    for suffix in (" · 上午", " · 下午", " · 空巴"):
+        _fact(fixture, activity_type, "2026-07-19", base + suffix)
+    with _bound_client(fixture) as (client, headers):
+        response = client.get(f"/api/v1/wechat/participation-history?kind={kind}", headers=headers)
+    data = response.json()["data"]
+    assert data["total"] == 1
+    assert [row["title"] for row in data["records"]] == [base]
+    _fact(fixture, activity_type, "2026-07-20", base)
+    assert get_member_participation_history(fixture["member_id"], kind=kind)["total"] == 2
+
+
+def test_live_attendance_sessions_and_imported_copy_share_one_participation():
+    fixture = _seed_group_leader_fixture()
+    now = _stamp()
+    with transaction() as connection:
+        for suffix in ("上午", "下午", "空巴"):
+            group = execute(connection,
+                "INSERT INTO attendance_event_groups(source_key,external_group_id,org_unit_id,title,activity_type,event_date,status,created_at,updated_at) "
+                "VALUES ('history-scan-test',?,?,?,'CENTER_QUARTERLY_REPORT','2026-07-19','ACTIVE',?,?)",
+                (uuid4().hex, fixture["class_id"], f"合成分中心报告会 · {suffix}", now, now))
+            session = execute(connection,
+                "INSERT INTO attendance_sessions(event_group_id,external_session_id,session_code,session_order,status,created_at,updated_at) "
+                "VALUES (?,?,'MORNING',1,'ACTIVE',?,?)", (int(group.lastrowid), uuid4().hex, now, now))
+            execute(connection,
+                "INSERT INTO attendance_records(attendance_session_id,external_record_id,member_id,participant_type,score_eligible,attendance_status,received_at,created_at,updated_at) "
+                "VALUES (?, ?, ?, 'MEMBER', 0, 'PRESENT', ?, ?, ?)",
+                (int(session.lastrowid), uuid4().hex, fixture["member_id"], now, now, now))
+    _fact(fixture, "OTHER", "2026-07-19", "合成分中心报告会")
+    data = get_member_participation_history(fixture["member_id"], kind="activity")
+    assert data["total"] == data["activity_count"] == 1
+    assert data["records"][0]["title"] == "合成分中心报告会"
+    assert data["records"][0]["source_type"] == "签到活动"
+
+
+@pytest.mark.parametrize("title,expected", [
+    ("报告会（上午）", "报告会"), ("报告会下午", "报告会"),
+    ("报告会 · 空巴晚宴", "报告会"), ("PROGRAM", "PROGRAM"),
+    ("空巴", "空巴"), ("报告会 · PM", "报告会")])
+def test_activity_title_only_removes_a_trailing_scan_session(title, expected):
+    from app.services.activity_display import activity_base_title
+    assert activity_base_title(title) == expected
 
 
 def test_history_version_detects_facts_changed_between_pages_without_exposing_ids() -> None:

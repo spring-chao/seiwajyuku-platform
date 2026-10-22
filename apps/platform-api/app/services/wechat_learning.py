@@ -17,6 +17,7 @@ from typing import Any
 
 from app.db import connect, execute
 from app.services.learning_cycles import _active_binding, _cycle_at
+from app.services.activity_display import activity_base_title
 
 
 RECENT_LEARNING_LIMIT = 20
@@ -414,18 +415,14 @@ def _legacy_activity_records(connection, member_id: int) -> list[dict[str, Any]]
 
 def _dedupe_key(record: dict[str, Any]) -> tuple[str, ...] | None:
     occurred_at = _as_text(record.get("occurred_at"))
-    learning_type = _normalize_text(record.get("learning_type"))
-    title = _normalize_text(record.get("title"))
+    title = _normalize_text(activity_base_title(record.get("title")))
     if not occurred_at or not title:
         source_type = _normalize_text(record.get("source_type"))
         source_id = _normalize_text(record.get("source_id"))
         return ("source", source_type, source_id) if source_type and source_id else None
     return (
         occurred_at[:10],
-        learning_type,
         title,
-        _normalize_text(record.get("class_name")),
-        _normalize_text(record.get("group_name")),
     )
 
 
@@ -470,6 +467,7 @@ def _deduplicate_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     structured_coarse_seen: set[tuple[str, ...]] = set()
     result: list[dict[str, Any]] = []
     for record in ordered:
+        record = {**record, "title": activity_base_title(record.get("title"))}
         key = _dedupe_key(record)
         if key is not None and key in seen:
             continue

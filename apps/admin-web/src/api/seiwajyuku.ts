@@ -2305,11 +2305,11 @@ export const getAttendanceEventGroups = (month?: string) =>
     { params: month ? { month } : undefined }
   );
 
-export const getAttendanceActivityRows = (month?: string) =>
+export const getAttendanceActivityRows = (filters?: string | { date_from?: string; date_to?: string }) =>
   http.request<{ success: boolean; data: AttendanceActivityRow[] }>(
     "get",
     "/api/v1/attendance/activity-sessions",
-    { params: month ? { month } : undefined }
+    { params: typeof filters === "string" ? { month: filters } : filters }
   );
 
 export const getAttendanceSyncStatus = () =>

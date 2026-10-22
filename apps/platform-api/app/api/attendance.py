@@ -13,7 +13,7 @@ from __future__ import annotations
 import hmac
 import re
 from io import BytesIO
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -684,9 +684,13 @@ def _attendance_flag_label(value: object | None, score_present: bool) -> str:
 def list_activity_sessions(
     month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
     org_unit_id: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
     user: dict = Depends(require_permission("members:read")),
 ) -> dict:
     """List one row per attendance session with session-scoped statistics."""
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(422, "开始日期不能晚于结束日期")
     params: list = []
     sql = (
         "SELECT eg.id, eg.source_key, eg.external_group_id, eg.title, eg.event_date, "
@@ -736,6 +740,12 @@ def list_activity_sessions(
     if org_unit_id:
         sql += " AND eg.org_unit_id=?"
         params.append(org_unit_id)
+    if date_from:
+        sql += " AND eg.event_date>=?"
+        params.append(str(date_from))
+    if date_to:
+        sql += " AND eg.event_date<=?"
+        params.append(str(date_to))
     allowed = accessible_org_ids(user["id"])
     if allowed is not None:
         if not allowed:
