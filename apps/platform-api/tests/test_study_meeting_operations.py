@@ -255,3 +255,99 @@ def test_review_endpoint_requires_auth_and_rejects_stale_facts():
         response = client.post(url, json={"expected_fingerprint": detail["review_fingerprint"]}, headers=headers)
         assert response.status_code == 200, response.text
         assert response.json()["data"]["review_status"] == "CONFIRMED"
+
+
+def _automatic_flags(monkeypatch):
+    for key in ('LEARNING_CREDIT_SETTLEMENT_ENABLED','LEARNING_CREDIT_BATCH_DRY_RUN_ENABLED',
+                'LEARNING_CREDIT_BATCH_POST_ENABLED','STUDY_MEETING_PRE_SETTLEMENT_REVIEW_ENABLED'):
+        monkeypatch.setenv(key,'true')
+
+
+def test_review_automatically_posts_once_without_fabricating_independent_approval(monkeypatch):
+    from app.services.study_meeting_review import confirm_and_settle_meeting_review
+    f,session=prepared();_automatic_flags(monkeypatch)
+    args={'actor_user_id':_admin_id(),'session_id':session['id']}
+    detail=get_study_meeting_record_for_operations(**args)
+    fingerprint=detail['review_fingerprint']
+    result=confirm_and_settle_meeting_review(**args,expected_fingerprint=fingerprint)
+    assert result['review_status']=='CONFIRMED'
+    assert result['credit_settlement']['status']=='POSTED',result['credit_settlement']
+    assert float(result['credit_settlement']['posted_points'])==8
+    again=confirm_and_settle_meeting_review(**args,expected_fingerprint=fingerprint)
+    assert again['credit_settlement']['status']=='POSTED'
+    assert fetch_one("SELECT COUNT(*) n FROM learning_credit_entries WHERE source_type='STUDY_MEETING_ATTENDANCE' AND source_id=?",(str(session['id']),))['n']==2
+    row=fetch_one("SELECT approved_by,approval_fingerprint FROM learning_credit_settlement_batches WHERE batch_no LIKE ?",(f"LC-STUDY-{session['id']}-%",))
+    assert row['approved_by'] is None and row['approval_fingerprint'] is None
+
+
+def test_review_posting_failure_stays_retryable_in_meeting_without_duplicates(monkeypatch):
+    from app.services.study_meeting_review import confirm_and_settle_meeting_review
+    from app.services import learning_credits as credits
+    f,session=prepared();_automatic_flags(monkeypatch)
+    args={'actor_user_id':_admin_id(),'session_id':session['id']}
+    fp=get_study_meeting_record_for_operations(**args)['review_fingerprint']
+    original=credits.post_credit_entry;calls=0
+    def fail_second(**kwargs):
+        nonlocal calls
+        calls+=1
+        if calls==2:raise RuntimeError('isolated posting interruption')
+        return original(**kwargs)
+    with patch.object(credits,'post_credit_entry',side_effect=fail_second):
+        partial=confirm_and_settle_meeting_review(**args,expected_fingerprint=fp)
+    assert partial['review_status']=='CONFIRMED'
+    assert partial['credit_settlement']['status']=='PARTIAL_FAILED'
+    assert partial['can_confirm_review'] and partial['credit_settlement']['message']
+    done=confirm_and_settle_meeting_review(**args,expected_fingerprint=fp)
+    assert done['credit_settlement']['status']=='POSTED'
+    assert fetch_one("SELECT COUNT(*) n FROM learning_credit_entries WHERE source_type='STUDY_MEETING_ATTENDANCE' AND source_id=?",(str(session['id']),))['n']==2
+
+
+def test_automatic_meeting_post_requires_current_review_scope_and_post_gate(monkeypatch):
+    from app.services.study_meeting_review import confirm_and_settle_meeting_review
+    from app.services import credit_settlement_batches as batches
+    from app.services import learning_credits as credits
+    f,session=prepared();_automatic_flags(monkeypatch)
+    args={'actor_user_id':_admin_id(),'session_id':session['id']}
+    detail=get_study_meeting_record_for_operations(**args)
+    batch=batches.dry_run_study_meeting_batch(**args)
+    with transaction() as c:
+        row=execute(c,'SELECT * FROM learning_credit_settlement_batches WHERE id=?',(batch['id'],)).fetchone()
+        items=execute(c,"SELECT * FROM learning_credit_settlement_batch_items WHERE batch_id=? AND status<>'BLOCKED' ORDER BY id",(batch['id'],)).fetchall()
+        fp=batches._approval_fingerprint(row,items)
+    with pytest.raises(credits.LearningCreditError,match='尚未核实'):
+        batches._post_batch(actor_user_id=args['actor_user_id'],batch_id=batch['id'],source_type='STUDY_MEETING',
+            meeting_confirmation={'session_id':session['id'],'review_fingerprint':detail['review_fingerprint'],'fingerprint':fp})
+    monkeypatch.setenv('LEARNING_CREDIT_BATCH_POST_ENABLED','false')
+    result=confirm_and_settle_meeting_review(**args,expected_fingerprint=detail['review_fingerprint'])
+    assert result['review_status']=='CONFIRMED' and result['credit_settlement']['status']=='DRY_RUN'
+    assert '尚未开启' in result['credit_settlement']['message']
+    monkeypatch.setenv('LEARNING_CREDIT_BATCH_POST_ENABLED','true')
+    with patch('app.services.study_meeting_review.accessible_org_ids',side_effect=lambda actor,permission=None: set() if permission=='plans:credit_settlement_post' else None):
+        result=confirm_and_settle_meeting_review(**args,expected_fingerprint=detail['review_fingerprint'])
+        assert '授权范围' in result['credit_settlement']['message']
+    assert fetch_one("SELECT COUNT(*) n FROM learning_credit_entries WHERE source_type='STUDY_MEETING_ATTENDANCE' AND source_id=?",(str(session['id']),))['n']==0
+
+
+def test_mysql_concurrent_meeting_confirmations_do_not_duplicate_credits(monkeypatch):
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from app.services.study_meeting_review import confirm_and_settle_meeting_review
+    if not os.environ.get('DATABASE_URL','').startswith('mysql+pymysql://'):
+        pytest.skip('concurrent automatic settlement requires isolated MySQL')
+    f,session=prepared();_automatic_flags(monkeypatch)
+    args={'actor_user_id':_admin_id(),'session_id':session['id']}
+    fp=get_study_meeting_record_for_operations(**args)['review_fingerprint']
+    barrier=Barrier(2)
+    def confirm():
+        barrier.wait(timeout=10)
+        return confirm_and_settle_meeting_review(**args,expected_fingerprint=fp)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures=[pool.submit(confirm) for _ in range(2)]
+        results=[future.result(timeout=45) for future in futures]
+    # A competing attempt may observe an active posting or deadlock and ask
+    # for an explicit retry. It must never duplicate formal daily/cycle keys.
+    assert any(r['review_status']=='CONFIRMED' for r in results)
+    final=confirm_and_settle_meeting_review(**args,expected_fingerprint=fp)
+    assert final['credit_settlement']['status']=='POSTED',final['credit_settlement']
+    assert fetch_one("SELECT COUNT(*) n FROM learning_credit_entries WHERE source_type='STUDY_MEETING_ATTENDANCE' AND source_id=?",(str(session['id']),))['n']==2

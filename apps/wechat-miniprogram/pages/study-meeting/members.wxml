@@ -3,9 +3,8 @@
   <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
   <block wx:if="{{!loading && assignment && assignment.current_cycle && meetingPlanReady}}">
     <view class="hero-card">
-      <view class="eyebrow">{{assignment.class_name}}</view>
-      <view class="hero-title">{{assignment.group_name}}</view>
-      <view class="hero-copy">第 {{assignment.current_cycle.learning_cycle_index}} 学习周期 · 先一键全选，再取消当天未到的学长。</view>
+      <view class="hero-heading"><view><view class="eyebrow">{{assignment.class_name}}</view><view class="hero-title">{{assignment.group_name}}</view></view><view class="cycle-badge">第 {{assignment.current_cycle.learning_cycle_index}} 周期</view></view>
+      <view class="hero-copy">已默认全选，请取消当天未到的学长。</view>
     </view>
     <view class="section-card">
       <view class="toolbar"><view class="section-title">本组学员 {{members.length}} 人</view><view class="toolbar-actions"><button class="toolbar-button" size="mini" bindtap="selectAll">全选本组</button><button class="toolbar-button" size="mini" bindtap="clearAll">全部取消</button></view></view>
@@ -29,7 +28,7 @@
       </block>
       <view wx:if="{{crossSelectedCount}}" class="count-copy">已添加其他小组学长 {{crossSelectedCount}} 人</view>
     </view>
-    <button class="primary-button" disabled="{{selectedCount + crossSelectedCount === 0}}" bindtap="continueSubmit">下一步：确认学习会</button>
+    <view class="bottom-actions"><view class="selection-summary">已选 {{selectedCount + crossSelectedCount}} 人<text wx:if="{{crossSelectedCount}}">，含跨组 {{crossSelectedCount}} 人</text></view><button class="primary-button" disabled="{{selectedCount + crossSelectedCount === 0}}" bindtap="continueSubmit">下一步：确认学习会</button></view>
   </block>
   <view wx:if="{{!loading && assignment && assignment.current_cycle && !meetingPlanReady}}" class="state-card error">
     {{meetingPlanError || '当前学习周期内容配置尚未完成，请联系运营人员。'}}

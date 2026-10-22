@@ -91,7 +91,6 @@ def confirm_meeting_review(*, actor_user_id: int, session_id: int, expected_fing
             raise StudyMeetingPermissionError("学习会记录不在当前组织授权范围内")
         if session["status"] != "SUBMITTED":
             raise StudyMeetingError("仅能核实已提交的学习会")
-        _require_correctable_session(connection, session)
         fingerprint = _fingerprints(connection, (session_id,))[session_id]
         if fingerprint != expected_fingerprint:
             raise StudyMeetingError("学习会内容已变化，请刷新详情并重新核实")
@@ -99,8 +98,79 @@ def confirm_meeting_review(*, actor_user_id: int, session_id: int, expected_fing
             "AND resource_type='study_meeting_session' AND resource_id=? AND result='SUCCESS' ORDER BY id DESC LIMIT 1",
             (str(session_id),)).fetchone()
         if not last or json.loads(last["after_json"] or "{}").get("fingerprint") != fingerprint:
+            _require_correctable_session(connection, session)
             write_audit(connection, actor_user_id=actor_user_id, action="study_meeting.review_confirm",
                 resource_type="study_meeting_session", resource_id=str(session_id),
                 org_unit_id=session["class_org_unit_id"], purpose="人工核实本场参加人员及观看情况",
                 after={"fingerprint": fingerprint, "review_status": "CONFIRMED"})
     return get_study_meeting_record_for_operations(actor_user_id=actor_user_id, session_id=session_id)
+
+
+def settlement_metadata(connection, session_id: int) -> dict:
+    from app.services.credit_settlement_batches import _batch_tables_available
+    if not _batch_tables_available(connection):
+        return {"status": "PENDING", "posted_points": "0.00", "proposed_points": "0.00", "blocked_count": 0}
+    rows = execute(connection,
+        "SELECT status,posted_points,proposed_points,blocked_count,source_snapshot_json FROM learning_credit_settlement_batches "
+        "WHERE source_type='STUDY_MEETING' AND batch_type='REGULAR' AND batch_no LIKE ? ORDER BY id DESC",
+        (f"LC-STUDY-{int(session_id)}-%",)).fetchall()
+    for row in rows:
+        if int(json.loads(row['source_snapshot_json']).get('session_id',0))==session_id:
+            return {key: str(row[key]) if key.endswith('points') else row[key]
+                for key in ('status','posted_points','proposed_points','blocked_count')}
+    return {"status": "PENDING", "posted_points": "0.00", "proposed_points": "0.00", "blocked_count": 0}
+
+
+def assert_settlement_confirmation(connection, actor: int, batch, confirmation: dict) -> None:
+    """A reviewed meeting is the sole authority for this private posting path."""
+    from app.services import learning_credits as credits
+    if batch['source_type']!='STUDY_MEETING' or batch['batch_type']!='REGULAR':
+        raise credits.LearningCreditError('学习会自动结算来源不匹配')
+    session_id=int(confirmation['session_id'])
+    if int(json.loads(batch['source_snapshot_json']).get('session_id',0))!=session_id:
+        raise credits.LearningCreditError('学习会与结算来源不一致')
+    if not can_edit_attendees(actor):
+        raise StudyMeetingPermissionError('无学习会核实权限或人工核实功能未开启')
+    for permission in ('study_meetings:attendees_edit','plans:credit_settlement_manage','plans:credit_settlement_post'):
+        scope=accessible_org_ids(actor,permission)
+        if scope is not None and batch['class_org_unit_id'] not in scope:
+            raise StudyMeetingPermissionError('学习会结算不在当前组织授权范围内')
+    session=_lock_session(connection,session_id)
+    if session['status']!='SUBMITTED' or session['class_org_unit_id']!=batch['class_org_unit_id']:
+        raise credits.LearningCreditError('学习会状态或班级已变化')
+    fingerprint=_fingerprints(connection,(session_id,))[session_id]
+    audit=execute(connection,"SELECT after_json FROM audit_logs WHERE action='study_meeting.review_confirm' "
+        "AND resource_type='study_meeting_session' AND resource_id=? AND result='SUCCESS' ORDER BY id DESC LIMIT 1",(str(session_id),)).fetchone()
+    if (fingerprint!=confirmation['review_fingerprint'] or not audit
+        or json.loads(audit['after_json'] or '{}').get('fingerprint')!=fingerprint):
+        raise credits.LearningCreditError('学习会尚未核实或内容已变化，请刷新重新核实')
+
+
+def confirm_and_settle_meeting_review(*, actor_user_id: int, session_id: int, expected_fingerprint: str) -> dict:
+    from app.services import credit_settlement_batches as batches
+    from app.services import learning_credits as credits
+    from app.services.study_meeting_operations import permission_context
+    # Confirmation remains durable if a posting attempt fails. The next explicit
+    # confirmation resumes the same frozen batch rather than creating new facts.
+    detail=confirm_meeting_review(actor_user_id=actor_user_id,session_id=session_id,expected_fingerprint=expected_fingerprint)
+    failure=None
+    try:
+        with permission_context('plans:credit_settlement_post'):
+            batch=batches.dry_run_study_meeting_batch(actor_user_id=actor_user_id,session_id=session_id)
+            with transaction() as connection:
+                row=execute(connection,'SELECT * FROM learning_credit_settlement_batches WHERE id=?',(batch['id'],)).fetchone()
+                items=execute(connection,"SELECT * FROM learning_credit_settlement_batch_items WHERE batch_id=? AND status<>'BLOCKED' ORDER BY id",(batch['id'],)).fetchall()
+                fingerprint=batches._approval_fingerprint(row,items)
+            if batch['status']=='POSTING':
+                batches.reconcile_stale_posting_batch(actor_user_id=actor_user_id,batch_id=batch['id'])
+            posted=batches._post_batch(actor_user_id=actor_user_id,batch_id=batch['id'],source_type='STUDY_MEETING',
+                resume_partial_failure=True,meeting_confirmation={'session_id':session_id,
+                    'review_fingerprint':expected_fingerprint,'fingerprint':fingerprint})
+            if posted['status']!='POSTED':failure='本场已核实，学分尚未全部入账，请在本页重试结算。'
+    except (credits.LearningCreditError,PermissionError) as exc:
+        failure=f'本场已核实，学分尚未入账完成：{exc}'
+    except Exception:
+        failure='本场已核实，学分入账暂未完成，请刷新查看实际结果后在本页重试。'
+    detail=get_study_meeting_record_for_operations(actor_user_id=actor_user_id,session_id=session_id)
+    if failure:detail.setdefault('credit_settlement',{'status':'PENDING'})['message']=failure
+    return detail

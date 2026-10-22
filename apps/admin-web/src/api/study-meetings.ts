@@ -59,6 +59,7 @@ export type StudyMeetingRecordDetail = StudyMeetingRecord & {
   can_edit_courses: boolean;
   can_edit_attendees: boolean;
   can_confirm_review: boolean;
+  credit_settlement?: { status: string; posted_points: string; proposed_points: string; blocked_count: number; message?: string };
   correction_lock_reason?: string | null;
   course_options: { course_key: string; course_name: string; credit_points: number; status: string }[];
 };
@@ -122,7 +123,7 @@ export const confirmStudyMeetingReview = (sessionId: number, expectedFingerprint
 
 export type MeetingCreditPreview = {
   persisted: false;
-  members: { member_id: number; name: string; attendance_type: string; home_group_name: string; group_points: number; course_points: number; expected_points: number; reasons: string[] }[];
+  members: { member_id: number; name: string; attendance_type: string; home_group_name: string; group_points: number; course_points: number; expected_points: number; credited_points?: number; reasons: string[] }[];
   totals: { proposed_points: number };
 };
 export const getMeetingCreditPreview = (sessionId: number) =>

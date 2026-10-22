@@ -53,6 +53,8 @@ def meeting_credit_preview(*, actor_user_id: int, session_id: int) -> dict:
             "member_id": attendee["member_id"], "name": attendee["name"],
             "attendance_type": attendee["attendance_type"], "home_group_name": attendee["home_group_name"],
             "group_points": group, "course_points": course, "expected_points": group + course,
+            "credited_points": sum(float(item["existing_entry"]["points"]) for item in entries
+                if item.get("existing_entry") and item["existing_entry"].get("status")=="POSTED"),
             "reasons": list(dict.fromkeys(reasons)),
         })
     return {"members": members, "totals": preview["totals"], "persisted": False}

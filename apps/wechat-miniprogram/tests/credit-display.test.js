@@ -12,7 +12,7 @@ test('integer display truncates towards zero while retaining source values', () 
   assert.equal(pointsLabel('broken'), '待补充');
 });
 
-test('headline is the current learning year, not lifetime or calendar-year credits', () => {
+test('annual scores remain distinct from the cumulative headline', () => {
   const raw = { current_learning_year: 2, current_learning_year_points: '0.00', total_points: '123.99', current_year_points: '98.50',
     learning_years: [{ year_index: 1, points: '123.99' }, { year_index: 2, points: '0.00' }, { year_index: 3, points: '0.00' }] };
   const display = creditSummaryDisplay(raw);
@@ -32,4 +32,18 @@ test('missing year data is explicit and later years are not silently clamped', (
   assert.equal(fourth.currentLearningYearLabel, '第4年度');
   assert.equal(fourth.currentLearningYearPointsLabel, '2分');
   assert.equal(fourth.learningYears[3].isCurrent, true);
+});
+
+
+test('cumulative score survives missing learning year for every member', () => {
+  for (const total of ['339.00', '0.00', '12.50', '-1.00']) {
+    const display = creditSummaryDisplay({ total_points: total, current_learning_year: null });
+    assert.equal(display.totalPointsLabel, pointsLabel(total));
+    assert.equal(display.currentLearningYearPointsLabel, '—');
+    assert.equal(display.hasLearningYearProgress, false);
+  }
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const view = fs.readFileSync(path.join(__dirname, '../pages/learning/index.wxml'), 'utf8');
+  assert.match(view, /class="credit-total">{{creditSummary.totalPointsLabel}}/);
 });

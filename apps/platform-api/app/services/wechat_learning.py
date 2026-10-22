@@ -166,7 +166,7 @@ def _current_relations(connection, member_id: int) -> list[dict[str, Any]]:
         "SELECT r.id, r.relation_type, r.org_unit_id, r.is_primary, "
         "ou.name, ou.unit_type, ou.parent_id "
         "FROM member_org_relations r JOIN org_units ou ON ou.id=r.org_unit_id "
-        "WHERE r.member_id=? AND r.relation_type IN ('STUDY_CLASS','STUDY_GROUP') "
+        "WHERE r.member_id=? AND r.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT','STUDY_GROUP') "
         "AND ou.is_active=1 "
         "AND (r.valid_from IS NULL OR r.valid_from<=?) "
         "AND (r.valid_until IS NULL OR r.valid_until>=?) "
@@ -179,19 +179,23 @@ def _current_relations(connection, member_id: int) -> list[dict[str, Any]]:
 def _current_learning(connection, member_id: int) -> list[dict[str, Any]]:
     relations = _current_relations(connection, member_id)
     classes: dict[str, dict[str, Any]] = {}
-    groups: list[dict[str, Any]] = []
+    groups_by_class: dict[str, dict[str, Any]] = {}
     for relation in relations:
-        if relation["relation_type"] == "STUDY_CLASS":
+        if relation["relation_type"] in {"STUDY_CLASS", "SPECIAL_COHORT"}:
             classes.setdefault(str(relation["org_unit_id"]), relation)
-        else:
-            groups.append(relation)
+        elif relation["unit_type"] == "GROUP" and relation.get("parent_id"):
+            # Match member management: primary first, then newest relation.
+            # All current rows used to become separate service cards, so a
+            # retained secondary relation looked like a second assignment.
+            # Deduplicate by parent ID, never class/group display names.
+            groups_by_class.setdefault(str(relation["parent_id"]), relation)
 
     # A group relation is authoritative for the current group.  Its parent
     # class is used only to pair that group with the current class label; no
     # member or organization ID is returned to the client.
     pairs: list[tuple[dict[str, Any] | None, dict[str, Any] | None]] = []
     used_classes: set[str] = set()
-    for group in groups:
+    for group in groups_by_class.values():
         class_relation = classes.get(str(group.get("parent_id")))
         if class_relation:
             used_classes.add(str(class_relation["org_unit_id"]))
@@ -199,7 +203,7 @@ def _current_learning(connection, member_id: int) -> list[dict[str, Any]]:
             parent = execute(
                 connection,
                 "SELECT id, name, unit_type, parent_id FROM org_units "
-                "WHERE id=? AND unit_type='CLASS' AND is_active=1 LIMIT 1",
+                "WHERE id=? AND unit_type IN ('CLASS','SPECIAL_COHORT') AND is_active=1 LIMIT 1",
                 (group["parent_id"],),
             ).fetchone()
             class_relation = (

@@ -916,6 +916,29 @@ def _rule_version_is_frozen_for_item(
     return False
 
 
+def _validate_post_rule(connection, item, rule) -> None:
+    version_status = str(rule["version_status"]).upper() if rule else ""
+    version_allowed = version_status == "PUBLISHED" or (
+        version_status == "RETIRED"
+        and _rule_version_is_frozen_for_item(
+            connection,
+            item=item,
+            rule_version_id=int(rule["version_id"]),
+        )
+    )
+    if not rule or not version_allowed or rule["rule_status"] != "ACTIVE":
+        raise LearningCreditError(
+            "只有数据库中已发布，或已绑定且已退役的启用规则才能正式入账"
+        )
+    if str(rule["version_label"]) != str(item["rule_version"]):
+        raise LearningCreditError("学分规则版本标签与数据库不一致")
+    if (
+        str(rule["credit_category"]) != str(item["credit_category"])
+        or str(rule["credit_type"]) != str(item["credit_type"])
+    ):
+        raise LearningCreditError("学分规则类别或类型与数据库不一致")
+
+
 def post_credit_entry(*, actor_user_id: int, item: dict[str, Any]) -> dict[str, Any]:
     _settlement_enabled()
     user = user_context(actor_user_id) or {}
@@ -936,27 +959,65 @@ def post_credit_entry(*, actor_user_id: int, item: dict[str, Any]) -> dict[str, 
             "WHERE v.id=? AND r.rule_key=? LIMIT 1",
             (item["rule_version_id"], item["rule_key"]),
         ).fetchone()
-        version_status = str(rule["version_status"]).upper() if rule else ""
-        version_allowed = version_status == "PUBLISHED" or (
-            version_status == "RETIRED"
-            and _rule_version_is_frozen_for_item(
-                connection,
-                item=item,
-                rule_version_id=int(rule["version_id"]),
-            )
-        )
-        if not rule or not version_allowed or rule["rule_status"] != "ACTIVE":
-            raise LearningCreditError(
-                "只有数据库中已发布，或已绑定且已退役的启用规则才能正式入账"
-            )
-        if str(rule["version_label"]) != str(item["rule_version"]):
-            raise LearningCreditError("学分规则版本标签与数据库不一致")
-        if (
-            str(rule["credit_category"]) != str(item["credit_category"])
-            or str(rule["credit_type"]) != str(item["credit_type"])
-        ):
-            raise LearningCreditError("学分规则类别或类型与数据库不一致")
+        _validate_post_rule(connection, item, rule)
         return _insert_entry(connection, item, status="POSTED", actor_user_id=actor_user_id)
+
+
+
+def post_reading_entries(*, connection, actor_user_id: int, items: list[dict]) -> list[dict]:
+    """Write a bounded reading group atomically, retaining every member/day key.
+
+    Caller owns the transaction, member locks, scope and frozen-source preview.
+    No commit or cross-request cache is allowed here. Unique conflicts roll back
+    the whole step; the ordinary reconciliation path handles a later resume.
+    """
+    _settlement_enabled()
+    user = user_context(actor_user_id) or {}
+    if not {"plans:credit_settlement_manage", "plans:credit_settlement_post"}.issubset(set(user.get("permissions", []))):
+        raise PermissionError("无权正式入账学分")
+    if not items or len(items) > 25:
+        raise LearningCreditError("读书批量入账每段最多25条")
+    rules = {}
+    for item in items:
+        if (item.get("credit_type") != "DAILY_READING" or item.get("source_type") != "LEARNING_ACTIVITY_DAILY_READING"
+            or not item.get("rule_version") or not item.get("rule_snapshot")
+            or not item.get("rule_version_id") or not item.get("rule_key")):
+            raise LearningCreditError("读书入账必须绑定冻结规则和每日来源")
+        key = (item["rule_version_id"], item["rule_key"])
+        if key not in rules:
+            rules[key] = execute(connection,
+                "SELECT v.id AS version_id,v.version_label,v.status AS version_status,"
+                "r.rule_key,r.credit_category,r.credit_type,r.status AS rule_status "
+                "FROM learning_credit_rule_versions v JOIN learning_credit_rules r ON r.rule_version_id=v.id "
+                "WHERE v.id=? AND r.rule_key=? LIMIT 1", key).fetchone()
+        _validate_post_rule(connection, item, rules[key])
+    from app.services.credit_opening_balances import guard_regular_posts
+    guard_regular_posts(connection, items)
+    keys = [item["idempotency_key"] for item in items]
+    if len(set(keys)) != len(keys):
+        raise LearningCreditError("读书入账包含重复的学员日期")
+    placeholders = ",".join("?" for _ in keys)
+    existing = execute(connection, "SELECT id FROM learning_credit_entries WHERE idempotency_key IN (" + placeholders + ")", tuple(keys)).fetchall()
+    if existing:
+        # Retain the original exact-field conflict semantics for retries.
+        return [_insert_entry(connection, item, status="POSTED", actor_user_id=actor_user_id) for item in items]
+    now = _db_timestamp(connection)
+    values = []
+    for item in items:
+        occurred_at, precision, year, month = _occurrence_fields(item)
+        values.extend((int(item["member_id"]), item["credit_category"], item["credit_type"], item["points"],
+            item["source_type"], str(item["source_id"]), item.get("class_org_unit_id"), item.get("learning_cycle_id"),
+            item["rule_key"], str(item["rule_version"]), item["rule_version_id"], _json(item["rule_snapshot"]),
+            occurred_at, precision, year, month, now, "POSTED", item["idempotency_key"],
+            item.get("reversal_of_entry_id"), actor_user_id, now, now))
+    execute(connection, "INSERT INTO learning_credit_entries "
+        "(member_id,credit_category,credit_type,points,source_type,source_id,class_org_unit_id,learning_cycle_id,"
+        "rule_key,rule_version,rule_version_id,rule_snapshot_json,occurred_at,occurred_precision,occurred_year,"
+        "occurred_month,posted_at,status,idempotency_key,reversal_of_entry_id,created_by,created_at,updated_at) VALUES "
+        + ",".join("(" + ",".join("?" for _ in range(23)) + ")" for _ in items), tuple(values))
+    rows = execute(connection, "SELECT * FROM learning_credit_entries WHERE idempotency_key IN (" + placeholders + ")", tuple(keys)).fetchall()
+    by_key = {row["idempotency_key"]: _entry_payload(row) for row in rows}
+    return [by_key[key] for key in keys]
 
 
 def settle_study_meeting(*, actor_user_id: int, session_id: int) -> dict[str, Any]:

@@ -13,7 +13,7 @@ from app.services import credit_opening_balances as opening
 from app.services import credit_year_allocations as annual
 from app.services import credit_source_imports as sources
 from app.services.audit import write_audit
-from app.services.credit_monthly_targets import monthly_target
+from app.services.credit_monthly_targets import monthly_target, BASIC_CREDIT_TYPES
 from app.services.learning_org_catalog import class_catalog, selected_class_ids
 
 LABELS={'CLASS_MEETING_SCORE':'班会签到','DAILY_READING':'读书打卡','EXCELLENT_SHARE':'优秀分享','GROUP_MEETING_ATTENDANCE':'小组学习会','COURSE_COMPLETION':'课程完成'}
@@ -114,19 +114,20 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
             members.setdefault(int(r['member_id']),{'member_code':r['member_code'],'name':r['member_name'],'classes':[str(r['class_name'] or '')+'（账本归属）']})
         if len(members)>5000:raise credits.LearningCreditError('导出超过5000位学长，请选择班级缩小范围')
         if member_id and member_id not in members:raise PermissionError('该学员不在当前学分导出范围内')
-        groups={}
-        for r in execute(c,"SELECT DISTINCT r.member_id,o.id AS group_id,o.name,o.parent_id FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id WHERE r.relation_type='STUDY_GROUP' AND o.parent_id IN ("+placeholders+") AND (r.valid_from IS NULL OR r.valid_from<=?) AND (r.valid_until IS NULL OR r.valid_until>=?) ORDER BY o.id",(*params,end.isoformat(),end.isoformat())).fetchall():
-            if r['member_id'] in members and r['parent_id'] in members[r['member_id']].get('class_ids',set()):groups.setdefault(r['member_id'],[]).append(r['name'])
+        groups={};seen_groups=set()
+        for r in execute(c,"SELECT r.member_id,o.id AS group_id,o.name,o.parent_id FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id WHERE r.relation_type='STUDY_GROUP' AND o.is_active=1 AND o.parent_id IN ("+placeholders+") AND (r.valid_from IS NULL OR r.valid_from<=?) AND (r.valid_until IS NULL OR r.valid_until>=?) ORDER BY r.is_primary DESC,r.id DESC",(*params,credits._db_timestamp(c),credits._db_timestamp(c))).fetchall():
+            key=(r['member_id'],r['parent_id'])
+            if key not in seen_groups and r['member_id'] in members and r['parent_id'] in members[r['member_id']].get('class_ids',set()):
+                groups.setdefault(r['member_id'],[]).append(r['name']);seen_groups.add(key)
         month_start=end.replace(day=1)
-        target_classes={canonical_ids.get(cid,cid) for m in members.values() for cid in m.get('class_ids',set())}
-        targets={cid:monthly_target(c,cid,end) for cid in target_classes}
+        target=monthly_target(c,None,end)
         totals={};added={};monthly={};details=[]
         for e in ledger:
             member=int(e['member_id']);point=Decimal(str(e['points']));totals[member]=totals.get(member,Decimal(0))+point
             # A partial year/month never masquerades as a confirmed October date.
             if e.get('occurred_precision')!='EXACT_DATE' or not e.get('occurred_at'):continue
             day=date.fromisoformat(str(e['occurred_at'])[:10])
-            if month_start<=day<=end:monthly[member]=monthly.get(member,Decimal(0))+point
+            if month_start<=day<=end and e['credit_type'] in BASIC_CREDIT_TYPES:monthly[member]=monthly.get(member,Decimal(0))+point
             if not start<=day<=end:continue
             added[member]=added.get(member,Decimal(0))+point
             trace=entry_sources(c,e)
@@ -135,8 +136,6 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
         summaries=[]
         for member,m in members.items():
             base=Decimal(opening.opening_summary(c,member_id=member,allowed=class_ids)['total_points'])
-            ids={canonical_ids.get(cid,cid) for cid in m.get('class_ids',set())}
-            target=targets[next(iter(ids))] if len(ids)==1 else {'points':None,'reason':'没有唯一有效的班级学习关系','plan':''}
             full=target['points'];earned=monthly.get(member,Decimal(0))
             summaries.append([str(m['member_code']),_safe_text(m['name']),' / '.join(m['classes']),' / '.join(groups.get(member,[])),base,added.get(member,Decimal(0)),base+totals.get(member,Decimal(0)),earned,full if full is not None else '待配置',earned/full if full is not None and full>0 else None,target['reason'],target['plan']])
         history=[]
@@ -144,9 +143,9 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
             for r in execute(c,"SELECT a.member_id,m.member_code,m.name,o.name AS class_name,a.year_index,a.points,i.original_filename,i.cutoff_date FROM learning_credit_year_allocations a JOIN learning_credit_year_imports i ON i.id=a.import_id AND i.status='POSTED' JOIN class_learning_bindings b ON b.id=a.binding_id JOIN org_units o ON o.id=b.class_org_unit_id JOIN members m ON m.id=a.member_id WHERE b.class_org_unit_id IN ("+placeholders+")"+(' AND a.member_id=?' if member_id else '')+" ORDER BY m.id,a.year_index",(*params,*((member_id,) if member_id else ()))).fetchall():
                 history.append([str(r['member_code']),_safe_text(r['name']),r['class_name'],int(r['year_index']),Decimal(str(r['points'])),date.fromisoformat(str(r['cutoff_date'])[:10]),_safe_text(r['original_filename'])])
         book=Workbook();book.remove(book.active)
-        summary_sheet=_sheet(book,'学分汇总',['学长编号','姓名','班级','小组','已确认期初及补差学分',f'{start}至{end}新增学分','累计学分（账本原值）',f'{month_start}至{end}当月获得学分','当月满分','学分率','满分构成/待配置原因','学习计划及规则'],summaries)
+        summary_sheet=_sheet(book,'学分汇总',['学长编号','姓名','班级','小组','已确认期初及补差学分',f'{start}至{end}新增学分','累计学分（账本原值）',f'{month_start}至{end}当月基础获得学分','当月基础满分','学分率','基础满分构成/待配置原因','统计口径及日历版本'],summaries)
         for row in summary_sheet.iter_rows(min_row=2):row[9].number_format='0.0%'
-        summary_sheet['I1'].comment=Comment(f'月份：{end:%Y-%m}。满分按整月已发布计划、已排期学习周期和绑定规则计算。学分率=该月1日至截止日实际账本学分/整月满分；不含期初余额。多班归属或配置不全时留空；比例不封顶。','苏州盛和塾')
+        summary_sheet['I1'].comment=Comment(f'月份：{end:%Y-%m}。当月基础满分=整月工作日读书天数×1+优秀检视分享5+班会和空巴18+小组学习会4。学分率=当月1日至截止日这四类实际入账净学分/当月基础满分；排除期初余额及课程等其他学分，冲销相应扣减。日历不完整时留空；比例不封顶。','苏州盛和塾')
         _sheet(book,'新增学分明细',['账本编号','学长编号','姓名','班级','小组','业务日期','学分','计分项目','来源类型','业务来源编号','原文件与行号','规则版本','账本状态','冲销原账本编号'],details)
         _sheet(book,'已导入历史年度',['学长编号','姓名','班级','学习年度','原年度学分','统计截止日','原文件'],history)
         output=io.BytesIO();book.save(output)

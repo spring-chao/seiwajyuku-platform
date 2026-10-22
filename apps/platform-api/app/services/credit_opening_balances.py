@@ -89,6 +89,24 @@ def guard_regular_post(connection, item: dict, occurrence: tuple) -> None:
         return
     execute(connection, "SELECT id FROM members WHERE id=?" + ("" if isinstance(connection, sqlite3.Connection) else " FOR UPDATE"), (item["member_id"],)).fetchone()
     row = execute(connection, "SELECT cutoff_date FROM learning_credit_opening_balances WHERE member_id=?", (item["member_id"],)).fetchone()
+    _guard_cutoff(item, occurrence, row)
+
+
+def guard_regular_posts(connection, items: list[dict]) -> None:
+    """Check a bounded group under the same member locks as opening posting."""
+    if not storage_available(connection) or not items:
+        return
+    ids = sorted({int(item["member_id"]) for item in items})
+    for member_id in ids:
+        execute(connection, "SELECT id FROM members WHERE id=?" + ("" if isinstance(connection, sqlite3.Connection) else " FOR UPDATE"), (member_id,)).fetchone()
+    rows = {int(row["member_id"]): row for row in execute(connection,
+        "SELECT member_id,cutoff_date FROM learning_credit_opening_balances WHERE member_id IN (" + ",".join("?" for _ in ids) + ")", tuple(ids)).fetchall()}
+    from app.services.learning_credits import _occurrence_fields
+    for item in items:
+        _guard_cutoff(item, _occurrence_fields(item), rows.get(int(item["member_id"])))
+
+
+def _guard_cutoff(item: dict, occurrence: tuple, row) -> None:
     if not row or item.get("source_type") == "REVERSAL":
         return
     cutoff = date.fromisoformat(str(row["cutoff_date"])[:10])
