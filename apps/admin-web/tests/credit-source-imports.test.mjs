@@ -91,6 +91,24 @@ test("reading preview with ignored rows can save the validated fingerprint", asy
   await ui.register();assert.equal(fingerprint,'valid-selection');
 });
 
+for (const found of [true,false]) test(`lost source-save reply checks committed receipt and never resubmits: found=${found}`,async()=>{
+  let writes=0,lookups=0,opens=0;
+  const ui=harness({sourceRegister:async()=>{writes++;throw new Error('save timeout');},
+    sourceFindSaved:async(fp,cls,kind)=>{lookups++;assert.equal(fp,'checked');assert.equal(cls,'class');assert.equal(kind,'DAILY_READING');return{data:{id:found?31:null}};},
+    sourceGet:async id=>{opens++;return{data:{id}};},sourceWorkbench:async()=>({data:{imports:[]}}),sourceExportOptions:async()=>({data:{classes:[]}})},['members:read','plans:credit_settlement_manage','plans:credit_activity_fact_manage','plans:credit_settlement_preview']);
+  ui.form.class_id='class';ui.form.kind='DAILY_READING';ui.file.value={name:'test.xlsx'};await nextTick();
+  ui.state.value={storage_available:true,can_import_activity:true};ui.preview.value={fingerprint:'checked'};
+  await ui.register();assert.equal(writes,1);assert.equal(lookups,1);assert.equal(opens,found?1:0);
+  if(found){assert.equal(ui.preview.value,undefined);assert.equal(ui.detail.value.id,31);}
+  else{assert.equal(ui.preview.value.fingerprint,'checked');assert.match(ui.error.value,/save timeout/);}
+});
+test('a saved receipt with a failed detail read reports saved status and keeps its preview cleared',async()=>{
+  const ui=harness({sourceRegister:async()=>({data:{id:31,idempotent:false}}),sourceGet:async()=>{throw new Error('detail timeout');},sourceWorkbench:async()=>({data:{imports:[]}}),sourceExportOptions:async()=>({data:{classes:[]}})},['members:read','plans:credit_settlement_manage','plans:credit_activity_fact_manage','plans:credit_settlement_preview']);
+  ui.form.class_id='class';ui.form.kind='DAILY_READING';ui.file.value={name:'test.xlsx'};await nextTick();
+  ui.state.value={storage_available:true,can_import_activity:true};ui.preview.value={fingerprint:'checked'};
+  await ui.register();assert.equal(ui.preview.value,undefined);assert.match(ui.error.value,/detail timeout/);
+});
+
 
 test("confirm uses the refreshed displayed settlement and does not call review actions",async()=>{
   const calls=[];let release;

@@ -30,6 +30,10 @@ async def preview(workbook:UploadFile=File(...),kind:str=Form(...),class_id:str=
 async def register(workbook:UploadFile=File(...),kind:str=Form(...),class_id:str=Form(...),options_json:str=Form('{}',max_length=5000),source_note:str=Form('',max_length=1000),expected_fingerprint:str=Form(...,pattern=r'^[a-f0-9]{64}$'),user=Depends(require_permission('plans:credit_settlement_manage'))):
     return await run_in_threadpool(_call,service.register,await _content(workbook),kind,class_id,options_json,source_note,workbook.filename or '学分来源.xlsx',expected_fingerprint,user['id'])
 
+@router.get('/saved-source')
+def saved_source(fingerprint:str=Query(...,pattern=r'^[a-f0-9]{64}$'),class_id:str=Query(...),kind:str=Query(...),user=Depends(require_permission('plans:credit_settlement_manage'))):
+    return _call(service.find_saved_source,fingerprint,class_id,kind,user['id'])
+
 @router.get('/imports/{import_id}')
 def get_import(import_id:int,user=Depends(require_permission('plans:credit_settlement_manage'))):return _call(service.get_import,import_id,user['id'])
 
