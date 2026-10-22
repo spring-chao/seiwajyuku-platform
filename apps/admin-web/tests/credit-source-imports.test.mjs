@@ -11,7 +11,7 @@ const compiled = ts.transpileModule(script, { compilerOptions: { target: ts.Scri
 function harness(api = {}, permissions = ["members:read", "plans:credit_settlement_manage", "plans:credit_settlement_preview", "plans:credit_settlement_approve", "plans:credit_settlement_post", "exports:normal"]) {
   const storage = new Map();
   const context = vm.createContext({ computed, reactive, ref, watch, onMounted: () => {}, defineEmits: () => () => {}, useUserStoreHook: () => ({ permissions }), creditSettlementErrorMessage: e => e.message, ElMessage: { success() {}, error() {} }, ElMessageBox: { confirm: async () => {} }, localStorage: { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) }, URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} }, document: { createElement: () => ({ click() {} }) }, setTimeout: () => {}, ...api });
-  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail,act,batchSummary};", context);
+  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail,act,batchSummary,posting,stopRequested,refreshDetail,recover};", context);
   return context.result;
 }
 
@@ -21,9 +21,15 @@ test("changing source information while a check is running discards the old prev
   ui.form.class_id = "test-class"; ui.form.kind = "DAILY_READING"; ui.form.source_note = "原表已核对"; ui.file.value = { name: "test.xlsx" };
   await nextTick();
   const pending = ui.check();
-  ui.form.source_note = "更正后的确认说明"; await nextTick();
+  ui.form.kind = "EXCELLENT_SHARE"; await nextTick();
   finish({ data: { fingerprint: "old", rows: [], error_count: 0 } }); await pending;
   assert.equal(ui.preview.value, undefined);
+});
+
+test("editing an optional note keeps a checked scoring preview",async()=>{
+  const ui=harness();ui.form.kind='DAILY_READING';await nextTick();
+  ui.preview.value={fingerprint:'facts-only'};ui.form.source_note='补充备注';await nextTick();
+  assert.equal(ui.preview.value.fingerprint,'facts-only');
 });
 
 test("export staff can download without source-management permission", async () => {
@@ -68,12 +74,12 @@ test("source details are loaded for the selected receipt instead of every list r
   assert.equal(id,7);assert.equal(ui.detail.value.rows[0].excel_row,2);
 });
 
-test("missing source note shows immediate feedback without sending an import", async () => {
+test("an empty optional source note allows checking the workbook", async () => {
   const messages=[];let calls=0;
-  const ui=harness({ sourcePreview:async()=>{calls++;}, ElMessage:{error:msg=>messages.push(msg),success(){}} });
-  ui.form.class_id='class';ui.file.value={name:'test.xlsx'};
+  const ui=harness({ sourcePreview:async(_file,form)=>{calls++;assert.equal(form.source_note,'');return{data:{rows:[]}};}, ElMessage:{error:msg=>messages.push(msg),success(){}} });
+  ui.form.class_id='class';ui.form.kind='DAILY_READING';ui.file.value={name:'test.xlsx'};
   await ui.check();
-  assert.equal(calls,0);assert.equal(messages.length,1);assert.match(messages[0],/至少4字/);
+  assert.equal(calls,1);assert.equal(messages.length,0);
 });
 
 test("reading preview with ignored rows can save the validated fingerprint", async () => {
@@ -98,4 +104,38 @@ test("confirm uses the refreshed displayed settlement and does not call review a
   assert.equal(calls.length,1);assert.deepEqual(Array.from(calls[0]),[9,'confirm','fresh',false]);
   release();await first;
   assert.equal((ui.batchSummary(source).match(/待确认入账/g)||[]).length,1);
+});
+
+const progressSource = (posted, total = 8) => ({id:18,class_name:'合成班级',source_kind:'DAILY_READING',member_count:8,
+  batches:[{status:posted===total?'POSTED':'DRY_RUN',proposed_entry_count:total}],settlement_fingerprint:'same-frozen-items',
+  settlement_summary:{entry_count:total,proposed_points:String(total),posted_points:String(posted)},
+  posting_progress:{state:posted===total?'COMPLETE':'READY',posted_entries:posted,total_entries:total,remaining_entries:total-posted,completed:posted===total}});
+
+test("one confirmation continues short steps and exposes durable progress",async()=>{
+  let calls=0;
+  const start=progressSource(0);
+  const ui=harness({sourceGet:async()=>({data:start}),sourceAction:async()=>({data:progressSource(Math.min(++calls*3,8))}),sourceWorkbench:async()=>({data:{imports:[progressSource(8)]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
+  ui.state.value={imports:[start]};await ui.act(start,'confirm');
+  assert.equal(calls,3);assert.equal(ui.detail.value.posting_progress.posted_entries,8);assert.equal(ui.posting.value,false);assert.equal(ui.error.value,'');
+});
+
+test("lost reply refreshes the receipt and reports completion instead of replaying",async()=>{
+  let reads=0,calls=0;const start=progressSource(0);
+  const ui=harness({sourceGet:async()=>({data:++reads===1?start:progressSource(8)}),sourceAction:async()=>{calls++;throw new Error('timeout');},sourceWorkbench:async()=>({data:{imports:[progressSource(8)]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
+  ui.state.value={imports:[start]};await ui.act(start,'confirm');
+  assert.equal(calls,1);assert.equal(ui.error.value,'');assert.equal(ui.detail.value.posting_progress.completed,true);
+});
+
+test("an unfinished lost reply shows progress and never automatically retries an uncertain write",async()=>{
+  let reads=0,calls=0;const start=progressSource(0),partial=progressSource(3);partial.batches[0].status='POSTING';partial.posting_progress.state='POSTING';
+  const ui=harness({sourceGet:async()=>({data:++reads===1?start:partial}),sourceAction:async()=>{calls++;throw new Error('timeout');},sourceWorkbench:async()=>({data:{imports:[partial]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
+  ui.state.value={imports:[start]};await ui.act(start,'confirm');
+  assert.equal(calls,1);assert.match(ui.error.value,/已入账3\/8笔/);assert.match(ui.error.value,/无需重新上传/);assert.equal(ui.posting.value,false);
+});
+
+test("stopping between steps preserves progress and the refreshed dialog stays resumable",async()=>{
+  const start=progressSource(0);let calls=0,ui;
+  ui=harness({sourceGet:async()=>({data:start}),sourceAction:async()=>{calls++;ui.stopRequested.value=true;return{data:progressSource(3)};},sourceWorkbench:async()=>({data:{imports:[start]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
+  ui.state.value={imports:[start]};await ui.act(start,'confirm');
+  assert.equal(calls,1);assert.equal(ui.detail.value.posting_progress.posted_entries,3);assert.equal(ui.eligible(ui.detail.value),true);
 });

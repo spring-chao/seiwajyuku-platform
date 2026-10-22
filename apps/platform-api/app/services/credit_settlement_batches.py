@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import time
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -1842,6 +1843,7 @@ def _validate_historical_source_item(
 def _post_batch(
     *, actor_user_id: int, batch_id: int, source_type: str, resume_partial_failure: bool = False,
     batch_type: str = "REGULAR", source_confirmation: dict | None = None,
+    max_items: int | None = None,
 ) -> dict[str, Any]:
     """POST frozen items once, with per-item transactions and reconciliation.
 
@@ -1849,6 +1851,8 @@ def _post_batch(
     Only an explicitly requested PARTIAL_FAILED resume processes failed items.
     """
 
+    if max_items is not None and (source_confirmation is None or not 1 <= max_items <= 10):
+        raise credits.LearningCreditError("分段入账仅适用于已核对的表格来源")
     if not credits.get_settings().learning_credit_batch_post_enabled:
         raise credits.LearningCreditFeatureDisabled("学分结算批次正式入账尚未开启")
     credits._settlement_enabled()
@@ -1927,7 +1931,14 @@ def _post_batch(
                 purpose="操作者核对表格结算后确认入账，不经独立复核",
                 after={'import_id':source_confirmation['import_id'],'confirmation_fingerprint':expected_items_fp})
 
+    # A source confirmation uses short, durable steps. Each item still has the
+    # same transaction, live-fact/rule check and unique ledger key as a full run.
+    started = time.monotonic()
+    processed = 0
+    failed = False
     for item_id in pending_ids:
+        if max_items is not None and processed and (processed >= max_items or time.monotonic() - started >= 8):
+            break
         try:
             with atomic_transaction() as connection:
                 # A locking read must be the first MySQL read in this transaction.
@@ -2036,7 +2047,9 @@ def _post_batch(
                     )
                     if stage_changed.rowcount != 1:
                         raise credits.LearningCreditError("历史来源staging状态无法与账本同事务收口")
+            processed += 1
         except Exception as exc:  # noqa: BLE001 - persist only safe error category
+            failed = True
             with transaction() as connection:
                 heartbeat = credits._db_timestamp(connection)
                 execute(
@@ -2061,7 +2074,11 @@ def _post_batch(
         if current["status"] != "POSTING":
             raise credits.LearningCreditError("批次入账终态未知，必须人工核验")
         count, points = _reconcile_posted_items(connection, current)
-        final_status = "POSTED" if count == int(current["proposed_entry_count"]) and points == Decimal(str(current["proposed_points"])) else "PARTIAL_FAILED"
+        complete = count == int(current["proposed_entry_count"]) and points == Decimal(str(current["proposed_points"]))
+        # A normal step boundary is not a failure or a fabricated approval.
+        # Restore the existing confirmation state and continue with the same
+        # frozen items on the next explicit source-confirmation request.
+        final_status = "POSTED" if complete else ("DRY_RUN" if max_items is not None and not failed else "PARTIAL_FAILED")
         changed = execute(
             connection,
             "UPDATE learning_credit_settlement_batches SET status=?,posted_entry_count=?,"

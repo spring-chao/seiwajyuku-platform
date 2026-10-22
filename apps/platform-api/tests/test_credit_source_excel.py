@@ -113,6 +113,143 @@ def test_source_register_waits_for_competing_operation_and_retry_is_idempotent(s
     assert result['id']==retry['id'] and retry['idempotent']
 
 
+def test_same_reading_file_with_changed_note_reuses_receipt_and_ledger(source_fixture):
+    f=source_fixture;iid,_,data=registered(f,'DAILY_READING')
+    note='重新核对原表，重试保存来源'
+    preview=sources.preview(data,'DAILY_READING',f['class_id'],'{}',note,f['actor'])
+    assert preview['fingerprint']==sources.preview(data,'DAILY_READING',f['class_id'],'{}','',f['actor'])['fingerprint']
+    retry=sources.register(data,'DAILY_READING',f['class_id'],'{}',note,'改名后.xlsx',preview['fingerprint'],f['actor'])
+    assert retry=={'id':iid,'idempotent':True}
+    source=sources.create_batches(iid,f['actor'])
+    before=fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries')['n']
+    done=sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)
+    assert done['posting_progress']=={'state':'COMPLETE','total_entries':1,'posted_entries':1,'remaining_entries':0,'completed':True}
+    again=sources.process(iid,f['actor'],'confirm',done['settlement_fingerprint'],incremental=True)
+    assert again['posting_progress']==done['posting_progress']
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries')['n']==before+1
+
+
+@pytest.mark.parametrize('note',[None,'','补'])
+def test_optional_note_is_not_required_by_upload_api_or_confirmation(source_fixture,note):
+    from app.api.auth import current_user
+    f=source_fixture;data=workbook(f,'DAILY_READING')
+    form={'kind':'DAILY_READING','class_id':f['class_id']}
+    if note is not None:form['source_note']=note
+    app.dependency_overrides[current_user]=lambda:{'id':f['actor'],'permissions':credits.user_context(f['actor'])['permissions']}
+    try:
+        with TestClient(app) as client:
+            response=client.post('/api/v1/learning-credits/excel/preview',data=form,files={'workbook':('测试.xlsx',data)})
+            assert response.status_code==200,response.text
+            fingerprint=response.json()['data']['fingerprint']
+            response=client.post('/api/v1/learning-credits/excel/imports',data={**form,'expected_fingerprint':fingerprint},files={'workbook':('测试.xlsx',data)})
+            assert response.status_code==200,response.text
+            iid=response.json()['data']['id']
+            source=client.post(f'/api/v1/learning-credits/excel/imports/{iid}/batches').json()['data']
+            response=client.post(f'/api/v1/learning-credits/excel/imports/{iid}/actions/confirm',json={'expected_fingerprint':source['settlement_fingerprint'],'incremental':True})
+            assert response.status_code==200,response.text
+            assert response.json()['data']['posting_progress']['completed']
+    finally:app.dependency_overrides.pop(current_user,None)
+
+
+def test_incremental_reading_commits_short_steps_and_resumes_without_duplicates(source_fixture):
+    f=source_fixture
+    identities=[(f['member_code'],f['name'])]
+    with transaction() as c:
+        now=credits._db_timestamp(c)
+        for index in range(7):
+            code=f['member_code']+'-step-'+str(index);name='分段测试'+str(index)
+            mid=execute(c,"INSERT INTO members(member_code,name,org_unit_id,status,created_at,updated_at) VALUES (?,?,?,'ACTIVE',?,?)",(code,name,f['class_id'],now,now)).lastrowid
+            execute(c,"INSERT INTO member_org_relations(member_id,org_unit_id,relation_type,is_primary,valid_from,created_at,updated_at) VALUES (?,?,'STUDY_CLASS',1,'2020-01-01',?,?)",(mid,f['class_id'],now,now))
+            identities.append((code,name))
+    wb=Workbook();sheet=wb.active;sheet.title=sources.SHEETS['DAILY_READING'];sheet.append(sources.HEADERS['DAILY_READING'])
+    for code,name in identities:sheet.append([code,name,DAY,'是'])
+    out=io.BytesIO();wb.save(out)
+    iid,_,_=registered(f,'DAILY_READING',out.getvalue());source=sources.create_batches(iid,f['actor'])
+    counts=[];before=fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries')['n']
+    while not source['posting_progress']['completed']:
+        source=sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)
+        counts.append(source['posting_progress']['posted_entries'])
+        assert source['batches'][0]['status']!='POSTING'
+        assert counts[-1]-(counts[-2] if len(counts)>1 else 0)<=3
+        assert len(counts)<=8
+        if len(counts)==1:
+            regenerated=sources.create_batches(iid,f['actor'])
+            assert regenerated['batches'][0]['id']==source['batches'][0]['id']
+            assert regenerated['posting_progress']['posted_entries']==counts[-1]
+    assert counts[-1]==8 and len(counts)>=3
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries')['n']==before+8
+    assert sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)['posting_progress']['posted_entries']==8
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries')['n']==before+8
+
+
+def test_abandoned_source_posting_shows_live_progress_and_uses_existing_recovery_gate(source_fixture):
+    from datetime import UTC,datetime,timedelta
+    f=source_fixture;iid,_,_=registered(f,'DAILY_READING');source=sources.create_batches(iid,f['actor'])
+    real_insert=credits.post_credit_entry
+    class Interrupted(BaseException):pass
+    def post_then_interrupt(**kwargs):
+        real_insert(**kwargs)
+        raise Interrupted()
+    with patch.object(credits,'post_credit_entry',side_effect=post_then_interrupt),pytest.raises(Interrupted):
+        sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)
+    # The item and ledger write share one atomic transaction; even a process
+    # interruption cannot leave an unlinked ledger fact to be posted twice.
+    stopped=sources.get_import(iid,f['actor'])
+    assert stopped['posting_progress']['state']=='POSTING'
+    assert stopped['posting_progress']['posted_entries']==0
+    with pytest.raises(credits.LearningCreditError,match='30分钟'):
+        sources.reconcile(iid,f['actor'])
+    with transaction() as c:
+        execute(c,'UPDATE learning_credit_settlement_batches SET updated_at=? WHERE id=?',(credits._db_timestamp(c,datetime.now(UTC)-timedelta(minutes=31)),source['batches'][0]['id']))
+    permissions=credits.user_context(f['actor'])['permissions']
+    with patch.object(credits,'user_context',return_value={'permissions':[p for p in permissions if p!='plans:credit_settlement_reconcile']}),pytest.raises(PermissionError):
+        sources.reconcile(iid,f['actor'])
+    resumed=sources.reconcile(iid,f['actor'])
+    assert resumed['posting_progress']['state']=='PARTIAL_FAILED'
+    completed=sources.process(iid,f['actor'],'confirm',resumed['settlement_fingerprint'],True,True)
+    assert completed['posting_progress']['completed']
+
+
+def test_changed_workbook_with_overlapping_days_posts_only_new_member_day(source_fixture):
+    f=source_fixture;iid,_,_=registered(f,'DAILY_READING');source=sources.create_batches(iid,f['actor'])
+    before=fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries')['n']
+    sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)
+    wb=Workbook();sheet=wb.active;sheet.title=sources.SHEETS['DAILY_READING'];sheet.append(sources.HEADERS['DAILY_READING'])
+    for day in [DAY,'2026-10-10']:sheet.append([f['member_code'],f['name'],day,'是'])
+    out=io.BytesIO();wb.save(out)
+    second,_,_=registered(f,'DAILY_READING',out.getvalue());source=sources.create_batches(second,f['actor'])
+    while not source['posting_progress']['completed']:
+        source=sources.process(second,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries')['n']==before+2
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries WHERE idempotency_key=?",(f"DAILY_READING:{f['member_id']}:{DAY}",))['n']==1
+
+
+def test_legacy_identical_receipts_share_one_list_row_but_keep_audit_records(source_fixture):
+    f=source_fixture;iid,_,_=registered(f,'DAILY_READING');sources.create_batches(iid,f['actor'])
+    with transaction() as c:
+        original=dict(execute(c,'SELECT * FROM learning_credit_source_imports WHERE id=?',(iid,)).fetchone())
+        snapshot=json.loads(original['source_snapshot_json']);snapshot.pop('fingerprint_version',None)
+        execute(c,'UPDATE learning_credit_source_imports SET fingerprint=?,source_snapshot_json=? WHERE id=?',(sources._hash(snapshot),sources._json(snapshot),iid))
+        snapshot['note']='原件已再次核对确认'
+        original.update(source_note=snapshot['note'],source_snapshot_json=sources._json(snapshot),fingerprint=sources._hash(snapshot))
+        columns=[key for key in original if key!='id']
+        duplicate=execute(c,'INSERT INTO learning_credit_source_imports('+','.join(columns)+') VALUES ('+','.join('?' for _ in columns)+')',tuple(original[key] for key in columns)).lastrowid
+        execute(c,'INSERT INTO learning_credit_source_rows(import_id,member_id,excel_row,occurred_on,source_reference,record_json,fact_id) SELECT ?,member_id,excel_row,occurred_on,source_reference,record_json,fact_id FROM learning_credit_source_rows WHERE import_id=?',(duplicate,iid))
+        execute(c,'INSERT INTO learning_credit_source_batches(import_id,batch_id) SELECT ?,batch_id FROM learning_credit_source_batches WHERE import_id=?',(duplicate,iid))
+    rows=[r for r in sources.workbench(f['actor'])['imports'] if r['class_org_unit_id']==f['class_id']]
+    assert len(rows)==1 and rows[0]['duplicate_upload_count']==2
+    assert sources.get_import(iid,f['actor'])['row_count']==1
+    assert sources.get_import(duplicate,f['actor'])['row_count']==1
+
+
+def test_receipt_validates_facts_in_one_bulk_read(source_fixture):
+    f=source_fixture;iid,_,_=registered(f,'DAILY_READING')
+    statements=[];real_execute=sources.execute
+    def record(c,sql,params=()):statements.append(sql);return real_execute(c,sql,params)
+    with patch.object(sources,'execute',side_effect=record):sources.get_import(iid,f['actor'])
+    assert len([q for q in statements if 'SELECT * FROM learning_credit_activity_facts' in q])==1
+
+
 def test_class_choices_share_management_canonical_ids_and_keep_scoped_historical_aliases(source_fixture):
     from app.services.learning_org_catalog import class_catalog, selected_class_ids
     from app.services.organization_management import list_learning_org_units
