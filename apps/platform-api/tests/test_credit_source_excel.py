@@ -249,7 +249,7 @@ def test_incremental_reading_commits_short_steps_and_resumes_without_duplicates(
     identities=[(f['member_code'],f['name'])]
     with transaction() as c:
         now=credits._db_timestamp(c)
-        for index in range(7):
+        for index in range(31):
             code=f['member_code']+'-step-'+str(index);name='分段测试'+str(index)
             mid=execute(c,"INSERT INTO members(member_code,name,org_unit_id,status,created_at,updated_at) VALUES (?,?,?,'ACTIVE',?,?)",(code,name,f['class_id'],now,now)).lastrowid
             execute(c,"INSERT INTO member_org_relations(member_id,org_unit_id,relation_type,is_primary,valid_from,created_at,updated_at) VALUES (?,?,'STUDY_CLASS',1,'2020-01-01',?,?)",(mid,f['class_id'],now,now))
@@ -263,16 +263,99 @@ def test_incremental_reading_commits_short_steps_and_resumes_without_duplicates(
         source=sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)
         counts.append(source['posting_progress']['posted_entries'])
         assert source['batches'][0]['status']!='POSTING'
-        assert counts[-1]-(counts[-2] if len(counts)>1 else 0)<=3
-        assert len(counts)<=8
+        assert counts[-1]-(counts[-2] if len(counts)>1 else 0)<=25
+        assert len(counts)<=32
         if len(counts)==1:
             regenerated=sources.create_batches(iid,f['actor'])
             assert regenerated['batches'][0]['id']==source['batches'][0]['id']
             assert regenerated['posting_progress']['posted_entries']==counts[-1]
-    assert counts[-1]==8 and len(counts)>=3
-    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries')['n']==before+8
-    assert sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)['posting_progress']['posted_entries']==8
-    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries')['n']==before+8
+    assert counts[-1]==32 and len(counts)>=2
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries')['n']==before+32
+    assert sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)['posting_progress']['posted_entries']==32
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries')['n']==before+32
+
+
+def test_249_reading_entries_use_bounded_steps_without_per_item_batch_preview(source_fixture,monkeypatch,record_property):
+    import sys,time
+    from app import db
+    f=source_fixture;identities=[(f['member_code'],f['name'])]
+    with transaction() as c:
+        now=credits._db_timestamp(c)
+        for i in range(33):
+            code=f['member_code']+'-post-'+str(i);name='入账合成学员'+str(i)
+            mid=execute(c,"INSERT INTO members(member_code,name,org_unit_id,status,created_at,updated_at) VALUES (?,?,?,'ACTIVE',?,?)",(code,name,f['class_id'],now,now)).lastrowid
+            execute(c,"INSERT INTO member_org_relations(member_id,org_unit_id,relation_type,is_primary,valid_from,created_at,updated_at) VALUES (?,?,'STUDY_CLASS',1,'2020-01-01',?,?)",(mid,f['class_id'],now,now))
+            identities.append((code,name))
+    days=[f'2026-10-{day:02d}' for day in range(8,16)]
+    _calendar(f,year=2026,day_types={d:'NORMAL_WORKDAY' for d in days},label='post-'+f['suffix'])
+    wb=Workbook();sheet=wb.active;sheet.title=sources.SHEETS['DAILY_READING'];sheet.append(sources.HEADERS['DAILY_READING'])
+    for i,(code,name) in enumerate(identities):
+        for day in days:sheet.append([code,name,day,'否' if day==days[0] and i<23 else '是'])
+    out=io.BytesIO();wb.save(out)
+    iid,_,_=registered(f,'DAILY_READING',out.getvalue());source=sources.create_batches(iid,f['actor'])
+    assert source['settlement_summary']['proposed_points']=='249.00'
+    calls=[];original=db.execute;requests=0;started=time.monotonic()
+    def counted(c,sql,params=()):calls.append(sql.split()[0]);return original(c,sql,params)
+    with monkeypatch.context() as scoped,patch.object(batches,'_assert_current_preview',wraps=batches._assert_current_preview) as live:
+        for module_name,module in list(sys.modules.items()):
+            if module_name.startswith('app.') and getattr(module,'execute',None) is original:scoped.setattr(module,'execute',counted)
+        while not source['posting_progress']['completed']:
+            previous=source['posting_progress']['posted_entries']
+            source=sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True);requests+=1
+            assert 0<source['posting_progress']['posted_entries']-previous<=25
+        record_property('posting_sql_calls',len(calls));record_property('posting_requests',requests)
+        record_property('posting_full_preview_calls',live.call_count);record_property('posting_seconds',round(time.monotonic()-started,3))
+        assert live.call_count==requests*2
+    assert requests<=16 and len(calls)<18000
+    assert source['settlement_summary']['posted_points']=='249.00'
+    assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries WHERE class_org_unit_id=?",(f['class_id'],))['n']==249
+    assert sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)['settlement_summary']['posted_points']=='249.00'
+
+
+def test_reading_step_rolls_back_all_items_on_mid_step_failure(source_fixture):
+    f=source_fixture;identities=[(f['member_code'],f['name'])]
+    with transaction() as c:
+        now=credits._db_timestamp(c)
+        for i in range(2):
+            code=f['member_code']+'-rollback-'+str(i);name='回滚合成'+str(i)
+            mid=execute(c,"INSERT INTO members(member_code,name,org_unit_id,status,created_at,updated_at) VALUES (?,?,?,'ACTIVE',?,?)",(code,name,f['class_id'],now,now)).lastrowid
+            execute(c,"INSERT INTO member_org_relations(member_id,org_unit_id,relation_type,is_primary,valid_from,created_at,updated_at) VALUES (?,?,'STUDY_CLASS',1,'2020-01-01',?,?)",(mid,f['class_id'],now,now))
+            identities.append((code,name))
+    wb=Workbook();s=wb.active;s.title=sources.SHEETS['DAILY_READING'];s.append(sources.HEADERS['DAILY_READING'])
+    for code,name in identities:s.append([code,name,DAY,'是'])
+    out=io.BytesIO();wb.save(out);iid,_,_=registered(f,'DAILY_READING',out.getvalue());source=sources.create_batches(iid,f['actor'])
+    original=credits.post_credit_entry;calls=0
+    def fail_second(**kwargs):
+        nonlocal calls
+        calls+=1
+        if calls==2:raise RuntimeError('isolated second-item failure')
+        return original(**kwargs)
+    with patch.object(credits,'post_credit_entry',side_effect=fail_second),pytest.raises(credits.LearningCreditError,match='未全部完成'):
+        sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)
+    failed=sources.get_import(iid,f['actor']);assert failed['posting_progress']['posted_entries']==0
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries WHERE class_org_unit_id=?',(f['class_id'],))['n']==0
+    resumed=sources.process(iid,f['actor'],'confirm',failed['settlement_fingerprint'],True,True)
+    assert resumed['posting_progress']['completed'] and resumed['posting_progress']['posted_entries']==3
+
+
+def test_mysql_reading_step_concurrent_confirmations_never_duplicate(source_fixture):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    import os
+    if not os.environ.get('DATABASE_URL','').startswith('mysql+pymysql://'):
+        pytest.skip('concurrent row locking requires isolated MySQL')
+    f=source_fixture;iid,_,_=registered(f,'DAILY_READING');source=sources.create_batches(iid,f['actor'])
+    barrier=Barrier(2)
+    def confirm():
+        barrier.wait(timeout=10)
+        try:return sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)
+        except credits.LearningCreditError:return None
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures=[pool.submit(confirm) for _ in range(2)]
+        results=[future.result(timeout=30) for future in futures]
+    assert any(result and result['posting_progress']['completed'] for result in results)
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries WHERE idempotency_key=?',(f"DAILY_READING:{f['member_id']}:{DAY}",))['n']==1
+    assert sources.process(iid,f['actor'],'confirm',source['settlement_fingerprint'],incremental=True)['posting_progress']['posted_entries']==1
 
 
 def test_abandoned_source_posting_shows_live_progress_and_uses_existing_recovery_gate(source_fixture):

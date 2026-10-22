@@ -673,7 +673,7 @@ def process(import_id,actor,operation,expected_fingerprint=None,resume_partial_f
                 raise credits.LearningCreditError('入账未全部完成，请核对结算结果；部分失败请到日常活动结算处理')
             result=batches._post_batch(actor_user_id=actor,batch_id=b['id'],source_type=source['source_kind'],resume_partial_failure=resume_partial_failure,
                 source_confirmation={'import_id':import_id,'fingerprint':b['confirmation_fingerprint']},
-                max_items=3 if incremental else None)
+                max_items=(25 if source['source_kind']=='DAILY_READING' else 3) if incremental else None)
             if result['status']=='PARTIAL_FAILED':raise credits.LearningCreditError('本次入账未全部完成，请查看结果；已入账条目会保留，未入账条目请核对后处理')
             if incremental:break
         elif operation=='submit' and status=='DRY_RUN':batches.submit_settlement_batch_for_approval(actor_user_id=actor,batch_id=b['id'])

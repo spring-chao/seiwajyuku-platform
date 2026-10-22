@@ -1840,18 +1840,83 @@ def _validate_historical_source_item(
         raise credits.LearningCreditError("历史来源、审核、映射或原始分值已变化，拒绝入账")
 
 
+def _frozen_entry_item(item, class_org_unit_id):
+    source = json.loads(item['source_snapshot_json'])
+    return {**{key:item[key] for key in (
+        'credit_category','credit_type','source_type','source_id','rule_key','rule_version',
+        'rule_version_id','occurred_at','occurred_precision','occurred_year','occurred_month','idempotency_key')},
+        'member_id':int(item['member_id']), 'points':str(item['points']),
+        'class_org_unit_id':class_org_unit_id, 'learning_cycle_id':source.get('learning_cycle_id'),
+        'rule_snapshot':json.loads(item['rule_snapshot_json'])}
+
+
+def _post_reading_step(*, actor_user_id, batch_id, selected, expected_items_fp, pending_statuses):
+    """Validate once in the same locked transaction as this bounded reading step.
+
+    Locks precede every consistent MySQL read. All step members are acquired
+    in ID order; no other settlement/opening writer can change their ledger
+    during the shared preview and inserts. No cached preview crosses a commit.
+    """
+    if not selected:return 0,False
+    current_item_id=int(selected[0]['id'])
+    processed=0
+    try:
+        with atomic_transaction() as connection:
+            lock_clause='' if isinstance(connection,sqlite3.Connection) else ' FOR UPDATE'
+            member_ids=sorted({int(item['member_id']) for item in selected})
+            for member_id in member_ids:
+                if not execute(connection,'SELECT id FROM members WHERE id=?'+lock_clause,(member_id,)).fetchone():
+                    raise credits.LearningCreditError('待入账学员不存在')
+            active_batch=execute(connection,'SELECT * FROM learning_credit_settlement_batches WHERE id=?'+lock_clause,(batch_id,)).fetchone()
+            if not active_batch or active_batch['status']!='POSTING':
+                raise credits.LearningCreditError('批次入账上下文已变化')
+            items=execute(connection,"SELECT * FROM learning_credit_settlement_batch_items WHERE batch_id=? AND status<>'BLOCKED' ORDER BY id",(batch_id,)).fetchall()
+            if _approval_fingerprint(active_batch,items)!=expected_items_fp:
+                raise credits.LearningCreditError('确认后的结算条目已变化')
+            _assert_current_preview(connection,active_batch,actor_user_id=actor_user_id,
+                posted_keys={item['idempotency_key'] for item in items if item['status']=='POSTED'})
+            by_id={int(item['id']):item for item in items}
+            started=time.monotonic()
+            for chosen in selected:
+                if processed and time.monotonic()-started>=8:break
+                current_item_id=int(chosen['id']);item=by_id.get(current_item_id)
+                if (not item or item['status'] not in pending_statuses or item['ledger_entry_id'] is not None
+                    or int(item['member_id'])!=int(chosen['member_id']) or item['credit_type']!=activity_credits.DAILY_READING):
+                    raise credits.LearningCreditError('批次条目状态或学员已变化')
+                entry=credits.post_credit_entry(actor_user_id=actor_user_id,item=_frozen_entry_item(item,active_batch['class_org_unit_id']))
+                if entry['idempotency_key']!=item['idempotency_key'] or Decimal(str(entry['points']))!=Decimal(str(item['points'])):
+                    raise credits.LearningCreditError('正式账本结果与冻结条目不一致')
+                changed=execute(connection,"UPDATE learning_credit_settlement_batch_items SET status='POSTED',ledger_entry_id=?,error_code=NULL,updated_at=? WHERE id=? AND batch_id=? AND status IN ('PROPOSED','APPROVED','FAILED') AND ledger_entry_id IS NULL",
+                    (entry['id'],credits._db_timestamp(connection),current_item_id,batch_id))
+                if changed.rowcount!=1:raise credits.LearningCreditError('批次条目被并发修改')
+                processed+=1
+            execute(connection,"UPDATE learning_credit_settlement_batches SET updated_at=? WHERE id=? AND status='POSTING'",(credits._db_timestamp(connection),batch_id))
+        return processed,False
+    except Exception as exc:
+        # The entire uncommitted step rolled back, including linked items.
+        # Previous steps remain durable; only the failed item needs explicit
+        # resume. No uncertain request is automatically replayed by the UI.
+        with transaction() as connection:
+            heartbeat=credits._db_timestamp(connection)
+            execute(connection,"UPDATE learning_credit_settlement_batch_items SET status='FAILED',error_code=?,updated_at=? WHERE id=? AND batch_id=? AND status IN ('PROPOSED','APPROVED','FAILED') AND ledger_entry_id IS NULL",
+                (type(exc).__name__[:128],heartbeat,current_item_id,batch_id))
+            execute(connection,"UPDATE learning_credit_settlement_batches SET updated_at=? WHERE id=? AND status='POSTING'",(heartbeat,batch_id))
+        return 0,True
+
+
 def _post_batch(
     *, actor_user_id: int, batch_id: int, source_type: str, resume_partial_failure: bool = False,
     batch_type: str = "REGULAR", source_confirmation: dict | None = None,
     max_items: int | None = None,
 ) -> dict[str, Any]:
-    """POST frozen items once, with per-item transactions and reconciliation.
+    """POST frozen items once, with atomic steps and reconciliation.
 
     An interrupted POSTING state is deliberately not retried automatically.
     Only an explicitly requested PARTIAL_FAILED resume processes failed items.
     """
 
-    if max_items is not None and (source_confirmation is None or not 1 <= max_items <= 10):
+    step_limit=25 if source_type==activity_credits.DAILY_READING and batch_type=='REGULAR' else 10
+    if max_items is not None and (source_confirmation is None or not 1 <= max_items <= step_limit):
         raise credits.LearningCreditError("分段入账仅适用于已核对的表格来源")
     if not credits.get_settings().learning_credit_batch_post_enabled:
         raise credits.LearningCreditFeatureDisabled("学分结算批次正式入账尚未开启")
@@ -1931,11 +1996,16 @@ def _post_batch(
                 purpose="操作者核对表格结算后确认入账，不经独立复核",
                 after={'import_id':source_confirmation['import_id'],'confirmation_fingerprint':expected_items_fp})
 
-    # A source confirmation uses short, durable steps. Each item still has the
-    # same transaction, live-fact/rule check and unique ledger key as a full run.
+    # Reading confirms bounded locked groups; other paths retain individual
+    # item transactions. Every commit has a live preview and unique ledger keys.
     started = time.monotonic()
     processed = 0
     failed = False
+    if max_items is not None and source_confirmation and source_type==activity_credits.DAILY_READING and batch_type=='REGULAR':
+        selected=[item for item in items if int(item['id']) in set(pending_ids[:max_items])]
+        processed,failed=_post_reading_step(actor_user_id=actor_user_id,batch_id=batch_id,
+            selected=selected,expected_items_fp=expected_items_fp,pending_statuses=pending_statuses)
+        pending_ids=[]
     for item_id in pending_ids:
         if max_items is not None and processed and (processed >= max_items or time.monotonic() - started >= 8):
             break
