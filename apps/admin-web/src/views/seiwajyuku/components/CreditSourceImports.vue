@@ -14,6 +14,7 @@ import {
   sourceRegister,
   sourceCreateBatches,
   sourceAction,
+  sourceReconcile,
   sourceSetup,
   sourcePrepareCalendar,
   type SourceKind,
@@ -41,6 +42,9 @@ const preview = ref<SourcePreview>();
 const detail = ref<SourceImport>();
 const file = ref<File>();
 const busy = ref(false);
+const posting = ref(false);
+const stopRequested = ref(false);
+const canReconcile = computed(() => permissions.value.includes("plans:credit_settlement_reconcile"));
 const error = ref("");
 const exportClasses = ref<{ id: string; name: string; center_name?: string }[]>([]);
 const form = reactive({
@@ -169,8 +173,7 @@ watch(
     () => form.kind,
     () => form.class_id,
     () => form.cycle_id,
-    () => form.actual_start,
-    () => form.source_note
+    () => form.actual_start
   ],
   () => {
     generation++;
@@ -241,8 +244,7 @@ const getTemplate = () =>
     );
   });
 const uploadForm = (): SourceForm => {
-  if (!form.class_id || form.source_note.trim().length < 4)
-    throw new Error("请选择班级，并填写至少4字的来源确认说明");
+  if (!form.class_id) throw new Error("请先选择班级");
   if (form.kind === "CLASS_MEETING" && (!form.cycle_id || !form.actual_start))
     throw new Error("请选择本次学习日并填写实际班会开始时间");
   return {
@@ -277,13 +279,30 @@ const register = () =>
     const saved = await sourceRegister(file.value, uploadForm(), preview.value.fingerprint);
     preview.value = undefined;
     await reload();
-    ElMessage.success("来源已保存，请生成结算并核对每人分数后确认入账");
+    ElMessage.success(saved?.data?.idempotent ? "这份来源已保存，已打开原记录；本次没有新增学分" : "来源已保存，请生成结算并核对每人分数后确认入账");
     if (saved?.data?.id) detail.value = (await sourceGet(saved.data.id)).data;
   });
-const resolveRow = (value: unknown) =>
-  value && typeof value === "object" && "id" in value
-    ? state.value?.imports.find(r => r.id === value.id)
-    : undefined;
+const resolveRow = (value: unknown) => {
+  if (!value || typeof value !== "object" || !("id" in value)) return;
+  if (detail.value?.id === value.id) return detail.value;
+  return state.value?.imports.find(r => r.id === value.id);
+};
+const updateReceipt = (receipt: SourceImport) => {
+  detail.value = receipt;
+  const index = state.value?.imports.findIndex(r => r.id === receipt.id) ?? -1;
+  if (state.value && index >= 0) state.value.imports[index] = receipt;
+};
+const refreshDetail = () => perform(async () => {
+  if (detail.value) updateReceipt((await sourceGet(detail.value.id)).data);
+  await reload();
+});
+const recover = () => perform(async () => {
+  if (!detail.value || !canReconcile.value) return;
+  await ElMessageBox.confirm("只核对中断状态，不新增学分。系统会检查已有账本；最近30分钟仍有处理进度时不会恢复。", "核对中断状态");
+  updateReceipt((await sourceReconcile(detail.value.id)).data);
+  await reload();
+  ElMessage.success("中断状态已核对，请检查剩余分数后继续入账");
+});
 const show = (value: unknown) =>
   perform(async () => {
     const row = resolveRow(value);
@@ -317,16 +336,32 @@ const act = async (value: unknown, operation: "generate" | "confirm") => {
         resume ? "确认继续入账未完成条目" : "确认学分入账", { confirmButtonText: resume ? "继续入账" : "确认入账", cancelButtonText: "返回检查" }
       );
     } catch { return; }
+    posting.value = true;
+    stopRequested.value = false;
+    let latest = current;
     try {
-      detail.value = (await sourceAction(r.id, "confirm", current.settlement_fingerprint, resume)).data;
+      do {
+        const previousCount = latest.posting_progress?.posted_entries ?? -1;
+        latest = (await sourceAction(r.id, "confirm", latest.settlement_fingerprint, resume)).data;
+        updateReceipt(latest);
+        if (!latest.posting_progress || latest.posting_progress.completed) break;
+        if (latest.posting_progress.state === "POSTING") throw new Error("后台仍在处理，请点击刷新核对进度；请勿重新上传或反复提交");
+        if (latest.posting_progress.state === "PARTIAL_FAILED") throw new Error("部分条目未完成，请核对后继续入账；已有学分不会重复计入");
+        if (latest.posting_progress.posted_entries <= previousCount) throw new Error("入账进度未增加，请刷新核对实际结果后继续");
+      } while (!stopRequested.value);
     } catch (err) {
-      try { detail.value = (await sourceGet(r.id)).data; } catch { /* Preserve the known receipt when status reload is unavailable. */ }
+      try { updateReceipt((await sourceGet(r.id)).data); } catch { /* Preserve the last durable progress receipt. */ }
       await reload();
-      throw err;
+      if (!detail.value?.posting_progress?.completed) {
+        const progress = detail.value?.posting_progress;
+        throw new Error(`${creditSettlementErrorMessage(err, "连接中断，结果待核对")}。${progress ? `已入账${progress.posted_entries}/${progress.total_entries}笔。` : ""}请刷新查看实际进度，再继续入账；无需重新上传，已有学分不会重复计入。`);
+      }
+    } finally {
+      posting.value = false;
     }
     await reload();
     emit("posted");
-    ElMessage.success("学分已入账");
+    ElMessage.success(detail.value?.posting_progress && !detail.value.posting_progress.completed ? "已暂停处理，已入账学分已保留，可继续入账" : "本次处理已完成，请核对已入账分数");
   });
 };
 const setup = () =>
@@ -513,13 +548,13 @@ onMounted(() => perform(reload));
             ></template
           >
         </div>
-        <el-form-item label="来源确认说明" required
+        <el-form-item label="来源备注（选填）"
           ><el-input
             v-model="form.source_note"
             :disabled="busy"
             type="textarea"
             maxlength="1000"
-            placeholder="必填，至少4字，例如：已核对本班读书打卡原表"
+            placeholder="可留空；如有特殊情况，可补充说明"
         /></el-form-item>
         <el-form-item label="填写后的表格"
           ><input
@@ -611,7 +646,7 @@ onMounted(() => perform(reload));
           ><template #default="{ row }"
             >{{ labels[row.source_kind] }}<br />{{ row.original_filename }}（{{
               row.row_count
-            }}行）</template
+            }}行）<small v-if="row.duplicate_upload_count > 1"> · 重复来源{{ row.duplicate_upload_count }}次，合并展示，不重复计分</small></template
           ></el-table-column
         ><el-table-column label="结算状态" min-width="170"
           ><template #default="{ row }">{{
@@ -640,18 +675,26 @@ onMounted(() => perform(reload));
       :model-value="!!detail"
       title="学习记录与结算结果"
       width="85%"
+      :close-on-click-modal="!posting"
+      :close-on-press-escape="!posting"
+      :show-close="!posting"
       @update:model-value="detail = undefined"
       ><template v-if="detail"
         ><p>
-          {{ detail.class_name }} · {{ detail.original_filename }} ·
-          {{ detail.source_note }}
+          {{ detail.class_name }} · {{ detail.original_filename }}<span v-if="detail.source_note"> · {{ detail.source_note }}</span>
         </p>
         <p>
           {{ periodLabel(detail) }} · 结算涉及{{ detail.member_count }}人 · {{ detail.row_count }}行原表记录。
           预计新增 {{ detail.settlement_summary.proposed_points }} 分，已入账 {{ detail.settlement_summary.posted_points }} 分。
           <el-button v-if="!detail.batches.length && !detail.source_only" :disabled="busy" @click="act(detail, 'generate')">生成结算</el-button>
-          <el-button v-if="detail.batches.length" type="primary" :disabled="busy || !eligible(detail)" @click="act(detail, 'confirm')">确认入账</el-button>
+          <el-button v-if="detail.batches.length" type="primary" :loading="posting" :disabled="busy || !eligible(detail)" @click="act(detail, 'confirm')">{{ posting ? "正在入账" : detail.posting_progress?.completed ? "已完成入账" : Number(detail.settlement_summary.posted_points) > 0 ? "继续入账" : "确认入账" }}</el-button>
+          <el-button :disabled="busy" @click="refreshDetail">刷新进度</el-button>
+          <el-button v-if="posting" :disabled="stopRequested" @click="stopRequested = true">{{ stopRequested ? "当前小段完成后暂停" : "暂停处理" }}</el-button>
+          <el-button v-if="detail.posting_progress?.state === 'POSTING' && canReconcile" :disabled="busy" @click="recover">核对中断状态</el-button>
         </p>
+        <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
+        <el-alert v-if="detail.posting_progress?.state === 'POSTING' && !posting" title="后台仍在入账，请刷新查看进度，不需要重新上传。若超过30分钟没有新进度，可由有对账权限的人员点击“核对中断状态”。" type="warning" :closable="false" show-icon />
+        <p v-if="detail.posting_progress">已入账 {{ detail.posting_progress.posted_entries }} / {{ detail.posting_progress.total_entries }} 笔，剩余 {{ detail.posting_progress.remaining_entries }} 笔。{{ posting ? "正在分段处理，每段成功后立即保存进度。" : "" }}</p>
         <el-table v-if="detail.batches.length" :data="detail.member_results || []" max-height="420" empty-text="请先生成结算，即可查看每位学长的学分">
           <el-table-column prop="member_name" min-width="120" label="姓名" />
           <el-table-column prop="member_code" min-width="145" label="学长编号" />

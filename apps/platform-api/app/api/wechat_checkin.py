@@ -160,10 +160,11 @@ def open_events() -> dict:
                 continue
             item = _event(raw)
             if (not item["event_id"] or item.get("lifecycle_status") != "CONFIRMED"
-                    or item.get("checkin_status") not in {"open", "upcoming"}):
+                    or item.get("checkin_status") not in {"open", "upcoming", "ended", "closed"}):
                 continue
             public.append({key: item[key] for key in fields if key in item
                            and isinstance(item[key], (str, int))})
+        public.sort(key=lambda item: {"open":0,"upcoming":1,"ended":2,"closed":2}.get(item.get("checkin_status"),3))
         return {"success": True, "data": {"events": public}}
     except signin_engine.SigninEngineError as exc:
         raise _raise(exc) from exc

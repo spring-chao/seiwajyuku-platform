@@ -199,7 +199,7 @@ def test_open_event_list_is_anonymous_metadata_only_and_keeps_confirm_protected(
         response = client.get("/api/v1/wechat/checkin/open-events")
         assert response.status_code == 200
         events = response.json()["data"]["events"]
-        assert [item["event_id"] for item in events] == ["open-session","future"]
+        assert [item["event_id"] for item in events] == ["open-session","future","closed"]
         assert not {"registrations","phone","member_id","notes"}.intersection(events[0])
         engine.assert_called_once_with("/ops/v1/member-checkin/events", {"member":None})
         assert client.post("/api/v1/wechat/checkin/confirm", json={"event_id":"open-session"}).status_code == 401

@@ -223,10 +223,24 @@ test("common entry auto-opens the single open session once and blocks upcoming o
     {event_id:"closed",lifecycle_status:"CONFIRMED",checkin_status:"closed"}
   ] } }), "");
   await h.page.onShow(); assert.equal(h.navigations[0], "/pages/checkin/index?event_id=one-open");
-  assert.equal(h.page.data.events.length,2); h.page.onHide(); await h.page.onShow();
+  assert.equal(h.page.data.events.length,3); h.page.onHide(); await h.page.onShow();
   assert.equal(h.navigations.length,1);
   for (const eventId of ["upcoming","draft","closed","forged"]) h.page.openEvent({currentTarget:{dataset:{eventId}}});
   assert.equal(h.navigations.length,1);
+});
+
+test("open check-in sessions sort before upcoming and ended sessions",async()=>{
+  const h=harness('checkin/events',async()=>({data:{events:[
+    {event_id:'ended',lifecycle_status:'CONFIRMED',checkin_status:'ended'},
+    {event_id:'upcoming',lifecycle_status:'CONFIRMED',checkin_status:'upcoming'},
+    {event_id:'open-afternoon',lifecycle_status:'CONFIRMED',checkin_status:'open'},
+    {event_id:'closed',lifecycle_status:'CONFIRMED',checkin_status:'closed'},
+    {event_id:'open-morning',lifecycle_status:'CONFIRMED',checkin_status:'open'}
+  ]}}));
+  await h.page.onShow();
+  assert.deepEqual(Array.from(h.page.data.events,row=>row.event_id),['open-afternoon','open-morning','upcoming','ended','closed']);
+  for(const eventId of ['upcoming','ended','closed'])h.page.openEvent({currentTarget:{dataset:{eventId}}});
+  assert.equal(h.navigations.length,0);
 });
 
 test("common entry does not navigate when none are open or a response arrives after hide", async () => {

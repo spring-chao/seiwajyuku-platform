@@ -23,11 +23,11 @@ def template(kind:str,class_id:str,user=Depends(require_permission('plans:credit
     except (ValueError,PermissionError) as exc:raise HTTPException(403 if isinstance(exc,PermissionError) else 400,str(exc)) from exc
 
 @router.post('/preview')
-async def preview(workbook:UploadFile=File(...),kind:str=Form(...),class_id:str=Form(...),options_json:str=Form('{}',max_length=5000),source_note:str=Form(...,min_length=4,max_length=1000),user=Depends(require_permission('plans:credit_settlement_manage'))):
+async def preview(workbook:UploadFile=File(...),kind:str=Form(...),class_id:str=Form(...),options_json:str=Form('{}',max_length=5000),source_note:str=Form('',max_length=1000),user=Depends(require_permission('plans:credit_settlement_manage'))):
     return await run_in_threadpool(_call,service.preview,await _content(workbook),kind,class_id,options_json,source_note,user['id'])
 
 @router.post('/imports')
-async def register(workbook:UploadFile=File(...),kind:str=Form(...),class_id:str=Form(...),options_json:str=Form('{}',max_length=5000),source_note:str=Form(...,min_length=4,max_length=1000),expected_fingerprint:str=Form(...,pattern=r'^[a-f0-9]{64}$'),user=Depends(require_permission('plans:credit_settlement_manage'))):
+async def register(workbook:UploadFile=File(...),kind:str=Form(...),class_id:str=Form(...),options_json:str=Form('{}',max_length=5000),source_note:str=Form('',max_length=1000),expected_fingerprint:str=Form(...,pattern=r'^[a-f0-9]{64}$'),user=Depends(require_permission('plans:credit_settlement_manage'))):
     return await run_in_threadpool(_call,service.register,await _content(workbook),kind,class_id,options_json,source_note,workbook.filename or '学分来源.xlsx',expected_fingerprint,user['id'])
 
 @router.get('/imports/{import_id}')
@@ -39,10 +39,12 @@ def create_batches(import_id:int,user=Depends(require_permission('plans:credit_s
 class ConfirmationPayload(BaseModel):
     expected_fingerprint: str = Field(pattern=r'^[a-f0-9]{64}$')
     resume_partial_failure: bool = False
+    incremental: bool = False
 
 @router.post('/imports/{import_id}/actions/{operation}')
 def process(import_id:int,operation:str,payload:ConfirmationPayload | None=None,user=Depends(require_permission('plans:credit_settlement_manage'))):
-    return _call(service.process,import_id,user['id'],operation,payload.expected_fingerprint if payload else None,payload.resume_partial_failure if payload else False)
+    if operation=='reconcile':return _call(service.reconcile,import_id,user['id'])
+    return _call(service.process,import_id,user['id'],operation,payload.expected_fingerprint if payload else None,payload.resume_partial_failure if payload else False,payload.incremental if payload else False)
 
 @router.get('/export')
 def export(class_id:str|None=None,occurred_from:str='2026-10-01',occurred_to:str|None=None,member_id:int|None=Query(None,gt=0),user=Depends(require_permission('exports:normal'))):

@@ -27,6 +27,8 @@ export type SourceBatch = {
   created_by_current_actor: boolean;
 };
 export type SourceImport = {
+  duplicate_upload_count?: number;
+  posting_progress?: { state: string; total_entries: number; posted_entries: number; remaining_entries: number; completed: boolean };
   source_only?: boolean;
   member_count: number;
   period_start?: string;
@@ -145,7 +147,7 @@ export const sourceRegister = (
   form: SourceForm,
   fingerprint: string
 ) =>
-  http.request<Result<{ id: number }>>(
+  http.request<Result<{ id: number; idempotent: boolean }>>(
     "post",
     base + "/imports",
     payload(file, form, fingerprint)
@@ -163,8 +165,10 @@ export const sourceAction = (
   http.request<Result<SourceImport>>(
     "post",
     `${base}/imports/${id}/actions/${operation}`,
-    { data: { expected_fingerprint, resume_partial_failure }, timeout: 180000 }
+    { data: { expected_fingerprint, resume_partial_failure, incremental: true }, timeout: 60000 }
   );
+export const sourceReconcile = (id: number) =>
+  http.request<Result<SourceImport>>("post", `${base}/imports/${id}/actions/reconcile`, { timeout: 60000 });
 export const sourceSetup = (state: SourceWorkbench) =>
   http.request<Result<{ status: string }>>("post", base + "/setup", {
     data: {
