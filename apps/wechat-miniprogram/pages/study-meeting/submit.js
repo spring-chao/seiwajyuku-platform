@@ -94,6 +94,7 @@ Page({
     const draft = app.globalData.studyMeetingDraft || {};
     app.globalData.studyMeetingDraft = {
       ...draft,
+      learning_cycle_index: this.data.assignment.current_cycle.learning_cycle_index,
       learning_content_results: serializeLearningContentResults(learningContentResults)
     };
   },

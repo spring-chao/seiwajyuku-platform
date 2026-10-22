@@ -151,3 +151,13 @@ test("changing a viewing choice after failed submission resends the draft conten
   assert.equal(creates[0].options.data.learning_content_results[0].completed, true);
   assert.equal(creates[1].options.data.learning_content_results[0].completed, false);
 });
+
+test("a newly confirmed legacy draft keeps its choice when returning from photo selection", async () => {
+  const { page, app } = harness();
+  await page.loadContext();
+  page.setLearningContentCompletion({ currentTarget: { dataset: { contentKey: "content-1", completed: "yes" } } });
+  assert.equal(app.globalData.studyMeetingDraft.learning_cycle_index, 5);
+  await page.loadContext();
+  assert.equal(page.data.learningContentResults[0].completed, true);
+  assert.equal(page.data.learningContentResults[0].confirmed, true);
+});
