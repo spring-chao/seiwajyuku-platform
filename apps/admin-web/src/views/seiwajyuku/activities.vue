@@ -390,7 +390,7 @@ async function downloadDetailRecords() {
 
     <el-card shadow="never">
       <div class="rate-definition">
-        每行显示一场活动。班级会报名人数按本班当前在册人数计一次；上午或下午有效签到人员按身份去重，包含跨班学员和嘉宾，空巴不计入。整体参会率＝整体签到人数÷本班人数；各场次明细保留。
+        每行显示一场活动。班级会报名人数按本班当前在册人数计一次；仅本班在册学员上午或下午有效签到按身份去重，空巴不计入。整体参会率＝本班去重签到人数÷本班人数；跨班学员和嘉宾保留在各场次明细中。
       </div>
       <el-table :data="visibleRows" row-key="id" stripe class="activity-table">
         <el-table-column prop="event_date" label="活动日期" min-width="130" />
@@ -460,7 +460,7 @@ async function downloadDetailRecords() {
               <span>{{ isClassMeeting(detail.group.activity_type) ? "报名人数（本班）" : "报名人次" }}</span>
               <strong>{{ registrationCount(detailSummary) ?? "待核实" }}</strong>
             </div>
-            <div><span>{{ isClassMeeting(detail.group.activity_type) ? "整体签到人数（上午／下午去重）" : "已签到人次" }}</span><strong>{{ detailSummary.present_count ?? "待核实" }}</strong></div>
+            <div><span>{{ isClassMeeting(detail.group.activity_type) ? "整体签到人数（本班上午／下午去重）" : "已签到人次" }}</span><strong>{{ detailSummary.present_count ?? "待核实" }}</strong></div>
             <div v-if="isClassMeeting(detail.group.activity_type)"><span>整体参会率</span><strong>{{ overallRate(detail.group) }}</strong></div>
             <div><span>扫码场次</span><strong>{{ visibleDetailSessions.length }}</strong></div>
           </div>
@@ -498,7 +498,7 @@ async function downloadDetailRecords() {
             </el-radio-group>
             <div class="detail-section__heading">
               <h3>场次汇总</h3>
-              <span>班级会顶部整体统计不随场次切换：上午、下午签到合并去重，空巴不计入。下表保留各场报名、签到和积分，逐场人数不相加作为整体人数。其他活动按原参会口径统计。</span>
+              <span>班级会顶部整体统计不随场次切换：仅本班当前在册学员上午、下午签到合并去重，空巴不计入。跨班学员、嘉宾及各场报名、签到和积分保留在下方明细中，逐场人数不相加作为整体人数。其他活动按原参会口径统计。</span>
             </div>
             <el-table :data="visibleDetailSessions" size="small" stripe class="activity-table">
               <el-table-column prop="session_name" label="场次" min-width="180">
