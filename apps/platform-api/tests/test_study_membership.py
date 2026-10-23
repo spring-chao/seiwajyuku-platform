@@ -145,3 +145,21 @@ def test_same_group_batch_cleans_residual_relation_and_keeps_deactivation_guard(
     assert preview['changed_count'] == 1 and preview['rows'][0]['needs_relation_cleanup']
     apply_group_reassignment(**args, preview_fingerprint=preview['preview_fingerprint'], reason='核对并清理旧小组关系')
     assert preview_group_reassignment(**args)['changed_count'] == 0
+
+
+def test_explicit_target_can_resolve_group_conflict_without_contact_or_history_changes():
+    from app.services.member_group_reassignment import preview_group_reassignment, apply_group_reassignment, group_reassignment_roster
+    f, session = prepared(); secondary(f, primary=1)
+    actor = _admin_id()
+    personal = dict(fetch_one('SELECT phone_ciphertext,enterprise_financial_ciphertext FROM members WHERE id=?', (f['member_id'],)))
+    facts = dict(fetch_one('SELECT * FROM study_meeting_attendances WHERE study_meeting_session_id=? AND member_id=?', (session['id'],f['member_id'])))
+    roster = group_reassignment_roster(actor_user_id=actor, class_org_unit_id=f['class_id'])
+    member = next(row for row in roster['members'] if row['id'] == f['member_id'])
+    assert not member.get('unavailable') and member['group_org_unit_id'] is None
+    assert member['group_name'].startswith('待核对：')
+    args = {'actor_user_id': actor, 'class_org_unit_id': f['class_id'], 'assignments': [
+        {'member_id': f['member_id'], 'group_org_unit_id': f['group_id']} ]}
+    preview = preview_group_reassignment(**args)
+    apply_group_reassignment(**args, preview_fingerprint=preview['preview_fingerprint'], reason='依据已确认主档消除归组冲突')
+    assert dict(fetch_one('SELECT phone_ciphertext,enterprise_financial_ciphertext FROM members WHERE id=?', (f['member_id'],))) == personal
+    assert dict(fetch_one('SELECT * FROM study_meeting_attendances WHERE study_meeting_session_id=? AND member_id=?', (session['id'],f['member_id']))) == facts

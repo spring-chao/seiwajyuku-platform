@@ -53,10 +53,13 @@ def _member_snapshot(connection, actor_user_id, member_id, class_org_unit_id):
     formal = get_current_member_study_orgs(connection, member_id)
     if not formal['class'] or formal['class']['org_unit_id'] != class_org_unit_id:
         raise ValueError("学员当前班级不一致或归属不明确，请刷新核对")
-    if groups and not formal['group']:
-        raise ValueError("学员当前小组归属不明确，请先逐人核对")
+    # A manager may deliberately resolve group-only conflicts after reviewing
+    # the explicit target. The formal class must still be unambiguous above.
+    # Never infer a target from the conflicting rows or bypass the preview.
+    previous_group = formal['group']['org_name'] if formal['group'] else (
+        '待核对：' + '、'.join(item['name'] for item in groups) if groups else '未分组')
     return {**dict(member), "group_org_unit_id": formal['group']['org_unit_id'] if formal['group'] else None,
-            "group_name": formal['group']['org_name'] if formal['group'] else "未分组", "relations": relations,
+            "group_name": previous_group, "relations": relations,
             "needs_relation_cleanup": len(groups) > 1}
 
 
