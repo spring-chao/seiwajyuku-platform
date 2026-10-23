@@ -11,7 +11,8 @@ from app.db import atomic_transaction, connect, execute
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
 from app.services.members import resolve_member_scope, update_member
-from app.services.volunteer_positions import _relation_boundary_is_current
+from app.services.volunteer_positions import _relation_boundary_is_current, get_current_member_study_orgs
+from app.services.study_membership import CURRENT_CLASS_ID_SQL
 
 
 def _require_manager(actor_user_id):
@@ -49,24 +50,22 @@ def _member_snapshot(connection, actor_user_id, member_id, class_org_unit_id):
                _relation_boundary_is_current(item["valid_until"], before_or_equal=False, now=now)]
     classes = [item for item in current if item["relation_type"] in {"STUDY_CLASS", "SPECIAL_COHORT"}]
     groups = [item for item in current if item["relation_type"] == "STUDY_GROUP"]
-    if len(classes) != 1 or classes[0]["org_unit_id"] != class_org_unit_id:
+    formal = get_current_member_study_orgs(connection, member_id)
+    if not formal['class'] or formal['class']['org_unit_id'] != class_org_unit_id:
         raise ValueError("学员当前班级不一致或归属不明确，请刷新核对")
-    if len(groups) > 1 or (groups and groups[0]["parent_id"] != class_org_unit_id):
+    if groups and not formal['group']:
         raise ValueError("学员当前小组归属不明确，请先逐人核对")
-    # update_member maintains a single formal relation. Refuse ambiguous
-    # historical rows instead of reviving an arbitrary expired relation.
-    if len([item for item in relations if item["relation_type"] == "STUDY_GROUP"]) > 1:
-        raise ValueError("学员存在多条小组关系，请先逐人核对")
-    return {**dict(member), "group_org_unit_id": groups[0]["org_unit_id"] if groups else None,
-            "group_name": groups[0]["name"] if groups else "未分组", "relations": relations}
+    return {**dict(member), "group_org_unit_id": formal['group']['org_unit_id'] if formal['group'] else None,
+            "group_name": formal['group']['org_name'] if formal['group'] else "未分组", "relations": relations,
+            "needs_relation_cleanup": len(groups) > 1}
 
 
 def group_reassignment_roster(*, actor_user_id: int, class_org_unit_id: str) -> dict:
     connection = connect()
     try:
         klass, groups = _class_and_groups(connection, actor_user_id, class_org_unit_id)
-        rows = execute(connection, "SELECT DISTINCT m.id FROM members m JOIN member_org_relations r ON r.member_id=m.id "
-                       "WHERE r.org_unit_id=? AND r.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') AND m.status='ACTIVE' ORDER BY m.id", (class_org_unit_id,)).fetchall()
+        rows = execute(connection, f"SELECT m.id FROM members m WHERE {CURRENT_CLASS_ID_SQL}=? "
+                       "AND m.status='ACTIVE' ORDER BY m.id", (class_org_unit_id,)).fetchall()
         members = []
         for row in rows:
             try:
@@ -98,7 +97,8 @@ def _preview(connection, actor_user_id, class_org_unit_id, assignments):
         snapshots.append({"before": before, "target": target})
         rows.append({"member_id": before["id"], "name": before["name"], "member_code": before["member_code"],
                      "old_group_name": before["group_name"], "new_group_name": target["name"],
-                     "changed": before["group_org_unit_id"] != target["id"]})
+                     "needs_relation_cleanup": before["needs_relation_cleanup"],
+                     "changed": before["group_org_unit_id"] != target["id"] or before["needs_relation_cleanup"]})
     fingerprint = hashlib.sha256(json.dumps({"class": klass, "snapshots": snapshots}, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
     return {"rows": rows, "changed_count": sum(item["changed"] for item in rows), "preview_fingerprint": fingerprint}
 

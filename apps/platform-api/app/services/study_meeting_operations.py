@@ -11,6 +11,7 @@ from app.services.audit import write_audit
 from app.services.iam import (accessible_org_ids, user_context, current_request_permission,
                               set_request_permission, clear_request_permission)
 from app.services.learning_credits import dry_run_study_meeting_settlement
+from app.services.study_membership import CURRENT_CLASS_ID_SQL, effective_relation_sql
 from app.services.study_meetings import (
     StudyMeetingError, StudyMeetingPermissionError, get_study_meeting_record_for_operations,
     list_study_meeting_records, _session_payload,
@@ -124,10 +125,12 @@ def _export_dataset(records):
 
 def _member_export_rows(records, details, previews):
     headers = ["学习会编号", "日期", "班级", "小组", "周期", "状态", "学员编号", "姓名", "参加类型", "原小组", "课程", "观看确认", "预计小组会学分", "预计课程学分", "预计新增学分", "说明"]
+    headers.extend(['当前归组', '按当前归组参加类型', '归组核对说明'])
     rows = []
     for record in records:
         detail = details[record['id']]
         for member in previews[record['id']]['members']:
+            current = next(a for a in detail['attendees'] if a['member_id'] == member['member_id'])
             confirmations = []
             for course in detail['courses']:
                 fact = next((fact for fact in course.get('completions', []) if fact['member_id'] == member['member_id']), {})
@@ -140,6 +143,8 @@ def _member_export_rows(records, details, previews):
                 member['member_id'], member['name'], '本组' if member['attendance_type'] == 'HOME_GROUP' else '跨组', member['home_group_name'],
                 '；'.join(course['course_name_snapshot'] for course in detail['courses']), '；'.join(confirmations),
                 member['group_points'], member['course_points'], member['expected_points'], '；'.join(member['reasons']) or '预计值，以正式结算为准',
+                current['current_group_name'], {'HOME_GROUP':'本组','CROSS_GROUP':'跨组','UNRESOLVED':'待核对'}[current['current_attendance_type']],
+                '当前归组与登记快照不同；需区分后来调组与原登记误报，学分仍按登记事实预演' if current['membership_review_required'] else '',
             ])
     return headers, rows
 
@@ -204,8 +209,9 @@ def export_meeting_workbook(*, actor_user_id, session_id=None, layout='group', *
             for row in execute(connection, "SELECT DISTINCT r.org_unit_id,r.member_id FROM member_org_relations r "
                 "JOIN members m ON m.id=r.member_id AND m.status='ACTIVE' "
                 f"WHERE r.org_unit_id IN ({placeholders}) AND r.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
-                "AND (r.valid_from IS NULL OR r.valid_from<=?) AND (r.valid_until IS NULL OR r.valid_until>=?)",
-                (*class_ids, now, now)).fetchall():
+                f"AND {effective_relation_sql('r')} "
+                + "AND r.org_unit_id=" + CURRENT_CLASS_ID_SQL,
+                tuple(class_ids)).fetchall():
                 roster.setdefault(row['org_unit_id'], set()).add(int(row['member_id']))
     finally:
         connection.close()
@@ -254,14 +260,15 @@ def export_meeting_workbook(*, actor_user_id, session_id=None, layout='group', *
             record['class_name'], record['group_name'], record['cycle_index'],
             {'DRAFT': '草稿', 'SUBMITTED': '已提交', 'CANCELLED': '已取消'}[record['status']],
             '、'.join(m['name'] for m in detail['attendees']),
-            '、'.join(m['name'] for m in detail['cross_group_attendees']),
-            detail['home_count'], detail['home_group_member_count'],
+            '、'.join(m['name'] for m in detail['attendees'] if m['current_attendance_type'] == 'CROSS_GROUP'),
+            detail['current_home_count'], detail['home_group_member_count'],
             detail['home_group_attendance_rate'] / 100 if detail['home_group_attendance_rate'] is not None else None,
             rate(class_stats[(record['class_org_unit_id'], record['learning_cycle_id'])]),
             rate(region_stats[(region_id, str(record['meeting_date'])[:7])]),
             '；'.join(c['course_name_snapshot'] for c in detail['courses']),
             sum(m['group_points'] for m in members), sum(m['course_points'] for m in members),
-            sum(m['expected_points'] for m in members), '预计值，以正式结算为准；汇总参会率仅统计筛选结果中的已提交记录与当前有效在册学员'
+            sum(m['expected_points'] for m in members), '预计值，以正式结算为准；当前归组以班级与小组管理为准；学分按登记事实预演；汇总参会率仅统计筛选结果中的已提交记录与当前有效在册学员'
+            + (f"；{detail['membership_review_count']}人当前归组与登记快照不同，需核对" if detail['membership_review_count'] else '')
             + (f"；同组同周期有{duplicate_counts[sid]}条历史记录，采用最新已提交记录优先，其余见人员明细" if duplicate_counts[sid] > 1 else '')])
     stats_headers = ['统计层级', '分中心/指导团', '班级', '周期或月份', '参会人数（去重）', '当前在册人数', '参会率', '统计范围']
     stats_rows = []

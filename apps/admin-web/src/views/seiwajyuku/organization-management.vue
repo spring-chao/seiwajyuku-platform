@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import StudyMembershipAudit from "./components/StudyMembershipAudit.vue";
 import {
   createLearningOrgUnit,
   deactivateLearningOrgUnit,
@@ -208,7 +209,7 @@ function typeLabel(type: string) {
 
 function referenceText(item: ManagedLearningOrgUnit) {
   const counts = item.reference_counts;
-  return `在册关系 ${counts.active_member_relations}；子组织 ${counts.active_children}；活动 ${counts.active_events}`;
+  return `在册关系 ${counts.active_member_relations}；待核对关系 ${counts.unresolved_member_relations || 0}；子组织 ${counts.active_children}；活动 ${counts.active_events}`;
 }
 
 function asManagedUnit(item: unknown) {
@@ -476,6 +477,7 @@ onMounted(load);
         <span>这里是分中心、班级和小组关系的唯一维护入口；小组改名只更新组织名称，不改变成员关系或所属班级。</span>
       </div>
       <div class="hero-actions">
+        <StudyMembershipAudit />
         <el-button :disabled="!writeEnabled" @click="openCreate('GROUP')">新增小组</el-button>
         <el-button type="primary" :disabled="!writeEnabled" @click="openCreate('CLASS')">新增班级</el-button>
       </div>
@@ -612,7 +614,7 @@ onMounted(load);
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="memberTransferData && !memberTransferData.members.length" description="该小组已无在册关联学员，可以关闭后执行停用" />
+      <el-empty v-if="memberTransferData && !memberTransferData.members.length" description="该小组已无归组明确的在册学员；停用前仍需处理待核对关系及其他引用" />
       <el-form label-position="top" class="transfer-reason">
         <el-form-item label="迁移依据">
           <el-input v-model="memberTransferForm.reason" type="textarea" :rows="2" maxlength="1000" />

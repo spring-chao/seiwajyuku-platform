@@ -115,7 +115,7 @@ def _action_card_fixture(*, with_memory: bool = True) -> tuple[int, int, str, in
                 connection,
                 "INSERT INTO org_units(id, unit_code, name, unit_type, parent_id, is_active, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
-                (org_id, code, name, unit_type, center_id, now, now),
+                (org_id, code, name, unit_type, class_id if unit_type == "GROUP" else center_id, now, now),
             )
         member_id = execute(
             connection,

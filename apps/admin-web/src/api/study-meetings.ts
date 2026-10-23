@@ -33,6 +33,10 @@ export type StudyMeetingRecord = {
   home_count: number;
   cross_group_count: number;
   total_count: number;
+  current_home_count?: number;
+  current_cross_group_count?: number;
+  current_unresolved_count?: number;
+  membership_review_count?: number;
   home_group_member_count: number;
   home_group_attendance_rate: number | null;
   review_status: "CONFIRMED" | "UNCONFIRMED";
@@ -49,6 +53,9 @@ export type StudyMeetingAttendee = {
   home_group_name?: string;
   attended_group_name?: string;
   attendance_type: "HOME_GROUP" | "CROSS_GROUP";
+  current_group_name?: string;
+  current_attendance_type?: "HOME_GROUP" | "CROSS_GROUP" | "UNRESOLVED";
+  membership_review_required?: boolean;
 };
 
 export type StudyMeetingRecordDetail = StudyMeetingRecord & {

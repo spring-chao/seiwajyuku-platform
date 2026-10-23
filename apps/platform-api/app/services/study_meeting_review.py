@@ -46,12 +46,13 @@ def add_operation_metadata(connection, records: list[dict]) -> None:
     groups = tuple(sorted({row["study_group_org_unit_id"] for row in records}))
     now = _db_timestamp(connection)
     placeholders = ",".join("?" for _ in groups)
+    from app.services.study_membership import CURRENT_GROUP_ID_SQL, effective_relation_sql
     counts = {row["org_unit_id"]: int(row["n"]) for row in execute(connection,
         "SELECT r.org_unit_id, COUNT(DISTINCT r.member_id) AS n FROM member_org_relations r "
         "JOIN members m ON m.id=r.member_id AND m.status='ACTIVE' "
         f"WHERE r.org_unit_id IN ({placeholders}) AND r.relation_type='STUDY_GROUP' "
-        "AND (r.valid_from IS NULL OR r.valid_from<=?) AND (r.valid_until IS NULL OR r.valid_until>=?) "
-        "GROUP BY r.org_unit_id", (*groups, now, now)).fetchall()}
+        f"AND {effective_relation_sql('r')} "
+        f"AND r.org_unit_id={CURRENT_GROUP_ID_SQL} GROUP BY r.org_unit_id", groups).fetchall()}
     placeholders = ",".join("?" for _ in ids)
     audits = execute(connection,
         "SELECT a.resource_id, a.actor_user_id, a.created_at, a.after_json, u.display_name AS reviewer_name "
@@ -78,6 +79,8 @@ def add_operation_metadata(connection, records: list[dict]) -> None:
         record["review_status"] = "CONFIRMED" if confirmed else "UNCONFIRMED"
         record["reviewed_at"] = _serialize(audit["created_at"]) if confirmed else None
         record["reviewer_name"] = audit["reviewer_name"] if confirmed else None
+    from app.services.study_membership import add_current_participation
+    add_current_participation(connection, records)
 
 
 def confirm_meeting_review(*, actor_user_id: int, session_id: int, expected_fingerprint: str) -> dict:

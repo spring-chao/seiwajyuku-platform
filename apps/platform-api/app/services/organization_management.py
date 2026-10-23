@@ -9,6 +9,7 @@ from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids
 from app.services.organization_policy import is_valid_member_primary_org
 from app.services.volunteer_positions import sync_member_current_volunteer_scope
+from app.services.study_membership import CURRENT_CLASS_ID_SQL, CURRENT_GROUP_ID_SQL, set_formal_relation, effective_relation_sql
 
 
 LEARNING_UNIT_TYPES = {"CLASS", "GROUP"}
@@ -36,17 +37,23 @@ def _ensure_allowed(actor_user_id: int, *unit_ids: str) -> None:
 
 def _reference_counts(connection, unit: dict[str, Any]) -> dict[str, int]:
     now = datetime.now(UTC).isoformat()
+    formal = f' AND r.org_unit_id={CURRENT_GROUP_ID_SQL}' if unit['unit_type'] == 'GROUP' else f' AND r.org_unit_id={CURRENT_CLASS_ID_SQL}'
     active_member_relations = int(
         execute(
             connection,
             "SELECT COUNT(*) AS count FROM member_org_relations r "
             "JOIN members m ON m.id=r.member_id "
             "WHERE r.org_unit_id=? AND m.status='ACTIVE' "
-            "AND (r.valid_from IS NULL OR r.valid_from<=?) "
-            "AND (r.valid_until IS NULL OR r.valid_until>=?)",
-            (unit["id"], now, now),
+            f"AND {effective_relation_sql('r')}" + formal,
+            (unit["id"],),
         ).fetchone()["count"]
     )
+    # Conflicting or secondary raw references still prevent deactivation;
+    # displaying one canonical roster must never weaken organization guards.
+    raw_references = int(execute(connection,
+        "SELECT COUNT(*) AS count FROM member_org_relations r JOIN members m ON m.id=r.member_id "
+        f"WHERE r.org_unit_id=? AND m.status='ACTIVE' AND {effective_relation_sql('r')}",
+        (unit['id'],)).fetchone()['count'])
     active_children = int(
         execute(
             connection,
@@ -64,6 +71,7 @@ def _reference_counts(connection, unit: dict[str, Any]) -> dict[str, int]:
     )
     return {
         "active_member_relations": active_member_relations,
+        "unresolved_member_relations": max(0, raw_references - active_member_relations),
         "active_children": active_children,
         "active_events": active_events,
     }
@@ -86,10 +94,10 @@ def group_member_transfer_options(actor_user_id: int, unit_id: str) -> dict[str,
             "SELECT DISTINCT m.id AS member_id, m.member_code, m.name, m.phone_masked "
             "FROM member_org_relations r JOIN members m ON m.id=r.member_id "
             "WHERE r.org_unit_id=? AND r.relation_type='STUDY_GROUP' AND m.status='ACTIVE' "
-            "AND (r.valid_from IS NULL OR r.valid_from<=?) "
-            "AND (r.valid_until IS NULL OR r.valid_until>=?) "
+            f"AND {effective_relation_sql('r')} "
+            f"AND r.org_unit_id={CURRENT_GROUP_ID_SQL} "
             "ORDER BY m.name, m.id",
-            (unit_id, now, now),
+            (unit_id,),
         )
         targets = _rows(
             connection,
@@ -135,9 +143,9 @@ def transfer_group_member_relation(
             connection,
             "SELECT r.id, m.name FROM member_org_relations r JOIN members m ON m.id=r.member_id "
             "WHERE r.member_id=? AND r.org_unit_id=? AND r.relation_type='STUDY_GROUP' "
-            "AND m.status='ACTIVE' AND (r.valid_from IS NULL OR r.valid_from<=?) "
-            "AND (r.valid_until IS NULL OR r.valid_until>=?) ORDER BY r.id DESC LIMIT 1",
-            (member_id, unit_id, now, now),
+            f"AND m.status='ACTIVE' AND {effective_relation_sql('r')} "
+            f"AND r.org_unit_id={CURRENT_GROUP_ID_SQL} ORDER BY r.id DESC LIMIT 1",
+            (member_id, unit_id),
         ).fetchone()
         if not relation:
             raise ValueError("该学长已不在来源小组的当前关联中，请刷新后重试")
@@ -154,18 +162,8 @@ def transfer_group_member_relation(
         ).fetchone()
         if conflicting:
             raise ValueError("该学长在本班还有其他有效小组关系，请先完成关系核对")
-        execute(
-            connection,
-            "UPDATE member_org_relations SET is_primary=0, valid_until=?, updated_at=? WHERE id=?",
-            (now, now, relation["id"]),
-        )
-        execute(
-            connection,
-            "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, "
-            "source_type, valid_from, created_at, updated_at) VALUES (?, ?, 'STUDY_GROUP', 1, "
-            "'ORG_MANUAL_TRANSFER', ?, ?, ?)",
-            (member_id, target["id"], now, now, now),
-        )
+        set_formal_relation(connection, member_id=member_id, relation_type='STUDY_GROUP',
+                            org_id=target['id'], now=now, source_type='ORG_MANUAL_TRANSFER')
         execute(
             connection,
             "UPDATE members SET group_name=?, updated_at=? WHERE id=?",
@@ -201,30 +199,11 @@ def _sync_members_after_class_move(
     denormalized display fields are synchronized in the same transaction as
     the class move.
     """
-    impacted = _rows(
-        connection,
-        "SELECT DISTINCT r.member_id FROM member_org_relations r "
-        "WHERE ((r.relation_type='STUDY_CLASS' AND r.org_unit_id=?) "
-        "OR (r.relation_type='STUDY_GROUP' AND r.org_unit_id IN ("
-        "SELECT id FROM org_units WHERE parent_id=? AND unit_type='GROUP'))) "
-        "AND (r.valid_from IS NULL OR r.valid_from<=?) "
-        "AND (r.valid_until IS NULL OR r.valid_until>=?)",
-        (class_id, class_id, now, now),
-    )
+    impacted = _rows(connection, f"SELECT m.id AS member_id FROM members m WHERE {CURRENT_CLASS_ID_SQL}=?", (class_id,))
     class_row = _unit(connection, class_id)
     for item in impacted:
         member_id = item["member_id"]
-        group = execute(
-            connection,
-            "SELECT g.name FROM member_org_relations r "
-            "JOIN org_units g ON g.id=r.org_unit_id "
-            "WHERE r.member_id=? AND r.relation_type='STUDY_GROUP' "
-            "AND g.parent_id=? AND g.is_active=1 "
-            "AND (r.valid_from IS NULL OR r.valid_from<=?) "
-            "AND (r.valid_until IS NULL OR r.valid_until>=?) "
-            "ORDER BY r.id DESC LIMIT 1",
-            (member_id, class_id, now, now),
-        ).fetchone()
+        group = execute(connection, f"SELECT g.name FROM members m JOIN org_units g ON g.id={CURRENT_GROUP_ID_SQL} WHERE m.id=?", (member_id,)).fetchone()
         execute(
             connection,
             "UPDATE members SET org_unit_id=?, class_name=?, group_name=?, updated_at=? "

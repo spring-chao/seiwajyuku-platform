@@ -12,6 +12,7 @@ from typing import Any
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids
+from app.services.study_membership import CURRENT_CLASS_ID_SQL, CURRENT_GROUP_ID_SQL, CURRENT_GROUP_NAME_SQL, effective_relation_sql
 
 
 RELATION_TYPES = {
@@ -120,10 +121,10 @@ def roster_options(user_id: int) -> dict[str, Any]:
         "JOIN org_units o ON o.id=mor.org_unit_id "
         "WHERE m.status='ACTIVE' AND o.is_active=1 "
         "AND mor.relation_type IN ('STUDY_CLASS','STUDY_GROUP','SPECIAL_COHORT') "
-        "AND (mor.valid_from IS NULL OR mor.valid_from<=?) "
-        "AND (mor.valid_until IS NULL OR mor.valid_until>=?) "
+        f"AND {effective_relation_sql('mor')} "
+        f"AND mor.org_unit_id=CASE WHEN mor.relation_type='STUDY_GROUP' THEN {CURRENT_GROUP_ID_SQL} ELSE {CURRENT_CLASS_ID_SQL} END "
         "GROUP BY mor.relation_type, mor.org_unit_id",
-        (now, now),
+        (),
     )
     count_by_relation = {
         (row["relation_type"], row["org_unit_id"]): int(row["member_count"])
@@ -272,6 +273,8 @@ def roster_members(
 
     phone_select = "m.phone_ciphertext, " if include_phone else ""
     for relation_type, org_id in relations:
+        current_selector = CURRENT_GROUP_ID_SQL if relation_type == 'STUDY_GROUP' else CURRENT_CLASS_ID_SQL
+        current_filter = f'AND mor.org_unit_id={current_selector} ' if relation_type in {'STUDY_CLASS','STUDY_GROUP','SPECIAL_COHORT'} else ''
         rows = fetch_all(
             f"SELECT mor.member_id, m.member_code, m.name, m.phone_masked, "
             f"{phone_select}"
@@ -288,11 +291,11 @@ def roster_members(
             "LEFT JOIN org_units relation_parent "
             "ON relation_parent.id=relation_org.parent_id "
             "WHERE mor.org_unit_id=? AND mor.relation_type=? "
-            "AND (mor.valid_from IS NULL OR mor.valid_from<=?) "
-            "AND (mor.valid_until IS NULL OR mor.valid_until>=?) "
+            f"AND {effective_relation_sql('mor')} "
             "AND m.status='ACTIVE' "
+            + current_filter +
             "ORDER BY m.name",
-            (org_id, relation_type, now, now),
+            (org_id, relation_type),
         )
         for row in rows:
             if row["member_id"] not in seen_member_ids:
@@ -346,38 +349,22 @@ def cross_class_members(
         "m.org_unit_id AS primary_org_id, primary_org.name AS primary_org_name, "
         "class_rel.org_unit_id AS home_class_org_unit_id, "
         "class_org.name AS home_class_name, "
-        "(SELECT group_org.name FROM member_org_relations group_rel "
-        " JOIN org_units group_org ON group_org.id=group_rel.org_unit_id "
-        " WHERE group_rel.member_id=m.id "
-        " AND group_rel.relation_type='STUDY_GROUP' "
-        " AND group_org.is_active=1 "
-        " AND group_org.parent_id=class_rel.org_unit_id "
-        " AND (group_rel.valid_from IS NULL OR group_rel.valid_from<=?) "
-        " AND (group_rel.valid_until IS NULL OR group_rel.valid_until>=?) "
-        " ORDER BY group_rel.is_primary DESC, group_rel.updated_at DESC, group_rel.id DESC "
-        " LIMIT 1) AS home_group_name "
+        f"{CURRENT_GROUP_NAME_SQL} AS home_group_name "
         "FROM members m "
         "JOIN member_org_relations class_rel ON class_rel.member_id=m.id "
         "JOIN org_units class_org ON class_org.id=class_rel.org_unit_id "
         "LEFT JOIN org_units primary_org ON primary_org.id=m.org_unit_id "
         "WHERE m.status='ACTIVE' AND m.name=? "
-        "AND NOT EXISTS (SELECT 1 FROM member_org_relations event_class_rel "
-        " WHERE event_class_rel.member_id=m.id "
-        " AND event_class_rel.relation_type='STUDY_CLASS' "
-        " AND event_class_rel.org_unit_id=? "
-        " AND (event_class_rel.valid_from IS NULL OR event_class_rel.valid_from<=?) "
-        " AND (event_class_rel.valid_until IS NULL OR event_class_rel.valid_until>=?)) "
         "AND class_rel.relation_type='STUDY_CLASS' "
         "AND class_org.unit_type='CLASS' AND class_org.is_active=1 "
+        f"AND class_rel.org_unit_id={CURRENT_CLASS_ID_SQL} "
         "AND class_rel.org_unit_id<>? "
-        "AND (class_rel.valid_from IS NULL OR class_rel.valid_from<=?) "
-        "AND (class_rel.valid_until IS NULL OR class_rel.valid_until>=?) "
-        "ORDER BY m.id, class_rel.is_primary DESC, class_rel.updated_at DESC, class_rel.id DESC",
-        (now, now, normalized_name, target_class_id, now, now, target_class_id, now, now),
+        f"AND {effective_relation_sql('class_rel')} "
+        "ORDER BY m.id",
+        (normalized_name, target_class_id),
     )
 
-    # Historical or accidental duplicate class relations must not produce two
-    # public candidates. The primary/newest current relation wins deterministically.
+    # Canonical class selection already excludes equal-priority conflicts.
     seen_member_ids: set[int] = set()
     results: list[dict[str, Any]] = []
     for row in rows:

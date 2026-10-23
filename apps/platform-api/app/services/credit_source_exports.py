@@ -15,6 +15,7 @@ from app.services import credit_source_imports as sources
 from app.services.audit import write_audit
 from app.services.credit_monthly_targets import monthly_target, BASIC_CREDIT_TYPES
 from app.services.learning_org_catalog import class_catalog, selected_class_ids
+from app.services.study_membership import current_study_relation_sql
 
 LABELS={'CLASS_MEETING_SCORE':'班会签到','DAILY_READING':'读书打卡','EXCELLENT_SHARE':'优秀分享','GROUP_MEETING_ATTENDANCE':'小组学习会','COURSE_COMPLETION':'课程完成'}
 
@@ -115,7 +116,7 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
         if len(members)>5000:raise credits.LearningCreditError('导出超过5000位学长，请选择班级缩小范围')
         if member_id and member_id not in members:raise PermissionError('该学员不在当前学分导出范围内')
         groups={};seen_groups=set()
-        for r in execute(c,"SELECT r.member_id,o.id AS group_id,o.name,o.parent_id FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id WHERE r.relation_type='STUDY_GROUP' AND o.is_active=1 AND o.parent_id IN ("+placeholders+") AND (r.valid_from IS NULL OR r.valid_from<=?) AND (r.valid_until IS NULL OR r.valid_until>=?) ORDER BY r.is_primary DESC,r.id DESC",(*params,credits._db_timestamp(c),credits._db_timestamp(c))).fetchall():
+        for r in execute(c,"SELECT r.member_id,o.id AS group_id,o.name,o.parent_id FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id WHERE r.relation_type='STUDY_GROUP' AND o.is_active=1 AND o.parent_id IN ("+placeholders+") AND r.org_unit_id="+current_study_relation_sql('r.member_id','group')+" ORDER BY r.is_primary DESC,r.id DESC",params).fetchall():
             key=(r['member_id'],r['parent_id'])
             if key not in seen_groups and r['member_id'] in members and r['parent_id'] in members[r['member_id']].get('class_ids',set()):
                 groups.setdefault(r['member_id'],[]).append(r['name']);seen_groups.add(key)

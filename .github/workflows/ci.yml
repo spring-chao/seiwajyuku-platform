@@ -173,6 +173,7 @@ jobs:
           apps/platform-api/tests/test_volunteer_position_model.py
           apps/platform-api/tests/test_study_meeting_attendees.py
           apps/platform-api/tests/test_study_meeting_operations.py
+            apps/platform-api/tests/test_study_membership.py
           apps/platform-api/tests/test_tabular_exports.py
           apps/platform-api/tests/test_member_group_reassignment.py
           apps/platform-api/tests/test_wechat_learning_summary.py

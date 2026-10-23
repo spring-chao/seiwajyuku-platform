@@ -94,20 +94,9 @@ def _member_context(member_id: int) -> dict[str, Any] | None:
     if region:
         member["org_unit_id"] = region["org_unit_id"]
         member["org_name"] = region["org_name"]
-    class_row = fetch_one(
-        "SELECT o.id, o.name FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id "
-        "WHERE r.member_id=? AND r.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
-        "AND (r.valid_from IS NULL OR r.valid_from<=?) AND (r.valid_until IS NULL OR r.valid_until>=?) "
-        "AND o.is_active=1 ORDER BY r.is_primary DESC, r.id DESC LIMIT 1",
-        (member_id, now, now),
-    )
-    group_row = fetch_one(
-        "SELECT o.id, o.name FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id "
-        "WHERE r.member_id=? AND r.relation_type='STUDY_GROUP' "
-        "AND (r.valid_from IS NULL OR r.valid_from<=?) AND (r.valid_until IS NULL OR r.valid_until>=?) "
-        "AND o.is_active=1 ORDER BY r.is_primary DESC, r.id DESC LIMIT 1",
-        (member_id, now, now),
-    )
+    from app.services.study_membership import CURRENT_CLASS_ID_SQL, CURRENT_GROUP_ID_SQL
+    class_row = fetch_one('SELECT o.id,o.name FROM members m JOIN org_units o ON o.id=' + CURRENT_CLASS_ID_SQL + ' WHERE m.id=?', (member_id,))
+    group_row = fetch_one('SELECT o.id,o.name FROM members m JOIN org_units o ON o.id=' + CURRENT_GROUP_ID_SQL + ' WHERE m.id=?', (member_id,))
     member["class_org_unit_id"] = class_row["id"] if class_row else None
     member["class_name"] = class_row["name"] if class_row else None
     member["group_org_unit_id"] = group_row["id"] if group_row else None

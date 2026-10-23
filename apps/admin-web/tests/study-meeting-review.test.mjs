@@ -20,11 +20,24 @@ function harness(confirm) {
     confirmStudyMeetingReview: async (id, fingerprint) => { calls.push({ id, fingerprint }); return confirm(id); },
     getStudyMeetingRecords: async () => ({ data: { records: [{ id: 1, review_status: "CONFIRMED" }] } })
   });
-  vm.runInContext(compiled + "\nglobalThis.state = { detail, detailVisible, records, reviewing, editingAttendees, editingCourses }; globalThis.confirmReviewAction = confirmReview;", context);
+  vm.runInContext(compiled + "\nglobalThis.state = { detail, detailVisible, records, reviewing, editingAttendees, editingCourses }; globalThis.confirmReviewAction = confirmReview; globalThis.currentAttendeesAction = currentAttendees;", context);
   context.state.detail.value = { id: 1, review_fingerprint: "fresh", review_status: "UNCONFIRMED" };
   context.state.detailVisible.value = true;
-  return { state: context.state, run: context.confirmReviewAction, calls };
+  return { state: context.state, run: context.confirmReviewAction, currentAttendees: context.currentAttendeesAction, calls };
 }
+
+test("current roster sections classify by the master while preserving registered snapshots", () => {
+  const h = harness(async () => ({ data: {} }));
+  h.state.detail.value = { id: 1, attendees: [
+    { name: '跨组学长', attendance_type: 'HOME_GROUP', current_attendance_type: 'CROSS_GROUP' },
+    { name: '本组学长', attendance_type: 'CROSS_GROUP', current_attendance_type: 'HOME_GROUP' },
+    { name: '待核对学长', attendance_type: 'HOME_GROUP', current_attendance_type: 'UNRESOLVED' }
+  ] };
+  assert.equal(h.currentAttendees('HOME_GROUP')[0].name, '本组学长');
+  assert.equal(h.currentAttendees('CROSS_GROUP')[0].name, '跨组学长');
+  assert.equal(h.currentAttendees('UNRESOLVED').length, 1);
+  assert.equal(h.state.detail.value.attendees[0].attendance_type, 'HOME_GROUP');
+});
 
 test("confirmation sends the displayed fingerprint, prevents double submits and refreshes the list", async () => {
   let resolve;
