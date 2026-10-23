@@ -20,6 +20,14 @@ export function groupActivitySessions(rows) {
     group.record_count += row.record_count;
     group.present_count += row.present_count;
   }
+  for (const group of groups.values()) {
+    group.scan_registration_count = group.registration_count;
+    group.scan_present_count = group.present_count;
+    if (String(group.activity_type).toUpperCase() === "CLASS_MEETING") {
+      group.registration_count = group.overall_registration_count ?? null;
+      group.present_count = group.overall_present_count ?? null;
+    }
+  }
   return [...groups.values()];
 }
 

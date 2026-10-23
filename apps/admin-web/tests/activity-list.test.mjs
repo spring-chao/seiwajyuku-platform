@@ -8,7 +8,8 @@ const organizations = [
   { id: "class", name: "一班", unit_type: "CLASS", parent_id: "center" }
 ];
 const row = { id: 11, title: "一班学习会", activity_type: "CLASS_MEETING", org_unit_id: "class",
-  study_org_unit_id: "class", org_name: "一班", event_date: "2026-10-22", record_count: 5, present_count: 4, registration_count: 6 };
+  study_org_unit_id: "class", org_name: "一班", event_date: "2026-10-22", record_count: 5, present_count: 4, registration_count: 6,
+  overall_registration_count: 8, overall_present_count: 5, overall_participation_rate: 62.5 };
 
 test("three scan sessions become one activity without discarding scan counts", () => {
   const rows = [1, 2, 3].map(session_id => ({ ...row, session_id }));
@@ -16,8 +17,10 @@ test("three scan sessions become one activity without discarding scan counts", (
   assert.equal(groups.length, 1);
   assert.equal(groups[0].display_title, "一班学习会");
   assert.equal(groups[0].session_count, 3);
-  assert.equal(groups[0].registration_count, 18);
-  assert.equal(groups[0].present_count, 12);
+  assert.equal(groups[0].registration_count, 8);
+  assert.equal(groups[0].present_count, 5);
+  assert.equal(groups[0].scan_registration_count, 18);
+  assert.equal(groups[0].scan_present_count, 12);
   assert.equal(groups[0].session_id, undefined);
   assert.equal(groups[0].sessions.length, 3);
 });
@@ -31,8 +34,19 @@ test("duplicate session rows do not double-count and unknown registration totals
   const rows = [{ ...row, session_id: 1 }, { ...row, session_id: 1 }, { ...row, session_id: 2, registration_count: null }];
   const [group] = groupActivitySessions(rows);
   assert.equal(group.session_count, 2);
-  assert.equal(group.registration_count, null);
-  assert.equal(group.present_count, 8);
+  assert.equal(group.registration_count, 8);
+  assert.equal(group.present_count, 5);
+  assert.equal(group.scan_registration_count, null);
+  assert.equal(group.scan_present_count, 8);
+});
+
+test("a missing class summary stays unknown rather than adding scan sessions", () => {
+  const [group] = groupActivitySessions([{...row,session_id:1,overall_registration_count:undefined,overall_present_count:undefined}]);
+  assert.equal(group.registration_count,null);
+  assert.equal(group.present_count,null);
+  const [report] = groupActivitySessions([{...row,session_id:1,activity_type:'CENTER_QUARTERLY_REPORT'}]);
+  assert.equal(report.registration_count,6);
+  assert.equal(report.present_count,4);
 });
 
 test("center filter follows organization IDs and combines with class and activity type", () => {

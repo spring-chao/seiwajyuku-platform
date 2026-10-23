@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 from app.core.settings import get_settings
@@ -22,11 +23,30 @@ def _enabled() -> None:
         raise StudyMeetingFeatureDisabled("学习合影功能尚未开启")
 
 
+def _expiry_sql(connection) -> str:
+    """Extend recognizable legacy seven-day objects without rewriting history.
+
+    Only the old standard lifetime is extended. Explicit revocation, deleted
+    metadata and physically deleted objects remain inaccessible.
+    """
+    hours = int(get_settings().study_evidence_retention_hours)
+    if hours <= 168:
+        return 'expires_at'
+    if isinstance(connection, sqlite3.Connection):
+        legacy = 'ABS((julianday(expires_at)-julianday(uploaded_at))*86400-604800)<=1'
+        extended = f"datetime(uploaded_at,'+{hours} hours')"
+    else:
+        legacy = 'ABS(TIMESTAMPDIFF(SECOND,uploaded_at,expires_at)-604800)<=1'
+        extended = f'DATE_ADD(uploaded_at,INTERVAL {hours} HOUR)'
+    return f'CASE WHEN {legacy} THEN {extended} ELSE expires_at END'
+
+
 def evidence_metadata(connection, session_id: int) -> dict | None:
+    expiry = _expiry_sql(connection)
     row = execute(connection,
-        "SELECT id, content_type, file_size, uploaded_at, expires_at FROM study_meeting_evidence "
+        f"SELECT id, content_type, file_size, uploaded_at, {expiry} AS expires_at FROM study_meeting_evidence "
         "WHERE study_meeting_session_id=? AND active_slot=1 AND deleted_at IS NULL "
-        "AND storage_deleted_at IS NULL AND expires_at>?",
+        f"AND storage_deleted_at IS NULL AND ({expiry})>?",
         (session_id, _db_timestamp(connection))).fetchone()
     return {key: _serialize(value) for key, value in dict(row).items()} if row else None
 
@@ -161,7 +181,7 @@ def cleanup_evidence(*, apply: bool = False, limit: int = 500) -> dict:
 
     Production/staging only process rows whose business expiry has passed.  A
     short grace period avoids racing a late object write after a worker timeout;
-    API access still stops exactly at ``expires_at``.  The legacy dev/test rule
+    API access and cleanup share the effective retention deadline. The legacy dev/test rule
     also cleans abandoned replacement reservations so existing isolated tests
     and local cleanup workflows remain compatible.
     """
@@ -175,15 +195,17 @@ def cleanup_evidence(*, apply: bool = False, limit: int = 500) -> dict:
     if apply:
         _require_write()
     cutoff = datetime.now(UTC) - timedelta(seconds=settings.study_evidence_cleanup_grace_seconds)
-    if settings.app_env in {"dev", "test"}:
-        expiry_clause = "(deleted_at IS NOT NULL OR expires_at<=?)"
-    else:
-        # Production must never remove a freshly failed/non-expired reservation
-        # merely because it is logically inactive.
-        expiry_clause = "expires_at<=?"
-    candidates = fetch_all("SELECT id, study_meeting_session_id FROM study_meeting_evidence "
-                           f"WHERE storage_deleted_at IS NULL AND {expiry_clause} "
-                           "ORDER BY id LIMIT ?", (cutoff.isoformat(), min(max(limit, 1), 500)))
+    with transaction() as connection:
+        expiry = _expiry_sql(connection)
+        if settings.app_env in {"dev", "test"}:
+            expiry_clause = f"(deleted_at IS NOT NULL OR ({expiry})<=?)"
+        else:
+            # Production must not remove inactive but still retained objects.
+            expiry_clause = f"({expiry})<=?"
+        candidates = [dict(row) for row in execute(connection,
+            "SELECT id, study_meeting_session_id FROM study_meeting_evidence "
+            f"WHERE storage_deleted_at IS NULL AND {expiry_clause} "
+            "ORDER BY id LIMIT ?", (_db_timestamp(connection, cutoff), min(max(limit, 1), 500))).fetchall()]
     report = {"candidates": len(candidates), "deleted": 0, "errors": 0, "apply": apply}
     if not apply:
         return report

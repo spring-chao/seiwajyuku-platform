@@ -95,6 +95,9 @@ const detailClassBreakdown = computed<AttendanceClassParticipation[]>(() =>
 );
 const detailSummary = computed<any>(() => {
   if (!detail.value) return null;
+  if (detail.value.group.activity_type === "CLASS_MEETING") return { ...detail.value.group,
+    registration_count: detail.value.group.overall_registration_count ?? null,
+    present_count: detail.value.group.overall_present_count ?? null };
   const session = detail.value.sessions.find(
     session => session.id === detailSessionId.value
   );
@@ -150,7 +153,13 @@ const totalEligible = computed<number | null>(() => {
   const counts = visibleRows.value.map(item => registrationCount(item));
   return counts.some(count => count === null) ? null : counts.reduce((sum, count) => sum + (count || 0), 0);
 });
-const totalCompleted = computed(() => visibleRows.value.reduce((sum, item) => sum + item.present_count, 0));
+const totalCompleted = computed<number | null>(() => {
+  const counts = visibleRows.value.map(item => item.present_count);
+  return counts.some(count => count === null) ? null : counts.reduce((sum, count) => sum + count, 0);
+});
+function overallRate(row: any) {
+  return typeof row.overall_participation_rate === "number" ? `${row.overall_participation_rate.toFixed(1)}%` : "—";
+}
 const visibleDetailSessions = computed(() => detail.value?.sessions.filter(session =>
   detailSessionId.value === 0 || session.id === detailSessionId.value) || []);
 const visibleDetailRecords = computed(() => detailRecords.value.filter(record =>
@@ -375,13 +384,13 @@ async function downloadDetailRecords() {
     <section class="summary">
       <el-statistic title="活动数" :value="visibleRows.length" />
       <el-statistic title="扫码场次数" :value="visibleSessionRows.length" />
-      <el-statistic title="报名人次" :value="totalEligible ?? 0" :formatter="() => totalEligible === null ? '待核实' : String(totalEligible)" />
-      <el-statistic title="已签到人次" :value="totalCompleted" />
+      <el-statistic title="报名合计" :value="totalEligible ?? 0" :formatter="() => totalEligible === null ? '待核实' : String(totalEligible)" />
+      <el-statistic title="已签到合计" :value="totalCompleted ?? 0" :formatter="() => totalCompleted === null ? '待核实' : String(totalCompleted)" />
     </section>
 
     <el-card shadow="never">
       <div class="rate-definition">
-        每行显示一场活动，上午、下午和空巴在“查看明细”中分别展示。报名和签到合计按扫码场次统计为人次，同一学长多次扫码会分别计入；各场次人数与参会率请查看明细。
+        每行显示一场活动。班级会报名人数按本班当前在册人数计一次；整体签到人数为本班上午或下午有效签到学员去重人数，空巴不计入。整体参会率＝整体签到人数÷本班人数；各场次明细保留。
       </div>
       <el-table :data="visibleRows" row-key="id" stripe class="activity-table">
         <el-table-column prop="event_date" label="活动日期" min-width="130" />
@@ -398,8 +407,9 @@ async function downloadDetailRecords() {
           </template>
         </el-table-column>
         <el-table-column label="扫码场次" width="100"><template #default="{ row }">{{ row.session_count }} 场次</template></el-table-column>
-        <el-table-column label="报名人次" width="110" align="right"><template #default="{ row }">{{ registrationCount(row) ?? "待核实" }}</template></el-table-column>
-        <el-table-column prop="present_count" label="已签到人次" width="120" align="right" />
+        <el-table-column label="报名人数" width="110" align="right"><template #default="{ row }">{{ registrationCount(row) ?? "待核实" }}</template></el-table-column>
+        <el-table-column label="签到人数" width="120" align="right"><template #default="{ row }">{{ row.present_count ?? "待核实" }}</template></el-table-column>
+        <el-table-column label="整体参会率" width="130" align="right"><template #default="{ row }">{{ overallRate(row) }}</template></el-table-column>
         <el-table-column label="操作" width="190" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="openActivityDetail(row)">
@@ -447,10 +457,11 @@ async function downloadDetailRecords() {
               <strong>{{ participationScopeLabel(detail.group) }}</strong>
             </div>
             <div>
-              <span>报名人次</span>
+              <span>{{ detail.group.activity_type === "CLASS_MEETING" ? "报名人数（本班）" : "报名人次" }}</span>
               <strong>{{ registrationCount(detailSummary) ?? "待核实" }}</strong>
             </div>
-            <div><span>已签到人次</span><strong>{{ detailSummary.present_count }}</strong></div>
+            <div><span>{{ detail.group.activity_type === "CLASS_MEETING" ? "整体签到人数（上午／下午去重）" : "已签到人次" }}</span><strong>{{ detailSummary.present_count ?? "待核实" }}</strong></div>
+            <div v-if="detail.group.activity_type === 'CLASS_MEETING'"><span>整体参会率</span><strong>{{ overallRate(detail.group) }}</strong></div>
             <div><span>扫码场次</span><strong>{{ visibleDetailSessions.length }}</strong></div>
           </div>
 
@@ -484,7 +495,7 @@ async function downloadDetailRecords() {
             </el-radio-group>
             <div class="detail-section__heading">
               <h3>场次汇总</h3>
-              <span>报名总数按签到系统完整名单统计；参会人数及下方明细按已同步签到记录展示。班级活动按班级统计，报告会等大型活动按分中心统计。</span>
+              <span>班级会顶部整体统计不随场次切换：上午、下午签到合并去重，空巴不计入。下表保留各场报名、签到和积分，逐场人数不相加作为整体人数。其他活动按原参会口径统计。</span>
             </div>
             <el-table :data="visibleDetailSessions" size="small" stripe class="activity-table">
               <el-table-column prop="session_name" label="场次" min-width="180">

@@ -621,7 +621,7 @@ onMounted(async () => {
             <div class="detail-title">学习合影</div>
             <template v-if="detail.evidence">
               <el-button :loading="photoLoading" @click="viewPhoto">查看合影</el-button>
-              <div class="muted">默认保留7天，到期后清理照片，保留学习记录。</div>
+              <div class="muted">保留1个月（30天），到期后清理照片，保留学习记录。</div>
               <img v-if="photoUrl" :src="photoUrl" alt="本次学习合影" class="study-photo" />
             </template>
             <span v-else class="muted">未上传或已到期清理</span>
