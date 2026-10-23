@@ -1,4 +1,6 @@
 import io
+import cProfile
+import pstats
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
@@ -11,6 +13,7 @@ from app.main import app
 from app.services.iam import authenticate
 from app.services.member_exports import export_members_xlsx, member_export_fields
 from app.services.study_meeting_operations import export_meeting_workbook
+from app.services.study_meeting_operations import meeting_credit_preview
 from app.services.study_meetings import create_study_meeting, StudyMeetingError
 from app.services.study_meetings import get_study_meeting_record_for_operations
 from test_study_meeting_operations import prepared, flags
@@ -54,6 +57,70 @@ def test_member_workbook_retains_individual_points_and_confirmation():
     assert sheet['H1'].value == '姓名'
     assert sheet['O2'].value == 44
     assert sheet['O2'].data_type == 'n'
+
+
+def test_bulk_export_avoids_per_meeting_iam_connections_and_keeps_every_member():
+    # Count actual DB connections rather than asserting wall-clock time or
+    # mocking away authorization. Previously even five meetings opened >700.
+    fixtures = [prepared(course=True) for _ in range(5)]
+    profile = cProfile.Profile()
+    with profile:
+        report = book(export_meeting_workbook(actor_user_id=_admin_id(), layout='member'))
+    calls = sum(value[1] for (filename, _, name), value in pstats.Stats(profile).stats.items()
+                if filename.endswith('db.py') and name == 'connect')
+    assert calls < 100
+    rows = list(report.active.values)[1:]
+    for _, session in fixtures:
+        own = [row for row in rows if row[0] == session['session_code']]
+        assert len(own) == 2 and all(row[14] == 44 for row in own)
+
+
+def test_export_reuses_canonical_preview_after_posting_without_writing_credits():
+    from app.services.learning_credits import _insert_entry, dry_run_study_meeting_settlement
+    f, session = prepared(course=True)
+    args = {'actor_user_id': _admin_id(), 'session_id': session['id']}
+    entry = dry_run_study_meeting_settlement(**args)['entries'][0]
+    with transaction() as connection:
+        _insert_entry(connection, {**entry, 'occurred_at': session['meeting_date']}, status='POSTED', actor_user_id=_admin_id())
+    before = fetch_one('SELECT COUNT(*) n FROM learning_credit_entries')['n']
+    expected = {member['member_id']: member for member in meeting_credit_preview(**args)['members']}
+    rows = list(book(export_meeting_workbook(**args, layout='member')).active.values)[1:]
+    for row in rows:
+        member = expected[row[6]]
+        assert row[12:15] == (member['group_points'], member['course_points'], member['expected_points'])
+    assert fetch_one('SELECT COUNT(*) n FROM learning_credit_entries')['n'] == before
+    audit = fetch_one("SELECT after_json FROM audit_logs WHERE action='exports.study_meetings.normal' ORDER BY id DESC LIMIT 1")
+    import json
+    assert json.loads(audit['after_json'])['row_count'] == 2
+
+
+def test_export_rejects_changed_ownership_before_building_the_file():
+    from app.services import study_meeting_operations as operations
+    f, session = prepared()
+    original = operations._session_payload
+    def changed(connection, sid):
+        payload = original(connection, sid)
+        payload['class_org_unit_id'] = f['other_class_id']
+        return payload
+    with patch.object(operations, '_session_payload', side_effect=changed), pytest.raises(StudyMeetingError, match='归属已变化'):
+        export_meeting_workbook(actor_user_id=_admin_id(), session_id=session['id'])
+
+
+def test_export_preview_and_export_scopes_are_intersected_and_limit_is_preserved():
+    from app.services import study_meeting_operations as operations
+    f, session = prepared()
+    with patch('app.services.study_meetings.accessible_org_ids', return_value={f['other_class_id']}), pytest.raises(PermissionError):
+        export_meeting_workbook(actor_user_id=_admin_id(), session_id=session['id'])
+    with patch.object(operations, 'user_context', return_value={'permissions': ['exports:normal']}), pytest.raises(PermissionError):
+        export_meeting_workbook(actor_user_id=_admin_id(), session_id=session['id'])
+    with patch.object(operations, 'list_study_meeting_records', return_value=[{'class_org_unit_id': f['class_id']}] * 501), pytest.raises(StudyMeetingError, match='500场'):
+        export_meeting_workbook(actor_user_id=_admin_id())
+
+
+@pytest.mark.parametrize('layout,expected', [('group', '小组汇总'), ('member', '人员明细')])
+def test_no_matching_meetings_still_produces_a_valid_header_only_workbook(layout, expected):
+    sheet = book(export_meeting_workbook(actor_user_id=_admin_id(), layout=layout, meeting_date_to='1900-01-01')).active
+    assert sheet.title == expected and sheet.max_row == 1
 
 
 def test_historic_duplicate_group_rows_use_latest_and_do_not_double_count_rates():
