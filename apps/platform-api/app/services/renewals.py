@@ -103,19 +103,9 @@ PREVIEW_ROW_FIELDS = (
 # not control renewal display, filtering, reporting, or authorization. The
 # cycle's own org_unit_id remains available as the original/imported snapshot.
 MEMBER_RENEWAL_ORG_SQL = "m.org_unit_id"
-MEMBER_CLASS_NAME_SQL = (
-    "(SELECT ou.name FROM member_org_relations mor "
-    "JOIN org_units ou ON ou.id=mor.org_unit_id "
-    "WHERE mor.member_id=m.id AND mor.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
-    "AND mor.valid_until IS NULL AND ou.is_active=1 "
-    "ORDER BY mor.is_primary DESC, mor.id DESC LIMIT 1)"
-)
-MEMBER_GROUP_NAME_SQL = (
-    "(SELECT ou.name FROM member_org_relations mor "
-    "JOIN org_units ou ON ou.id=mor.org_unit_id "
-    "WHERE mor.member_id=m.id AND mor.relation_type='STUDY_GROUP' "
-    "AND mor.valid_until IS NULL AND ou.is_active=1 "
-    "ORDER BY mor.is_primary DESC, mor.id DESC LIMIT 1)"
+from app.services.study_membership import (
+    CURRENT_CLASS_NAME_SQL as MEMBER_CLASS_NAME_SQL,
+    CURRENT_GROUP_NAME_SQL as MEMBER_GROUP_NAME_SQL,
 )
 
 

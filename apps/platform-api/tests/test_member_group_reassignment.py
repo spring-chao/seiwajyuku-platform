@@ -42,7 +42,8 @@ def test_preview_no_writes_apply_atomic_and_audited():
     result = apply_group_reassignment(**payload, preview_fingerprint=preview["preview_fingerprint"], reason="重新开班，小组重组")
     assert result["changed_count"] == 2
     for item in payload["assignments"]:
-        relation = fetch_one("SELECT org_unit_id FROM member_org_relations WHERE member_id=? AND relation_type='STUDY_GROUP'", (item["member_id"],))
+        from app.services.study_membership import CURRENT_GROUP_ID_SQL
+        relation = fetch_one(f"SELECT {CURRENT_GROUP_ID_SQL} AS org_unit_id FROM members m WHERE m.id=?", (item["member_id"],))
         assert relation["org_unit_id"] == item["group_org_unit_id"]
     after = snapshot(f)
     assert after["learning_credit_entries"] == before["learning_credit_entries"]

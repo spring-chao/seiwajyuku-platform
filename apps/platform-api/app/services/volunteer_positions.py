@@ -220,71 +220,16 @@ def _relation_boundary_is_current(
     return parsed <= now if before_or_equal else parsed >= now
 
 
-def get_current_member_study_orgs(
-    connection, member_id: int
-) -> dict[str, dict[str, Any] | None]:
-    """Resolve the effective formal class and group for a member.
-
-    The edit profile and current volunteer scope must use the same relation
-    row. MySQL stores relation boundaries as DATE while SQLite stores text,
-    so filtering is deliberately done after reading the typed values instead
-    of comparing a driver-specific timestamp literal in SQL.
-    """
-
-    rows = [
-        dict(row)
-        for row in execute(
-            connection,
-            "SELECT r.id, r.org_unit_id, r.relation_type, r.is_primary, "
-            "r.valid_from, r.valid_until, o.name AS org_name, o.unit_type, "
-            "o.parent_id, o.is_active "
-            "FROM member_org_relations r JOIN org_units o ON o.id=r.org_unit_id "
-            "WHERE r.member_id=? AND r.relation_type IN "
-            "('STUDY_CLASS', 'SPECIAL_COHORT', 'STUDY_GROUP') "
-            "ORDER BY r.is_primary DESC, r.id DESC",
-            (member_id,),
-        ).fetchall()
-    ]
-    now = datetime.now(UTC)
-    current_rows = [
-        row
-        for row in rows
-        if bool(row.get("is_active"))
-        and _relation_boundary_is_current(
-            row.get("valid_from"), before_or_equal=True, now=now
-        )
-        and _relation_boundary_is_current(
-            row.get("valid_until"), before_or_equal=False, now=now
-        )
-    ]
-    current_rows.sort(
-        key=lambda row: (
-            int(row.get("is_primary") or 0),
-            int(row.get("id") or 0),
-        ),
-        reverse=True,
-    )
-
-    class_org = next(
-        (
-            row
-            for row in current_rows
-            if row.get("relation_type") in {"STUDY_CLASS", "SPECIAL_COHORT"}
-            and str(row.get("unit_type") or "").upper()
-            in {"CLASS", "SPECIAL_COHORT"}
-        ),
-        None,
-    )
-    group_org = next(
-        (
-            row
-            for row in current_rows
-            if row.get("relation_type") == "STUDY_GROUP"
-            and str(row.get("unit_type") or "").upper() == "GROUP"
-        ),
-        None,
-    )
-    return {"class": class_org, "group": group_org}
+def get_current_member_study_orgs(connection, member_id: int) -> dict[str, dict[str, Any] | None]:
+    from app.services.study_membership import current_study_relation_sql
+    result = {}
+    for kind in ('class', 'group'):
+        relation = current_study_relation_sql('m.id', kind, 'id')
+        row = execute(connection, "SELECT r.*, o.name AS org_name, o.unit_type, o.parent_id, o.is_active "
+            "FROM members m JOIN member_org_relations r ON r.id=" + relation +
+            " JOIN org_units o ON o.id=r.org_unit_id WHERE m.id=?", (member_id,)).fetchone()
+        result[kind] = dict(row) if row else None
+    return result
 
 
 def _write_gate(*, write: bool = False) -> None:

@@ -33,6 +33,8 @@ const localApiLabel = import.meta.env.DEV
 const records = ref<StudyMeetingRecord[]>([]);
 const detailVisible = ref(false);
 const detail = ref<StudyMeetingRecordDetail>();
+const currentAttendees = (kind: "HOME_GROUP" | "CROSS_GROUP" | "UNRESOLVED") =>
+  (detail.value?.attendees || []).filter(item => (item.current_attendance_type || item.attendance_type) === kind);
 const canPreviewCredit = computed(() => useUserStoreHook().permissions.includes("plans:credit_settlement_preview"));
 const canExport = computed(() => canPreviewCredit.value && useUserStoreHook().permissions.includes("exports:normal"));
 const creditPreview = ref<MeetingCreditPreview>();
@@ -415,7 +417,7 @@ onMounted(async () => {
       </div>
 
       <el-alert v-if="exportError" :title="exportError" type="error" show-icon closable @close="exportError = ''" />
-      <div class="muted records-alert">小组参会率 = 本组参加人数 ÷ 本组当前有效在册人数，跨组参加人员不计入；名单变化需核对。</div>
+      <div class="muted records-alert">当前归组以班级与小组管理为准。小组参会率按当前本组参加人数 ÷ 当前本组在册人数计算；历史登记类型保留并单独标示差异。</div>
       <el-table v-loading="loading" :data="records" stripe border class="records-table" row-key="id">
         <el-table-column prop="meeting_date" label="日期" width="125" />
         <el-table-column label="班级 / 小组" min-width="210">
@@ -430,13 +432,14 @@ onMounted(async () => {
         <el-table-column label="参加人数" width="150">
           <template #default="{ row }">
             {{ row.total_count }} 人
-            <div class="muted">本组 {{ row.home_count }} · 跨组 {{ row.cross_group_count }}</div>
+            <div class="muted">当前本组 {{ row.current_home_count ?? row.home_count }} · 跨组 {{ row.current_cross_group_count ?? row.cross_group_count }}</div>
+            <div v-if="row.membership_review_count" class="muted">{{ row.membership_review_count }} 人登记归组需核对</div>
           </template>
         </el-table-column>
         <el-table-column label="小组参会率" width="155">
           <template #default="{ row }">
             <div>{{ row.home_group_attendance_rate == null ? '待核对' : `${row.home_group_attendance_rate}%` }}</div>
-            <div class="muted">本组 {{ row.home_count }} / {{ row.home_group_member_count }} 人</div>
+            <div class="muted">当前本组 {{ row.current_home_count ?? row.home_count }} / {{ row.home_group_member_count }} 人</div>
           </template>
         </el-table-column>
         <el-table-column label="课程" min-width="220">
@@ -512,7 +515,7 @@ onMounted(async () => {
 
           <div class="attendee-section">
             <div class="detail-title">参加人员 {{ detail.attendees.length }} 人</div>
-            <div class="muted">本组 {{ detail.home_attendees.length }} 人 · 跨组 {{ detail.cross_group_attendees.length }} 人</div>
+            <div class="muted">当前本组 {{ currentAttendees("HOME_GROUP").length }} 人 · 跨组 {{ currentAttendees("CROSS_GROUP").length }} 人 · 待核对 {{ currentAttendees("UNRESOLVED").length }} 人</div>
             <el-button v-if="detail.can_edit_attendees && !editingAttendees" :loading="attendeeLoading"
               :disabled="editingCourses || savingCourses || confirming || reviewing" @click="editAttendees">核实 / 删减参加人员</el-button>
           </div>
@@ -559,8 +562,14 @@ onMounted(async () => {
             <div v-if="!canPreviewCredit" class="muted">当前账号未取得学分预览权限。</div>
             <el-table :data="detail.attendees" border v-loading="creditLoading" class="credit-table">
               <el-table-column prop="name" label="姓名" min-width="90" fixed="left" />
-              <el-table-column label="参加类型" min-width="100">
-                <template #default="{ row }">{{ row.attendance_type === 'HOME_GROUP' ? '本组' : '跨组 · ' + row.home_group_name }}</template>
+              <el-table-column label="当前归组／参加类型" min-width="180">
+                <template #default="{ row }">
+                  {{ row.current_attendance_type === 'UNRESOLVED' ? '待核对' : (row.current_attendance_type || row.attendance_type) === 'HOME_GROUP' ? '本组' : '跨组' }} · {{ row.current_group_name || row.home_group_name }}
+                  <div v-if="row.membership_review_required" class="muted">与登记快照不同，需核对</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="登记时参加类型" min-width="160">
+                <template #default="{ row }">{{ row.attendance_type === 'HOME_GROUP' ? '本组' : '跨组' }} · {{ row.home_group_name }}</template>
               </el-table-column>
               <el-table-column v-for="course in detail.courses" :key="course.course_key" :label="course.course_name_snapshot" min-width="160">
                 <template #default="{ row }">
@@ -589,23 +598,25 @@ onMounted(async () => {
             <el-button v-if="canExport" :loading="exporting" :disabled="editingCourses || editingAttendees || confirming || creditLoading" @click="downloadRecords(detail.id)">{{ exporting ? "正在生成导出文件…" : "导出本场人员与预计学分" }}</el-button>
           </div>
           <div class="attendee-section">
-            <div class="detail-title">本组参加（{{ detail.home_attendees.length }}人）</div>
+            <div class="detail-title">本组参加（{{ currentAttendees('HOME_GROUP').length }}人）</div>
             <div class="attendee-list">
-              <el-tag v-for="item in detail.home_attendees" :key="item.id" effect="plain">
+              <el-tag v-for="item in currentAttendees('HOME_GROUP')" :key="item.id" effect="plain">
                 {{ item.name }}
               </el-tag>
-              <span v-if="!detail.home_attendees.length" class="muted">无</span>
+              <span v-if="!currentAttendees('HOME_GROUP').length" class="muted">无</span>
             </div>
           </div>
           <div class="attendee-section">
-            <div class="detail-title">跨组参加（{{ detail.cross_group_attendees.length }}人）</div>
+            <div class="detail-title">跨组参加（{{ currentAttendees('CROSS_GROUP').length }}人）</div>
             <div class="attendee-list">
-              <el-tag v-for="item in detail.cross_group_attendees" :key="item.id" type="warning" effect="plain">
-                {{ item.name }}（{{ item.home_group_name }}）
+              <el-tag v-for="item in currentAttendees('CROSS_GROUP')" :key="item.id" type="warning" effect="plain">
+                {{ item.name }}（{{ item.current_group_name || item.home_group_name }}）
               </el-tag>
-              <span v-if="!detail.cross_group_attendees.length" class="muted">无</span>
+              <span v-if="!currentAttendees('CROSS_GROUP').length" class="muted">无</span>
             </div>
           </div>
+          <el-alert v-if="currentAttendees('UNRESOLVED').length" type="warning" :closable="false"
+            :title="`当前归组待核对：${currentAttendees('UNRESOLVED').map(item => item.name).join('、')}`" />
           <section class="attendee-section">
             <div class="detail-title">学习合影</div>
             <template v-if="detail.evidence">

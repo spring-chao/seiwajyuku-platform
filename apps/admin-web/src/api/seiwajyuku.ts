@@ -909,7 +909,7 @@ export type MemberListResponse = {
 };
 
 export type LearningOrgReferenceCounts = {
-  active_member_relations: number;
+  unresolved_member_relations?: number; active_member_relations: number;
   active_children: number;
   active_events: number;
 };

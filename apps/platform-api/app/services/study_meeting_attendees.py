@@ -34,43 +34,10 @@ def _require_editor(actor_user_id: int, session: dict) -> None:
 
 
 def _roster(connection, session: dict, member_ids: list[int] | None = None) -> list[dict]:
-    """Resolve unique current GROUP relations; never choose an ambiguous group."""
-    now = _db_timestamp(connection)
-    params = [now, now]
-    filter_sql = ""
-    if member_ids is not None:
-        filter_sql = " AND m.id IN (" + ",".join("?" for _ in member_ids) + ")"
-        params.extend(member_ids)
-    else:
-        # First bound candidates to this class; the outer query still sees ALL
-        # active group relations to reject cross-class or ambiguous membership.
-        filter_sql = (
-            " AND EXISTS(SELECT 1 FROM member_org_relations cr JOIN org_units cg ON cg.id=cr.org_unit_id "
-            "WHERE cr.member_id=m.id AND cr.relation_type='STUDY_GROUP' "
-            "AND cg.parent_id=? AND cg.unit_type='GROUP' AND cg.is_active=1 "
-            "AND (cr.valid_from IS NULL OR cr.valid_from<=?) AND (cr.valid_until IS NULL OR cr.valid_until>=?))"
-        )
-        params.extend([session["class_org_unit_id"], now, now])
-    rows = execute(connection,
-        "SELECT DISTINCT m.id AS member_id, m.name, g.id AS group_org_unit_id, g.name AS group_name, "
-        "g.parent_id AS class_org_unit_id FROM members m "
-        "JOIN member_org_relations r ON r.member_id=m.id AND r.relation_type='STUDY_GROUP' "
-        "JOIN org_units g ON g.id=r.org_unit_id AND g.unit_type='GROUP' AND g.is_active=1 "
-        "JOIN org_units c ON c.id=g.parent_id AND c.unit_type='CLASS' AND c.is_active=1 "
-        "WHERE m.status='ACTIVE' AND (r.valid_from IS NULL OR r.valid_from<=?) "
-        "AND (r.valid_until IS NULL OR r.valid_until>=?)" + filter_sql + " ORDER BY m.name, m.id",
-        tuple(params)).fetchall()
-    grouped: dict[int, list[dict]] = {}
-    for row in rows:
-        grouped.setdefault(int(row["member_id"]), []).append(dict(row))
-    result = []
-    for member_id, groups in grouped.items():
-        if len(groups) != 1 or groups[0]["class_org_unit_id"] != session["class_org_unit_id"]:
-            continue
-        row = groups[0]
-        row["member_id"] = member_id
+    from app.services.study_membership import group_roster
+    result = group_roster(connection, class_id=session['class_org_unit_id'], member_ids=member_ids)
+    for row in result:
         row["attendance_type"] = "HOME_GROUP" if row["group_org_unit_id"] == session["study_group_org_unit_id"] else "CROSS_GROUP"
-        result.append(row)
     return result
 
 

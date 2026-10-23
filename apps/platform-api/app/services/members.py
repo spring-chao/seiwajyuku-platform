@@ -32,33 +32,12 @@ from app.services.volunteer_positions import (
 # Class and group names are presentation fields derived from the organization
 # master.  Never fall back to the legacy text columns here: doing so would make
 # a profile or renewal row look assigned after its formal relation ended.
-CURRENT_STUDY_CLASS_NAME_SQL = (
-    "(SELECT ou.name FROM member_org_relations mor "
-    "JOIN org_units ou ON ou.id=mor.org_unit_id "
-    "WHERE mor.member_id=m.id AND mor.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
-    "AND mor.valid_until IS NULL AND ou.is_active=1 "
-    "ORDER BY mor.is_primary DESC, mor.id DESC LIMIT 1)"
-)
-CURRENT_STUDY_GROUP_NAME_SQL = (
-    "(SELECT ou.name FROM member_org_relations mor "
-    "JOIN org_units ou ON ou.id=mor.org_unit_id "
-    "WHERE mor.member_id=m.id AND mor.relation_type='STUDY_GROUP' "
-    "AND mor.valid_until IS NULL AND ou.is_active=1 "
-    "ORDER BY mor.is_primary DESC, mor.id DESC LIMIT 1)"
-)
-CURRENT_STUDY_CLASS_ID_SQL = (
-    "(SELECT mor.org_unit_id FROM member_org_relations mor "
-    "JOIN org_units ou ON ou.id=mor.org_unit_id "
-    "WHERE mor.member_id=m.id AND mor.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
-    "AND mor.valid_until IS NULL AND ou.is_active=1 "
-    "ORDER BY mor.is_primary DESC, mor.id DESC LIMIT 1)"
-)
-CURRENT_STUDY_GROUP_ID_SQL = (
-    "(SELECT mor.org_unit_id FROM member_org_relations mor "
-    "JOIN org_units ou ON ou.id=mor.org_unit_id "
-    "WHERE mor.member_id=m.id AND mor.relation_type='STUDY_GROUP' "
-    "AND mor.valid_until IS NULL AND ou.is_active=1 "
-    "ORDER BY mor.is_primary DESC, mor.id DESC LIMIT 1)"
+from app.services.study_membership import (
+    CURRENT_CLASS_NAME_SQL as CURRENT_STUDY_CLASS_NAME_SQL,
+    CURRENT_GROUP_NAME_SQL as CURRENT_STUDY_GROUP_NAME_SQL,
+    CURRENT_CLASS_ID_SQL as CURRENT_STUDY_CLASS_ID_SQL,
+    CURRENT_GROUP_ID_SQL as CURRENT_STUDY_GROUP_ID_SQL,
+    effective_relation_sql,
 )
 
 
@@ -141,14 +120,14 @@ def resolve_member_scope(
     placeholders = ",".join("?" for _ in allowed)
     now = datetime.now(UTC).isoformat()
     relation = fetch_one(
-        "SELECT org_unit_id FROM member_org_relations "
-        f"WHERE member_id=? AND org_unit_id IN ({placeholders}) "
-        "AND (valid_from IS NULL OR valid_from<=?) "
-        "AND (valid_until IS NULL OR valid_until>=?) "
-        "ORDER BY CASE relation_type "
+        "SELECT mor.org_unit_id FROM member_org_relations mor JOIN members m ON m.id=mor.member_id "
+        f"WHERE mor.member_id=? AND mor.org_unit_id IN ({placeholders}) "
+        f"AND {effective_relation_sql('mor')} "
+        f"AND (mor.relation_type NOT IN ('STUDY_GROUP','STUDY_CLASS','SPECIAL_COHORT') OR mor.org_unit_id=CASE WHEN mor.relation_type='STUDY_GROUP' THEN {CURRENT_STUDY_GROUP_ID_SQL} ELSE {CURRENT_STUDY_CLASS_ID_SQL} END) "
+        "ORDER BY CASE mor.relation_type "
         "WHEN 'STUDY_GROUP' THEN 1 WHEN 'STUDY_CLASS' THEN 2 "
-        "WHEN 'DEVELOPMENT_RELATION' THEN 3 ELSE 4 END, id LIMIT 1",
-        (member_id, *sorted(allowed), now, now),
+        "WHEN 'DEVELOPMENT_RELATION' THEN 3 ELSE 4 END, mor.id LIMIT 1",
+        (member_id, *sorted(allowed)),
     )
     if not relation:
         raise PermissionError("学员不在组织授权范围内")
@@ -712,6 +691,11 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         elif group_key_changed:
             desired_relations["STUDY_GROUP"] = target_group
         for relation_type, desired_org in desired_relations.items():
+            if relation_type in {'STUDY_CLASS', 'SPECIAL_COHORT', 'STUDY_GROUP'}:
+                from app.services.study_membership import set_formal_relation
+                set_formal_relation(connection, member_id=member_id, relation_type=relation_type,
+                                    org_id=desired_org, now=now)
+                continue
             existing = execute(
                 connection,
                 "SELECT id FROM member_org_relations WHERE member_id=? AND relation_type=? LIMIT 1",
@@ -1287,12 +1271,13 @@ def list_members_page(
         if not ids:
             return "0", []
         placeholders = ",".join("?" for _ in ids)
-        conditions = [f"mor.org_unit_id IN ({placeholders})", "(mor.valid_from IS NULL OR mor.valid_from<=?)", "(mor.valid_until IS NULL OR mor.valid_until>=?)"]
-        values: list[Any] = [*sorted(ids), now, now]
+        conditions = [f"mor.org_unit_id IN ({placeholders})", effective_relation_sql('mor')]
+        values: list[Any] = [*sorted(ids)]
         if relation_types:
             type_placeholders = ",".join("?" for _ in relation_types)
             conditions.append(f"mor.relation_type IN ({type_placeholders})")
             values.extend(relation_types)
+        conditions.append(f"(mor.relation_type NOT IN ('STUDY_GROUP','STUDY_CLASS','SPECIAL_COHORT') OR mor.org_unit_id=CASE WHEN mor.relation_type='STUDY_GROUP' THEN {CURRENT_STUDY_GROUP_ID_SQL} ELSE {CURRENT_STUDY_CLASS_ID_SQL} END)")
         return (
             "EXISTS (SELECT 1 FROM member_org_relations mor WHERE mor.member_id=m.id AND "
             + " AND ".join(conditions)
@@ -1308,15 +1293,11 @@ def list_members_page(
     base_conditions.append(f"({primary_scope} OR {relation_scope})")
     base_params.extend(relation_params)
     if class_org_unit_id:
-        class_scope, class_params = relation_exists({class_org_unit_id}, ("STUDY_CLASS", "SPECIAL_COHORT"))
-        base_conditions.append(f"(m.org_unit_id=? OR {class_scope})")
+        base_conditions.append(f"{CURRENT_STUDY_CLASS_ID_SQL}=?")
         base_params.append(class_org_unit_id)
-        base_params.extend(class_params)
     if group_org_unit_id:
-        group_scope, group_params = relation_exists({group_org_unit_id}, ("STUDY_GROUP",))
-        base_conditions.append(f"(m.org_unit_id=? OR {group_scope})")
+        base_conditions.append(f"{CURRENT_STUDY_GROUP_ID_SQL}=?")
         base_params.append(group_org_unit_id)
-        base_params.extend(group_params)
     conditions = list(base_conditions)
     params = list(base_params)
     if normalized_status != "ALL":

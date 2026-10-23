@@ -129,27 +129,10 @@ def _refresh_monthly_content(class_org_unit_id: str) -> None:
 
 
 def _active_group_members(connection, group_org_unit_id: str) -> list[dict[str, Any]]:
-    now = _now()
-    rows = execute(
-        connection,
-        "SELECT DISTINCT m.id, m.name, m.phone_masked "
-        "FROM members m JOIN member_org_relations r ON r.member_id=m.id "
-        "JOIN org_units g ON g.id=r.org_unit_id "
-        "WHERE m.status='ACTIVE' AND g.id=? AND g.unit_type='GROUP' AND g.is_active=1 "
-        "AND r.relation_type='STUDY_GROUP' "
-        "AND (r.valid_from IS NULL OR r.valid_from<=?) "
-        "AND (r.valid_until IS NULL OR r.valid_until>=?) "
-        "ORDER BY m.name, m.id",
-        (group_org_unit_id, now, now),
-    ).fetchall()
-    return [
-        {
-            "member_id": int(row["id"]),
-            "name": row["name"],
-            "phone_masked": row["phone_masked"] or "",
-        }
-        for row in rows
-    ]
+    from app.services.study_membership import group_roster
+    return [{"member_id": int(row["member_id"]), "name": row["name"],
+             "phone_masked": row["phone_masked"] or ""}
+            for row in group_roster(connection, group_id=group_org_unit_id)]
 
 
 def _course_rule_directory_for_binding(
@@ -544,38 +527,21 @@ def get_study_meeting_context(
     }
 
 
-def search_cross_group_members(
-    *, member_id: int, group_org_unit_id: str, query: str | None = None
-) -> list[dict[str, Any]]:
+def search_cross_group_members(*, member_id: int, group_org_unit_id: str, query: str | None = None) -> list[dict[str, Any]]:
+    from app.services.study_membership import group_roster
     _require_enabled()
     target = _target_for_member(member_id, group_org_unit_id)
-    now = _now()
     term = (query or "").strip()
     if len(term) > 80:
         raise StudyMeetingError("搜索条件过长")
-    statement = (
-        "SELECT DISTINCT m.id, m.name, c.name AS class_name, g.name AS group_name "
-        "FROM members m JOIN member_org_relations r ON r.member_id=m.id "
-        "JOIN org_units g ON g.id=r.org_unit_id AND g.unit_type='GROUP' AND g.is_active=1 "
-        "JOIN org_units c ON c.id=g.parent_id AND c.id=? "
-        "WHERE m.status='ACTIVE' AND c.is_active=1 AND r.relation_type='STUDY_GROUP' AND g.id<>? "
-        "AND (r.valid_from IS NULL OR r.valid_from<=?) "
-        "AND (r.valid_until IS NULL OR r.valid_until>=?) "
-    )
-    params: list[Any] = [target["class_org_unit_id"], group_org_unit_id, now, now]
-    if term:
-        statement += "AND m.name LIKE ? "
-        params.append(f"%{term}%")
-    statement += "ORDER BY m.name, m.id LIMIT 50"
-    return [
-        {
-            "member_id": int(row["id"]),
-            "name": row["name"],
-            "class_name": row["class_name"],
-            "group_name": row["group_name"],
-        }
-        for row in fetch_all(statement, tuple(params))
-    ]
+    connection = connect()
+    try:
+        rows = group_roster(connection, class_id=target["class_org_unit_id"])
+    finally:
+        connection.close()
+    return [{key: row[key] for key in ('member_id','name','class_name','group_name')}
+            for row in rows if row['group_org_unit_id'] != group_org_unit_id
+            and (not term or term.casefold() in row['name'].casefold())][:50]
 
 
 def _parse_meeting_date(value: str | None) -> str:
@@ -625,50 +591,14 @@ def _validate_session_attendees(connection, session_row: Any) -> None:
     if len(home_ids) + len(cross_ids) != len(rows):
         raise StudyMeetingError("学习会名单类型无效")
 
-    now = _now()
-    if home_ids:
-        placeholders = ",".join("?" for _ in home_ids)
-        home_rows = execute(
-            connection,
-            "SELECT DISTINCT m.id FROM members m "
-            "JOIN member_org_relations r ON r.member_id=m.id "
-            "JOIN org_units g ON g.id=r.org_unit_id "
-            "WHERE m.status='ACTIVE' AND g.id=? AND g.unit_type='GROUP' AND g.is_active=1 "
-            "AND r.relation_type='STUDY_GROUP' "
-            "AND r.member_id IN (" + placeholders + ") "
-            "AND (r.valid_from IS NULL OR r.valid_from<=?) "
-            "AND (r.valid_until IS NULL OR r.valid_until>=?)",
-            (target_group_id, *home_ids, now, now),
-        ).fetchall()
-        if {int(item["id"]) for item in home_rows} != set(home_ids):
-            raise StudyMeetingError("本组名单已不再是当前有效关系")
-
-    current_cross: dict[int, str] = {}
-    if cross_ids:
-        placeholders = ",".join("?" for _ in cross_ids)
-        cross_rows = execute(
-            connection,
-            "SELECT DISTINCT m.id, r.org_unit_id AS home_group_id "
-            "FROM members m JOIN member_org_relations r ON r.member_id=m.id "
-            "JOIN org_units g ON g.id=r.org_unit_id AND g.unit_type='GROUP' AND g.is_active=1 "
-            "WHERE m.status='ACTIVE' AND g.parent_id=? AND g.id<>? "
-            "AND g.is_active=1 AND r.relation_type='STUDY_GROUP' "
-            "AND r.member_id IN (" + placeholders + ") "
-            "AND (r.valid_from IS NULL OR r.valid_from<=?) "
-            "AND (r.valid_until IS NULL OR r.valid_until>=?)",
-            (class_id, target_group_id, *cross_ids, now, now),
-        ).fetchall()
-        grouped_cross: dict[int, set[str]] = {}
-        for item in cross_rows:
-            grouped_cross.setdefault(int(item["id"]), set()).add(item["home_group_id"])
-        if any(len(groups) != 1 for groups in grouped_cross.values()):
-            raise StudyMeetingError("跨组学长存在多个当前有效小组，暂不能提交")
-        current_cross = {
-            member_id: next(iter(groups))
-            for member_id, groups in grouped_cross.items()
-        }
-        if set(current_cross) != set(cross_ids):
-            raise StudyMeetingError("跨组学长已不再是同班其他小组的有效学员")
+    from app.services.study_membership import group_roster
+    current = {int(item['member_id']): item['group_org_unit_id']
+               for item in group_roster(connection, class_id=class_id, member_ids=member_ids)}
+    if any(current.get(mid) != target_group_id for mid in home_ids):
+        raise StudyMeetingError("本组名单已不再是当前有效关系")
+    current_cross = {mid: current[mid] for mid in cross_ids if mid in current and current[mid] != target_group_id}
+    if set(current_cross) != set(cross_ids):
+        raise StudyMeetingError("跨组学长已不再是同班其他小组的有效学员")
 
     for item in rows:
         if item["attended_study_group_org_unit_id"] != target_group_id:
@@ -870,43 +800,14 @@ def create_study_meeting(
             keys,
             binding=binding,
         )
-        home_placeholders = ",".join("?" for _ in home_ids)
-        home_rows = execute(
-            connection,
-            "SELECT DISTINCT m.id FROM members m JOIN member_org_relations r ON r.member_id=m.id "
-            "WHERE m.status='ACTIVE' AND r.org_unit_id=? AND r.relation_type='STUDY_GROUP' "
-            "AND r.member_id IN (" + home_placeholders + ") "
-            "AND (r.valid_from IS NULL OR r.valid_from<=?) "
-            "AND (r.valid_until IS NULL OR r.valid_until>=?)",
-            (target["group_org_unit_id"], *home_ids, now, now),
-        ).fetchall()
-        valid_home = {int(row["id"]) for row in home_rows}
-        if valid_home != set(home_ids):
+        from app.services.study_membership import group_roster
+        current = {int(item['member_id']): item['group_org_unit_id'] for item in group_roster(
+            connection, class_id=target['class_org_unit_id'], member_ids=[*home_ids, *cross_ids])}
+        if any(current.get(mid) != target['group_org_unit_id'] for mid in home_ids):
             raise StudyMeetingError("本组名单包含不在当前有效关系中的学长")
-
-        cross_home_groups: dict[int, str] = {}
-        if cross_ids:
-            cross_placeholders = ",".join("?" for _ in cross_ids)
-            cross_rows = execute(
-                connection,
-                "SELECT DISTINCT m.id, r.org_unit_id AS home_group_id "
-                "FROM members m JOIN member_org_relations r ON r.member_id=m.id "
-                "JOIN org_units g ON g.id=r.org_unit_id AND g.unit_type='GROUP' "
-                "WHERE m.status='ACTIVE' AND g.parent_id=? AND g.id<>? "
-                "AND r.relation_type='STUDY_GROUP' AND r.member_id IN (" + cross_placeholders + ") "
-                "AND (r.valid_from IS NULL OR r.valid_from<=?) "
-                "AND (r.valid_until IS NULL OR r.valid_until>=?)",
-                (target["class_org_unit_id"], target["group_org_unit_id"], *cross_ids, now, now),
-            ).fetchall()
-            grouped_cross: dict[int, set[str]] = {}
-            for row in cross_rows:
-                grouped_cross.setdefault(int(row["id"]), set()).add(row["home_group_id"])
-            if any(len(groups) != 1 for groups in grouped_cross.values()):
-                raise StudyMeetingError("跨组学长存在多个当前有效小组，暂不能登记")
-            for cross_member_id, groups in grouped_cross.items():
-                cross_home_groups[cross_member_id] = next(iter(groups))
-            if set(cross_home_groups) != set(cross_ids):
-                raise StudyMeetingError("跨组学长必须是同一班级其他小组的有效学员")
+        cross_home_groups = {mid: current[mid] for mid in cross_ids if mid in current and current[mid] != target['group_org_unit_id']}
+        if set(cross_home_groups) != set(cross_ids):
+            raise StudyMeetingError("跨组学长必须是同一班级其他小组的有效学员")
 
         session_code = f"SM-{datetime.now(UTC):%Y%m%d%H%M%S}-{secrets.token_hex(4).upper()}"
         db_now = _db_timestamp(connection)

@@ -171,6 +171,16 @@ def learning_org_management(
     return {"success": True, "data": list_learning_org_units(actor["id"])}
 
 
+@router.get('/iam/org-units/study-membership-audit')
+def study_membership_audit(limit: int = Query(200, ge=1, le=500),
+                           actor: dict = Depends(require_permission('org:manage'))) -> dict:
+    from app.services.study_membership_audit import audit_study_membership
+    try:
+        return {'success': True, 'data': audit_study_membership(actor_user_id=actor['id'], limit=limit)}
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+
+
 @router.post("/iam/org-units/learning-management")
 def add_learning_org_unit(
     payload: LearningOrgCreatePayload,

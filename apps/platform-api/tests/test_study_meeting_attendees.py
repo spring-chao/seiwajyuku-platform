@@ -112,7 +112,7 @@ def test_invalid_roster_is_rejected_atomically(case):
         with transaction() as connection:
             now = _db_timestamp(connection)
             execute(connection, "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, created_at, updated_at) "
-                    "VALUES (?, ?, 'STUDY_GROUP', 0, ?, ?)", (candidate, f["other_group_id"], now, now))
+                    "VALUES (?, ?, 'STUDY_GROUP', 1, ?, ?)", (candidate, f["other_group_id"], now, now))
     elif case == "expired":
         with transaction() as connection:
             execute(connection, "UPDATE member_org_relations SET valid_until='2000-01-01' WHERE member_id=? AND relation_type='STUDY_GROUP'", (candidate,))

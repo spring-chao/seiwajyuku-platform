@@ -176,6 +176,7 @@ def test_home_rate_excludes_cross_group_and_counts_active_roster():
     assert detail["home_group_member_count"] == 1 and detail["home_group_attendance_rate"] == 100
     with transaction() as connection:
         # A second current home member did not attend this meeting.
+        execute(connection, "UPDATE member_org_relations SET org_unit_id=? WHERE member_id=? AND relation_type='STUDY_CLASS'", (f['class_id'], f['foreign_member_id']))
         execute(connection, "INSERT INTO member_org_relations(member_id, org_unit_id, relation_type, is_primary, created_at, updated_at) "
             "VALUES (?, ?, 'STUDY_GROUP', 0, '2020-01-01', '2020-01-01')", (f["foreign_member_id"], f["group_id"]))
     detail = get_study_meeting_record_for_operations(**args)
