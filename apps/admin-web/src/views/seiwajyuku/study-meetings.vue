@@ -484,7 +484,7 @@ onMounted(async () => {
             <el-descriptions-item label="课程" :span="2">{{ courseLabel(detail) }}</el-descriptions-item>
             <el-descriptions-item label="小组参会率">
               {{ detail.home_group_attendance_rate == null ? '待核对' : `${detail.home_group_attendance_rate}%` }}
-              <span class="muted">（本组 {{ detail.home_count }} / {{ detail.home_group_member_count }} 人）</span>
+              <span class="muted">（当前本组 {{ detail.current_home_count ?? detail.home_count }} / {{ detail.home_group_member_count }} 人）</span>
             </el-descriptions-item>
             <el-descriptions-item label="核实状态">
               <el-tag :type="detail.review_status === 'CONFIRMED' ? 'success' : 'warning'">
