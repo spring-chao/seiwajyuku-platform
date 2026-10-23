@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from app.db import execute, fetch_one, transaction
 from app.api.attendance import event_group_detail, list_activity_sessions, list_event_groups, list_records
+from app.services.volunteer_management import create_appointment, create_service_unit
 from test_v12_mvp import _seed_group_leader_fixture
 
 
@@ -109,3 +110,73 @@ def test_current_formal_class_and_active_status_override_legacy_member_fields():
     group=event_group_detail(event,user=actor)['data']['group']
     assert group['overall_registration_count']==1
     assert group['overall_present_count']==0 and group['overall_participation_rate']==0.0
+
+
+def staff_appointment(f, role, target, member_id=None):
+    actor=fetch_one("SELECT id FROM app_users WHERE username='admin'")['id']
+    unit=create_service_unit(actor,unit_code='OVERALL-STAFF-'+uuid4().hex,name='合成班级师资团队',
+        system_type='CLASS_TEAM',line_type='GENERAL',parent_id=None,
+        home_shuku_org_unit_id='org-suzhou',service_target_org_unit_id=target)
+    appointment=create_appointment(actor,member_id=member_id or f['foreign_member_id'],
+        service_unit_id=unit['id'],position_key=role,confirmation_note='隔离测试正式任职')
+    return appointment['id'],unit['id']
+
+
+@pytest.mark.parametrize('role,target_key',[
+    ('volunteer_class_counselor','class_id'),
+    ('volunteer_deputy_class_teacher','class_id'),
+    ('volunteer_group_counselor','group_id'),
+])
+def test_only_host_class_formal_teachers_and_group_counselors_are_cross_class_exceptions(role,target_key):
+    f,event=fixture()
+    actor={'id':fetch_one("SELECT id FROM app_users WHERE username='admin'")['id']}
+    appointment,_=staff_appointment(f,role,f[target_key])
+    now=datetime.now(UTC).isoformat()
+    with transaction() as c:
+        # V2 service target overrides the legacy org field; dates are archival.
+        execute(c,"UPDATE volunteer_appointments SET org_unit_id=?,starts_at='2099-01-01',ends_at='2000-01-01' WHERE id=?",
+                (f['other_class_id'],appointment))
+        sid=execute(c,"SELECT id FROM attendance_sessions WHERE event_group_id=? AND session_code='AFTERNOON'",(event,)).fetchone()['id']
+        execute(c,"INSERT INTO attendance_records(attendance_session_id,external_record_id,member_id,name_snapshot,participant_type,score_eligible,attendance_status,received_at,created_at,updated_at) "
+            "VALUES (?,?,?,'跨班本班师资重复签到','MEMBER',0,'PRESENT',?,?,?)",(sid,uuid4().hex,f['foreign_member_id'],now,now,now))
+    group=event_group_detail(event,user=actor)['data']['group']
+    assert group['overall_registration_count']==3
+    assert group['overall_present_count']==3 and group['overall_participation_rate']==100.0
+
+
+@pytest.mark.parametrize('reason',['other_class','other_role','ended','inactive_member','inactive_team','moved_group','guest','only_konpa'])
+def test_cross_class_staff_exception_does_not_expand_to_unrelated_or_inactive_attendees(reason):
+    f,event=fixture()
+    actor={'id':fetch_one("SELECT id FROM app_users WHERE username='admin'")['id']}
+    role='volunteer_class_monitor' if reason=='other_role' else 'volunteer_group_counselor' if reason=='moved_group' else 'volunteer_class_counselor'
+    target=f['other_class_id'] if reason=='other_class' else f['group_id'] if reason=='moved_group' else f['class_id']
+    appointment,unit=staff_appointment(f,role,target)
+    with transaction() as c:
+        if reason=='ended':
+            execute(c,"UPDATE volunteer_appointments SET status='ENDED' WHERE id=?",(appointment,))
+        elif reason=='inactive_member':
+            execute(c,"UPDATE members SET status='INACTIVE' WHERE id=?",(f['foreign_member_id'],))
+        elif reason=='inactive_team':
+            execute(c,'UPDATE volunteer_service_units SET is_active=0 WHERE id=?',(unit,))
+        elif reason=='moved_group':
+            execute(c,'UPDATE org_units SET parent_id=? WHERE id=?',(f['other_class_id'],f['group_id']))
+        elif reason=='guest':
+            execute(c,"UPDATE attendance_records SET participant_type='GUEST' WHERE member_id=?",(f['foreign_member_id'],))
+        elif reason=='only_konpa':
+            sid=execute(c,"SELECT id FROM attendance_sessions WHERE event_group_id=? AND session_code='KONPA'",(event,)).fetchone()['id']
+            execute(c,'UPDATE attendance_records SET attendance_session_id=? WHERE member_id=?',(sid,f['foreign_member_id']))
+    group=event_group_detail(event,user=actor)['data']['group']
+    assert group['overall_registration_count']==3
+    assert group['overall_present_count']==2 and group['overall_participation_rate']==66.7
+    assert any(r['member_id']==f['foreign_member_id'] for r in list_records(event_group_id=event,user=actor)['data'])
+
+
+def test_legacy_formal_staff_and_own_member_with_a_post_count_once():
+    f,event=fixture()
+    actor={'id':fetch_one("SELECT id FROM app_users WHERE username='admin'")['id']}
+    appointment,_=staff_appointment(f,'volunteer_class_counselor',f['class_id'])
+    staff_appointment(f,'volunteer_deputy_class_teacher',f['class_id'],f['member_id'])
+    with transaction() as c:
+        execute(c,'UPDATE volunteer_appointments SET volunteer_service_unit_id=NULL WHERE id=?',(appointment,))
+    group=event_group_detail(event,user=actor)['data']['group']
+    assert group['overall_registration_count']==3 and group['overall_present_count']==3
