@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import dayjs from "dayjs";
-import { activityTypeLabel, activitySessionLabel, registrationCount } from "@/utils/business-labels.mjs";
+import { activityTypeLabel, activitySessionLabel, registrationCount, isClassMeeting } from "@/utils/business-labels.mjs";
 import { activityCenter, filterActivitySessions, groupActivitySessions } from "@/utils/activity-list.mjs";
 import { chinaTimestampDate, chinaTime } from "@/utils/business-date";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -95,7 +95,7 @@ const detailClassBreakdown = computed<AttendanceClassParticipation[]>(() =>
 );
 const detailSummary = computed<any>(() => {
   if (!detail.value) return null;
-  if (detail.value.group.activity_type === "CLASS_MEETING") return { ...detail.value.group,
+  if (isClassMeeting(detail.value.group.activity_type)) return { ...detail.value.group,
     registration_count: detail.value.group.overall_registration_count ?? null,
     present_count: detail.value.group.overall_present_count ?? null };
   const session = detail.value.sessions.find(
@@ -390,7 +390,7 @@ async function downloadDetailRecords() {
 
     <el-card shadow="never">
       <div class="rate-definition">
-        每行显示一场活动。班级会报名人数按本班当前在册人数计一次；整体签到人数为本班上午或下午有效签到学员去重人数，空巴不计入。整体参会率＝整体签到人数÷本班人数；各场次明细保留。
+        每行显示一场活动。班级会报名人数按本班当前在册人数计一次；上午或下午有效签到人员按身份去重，包含跨班学员和嘉宾，空巴不计入。整体参会率＝整体签到人数÷本班人数；各场次明细保留。
       </div>
       <el-table :data="visibleRows" row-key="id" stripe class="activity-table">
         <el-table-column prop="event_date" label="活动日期" min-width="130" />
@@ -457,13 +457,16 @@ async function downloadDetailRecords() {
               <strong>{{ participationScopeLabel(detail.group) }}</strong>
             </div>
             <div>
-              <span>{{ detail.group.activity_type === "CLASS_MEETING" ? "报名人数（本班）" : "报名人次" }}</span>
+              <span>{{ isClassMeeting(detail.group.activity_type) ? "报名人数（本班）" : "报名人次" }}</span>
               <strong>{{ registrationCount(detailSummary) ?? "待核实" }}</strong>
             </div>
-            <div><span>{{ detail.group.activity_type === "CLASS_MEETING" ? "整体签到人数（上午／下午去重）" : "已签到人次" }}</span><strong>{{ detailSummary.present_count ?? "待核实" }}</strong></div>
-            <div v-if="detail.group.activity_type === 'CLASS_MEETING'"><span>整体参会率</span><strong>{{ overallRate(detail.group) }}</strong></div>
+            <div><span>{{ isClassMeeting(detail.group.activity_type) ? "整体签到人数（上午／下午去重）" : "已签到人次" }}</span><strong>{{ detailSummary.present_count ?? "待核实" }}</strong></div>
+            <div v-if="isClassMeeting(detail.group.activity_type)"><span>整体参会率</span><strong>{{ overallRate(detail.group) }}</strong></div>
             <div><span>扫码场次</span><strong>{{ visibleDetailSessions.length }}</strong></div>
           </div>
+
+          <el-alert v-if="detail.group.overall_unresolved_record_count" type="warning" :closable="false"
+            :title="`上午／下午已确认 ${detail.group.overall_identified_count} 人，另有 ${detail.group.overall_unresolved_record_count} 条签到缺少唯一身份，整体人数和参会率待核实。`" />
 
           <section v-if="detailClassBreakdown.length" class="detail-section">
             <div class="detail-section__heading">

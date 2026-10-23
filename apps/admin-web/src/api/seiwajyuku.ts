@@ -1122,6 +1122,8 @@ export type AttendanceEventGroup = {
   overall_registration_count?: number | null;
   overall_present_count?: number | null;
   overall_participation_rate?: number | null;
+  overall_identified_count?: number;
+  overall_unresolved_record_count?: number;
   registration_count?: number | null;
   registration_count_status?: string;
   id: number;
