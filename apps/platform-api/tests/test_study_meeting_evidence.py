@@ -4,7 +4,7 @@ import io
 import json
 import re
 import sqlite3
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -62,6 +62,47 @@ def upload(fixture, session):
 
 def admin_id():
     return int(fetch_one("SELECT id FROM app_users WHERE username='admin'")["id"])
+
+
+def test_thirty_day_policy_extends_stored_legacy_photo_and_cleanup_uses_same_deadline(monkeypatch):
+    from app.db import connect
+    from app.services.study_meeting_evidence import evidence_metadata
+    from app.services.study_meetings import _db_timestamp
+    f = _seed_group_leader_fixture(); session = create(f); evidence = upload(f, session)
+    uploaded = datetime.now(UTC) - timedelta(days=8)
+    with transaction() as c:
+        execute(c, 'UPDATE study_meeting_evidence SET uploaded_at=?,expires_at=? WHERE id=?',
+                (_db_timestamp(c,uploaded),_db_timestamp(c,uploaded+timedelta(days=7)),evidence['id']))
+    monkeypatch.setenv('STUDY_EVIDENCE_RETENTION_HOURS','720')
+    assert read_evidence(session_id=session['id'],actor_user_id=admin_id())[0]
+    c=connect()
+    try:
+        meta=evidence_metadata(c,session['id'])
+        assert datetime.fromisoformat(meta['expires_at']).replace(tzinfo=UTC)>datetime.now(UTC)+timedelta(days=21)
+    finally:c.close()
+    monkeypatch.setenv('APP_ENV','production')
+    monkeypatch.setenv('STUDY_EVIDENCE_CLEANUP_ENABLED','true')
+    monkeypatch.setenv('STUDY_EVIDENCE_STORAGE_BACKEND','cloudbase')
+    retained_candidates=cleanup_evidence(apply=False)['candidates']
+    with transaction() as c:
+        old=datetime.now(UTC)-timedelta(days=31)
+        execute(c,'UPDATE study_meeting_evidence SET uploaded_at=?,expires_at=? WHERE id=?',
+                (_db_timestamp(c,old),_db_timestamp(c,old+timedelta(days=7)),evidence['id']))
+    assert cleanup_evidence(apply=False)['candidates']==retained_candidates+1
+
+
+def test_new_photo_gets_thirty_days_and_deleted_photo_is_not_revived(monkeypatch):
+    from app.db import connect
+    from app.services.study_meeting_evidence import evidence_metadata
+    monkeypatch.setenv('STUDY_EVIDENCE_RETENTION_HOURS','720')
+    f=_seed_group_leader_fixture(); session=create(f); evidence=upload(f,session)
+    start=datetime.fromisoformat(evidence['uploaded_at']); end=datetime.fromisoformat(evidence['expires_at'])
+    assert abs((end-start).total_seconds()-30*86400)<2
+    with transaction() as c:
+        execute(c,"UPDATE study_meeting_evidence SET storage_deleted_at=uploaded_at WHERE id=?",(evidence['id'],))
+    c=connect()
+    try:assert evidence_metadata(c,session['id']) is None
+    finally:c.close()
 
 
 @pytest.mark.parametrize("count", [0, 1, 3, 4])

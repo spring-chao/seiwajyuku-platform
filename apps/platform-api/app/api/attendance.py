@@ -610,6 +610,8 @@ def list_event_groups(
         params.extend(sorted(allowed))
     sql += " ORDER BY eg.event_date DESC"
     rows = fetch_all(sql, tuple(params))
+    from app.services.class_activity_participation import attach_class_activity_overall
+    attach_class_activity_overall(rows)
     return {"success": True, "data": rows}
 
 
@@ -760,6 +762,8 @@ def list_activity_sessions(
     sql += " ORDER BY eg.event_date DESC, eg.id DESC, s.session_order, s.id"
     rows = fetch_all(sql, tuple(params))
     attach_registration_counts(rows)
+    from app.services.class_activity_participation import attach_class_activity_overall
+    attach_class_activity_overall(rows)
     for row in rows:
         row["display_title"] = _session_display_title(
             row.get("title"), row.get("session_name"), str(row["session_code"]), row.get("activity_type", "")
@@ -925,6 +929,8 @@ def event_group_detail(
     counts = [session["registration_count"] for session in sessions]
     group["registration_count"] = sum(counts) if all(value is not None for value in counts) else None
     group["registration_count_status"] = "CONFIRMED" if group["registration_count"] is not None else "UNAVAILABLE"
+    from app.services.class_activity_participation import attach_class_activity_overall
+    attach_class_activity_overall([group])
     return {
         "success": True,
         "data": {
