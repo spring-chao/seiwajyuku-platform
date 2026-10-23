@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import { studyMeetingErrorMessage } from "@/utils/studyMeetingError";
+import { studyMeetingErrorMessage, studyMeetingExportErrorMessage, validateStudyMeetingWorkbook } from "@/utils/studyMeetingError";
 import { useUserStoreHook } from "@/store/modules/user";
 import {
   getStudyMeetingRecord,
@@ -39,6 +39,7 @@ const creditPreview = ref<MeetingCreditPreview>();
 const creditLoading = ref(false);
 const creditError = ref("");
 const exporting = ref(false);
+const exportError = ref("");
 const exportLayout = ref<"group" | "member">("group");
 const confirming = ref(false);
 const confirmationNote = ref("");
@@ -100,20 +101,27 @@ const confirmCompletion = async (course: MeetingCourse, memberId: number, value:
 const downloadRecords = async (sessionId?: number) => {
   if (exporting.value) return;
   exporting.value = true;
+  exportError.value = "";
+  const layout = sessionId ? "member" : exportLayout.value;
   try {
     const blob = await exportMeetingRecords(sessionId ? { session_id: sessionId, layout: "member" } : {
-      layout: exportLayout.value,
+      layout,
       management_org_unit_id: filters.management_org_unit_id || undefined,
       class_org_unit_id: filters.class_org_unit_id || undefined,
       status: filters.status || undefined, meeting_date_from: filters.meeting_date_from || undefined,
       meeting_date_to: filters.meeting_date_to || undefined });
+    await validateStudyMeetingWorkbook(blob);
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = sessionId ? `学习会-${sessionId}-人员学分明细.xlsx` : `小组学习会-${exportLayout.value === 'group' ? '小组汇总' : '人员明细'}.xlsx`;
+    anchor.download = sessionId ? `学习会-${sessionId}-人员学分明细.xlsx` : `小组学习会-${layout === 'group' ? '小组汇总' : '人员明细'}.xlsx`;
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  } catch (error) { ElMessage.error(studyMeetingErrorMessage(error, "学习会导出")); }
+    ElMessage.success("导出文件已生成，已开始下载");
+  } catch (error) {
+    exportError.value = await studyMeetingExportErrorMessage(error);
+    ElMessage.error(exportError.value);
+  }
   finally { exporting.value = false; }
 };
 const photoUrl = ref("");
@@ -398,14 +406,15 @@ onMounted(async () => {
           clearable
         />
         <el-button type="primary" :loading="loading" @click="loadRecords">查询</el-button>
-        <el-select v-if="canExport" v-model="exportLayout" aria-label="学习会导出格式" style="width: 200px">
+        <el-select v-if="canExport" v-model="exportLayout" :disabled="exporting" aria-label="学习会导出格式" style="width: 200px">
           <el-option label="小组汇总（一组一行）" value="group" />
           <el-option label="人员明细（一人一行）" value="member" />
         </el-select>
-        <el-button v-if="canExport" :loading="exporting" @click="downloadRecords()">导出筛选结果</el-button>
+        <el-button v-if="canExport" :loading="exporting" @click="downloadRecords()">{{ exporting ? "正在生成导出文件…" : "导出筛选结果" }}</el-button>
         <span v-if="canExport" class="muted">最多500场学习会；小组汇总含参会率，班级按周期、分中心按月份统计筛选结果</span>
       </div>
 
+      <el-alert v-if="exportError" :title="exportError" type="error" show-icon closable @close="exportError = ''" />
       <div class="muted records-alert">小组参会率 = 本组参加人数 ÷ 本组当前有效在册人数，跨组参加人员不计入；名单变化需核对。</div>
       <el-table v-loading="loading" :data="records" stripe border class="records-table" row-key="id">
         <el-table-column prop="meeting_date" label="日期" width="125" />
@@ -577,7 +586,7 @@ onMounted(async () => {
             </el-table>
             <el-input v-if="detail.can_edit_courses && detail.courses.length" v-model="confirmationNote" class="correction-note" placeholder="观看核实备注（选填，填写后再确认）" maxlength="1000" :disabled="confirming" />
             <div v-if="creditPreview" class="detail-title">本场预计新增合计 {{ creditPreview.totals.proposed_points }} 学分</div>
-            <el-button v-if="canExport" :loading="exporting" :disabled="editingCourses || editingAttendees || confirming || creditLoading" @click="downloadRecords(detail.id)">导出本场人员与预计学分</el-button>
+            <el-button v-if="canExport" :loading="exporting" :disabled="editingCourses || editingAttendees || confirming || creditLoading" @click="downloadRecords(detail.id)">{{ exporting ? "正在生成导出文件…" : "导出本场人员与预计学分" }}</el-button>
           </div>
           <div class="attendee-section">
             <div class="detail-title">本组参加（{{ detail.home_attendees.length }}人）</div>
