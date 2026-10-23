@@ -1,4 +1,4 @@
-"""One class activity: current roster, distinct morning/afternoon attendees."""
+"""One class activity: distinct daytime attendees in the current class roster."""
 from app.db import connect, execute
 from app.services.study_membership import CURRENT_CLASS_ID_SQL
 
@@ -10,6 +10,7 @@ def attach_class_activity_overall(rows: list[dict]) -> None:
         return
     classes = sorted({row['study_org_unit_id'] for row in groups.values() if row.get('study_org_unit_id')})
     roster = {class_id: set() for class_id in classes}
+    roster_codes = {class_id: {} for class_id in classes}
     present = {group_id: set() for group_id in groups}
     unresolved = {group_id: 0 for group_id in groups}
     facts = []
@@ -18,9 +19,12 @@ def attach_class_activity_overall(rows: list[dict]) -> None:
         for start in range(0, len(classes), 200):
             batch = classes[start:start + 200]
             marks = ','.join('?' for _ in batch)
-            for row in execute(c, f'SELECT m.id,{CURRENT_CLASS_ID_SQL} AS class_id FROM members m '
+            for row in execute(c, f'SELECT m.id,m.member_code,{CURRENT_CLASS_ID_SQL} AS class_id FROM members m '
                                f"WHERE m.status='ACTIVE' AND {CURRENT_CLASS_ID_SQL} IN ({marks})", tuple(batch)).fetchall():
                 roster[row['class_id']].add(int(row['id']))
+                code = str(row['member_code'] or '').strip()
+                if code:
+                    roster_codes[row['class_id']].setdefault(code, set()).add(int(row['id']))
         group_ids = list(groups)
         for start in range(0, len(group_ids), 300):
             batch = group_ids[start:start + 300]
@@ -31,11 +35,12 @@ def attach_class_activity_overall(rows: list[dict]) -> None:
                 f'WHERE s.event_group_id IN ({marks}) '
                 "AND UPPER(s.session_code) IN ('MORNING','AM','AFTERNOON','PM') "
                 "AND s.status NOT IN ('DELETED','CANCELLED') "
+                "AND r.participant_type='MEMBER' "
                 "AND r.attendance_status IN ('PRESENT','MANUAL_PRESENT')", tuple(batch)).fetchall())
     finally:
         c.close()
-    # Merge verified member IDs with stable source registration IDs/codes.
-    # Names and masked phones are never used to guess who is the same person.
+    # Resolve stable identities before intersecting with the canonical roster.
+    # An unbound source registration ID alone cannot prove class membership.
     aliases = {}
     for fact in facts:
         if fact['member_id'] is None:
@@ -46,22 +51,22 @@ def attach_class_activity_overall(rows: list[dict]) -> None:
                 aliases.setdefault((fact['event_group_id'], field, value), set()).add(int(fact['member_id']))
     for fact in facts:
         group_id = int(fact['event_group_id'])
+        class_id = groups[group_id].get('study_org_unit_id')
         member_id = fact['member_id']
-        if member_id is not None:
-            key = ('MEMBER', int(member_id))
-        else:
-            candidates, fallback = set(), None
+        if member_id is None:
+            candidates = set()
             for field in ('member_code_snapshot', 'external_registration_id'):
                 value = str(fact[field] or '').strip()
                 if value:
                     candidates.update(aliases.get((group_id, field, value), set()))
-                    if fallback is None:
-                        fallback = (field, value)
-            key = ('MEMBER', next(iter(candidates))) if len(candidates) == 1 else fallback if not candidates else None
-        if key is None:
-            unresolved[group_id] += 1
-        else:
-            present[group_id].add(key)
+            code = str(fact['member_code_snapshot'] or '').strip()
+            candidates.update(roster_codes.get(class_id, {}).get(code, set()))
+            if len(candidates) != 1:
+                unresolved[group_id] += 1
+                continue
+            member_id = next(iter(candidates))
+        if int(member_id) in roster.get(class_id, set()):
+            present[group_id].add(int(member_id))
     for row in rows:
         if int(row['id']) not in groups:
             continue
