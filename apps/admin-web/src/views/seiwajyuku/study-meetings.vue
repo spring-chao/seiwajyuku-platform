@@ -3,6 +3,7 @@ import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from "vue"
 import { ElMessage } from "element-plus";
 import { studyMeetingErrorMessage, studyMeetingExportErrorMessage, validateStudyMeetingWorkbook } from "@/utils/studyMeetingError";
 import { useUserStoreHook } from "@/store/modules/user";
+import { chinaDate } from "@/utils/business-date";
 import {
   getStudyMeetingRecord,
   getStudyMeetingRecords,
@@ -42,7 +43,15 @@ const creditLoading = ref(false);
 const creditError = ref("");
 const exporting = ref(false);
 const exportError = ref("");
-const exportLayout = ref<"group" | "member">("group");
+const exportLayout = ref<"group" | "member" | "sharing">("sharing");
+const reportMonth = ref(chinaDate().slice(0, 7));
+const reportAsOf = ref(chinaDate());
+watch(reportMonth, month => {
+  if (!/^\d{4}-\d{2}$/.test(month || "")) { reportAsOf.value = ""; return; }
+  const [year, number] = month.split("-").map(Number);
+  const end = new Date(Date.UTC(year, number, 0)).toISOString().slice(0, 10);
+  reportAsOf.value = month === chinaDate().slice(0, 7) ? chinaDate() : end;
+});
 const confirming = ref(false);
 const confirmationNote = ref("");
 const reviewing = ref(false);
@@ -105,18 +114,27 @@ const downloadRecords = async (sessionId?: number) => {
   exporting.value = true;
   exportError.value = "";
   const layout = sessionId ? "member" : exportLayout.value;
+  const reportRequest = { month: reportMonth.value, asOf: reportAsOf.value };
   try {
+    if (layout === "sharing" && (!reportRequest.month || !reportRequest.asOf)) {
+      exportError.value = "请选择周报统计月份和截止日期";
+      ElMessage.error(exportError.value);
+      return;
+    }
     const blob = await exportMeetingRecords(sessionId ? { session_id: sessionId, layout: "member" } : {
       layout,
       management_org_unit_id: filters.management_org_unit_id || undefined,
       class_org_unit_id: filters.class_org_unit_id || undefined,
-      status: filters.status || undefined, meeting_date_from: filters.meeting_date_from || undefined,
-      meeting_date_to: filters.meeting_date_to || undefined });
+      ...(layout === "sharing" ? { report_month: reportRequest.month, report_as_of: reportRequest.asOf } : {
+        status: filters.status || undefined, meeting_date_from: filters.meeting_date_from || undefined,
+        meeting_date_to: filters.meeting_date_to || undefined }) });
     await validateStudyMeetingWorkbook(blob);
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = sessionId ? `学习会-${sessionId}-人员学分明细.xlsx` : `小组学习会-${layout === 'group' ? '小组汇总' : '人员明细'}.xlsx`;
+    anchor.download = sessionId ? `学习会-${sessionId}-人员学分明细.xlsx` : layout === "sharing"
+      ? `小组学习会群分享周报-${reportRequest.month}-截至${reportRequest.asOf}.xlsx`
+      : `小组学习会-${layout === 'group' ? '小组汇总' : '人员明细'}.xlsx`;
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     ElMessage.success("导出文件已生成，已开始下载");
@@ -409,11 +427,18 @@ onMounted(async () => {
         />
         <el-button type="primary" :loading="loading" @click="loadRecords">查询</el-button>
         <el-select v-if="canExport" v-model="exportLayout" :disabled="exporting" aria-label="学习会导出格式" style="width: 200px">
+          <el-option label="群分享周报（月度累计）" value="sharing" />
           <el-option label="小组汇总（一组一行）" value="group" />
           <el-option label="人员明细（一人一行）" value="member" />
         </el-select>
-        <el-button v-if="canExport" :loading="exporting" @click="downloadRecords()">{{ exporting ? "正在生成导出文件…" : "导出筛选结果" }}</el-button>
-        <span v-if="canExport" class="muted">最多500场学习会；小组汇总含参会率，班级按周期、分中心按月份统计筛选结果</span>
+        <template v-if="canExport && exportLayout === 'sharing'">
+          <el-date-picker v-model="reportMonth" type="month" value-format="YYYY-MM" aria-label="周报统计月份" placeholder="统计月份" :disabled="exporting" />
+          <el-date-picker v-model="reportAsOf" type="date" value-format="YYYY-MM-DD" aria-label="周报截止日期" placeholder="截至日期" :disabled="exporting" />
+        </template>
+        <el-button v-if="canExport" :loading="exporting" @click="downloadRecords()">{{ exporting ? "正在生成导出文件…" : exportLayout === 'sharing' ? '导出群分享周报' : '导出筛选结果' }}</el-button>
+        <span v-if="canExport" class="muted">{{ exportLayout === 'sharing'
+          ? '周报沿用分中心、班级筛选，日期以周报月份和截止日为准，仅统计已提交记录；应开展小组每月预定1次，免开展和暂停开展不计目标。总参会率按已完成场次加权，完成总表及各分中心明细自动分表。'
+          : '最多500场学习会；小组汇总含参会率，班级按周期、分中心按月份统计筛选结果' }}</span>
       </div>
 
       <el-alert v-if="exportError" :title="exportError" type="error" show-icon closable @close="exportError = ''" />

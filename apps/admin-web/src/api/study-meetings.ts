@@ -142,7 +142,9 @@ export const confirmMeetingCourseCompletion = (sessionId: number, data: {
 export const exportMeetingRecords = (params: {
   management_org_unit_id?: string;
   class_org_unit_id?: string;
-  layout?: "group" | "member";
+  layout?: "group" | "member" | "sharing";
+  report_month?: string;
+  report_as_of?: string;
   session_id?: number; status?: string; meeting_date_from?: string; meeting_date_to?: string;
 }) => http.request<Blob>("get", "/api/v1/study-meetings/records-export", { params, responseType: "blob", timeout: 60000 });
 

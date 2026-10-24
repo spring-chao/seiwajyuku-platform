@@ -19,13 +19,14 @@ function harness(request) {
   const calls = [], saved = [], messages = [];
   const context = vm.createContext({ ref, computed, reactive, watch, ...errors,
     defineOptions() {}, onMounted() {}, onBeforeUnmount() {}, setTimeout: fn => fn(),
+    chinaDate: () => '2026-10-24',
     useUserStoreHook: () => ({ permissions: ['exports:normal', 'plans:credit_settlement_preview'] }),
     ElMessage: { success: value => messages.push(value), error: value => messages.push(value) },
     URL: { createObjectURL: () => 'blob:synthetic-workbook', revokeObjectURL() {} },
     document: { createElement: () => { const anchor = { click: () => saved.push(anchor.download) }; return anchor; } },
     exportMeetingRecords: params => { calls.push(params); return request(params); }
   });
-  vm.runInContext(compiled + '\nglobalThis.state = {exporting, exportError, exportLayout, filters}; globalThis.download = downloadRecords;', context);
+  vm.runInContext(compiled + '\nglobalThis.state = {exporting, exportError, exportLayout, filters, reportMonth, reportAsOf}; globalThis.download = downloadRecords;', context);
   return { state: context.state, run: context.download, calls, saved, messages };
 }
 
@@ -34,6 +35,7 @@ const workbook = () => new Blob([new Uint8Array([0x50, 0x4b, 3, 4, 0])]);
 test('filtered export prevents duplicate submits and keeps the requested filename while controls change', async () => {
   let resolve;
   const h = harness(() => new Promise(r => { resolve = r; }));
+  h.state.exportLayout.value = 'group';
   h.state.filters.class_org_unit_id = 'synthetic-class';
   h.state.filters.meeting_date_from = '2026-10-01';
   const first = h.run();
@@ -45,6 +47,34 @@ test('filtered export prevents duplicate submits and keeps the requested filenam
   resolve(workbook()); await first;
   assert.deepEqual(h.saved, ['小组学习会-小组汇总.xlsx']);
   assert.equal(h.state.exporting.value, false);
+});
+
+test('sharing report uses explicit cumulative month and cutoff with a stable requested filename', async () => {
+  let resolve;
+  const h = harness(() => new Promise(r => { resolve = r; }));
+  assert.equal(h.state.exportLayout.value, 'sharing');
+  h.state.filters.class_org_unit_id = 'scope-class';
+  h.state.filters.status = 'DRAFT';
+  h.state.filters.meeting_date_from = '2026-10-20';
+  h.state.reportAsOf.value = '2026-10-22';
+  const first = h.run();
+  assert.equal(h.calls[0].report_month,'2026-10');
+  assert.equal(h.calls[0].report_as_of,'2026-10-22');
+  assert.equal(h.calls[0].class_org_unit_id,'scope-class');
+  assert.equal(h.calls[0].status,undefined);
+  assert.equal(h.calls[0].meeting_date_from,undefined);
+  h.state.reportAsOf.value = '2026-10-24';
+  resolve(workbook()); await first;
+  assert.deepEqual(h.saved,['小组学习会群分享周报-2026-10-截至2026-10-22.xlsx']);
+});
+
+test('sharing report missing period is a validation message and never a fake network error', async () => {
+  const h = harness(async () => workbook());
+  h.state.reportMonth.value = '';
+  await h.run();
+  assert.equal(h.calls.length,0);
+  assert.match(h.state.exportError.value,/请选择周报/);
+  assert.equal(h.state.exporting.value,false);
 });
 
 test('single-meeting export ignores list filters and uses member layout', async () => {

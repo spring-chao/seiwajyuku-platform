@@ -13,7 +13,7 @@ function harness(confirm) {
     .outputText.replace(/^import [\s\S]*?;\r?\n/gm, "");
   const calls = [];
   const context = vm.createContext({ ref, computed, reactive, watch,
-    defineOptions() {}, onMounted() {}, onBeforeUnmount() {},
+    defineOptions() {}, onMounted() {}, onBeforeUnmount() {}, chinaDate: () => '2026-10-24',
     useUserStoreHook: () => ({ permissions: [] }),
     ElMessage: { success: value => calls.push({ message: value }), error: value => calls.push({ error: value }), warning: value => calls.push({ warning: value }) },
     studyMeetingErrorMessage: () => "失败",

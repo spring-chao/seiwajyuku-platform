@@ -169,11 +169,18 @@ def export_meeting_records(*, actor_user_id: int, session_id: int | None = None,
     return "\ufeff" + output.getvalue()
 
 
-def export_meeting_workbook(*, actor_user_id, session_id=None, layout='group', **filters):
+def export_meeting_workbook(*, actor_user_id, session_id=None, layout='group',
+                            report_month=None, report_as_of=None, **filters):
     from datetime import date
     from app.services.tabular_exports import workbook_bytes
     from app.services.study_meetings import _db_timestamp
 
+    if layout == 'sharing':
+        if session_id is not None:
+            raise StudyMeetingError('群分享周报请按月份导出，不能指定单场学习会')
+        from app.services.study_meeting_sharing import export_sharing_workbook
+        return export_sharing_workbook(actor_user_id=actor_user_id, report_month=report_month,
+            report_as_of=report_as_of, **filters)
     if layout not in {'group', 'member'}:
         raise StudyMeetingError('导出格式无效')
     records = _export_records(actor_user_id, session_id, filters)

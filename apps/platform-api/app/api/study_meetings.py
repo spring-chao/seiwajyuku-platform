@@ -193,11 +193,14 @@ def export_records(
     status: str | None = Query(default=None, max_length=16),
     meeting_date_from: str | None = Query(default=None, max_length=32),
     meeting_date_to: str | None = Query(default=None, max_length=32),
-    layout: str = Query(default='group', pattern='^(group|member)$'),
+    layout: str = Query(default='group', pattern='^(group|member|sharing)$'),
+    report_month: str | None = Query(default=None, max_length=7),
+    report_as_of: str | None = Query(default=None, max_length=10),
     user: dict = Depends(require_permission("exports:normal")),
 ) -> Response:
     try:
         content = export_meeting_workbook(actor_user_id=user["id"], session_id=session_id, layout=layout,
+            report_month=report_month, report_as_of=report_as_of,
             management_org_unit_id=management_org_unit_id, class_org_unit_id=class_org_unit_id,
             status=status, meeting_date_from=meeting_date_from, meeting_date_to=meeting_date_to)
         return Response(content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={
