@@ -176,6 +176,7 @@ jobs:
           apps/platform-api/tests/test_study_membership.py
           apps/platform-api/tests/test_class_activity_overall.py
           apps/platform-api/tests/test_tabular_exports.py
+          apps/platform-api/tests/test_study_meeting_sharing.py
           apps/platform-api/tests/test_member_group_reassignment.py
           apps/platform-api/tests/test_wechat_learning_summary.py
           apps/platform-api/tests/test_signin_management.py
