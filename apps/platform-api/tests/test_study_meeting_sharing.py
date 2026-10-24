@@ -214,7 +214,8 @@ def test_changed_source_fails_closed_and_formula_like_organization_title_stays_t
         with pytest.raises(StudyMeetingError,match='已变化'):report(f)
     with transaction() as c:
         execute(c,"UPDATE study_meeting_sessions SET status='SUBMITTED' WHERE id=?",(s['id'],))
-        execute(c,"UPDATE org_units SET name='=UNTRUSTED()' WHERE id=(SELECT parent_id FROM org_units WHERE id=?)",(f['class_id'],))
+        parent=execute(c,'SELECT parent_id FROM org_units WHERE id=?',(f['class_id'],)).fetchone()
+        execute(c,"UPDATE org_units SET name='=UNTRUSTED()' WHERE id=?",(parent['parent_id'],))
     raw=export_meeting_workbook(actor_user_id=_admin_id(),layout='sharing',report_month='2020-02',
         report_as_of='2020-02-20',class_org_unit_id=f['class_id'])
     book=load_workbook(io.BytesIO(raw))
