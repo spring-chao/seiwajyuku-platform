@@ -32,7 +32,9 @@ import {
   scopedRosterOptions,
   manualCheckinReason,
   filterAttendanceRows,
-  attendanceExportRows
+  attendanceExportRows,
+  attendanceSummaryRows,
+  attendanceGroupSummaryRows
 } from "@/utils/attendanceManagement.mjs";
 
 defineOptions({ name: "CheckinManagement" });
@@ -839,11 +841,45 @@ async function exportExcel() {
     });
     const XLSX = await import("xlsx");
     const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.aoa_to_sheet(
-      attendanceExportRows(result.rows, target?.activity_type)
+    const detailRows = attendanceExportRows(
+      result.rows,
+      result.event?.activity_type || target?.activity_type
     );
-    worksheet["!cols"] = Array.from({ length: 12 }, () => ({ wch: 18 }));
+    const worksheet = XLSX.utils.aoa_to_sheet(detailRows);
+    const rateColumn = detailRows[0].indexOf("班会小组参会率");
+    if (rateColumn >= 0) {
+      for (let row = 1; row < detailRows.length; row++) {
+        const cell =
+          worksheet[XLSX.utils.encode_cell({ r: row, c: rateColumn })];
+        if (cell?.t === "n") cell.z = "0.0%";
+      }
+    }
+    worksheet["!cols"] = detailRows[0].map(() => ({ wch: 20 }));
     XLSX.utils.book_append_sheet(workbook, worksheet, "签到名单");
+    const summary = XLSX.utils.aoa_to_sheet([
+      ...attendanceSummaryRows(result.stats),
+      [],
+      ["活动", eventName(target)],
+      ["当前场次", sessionName(target)],
+      [
+        "汇总口径",
+        "以上六项汇总为当前场次；小组参会率为本次班会上午、下午合并去重。"
+      ]
+    ]);
+    if (summary.B7?.t === "n") summary.B7.z = "0.0%";
+    summary["!cols"] = [{ wch: 28 }, { wch: 90 }];
+    XLSX.utils.book_append_sheet(workbook, summary, "签到汇总");
+    if (rateColumn >= 0) {
+      const groups = XLSX.utils.aoa_to_sheet(
+        attendanceGroupSummaryRows(result)
+      );
+      (result.group_statistics || []).forEach((_, index) => {
+        const cell = groups[`D${index + 2}`];
+        if (cell?.t === "n") cell.z = "0.0%";
+      });
+      groups["!cols"] = [{ wch: 24 }, { wch: 20 }, { wch: 28 }, { wch: 24 }];
+      XLSX.utils.book_append_sheet(workbook, groups, "小组参会统计");
+    }
     XLSX.writeFile(
       workbook,
       `${eventName(target)}-${sessionName(target)}.xlsx`

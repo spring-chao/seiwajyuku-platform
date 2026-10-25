@@ -7,15 +7,78 @@ import dayjs from "dayjs";
 import { computed, nextTick, reactive, ref, watch } from "vue";
 import * as parser from "../src/utils/attendanceImportParser.mjs";
 import * as management from "../src/utils/attendanceManagement.mjs";
+import * as XLSXModule from "xlsx";
 
 test("renamed registrants can be searched and exported by their current master name", () => {
-  const rows = [{ registration_id: "rename-slot", registered_name: "合成学长（旧）", name: "合成学长（旧）",
-    registered_display_name: "合成学长", actual_attendee_name: "合成实际来宾", checked: true }];
-  assert.equal(management.filterAttendanceRows(rows, "all", "合成学长").length, 1);
+  const rows = [
+    {
+      registration_id: "rename-slot",
+      registered_name: "合成学长（旧）",
+      name: "合成学长（旧）",
+      registered_display_name: "合成学长",
+      actual_attendee_name: "合成实际来宾",
+      checked: true
+    }
+  ];
+  assert.equal(
+    management.filterAttendanceRows(rows, "all", "合成学长").length,
+    1
+  );
   const cells = management.attendanceExportRows(rows);
   assert.equal(cells[1][1], "合成学长");
   assert.equal(cells[1][0], "合成实际来宾");
   assert.equal(rows[0].registered_name, "合成学长（旧）");
+});
+
+test("class exports include canonical groups, numeric group rates and all six onsite totals", () => {
+  const detail = management.attendanceExportRows(
+    [
+      {
+        name: "合成学长",
+        current_membership_resolved: true,
+        current_group_name: "笃行组",
+        group_name: "",
+        class_group_participation_rate: 0.75
+      }
+    ],
+    "CLASS_MEETING"
+  );
+  assert.equal(detail[1][detail[0].indexOf("小组")], "笃行组");
+  assert.equal(detail[1][detail[0].indexOf("班会小组参会率")], 0.75);
+  const summary = management.attendanceSummaryRows({
+    home_class_total: 35,
+    home_class_checked: 23,
+    cross_class_checked: 5,
+    guest_checked: 0,
+    onsite_total: 28,
+    rate: 65
+  });
+  assert.deepEqual(
+    summary.slice(1).map(row => row[1]),
+    [35, 23, 5, 0, 28, 0.65]
+  );
+  const groups = management.attendanceGroupSummaryRows({
+    group_statistics: [
+      {
+        group_name: "笃行组",
+        roster_count: 4,
+        present_count: 3,
+        participation_rate: 0.75
+      }
+    ]
+  });
+  assert.deepEqual(groups[1], ["笃行组", 4, 3, 0.75]);
+  assert.equal(
+    parser.attendanceGroupLabel({ group_name: "精进组" }, "CLASS_MEETING"),
+    "精进组"
+  );
+  assert.equal(
+    parser.attendanceGroupLabel(
+      { current_membership_resolved: true, group_name: "历史组" },
+      "class_meeting"
+    ),
+    "待分组"
+  );
 });
 
 test("reused Excel parser finds the richest header and preserves independent team slots", () => {
@@ -268,7 +331,7 @@ test("closed/cancelled sessions cannot accept manual check-in and display dates 
   );
 });
 
-function harness(api = async () => ({ ok: true })) {
+function harness(api = async () => ({ ok: true }), xlsx = XLSXModule) {
   const source = readFileSync(
     new URL("../src/views/seiwajyuku/checkin-management.vue", import.meta.url),
     "utf8"
@@ -284,11 +347,13 @@ function harness(api = async () => ({ ok: true })) {
       }
     })
     .outputText.replace(/^import [\s\S]*?;\r?\n/gm, "")
+    .replaceAll('await import("xlsx")', "XLSXModule")
     .replace(/export \{\};?/, "");
   const calls = [];
   const context = vm.createContext({
     ...parser,
     ...management,
+    XLSXModule: xlsx,
     computed,
     reactive,
     ref,
@@ -330,11 +395,77 @@ function harness(api = async () => ({ ok: true })) {
   });
   vm.runInContext(
     output +
-      "\nglobalThis.state = { selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, groupOptions, orgOptions, organizations, rosterOptions, rosterMembers, rosterSource, rosterVersion, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation, openEditor, confirmPerson };",
+      "\nglobalThis.state = { selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, groupOptions, orgOptions, organizations, rosterOptions, rosterMembers, rosterSource, rosterVersion, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation, openEditor, confirmPerson, exportExcel };",
     context
   );
   return { state: context.state, actions: context.actions, calls };
 }
+
+test("downloaded workbook round-trips groups, six fresh totals and percentage cell formats", async () => {
+  let workbook;
+  const event = {
+    event_id: "morning",
+    name: "合成班会",
+    activity_type: "CLASS_MEETING",
+    session_code: "MORNING"
+  };
+  const h = harness(
+    async () => ({
+      event,
+      rows: [
+        {
+          name: "合成学长",
+          current_membership_resolved: true,
+          current_group_name: "笃行组",
+          class_group_participation_rate: 0.75
+        }
+      ],
+      stats: {
+        home_class_total: 35,
+        home_class_checked: 23,
+        cross_class_checked: 5,
+        guest_checked: 0,
+        onsite_total: 28,
+        rate: 65
+      },
+      group_statistics: [
+        {
+          group_name: "笃行组",
+          roster_count: 4,
+          present_count: 3,
+          participation_rate: 0.75
+        }
+      ],
+      group_statistics_basis: "日间去重 / 本组在册"
+    }),
+    {
+      ...XLSXModule,
+      writeFile: value => {
+        workbook = value;
+      }
+    }
+  );
+  h.state.selected.value = event;
+  h.state.activeEventId.value = "morning";
+  h.state.stats.value = { home_class_total: 999 };
+  await h.actions.exportExcel();
+  assert.ok(workbook);
+  const bytes = XLSXModule.write(workbook, {
+    type: "buffer",
+    bookType: "xlsx"
+  });
+  const result = XLSXModule.read(bytes, { type: "buffer", cellNF: true });
+  assert.deepEqual(result.SheetNames, ["签到名单", "签到汇总", "小组参会统计"]);
+  assert.equal(result.Sheets["签到名单"].G2.v, "笃行组");
+  assert.equal(result.Sheets["签到名单"].H2.v, 0.75);
+  assert.equal(result.Sheets["签到名单"].H2.z, "0.0%");
+  assert.deepEqual(
+    [2, 3, 4, 5, 6, 7].map(row => result.Sheets["签到汇总"][`B${row}`].v),
+    [35, 23, 5, 0, 28, 0.65]
+  );
+  assert.equal(result.Sheets["小组参会统计"].D2.v, 0.75);
+  assert.equal(result.Sheets["小组参会统计"].D2.z, "0.0%");
+});
 
 test("opening activity management is visible before slow details finish and survives a read error", async () => {
   let reject;

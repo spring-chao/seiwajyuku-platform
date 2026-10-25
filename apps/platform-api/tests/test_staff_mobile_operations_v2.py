@@ -12,7 +12,7 @@ from app.db import execute, fetch_one, transaction
 from app.main import app
 from app.services import enrollment
 from app.services.study_meetings import submit_study_meeting
-from test_staff_mobile_operations_v1 import _seed_staff_mobile_v1, _wechat_context
+from test_staff_mobile_operations_v1 import _seed_staff_mobile_v1
 from test_v12_mvp import _seed_group_leader_fixture
 from test_study_meeting_evidence import create, upload
 from test_learning_credit_ledger import _use_credit_plan
@@ -38,6 +38,12 @@ def grant(f, permissions, org_id):
 
 @pytest.fixture
 def mobile(monkeypatch, tmp_path):
+    for key, value in {
+        "WECHAT_MEMBER_BINDING_ENABLED": "true", "WECHAT_STAFF_MOBILE_OPERATIONS_ENABLED": "true",
+        "WECHAT_LOCAL_TEST_MODE": "false", "WECHAT_MINIPROGRAM_APP_ID": "staff-mobile-v1-test-app",
+        "WECHAT_MINIPROGRAM_APP_SECRET": "staff-mobile-v1-test-secret",
+    }.items():
+        monkeypatch.setenv(key, value)
     monkeypatch.setenv("STUDY_MEETING_SUBMISSION_ENABLED", "true")
     monkeypatch.setenv("STUDY_MEETING_EVIDENCE_ENABLED", "true")
     monkeypatch.setenv("STUDY_MEETING_COURSE_EDIT_ENABLED", "true")
@@ -47,7 +53,7 @@ def mobile(monkeypatch, tmp_path):
     monkeypatch.setenv("LEARNING_CREDIT_SETTLEMENT_ENABLED", "false")
     f = _seed_staff_mobile_v1()
     grant(f, EXTRA, f["center_id"])
-    with _wechat_context(), patch("app.services.wechat_identity.exchange_wechat_code", return_value={"appid": "staff-mobile-v1-test-app", "openid": uuid4().hex}), patch("app.services.wechat_identity.verify_wechat_phone_ownership", return_value=True), TestClient(app) as client:
+    with patch("app.services.wechat_identity.exchange_wechat_code", return_value={"appid": "staff-mobile-v1-test-app", "openid": uuid4().hex}), patch("app.services.wechat_identity.verify_wechat_phone_ownership", return_value=True), TestClient(app) as client:
         binding = client.post("/api/v1/wechat/person-bindings/verify", json={"wx_login_code": "synthetic-login", "name": f["staff_name"], "phone": f["staff_phone"], "phone_verification": "synthetic-phone-proof"})
         assert binding.status_code == 200, binding.text
         headers = {"Authorization": "Bearer " + binding.json()["data"]["access_token"]}
@@ -190,6 +196,8 @@ def _application(f):
     # Complete, synthetic application through the real public service.
     admin = int(fetch_one("SELECT id FROM app_users WHERE username='admin'")["id"])
     link = enrollment.create_enrollment_link(admin, name="合成入塾入口")
+    if "raw_token" not in link:
+        link = enrollment.rotate_enrollment_link(admin, link["id"])
     values = {"name": "合成入塾学长", "target_shuku_org_unit_id": "org-suzhou", "phone": f"137{uuid4().int % 100_000_000:08d}", "gender": "MALE", "birthday": "1980-01-02", "political_status": "群众", "company_name": "合成企业", "company_address": "合成测试地址", "position": "总经理", "referrer": "合成介绍人", "invoice_type": "NORMAL", "invoice_title": "合成企业", "invoice_tax_id": "SYNTHETIC2026", "industry_category": "制造业", "company_products": "合成产品", "employee_count": 5, "annual_sales": "合成测试区间", "profit_margin": "GE_10_PERCENT", "goal_years": "3", "revenue_growth_target": "2", "profit_growth_target": "1.5", "rules_acknowledged": True}
     enrollment.submit_public_enrollment(link["raw_token"], values, "synthetic-mobile-v2")
     application_id = int(fetch_one("SELECT id FROM member_enrollment_applications WHERE name='合成入塾学长' ORDER BY id DESC")["id"])

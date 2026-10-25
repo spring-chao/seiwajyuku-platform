@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from app.core.privacy import phone_hash
 from app.db import fetch_all
+from app.services.study_membership import CURRENT_CLASS_ID_SQL, CURRENT_GROUP_ID_SQL
 
 
 def attach_current_registration_names(rows: list[dict], *, event_id: str = "") -> None:
@@ -20,9 +21,14 @@ def attach_current_registration_names(rows: list[dict], *, event_id: str = "") -
         return str(number) if 0 < number <= 9223372036854775807 else None
 
     ids, codes, registrations = set(), set(), set()
+    selection = (f"m.id,m.member_code,m.name,{CURRENT_CLASS_ID_SQL} AS current_class_id,"
+                 f"{CURRENT_GROUP_ID_SQL} AS current_group_id,"
+                 f"(SELECT name FROM org_units WHERE id={CURRENT_GROUP_ID_SQL}) AS current_group_name")
     for row in rows:
         row.pop("registered_display_name", None)
         row.pop("registered_name_changed", None)
+        for field in ("current_member_id", "current_class_org_unit_id", "current_group_org_unit_id", "current_group_name", "current_membership_resolved"):
+            row.pop(field, None)
         member_id = str(row.get("platform_member_id") or "").strip()
         code = str(row.get("member_code") or "").strip()
         if canonical_id(member_id):
@@ -38,7 +44,7 @@ def attach_current_registration_names(rows: list[dict], *, event_id: str = "") -
             chunk = values[start:start + 200]
             marks = ",".join("?" for _ in chunk)
             matches = fetch_all(
-                "SELECT DISTINCT r.external_record_id,m.id,m.member_code,m.name FROM attendance_records r "
+                f"SELECT DISTINCT r.external_record_id,{selection} FROM attendance_records r "
                 "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
                 "JOIN attendance_event_groups g ON g.id=s.event_group_id "
                 "JOIN members m ON m.id=r.member_id AND m.status='ACTIVE' "
@@ -53,7 +59,7 @@ def attach_current_registration_names(rows: list[dict], *, event_id: str = "") -
         for start in range(0, len(values), 200):
             chunk = values[start:start + 200]
             marks = ",".join("?" for _ in chunk)
-            for member in fetch_all(f"SELECT id,member_code,name FROM members WHERE status='ACTIVE' AND {field} IN ({marks})", tuple(chunk)):
+            for member in fetch_all(f"SELECT {selection} FROM members m WHERE m.status='ACTIVE' AND m.{field} IN ({marks})", tuple(chunk)):
                 by_id[str(member["id"])] = member
                 by_code[str(member["member_code"])] = member
     for row in rows:
@@ -66,6 +72,9 @@ def attach_current_registration_names(rows: list[dict], *, event_id: str = "") -
             continue
         row["registered_display_name"] = member["name"]
         row["registered_name_changed"] = member["name"] != (row.get("registered_name") or row.get("name"))
+        row.update(current_member_id=int(member["id"]), current_class_org_unit_id=member["current_class_id"],
+                   current_group_org_unit_id=member["current_group_id"], current_group_name=member["current_group_name"],
+                   current_membership_resolved=True)
 
 
 def registration_identities(rows: list[dict], *, bound_member: dict | None = None) -> list[dict | None]:
