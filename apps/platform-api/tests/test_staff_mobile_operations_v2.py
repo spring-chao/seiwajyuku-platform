@@ -188,6 +188,12 @@ def test_meeting_rate_detail_verify_gate_revision_and_repeat(mobile, monkeypatch
     repeated = client.post(endpoint, headers=headers, json={"expected_revision": data["revision"]})
     assert repeated.status_code == 200, repeated.text
     assert repeated.json()["data"]["credit_settlement"]["status"] == "POSTED"
+    after = client.get(f"{PREFIX}/study-meeting-records/{meeting['id']}", headers=headers).json()["data"]
+    assert after["preview"]["totals"]["proposed_points"] == 0
+    assert after["preview"]["totals"]["posted_points"] > 0
+    assert after["preview"]["totals"]["posted_entry_count"] == 2
+    assert all(item["display_status"] == "本场已入账" for item in after["preview"]["entries"])
+
     assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries WHERE source_type='STUDY_MEETING_ATTENDANCE' AND source_id=?", (str(meeting["id"]),))["n"] == 2
 
 
@@ -217,7 +223,17 @@ def test_enrollment_review_payment_enroll_and_masked_export(mobile):
     assert rows.status_code == 200 and phone not in rows.text
     image = client.get(endpoint + "/image-summary", headers=headers)
     assert image.status_code == 200 and phone not in image.text
-    assert set(image.json()["data"]) == {"application_no", "name", "phone_masked", "company_name", "target_shuku_name", "org_unit_name", "application_status", "payment_status", "join_date"}
+    assert image.json()["data"]["company_products"] == "合成产品"
+    assert str(image.json()["data"]["goal_years"]) == "3"
+    application = detail.json()["data"]["application"]
+    assert application["company_address"] == "合成测试地址"
+    assert application["annual_sales"] == "合成测试区间"
+    assert application["invoice_tax_id"] == "SYNTHETIC2026"
+    complete = client.post(endpoint + "/visit-image-data", headers=headers, json={"recipient": "CLASS_TEACHER", "confirmed": True})
+    assert complete.status_code == 200, complete.text
+    assert complete.json()["data"]["application"]["phone"] == phone
+    assert complete.json()["data"]["application"]["annual_sales"] == "合成测试区间"
+    assert client.post(endpoint + "/visit-image-data", headers=headers, json={"recipient": "CLASS_TEACHER", "confirmed": False}).status_code == 400
     revision = detail.json()["data"]["application"]["updated_at"]
     approved = client.patch(endpoint + "/review", headers=headers, json={"decision": "APPROVE", "review_note": "合成资料核实通过", "expected_updated_at": revision})
     assert approved.status_code == 200, approved.text
@@ -231,3 +247,20 @@ def test_enrollment_review_payment_enroll_and_masked_export(mobile):
     enrolled = client.post(endpoint + "/enroll", headers=headers, json={"expected_updated_at": updated["updated_at"]})
     assert enrolled.status_code == 200, enrolled.text
     assert fetch_one("SELECT application_status FROM member_enrollment_applications WHERE id=?", (application_id,))["application_status"] == "ENROLLED"
+
+
+def test_application_complete_materials_never_borrow_review_scope(mobile):
+    f, client, headers = mobile
+    application_id, phone = _application(f)
+    with transaction() as connection:
+        execute(connection, "DELETE FROM employee_authorization_grants WHERE employment_id=?", (f["employment_id"],))
+    grant(f, ["enrollment:read", "exports:normal"], f["center_id"])
+    grant(f, ["enrollment:review"], "org-wuxi")
+    endpoint = f"{PREFIX}/applications/{application_id}"
+    result = client.get(endpoint, headers=headers)
+    assert result.status_code == 200
+    data = result.json()["data"]
+    assert data["actions"]["visit_export"] is False
+    assert data["application"]["annual_sales"] is None
+    assert phone not in result.text
+    assert client.post(endpoint + "/visit-image-data", headers=headers, json={"recipient": "CLASS_TEACHER", "confirmed": True}).status_code == 403

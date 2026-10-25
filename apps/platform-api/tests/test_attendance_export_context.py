@@ -4,7 +4,8 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app.db import fetch_one
+from app.db import fetch_one, transaction, execute
+from app.core.privacy import phone_hash
 from app.main import app
 from app.services import signin_engine
 from test_v12_mvp import _seed_group_leader_fixture
@@ -17,15 +18,21 @@ def test_live_export_fills_formal_groups_and_deduplicates_daytime_attendees():
     second = extra_member(f)
     events = {key: {"event_id": key, "event_group_id": "synthetic-meeting", "event_date": "2026-10-25", "activity_type": "CLASS_MEETING", "org_unit_id": f["class_id"], "class_org_unit_id": f["class_id"], "session_code": code, "lifecycle_status": "CONFIRMED"}
               for key, code in (("morning", "MORNING"), ("afternoon", "AFTERNOON"), ("konpa", "KONPA"))}
+    phones = {}
     def row(member_id, key, **kwargs):
         member = fetch_one("SELECT id,member_code,name FROM members WHERE id=?", (member_id,))
-        return {"registration_id": key, "platform_member_id": str(member["id"]), "member_code": member["member_code"], "name": member["name"], "group_name": "", "attendance_role": "HOME_CLASS_MEMBER", "checked": True, **kwargs}
+        from uuid import uuid4
+        phone = phones.setdefault(member_id, f"198{uuid4().int % 100_000_000:08d}")
+        with transaction() as connection:
+            execute(connection, "UPDATE members SET phone_hash=? WHERE id=?", (phone_hash(phone), member_id))
+        return {"phone": phone, "registration_id": key, "platform_member_id": str(member["id"]), "member_code": member["member_code"], "name": member["name"], "group_name": "", "attendance_role": "HOME_CLASS_MEMBER", "checked": True, **kwargs}
     facts = {
         "morning": [row(f["member_id"], "one-am"), row(f["other_member_id"], "team", is_team=True), row(f["foreign_member_id"], "outside", attendance_role="CROSS_CLASS_MEMBER")],
         "afternoon": [row(f["member_id"], "one-pm"), row(second, "two-pm"), row(f["other_member_id"], "guest", attendance_role="GUEST")],
         "konpa": [row(f["other_member_id"], "night-only")],
     }
     calls = []
+    legacy_mode = False
     def engine(path, envelope, **kwargs):
         operation = path.rsplit("/", 1)[-1]
         payload = envelope["payload"]
@@ -39,7 +46,14 @@ def test_live_export_fills_formal_groups_and_deduplicates_daytime_attendees():
             return {"items": [{"event_group_id": "synthetic-meeting", "sessions": list(events.values())}], "has_more": False}
         assert operation == "export"
         event_id = payload["event_id"]
-        return {"ok": True, "event": copy.deepcopy(events[event_id]), "rows": copy.deepcopy(facts[event_id])}
+        result_rows = copy.deepcopy(facts[event_id])
+        if legacy_mode:
+            for exported in result_rows:
+                member_id = exported.pop("platform_member_id", None)
+                exported.pop("member_code", None)
+                exported.pop("registration_id", None)
+                exported["sign_time"] = "2026-10-25T01:00:00Z" if exported.pop("checked", False) else ""
+        return {"ok": True, "event": copy.deepcopy(events[event_id]), "rows": result_rows}
     with patch.dict(os.environ, ENV), TestClient(app) as client, patch.object(signin_engine, "engine_request", side_effect=engine):
         headers, _ = _operator({"attendance:export"}, f["class_id"])
         result = client.post("/api/v1/attendance/manage/export", headers=headers, json={"event_id": "morning"})
@@ -55,6 +69,15 @@ def test_live_export_fills_formal_groups_and_deduplicates_daytime_attendees():
         assert groups[f["other_group_id"]]["participation_rate"] == 0
         assert data["rows"][0]["class_group_participation_rate"] == 1
         assert [payload["event_id"] for operation, payload in calls if operation == "export"] == ["morning", "afternoon"]
+        # Actual legacy export contract omits all IDs and checked flags; only
+        # a unique exact active name+phone can recover the formal identity.
+        legacy_mode = True
+        legacy = client.post("/api/v1/attendance/manage/export", headers=headers, json={"event_id": "morning"})
+        assert legacy.status_code == 200, legacy.text
+        assert legacy.json()["rows"][0]["current_group_name"]
+        assert legacy.json()["rows"][0]["class_group_participation_rate"] == 1
+        assert all("phone" not in r for r in legacy.json()["rows"])
+        legacy_mode = False
         # An unresolved home-class arrival must not turn into a plausible low rate.
         facts["morning"].append({"registration_id": "unknown", "name": "合成待核对人员", "checked": True, "attendance_role": "HOME_CLASS_MEMBER"})
         uncertain = client.post("/api/v1/attendance/manage/export", headers=headers, json={"event_id": "morning"})

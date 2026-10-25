@@ -1,1 +1,3 @@
 @import "./shared.wxss";
+
+.material-value{white-space:pre-wrap;word-break:break-all}.row>text:first-child{flex:0 0 34%;text-align:left}

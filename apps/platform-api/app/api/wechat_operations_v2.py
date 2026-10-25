@@ -73,6 +73,17 @@ class ApplicationReject(EnrollmentRejectPayload, ApplicationRevision):
     pass
 
 
+class ApplicationVisitImage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    recipient: Literal["CLASS_TEACHER", "DIRECTOR"]
+    confirmed: bool
+
+
+@router.post("/applications/{application_id}/visit-image-data")
+def application_visit_image(application_id: int, payload: ApplicationVisitImage, identity=Depends(session)):
+    return response(service.application_visit_image, identity, application_id, payload.recipient, payload.confirmed)
+
+
 @router.get("/members/{member_id}/birthday-copy")
 def birthday_copy(member_id: int, identity=Depends(session)):
     return response(service.birthday_copy, identity, member_id)
