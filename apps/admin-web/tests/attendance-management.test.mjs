@@ -436,6 +436,17 @@ test("downloaded workbook round-trips groups, six fresh totals and percentage ce
           participation_rate: 0.75
         }
       ],
+      class_statistics: {
+        class_name: "合成班",
+        roster_count: 4,
+        present_count: 3,
+        participation_rate: 0.75
+      },
+      group_totals: {
+        roster_count: 4,
+        present_count: 3,
+        participation_rate: 0.75
+      },
       group_statistics_basis: "日间去重 / 本组在册"
     }),
     {
@@ -464,7 +475,12 @@ test("downloaded workbook round-trips groups, six fresh totals and percentage ce
     [35, 23, 5, 0, 28, 0.65]
   );
   assert.equal(result.Sheets["小组参会统计"].D2.v, 0.75);
-  assert.equal(result.Sheets["小组参会统计"].D2.z, "0.0%");
+  assert.equal(result.Sheets["小组参会统计"].D2.z, "0%");
+  assert.equal(result.Sheets["小组参会统计"].A3.v, "合成班参会率");
+  assert.equal(result.Sheets["小组参会统计"].D3.v, 0.75);
+  assert.equal(result.Sheets["小组参会统计"].D3.z, "0%");
+  assert.equal(result.Sheets["签到汇总"].B8.v, 0.75);
+  assert.equal(result.Sheets["签到汇总"].B8.z, "0%");
 });
 
 test("opening activity management is visible before slow details finish and survives a read error", async () => {
@@ -894,4 +910,62 @@ test("manual attendance explains team slots and event restrictions and never wri
     registration_id: "team-slot"
   });
   assert.equal(h.calls.length, 0);
+});
+
+test("reference template totals 32 registered and 17 distinct attendees, displayed as 53 percent", () => {
+  const groups = [
+    ["1实干组", 5, 3],
+    ["2笃行组", 6, 3],
+    ["3诚善组", 7, 5],
+    ["4明心组", 6, 3],
+    ["5力行组", 5, 3],
+    ["炎武四班精进组", 3, 0]
+  ].map(([group_name, roster_count, present_count]) => ({
+    group_name,
+    roster_count,
+    present_count,
+    participation_rate: present_count / roster_count
+  }));
+  const data = {
+    group_statistics: groups,
+    class_statistics: {
+      class_name: "炎武四班",
+      roster_count: 32,
+      present_count: 17,
+      participation_rate: 17 / 32
+    },
+    group_totals: {
+      roster_count: 32,
+      present_count: 17,
+      participation_rate: 17 / 32
+    }
+  };
+  const table = management.participationTableRows(data);
+  assert.equal(table.length, 7);
+  assert.equal(table[6].group_name, "炎武四班参会率");
+  assert.equal(
+    table[6].roster_count,
+    groups.reduce((n, g) => n + g.roster_count, 0)
+  );
+  assert.equal(
+    table[6].present_count,
+    groups.reduce((n, g) => n + g.present_count, 0)
+  );
+  assert.deepEqual(
+    table.map(row => management.participationRateLabel(row.participation_rate)),
+    ["60%", "50%", "71%", "50%", "60%", "0%", "53%"]
+  );
+  const sheet = XLSXModule.utils.aoa_to_sheet(
+    management.attendanceGroupSummaryRows(data)
+  );
+  for (let r = 2; r <= 8; r++) sheet[`D${r}`].z = "0%";
+  const book = XLSXModule.utils.book_new();
+  XLSXModule.utils.book_append_sheet(book, sheet, "小组参会统计");
+  const restored = XLSXModule.read(
+    XLSXModule.write(book, { type: "buffer", bookType: "xlsx" }),
+    { type: "buffer", cellNF: true }
+  );
+  assert.equal(restored.Sheets["小组参会统计"].D8.v, 17 / 32);
+  assert.equal(restored.Sheets["小组参会统计"].D8.w, "53%");
+  assert.equal(restored.Sheets["小组参会统计"].A8.v, "炎武四班参会率");
 });

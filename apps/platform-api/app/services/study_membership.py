@@ -59,7 +59,7 @@ CURRENT_CLASS_NAME_SQL = current_study_relation_sql('m.id', 'class', 'name')
 CURRENT_GROUP_NAME_SQL = current_study_relation_sql('m.id', 'group', 'name')
 
 
-def group_roster(connection, *, class_id=None, group_id=None, member_ids=None):
+def group_roster(connection, *, class_id=None, group_id=None, member_ids=None, include_ungrouped=False):
     conditions, params = ["m.status='ACTIVE'"], []
     if class_id is not None:
         conditions.append('c.id=?'); params.append(class_id)
@@ -75,7 +75,7 @@ def group_roster(connection, *, class_id=None, group_id=None, member_ids=None):
         'g.id AS group_org_unit_id, g.name AS group_name, '
         'c.id AS class_org_unit_id, c.name AS class_name FROM members m '
         f'JOIN org_units c ON c.id={CURRENT_CLASS_ID_SQL} '
-        f'JOIN org_units g ON g.id={CURRENT_GROUP_ID_SQL} '
+        f"{'LEFT JOIN' if include_ungrouped else 'JOIN'} org_units g ON g.id={CURRENT_GROUP_ID_SQL} "
         'WHERE ' + ' AND '.join(conditions) + ' ORDER BY m.name,m.id', tuple(params)).fetchall()]
 
 

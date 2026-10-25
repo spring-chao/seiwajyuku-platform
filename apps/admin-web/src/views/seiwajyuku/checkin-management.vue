@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import dayjs from "dayjs";
 import { hasPerms } from "@/utils/auth";
 import AttendanceImportSummary from "./components/attendance-import-summary.vue";
+import AttendanceParticipationSummary from "./components/attendance-participation-summary.vue";
 import {
   manageAttendance,
   generateAttendanceCode,
@@ -856,8 +857,20 @@ async function exportExcel() {
     }
     worksheet["!cols"] = detailRows[0].map(() => ({ wch: 20 }));
     XLSX.utils.book_append_sheet(workbook, worksheet, "签到名单");
-    const summary = XLSX.utils.aoa_to_sheet([
+    const summaryRows = [
       ...attendanceSummaryRows(result.stats),
+      ...(result.class_statistics
+        ? [
+            [
+              "班级参会率（本次班会去重）",
+              result.class_statistics.participation_rate ?? "—"
+            ],
+            [
+              "总小组参会率（按人数汇总）",
+              result.group_totals?.participation_rate ?? "—"
+            ]
+          ]
+        : []),
       [],
       ["活动", eventName(target)],
       ["当前场次", sessionName(target)],
@@ -865,17 +878,22 @@ async function exportExcel() {
         "汇总口径",
         "以上六项汇总为当前场次；小组参会率为本次班会上午、下午合并去重。"
       ]
-    ]);
+    ];
+    const summary = XLSX.utils.aoa_to_sheet(summaryRows);
     if (summary.B7?.t === "n") summary.B7.z = "0.0%";
+    summaryRows.forEach((row, index) => {
+      if (String(row[0]).includes("参会率") && typeof row[1] === "number")
+        summary[`B${index + 1}`].z = "0%";
+    });
     summary["!cols"] = [{ wch: 28 }, { wch: 90 }];
     XLSX.utils.book_append_sheet(workbook, summary, "签到汇总");
     if (rateColumn >= 0) {
       const groups = XLSX.utils.aoa_to_sheet(
         attendanceGroupSummaryRows(result)
       );
-      (result.group_statistics || []).forEach((_, index) => {
-        const cell = groups[`D${index + 2}`];
-        if (cell?.t === "n") cell.z = "0.0%";
+      attendanceGroupSummaryRows(result).forEach((_, index) => {
+        const cell = groups[`D${index + 1}`];
+        if (cell?.t === "n") cell.z = "0%";
       });
       groups["!cols"] = [{ wch: 24 }, { wch: 20 }, { wch: 28 }, { wch: 24 }];
       XLSX.utils.book_append_sheet(workbook, groups, "小组参会统计");
@@ -1293,6 +1311,13 @@ onUnmounted(() => {
               suffix="%"
             />
           </div>
+          <AttendanceParticipationSummary
+            v-if="
+              String(currentEvent?.activity_type || '').toLowerCase() ===
+              'class_meeting'
+            "
+            :result="stats"
+          />
           <el-alert
             title="报名联系人与实际参加人分别保留。外班参加保留原班级；预计迟到、请假属于跟进状态，最终到场以签到事实为准。"
             type="info"
