@@ -75,4 +75,13 @@ async function uploadPhoto(path, filePath) {
   return response;
 }
 
-module.exports = { request, uploadPhoto };
+async function downloadProtected(path) {
+  const token = app.globalData.personSessionToken || app.globalData.memberSessionToken;
+  const response = await request(path, { auth: true });
+  if (!token || token !== (app.globalData.personSessionToken || app.globalData.memberSessionToken)) throw new Error("身份已变化，请重新进入页面");
+  const filePath = `${wx.env.USER_DATA_PATH}/meeting-preview-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
+  await new Promise((resolve, reject) => wx.getFileSystemManager().writeFile({ filePath, data: response.data.base64, encoding: "base64", success: resolve, fail: () => reject(new Error("合影预览保存失败")) }));
+  return filePath;
+}
+
+module.exports = { request, uploadPhoto, downloadProtected };

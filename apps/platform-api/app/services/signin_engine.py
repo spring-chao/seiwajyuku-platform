@@ -13,7 +13,7 @@ import httpx
 from app.core.settings import get_settings
 from app.db import fetch_one
 from app.services.iam import accessible_org_ids
-from app.services.attendance_registration_identity import enrich_registration_payload
+from app.services.attendance_registration_identity import enrich_registration_payload, attach_current_registration_names
 
 
 OPERATIONS = {
@@ -199,6 +199,15 @@ def management_request(operation: str, payload: dict, *, user: dict) -> dict:
         "actor": {"id": user["id"], "permissions": permissions},
         "allowed_org_unit_ids": allowed,
     })
+    if operation == "event_detail":
+        # The engine has already authorized these exact event registrations.
+        # Display master-data renames without rewriting historical snapshots.
+        rows = data.get("rows", [])
+        if isinstance(rows, list):
+            attach_current_registration_names([row for row in rows if isinstance(row, dict)], event_id=str(payload.get("event_id") or ""))
+    if operation == "export":
+        from app.services.attendance_export_context import enrich_export
+        enrich_export(data, event_id=str(payload.get("event_id") or ""), user=user)
     return redact(data)
 
 

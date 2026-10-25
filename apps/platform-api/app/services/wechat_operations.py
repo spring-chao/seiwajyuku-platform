@@ -54,19 +54,16 @@ MOBILE_ENTRIES = (
         "match": "ALL",
     },
     {
-        "key": "care_records",
-        "name": "关爱跟进",
-        "description": "在学长详情中记录一次关爱",
-        "permissions": frozenset({"followups:manage"}),
-        "match": "ALL",
-    },
-    {
         "key": "renewal_watch",
         "name": "续费关注",
         "description": "按观3、续2、追1查看当前应关注的学长",
         "permissions": frozenset({"renewals:read"}),
         "match": "ALL",
     },
+    {"key": "study_meetings", "name": "小组学习会", "description": "参会率、人员明细、核实与学分结算", "permissions": frozenset({"plans:read"}), "match": "ALL"},
+    {"key": "activities", "name": "活动管理", "description": "创建活动、管理场次与现场临时参加人员", "permissions": frozenset({"attendance:view"}), "match": "ALL"},
+    {"key": "enrollment", "name": "待入塾申请", "description": "申请资料、审核、收款确认与正式入塾", "permissions": frozenset({"enrollment:read"}), "match": "ALL"},
+    {"key": "dashboard", "name": "运营驾驶舱", "description": "查看授权范围内的月度运营数据", "permissions": frozenset({"plans:read"}), "match": "ALL"},
 )
 
 _CARE_SOURCE_PERMISSIONS = (

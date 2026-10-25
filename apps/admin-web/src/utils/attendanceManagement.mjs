@@ -1,5 +1,9 @@
 import { attendanceGroupLabel } from "./attendanceImportParser.mjs";
-export { activityTypeLabel, activitySessionLabel, activityDisplayTitle } from "./business-labels.mjs";
+export {
+  activityTypeLabel,
+  activitySessionLabel,
+  activityDisplayTitle
+} from "./business-labels.mjs";
 
 export const activityTypes = [
   ["course", "课程"],
@@ -152,6 +156,7 @@ export function filterAttendanceRows(rows, filter, keyword = "") {
         [
           row.name,
           row.registered_name,
+          row.registered_display_name,
           row.actual_attendee_name,
           row.class_name,
           row.home_class_name,
@@ -168,6 +173,8 @@ export function filterAttendanceRows(rows, filter, keyword = "") {
 
 /** Build display-only export cells. Contact fields are already masked by the API. */
 export function attendanceExportRows(rows, activityType) {
+  const classMeeting =
+    String(activityType || "").toLowerCase() === "class_meeting";
   return [
     [
       "实际到场姓名",
@@ -176,7 +183,8 @@ export function attendanceExportRows(rows, activityType) {
       "公司",
       "分中心",
       "班级",
-      activityType === "class_meeting" ? "小组" : "现场分组",
+      classMeeting ? "小组" : "现场分组",
+      ...(classMeeting ? ["班会小组参会率"] : []),
       "签到身份",
       "原班级",
       "桌号",
@@ -185,17 +193,58 @@ export function attendanceExportRows(rows, activityType) {
     ],
     ...(rows || []).map(row => [
       row.actual_attendee_name || row.name || "",
-      row.registered_name || row.name || "",
+      row.registered_display_name || row.registered_name || row.name || "",
       row.phone_masked || row.phone || "",
       row.company || "",
       row.center || "",
       row.class_name || "",
       attendanceGroupLabel(row, activityType),
+      ...(classMeeting
+        ? [
+            typeof row.class_group_participation_rate === "number"
+              ? row.class_group_participation_rate
+              : "—"
+          ]
+        : []),
       row.attendance_role_label || row.attendance_role || "",
       row.home_class_name || "",
       row.dinner_table_num ?? "",
       row.sign_status || row.attendance_status_label || "",
       row.sign_time || row.checked_at || ""
     ])
+  ];
+}
+
+export function attendanceSummaryRows(stats = {}) {
+  return [
+    ["统计项", "数值"],
+    ["本班应到 / 报名", stats.home_class_total ?? stats.total ?? "—"],
+    ["本班已到 / 已签到", stats.home_class_checked ?? stats.checked ?? "—"],
+    ["外班实际到场", stats.cross_class_checked ?? "—"],
+    ["来宾实际到场", stats.guest_checked ?? "—"],
+    ["现场真实人数", stats.onsite_total ?? stats.checked ?? "—"],
+    ["本班签到率", typeof stats.rate === "number" ? stats.rate / 100 : "—"]
+  ];
+}
+
+export function attendanceGroupSummaryRows(result = {}) {
+  return [
+    ["小组", "本组在册人数", "本次班会去重到场人数", "班会小组参会率"],
+    ...(result.group_statistics || []).map(group => [
+      group.group_name,
+      group.roster_count,
+      group.present_count,
+      typeof group.participation_rate === "number"
+        ? group.participation_rate
+        : "—"
+    ]),
+    [],
+    [
+      "统计口径",
+      result.group_statistics_basis || "本次班会日间到场去重人数 / 本组在册人数"
+    ],
+    ...(result.group_statistics_message
+      ? [["待核对", result.group_statistics_message]]
+      : [])
   ];
 }

@@ -4,8 +4,11 @@ const { request } = require("../../utils/request");
 const destinations = {
   today_actions: "/pages/operations/today-actions",
   member_search: "/pages/operations/member-search",
-  care_records: "/pages/operations/member-search?mode=care",
-  renewal_watch: "/pages/operations/renewal-watch"
+  renewal_watch: "/pages/operations/renewal-watch",
+  study_meetings: "/pages/operations/study-meetings",
+  activities: "/pages/operations/activities",
+  enrollment: "/pages/operations/applications",
+  dashboard: "/pages/operations/dashboard"
 };
 
 Page({

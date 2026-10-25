@@ -18,6 +18,9 @@ Page({
     renewalCycleId: null,
     birthdayDueDate: "",
     operationItemId: null,
+    wechatCopy: "",
+    copyError: "",
+    copyTitle: "",
     errorMessage: ""
   },
   onLoad(options) {
@@ -39,7 +42,7 @@ Page({
     this._visible = false;
     this._loadVersion = (this._loadVersion || 0) + 1;
     this.clearContact();
-    hidePrivatePage(this, { detail: null, contactPhone: "", loading: false, errorMessage: "" });
+    hidePrivatePage(this, { detail: null, contactPhone: "", wechatCopy: "", copyTitle: "", copyError: "", loading: false, errorMessage: "" });
   },
   clearContact() {
     this._contactVersion = (this._contactVersion || 0) + 1;
@@ -50,19 +53,44 @@ Page({
     const validSession = beginPrivateRequest(this);
     const current = () => validSession() && this._visible !== false && version === this._loadVersion;
     this.clearContact();
-    this.setData({ loading: true, errorMessage: "", detail: null });
+    this.setData({ loading: true, errorMessage: "", detail: null, wechatCopy: "", copyError: "" });
     try {
       const response = await request(
         `/api/v1/wechat/operations/members/${encodeURIComponent(this.data.memberId)}`,
         { auth: true }
       );
-      if (current()) this.setData({ detail: response.data || null });
+      if (current()) {
+        this.setData({ detail: response.data || null });
+        await this.loadCopy(version);
+      }
     } catch (error) {
       if (current()) this.setData({ errorMessage: error.message || "学长资料暂时无法加载" });
     } finally {
       if (current()) this.setData({ loading: false });
     }
   },
+  async loadCopy(version = this._loadVersion) {
+    const validSession = beginPrivateRequest(this, "copy");
+    const birthday = this.data.birthdayDueDate;
+    const cycleId = this.data.renewalCycleId;
+    if (!birthday && !cycleId) return;
+    const current = () => validSession() && this._visible !== false && version === this._loadVersion;
+    if (current()) this.setData({ copyError: "", copyTitle: birthday ? "生日微信文案" : "续费微信文案" });
+    try {
+      const path = birthday
+        ? `/api/v1/wechat/operations/members/${this.data.memberId}/birthday-copy`
+        : `/api/v1/wechat/operations/renewals/${cycleId}`;
+      const response = await request(path, { auth: true });
+      if (current()) this.setData({ wechatCopy: birthday ? response.data.draft : response.data.wechat_copy || "该周期已结束，可在查看续费中处理状态。" });
+    } catch (error) {
+      if (current()) this.setData({ copyError: error.message || "文案暂时无法加载" });
+    }
+  },
+  editCopy(event) { this.setData({ wechatCopy: event.detail.value }); },
+  copyWechat() {
+    if (this.data.wechatCopy) wx.setClipboardData({ data: this.data.wechatCopy });
+  },
+  retryCopy() { this.loadCopy(); },
   recordCare() {
     const detail = this.data.detail || {};
     const actions = detail.actions || {};
@@ -85,7 +113,10 @@ Page({
       wx.showToast({ title: "当前无权查看续费", icon: "none" });
       return;
     }
-    wx.navigateTo({ url: `/pages/operations/renewal-watch?member_id=${encodeURIComponent(this.data.memberId)}` });
+    const cycleId = this.data.renewalCycleId || (detail.renewal || {}).cycle_id;
+    wx.navigateTo({ url: cycleId
+      ? `/pages/operations/renewal-detail?cycle_id=${encodeURIComponent(cycleId)}&member_id=${encodeURIComponent(this.data.memberId)}`
+      : `/pages/operations/renewal-watch?member_id=${encodeURIComponent(this.data.memberId)}` });
   },
   revealContact() {
     if (!((this.data.detail || {}).actions || {}).can_reveal_contact) return;

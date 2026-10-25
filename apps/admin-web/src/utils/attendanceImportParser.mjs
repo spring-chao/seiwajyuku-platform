@@ -181,7 +181,11 @@ export function attendanceGroupNumber(value) {
 }
 
 export function attendanceGroupLabel(row, activityType) {
-  if (activityType === "class_meeting" && row.group_name) return row.group_name;
+  if (String(activityType || "").toLowerCase() === "class_meeting") {
+    if (row.current_membership_resolved)
+      return row.current_group_name || "待分组";
+    if (row.group_name) return row.group_name;
+  }
   const number =
     attendanceGroupNumber(row.group_num) ??
     attendanceGroupNumber(row.group_name);
