@@ -1,6 +1,6 @@
 """Scoped export context from live signin facts and canonical class/group rosters."""
 from app.db import transaction
-from app.services.attendance_registration_identity import attach_current_registration_names
+from app.services.attendance_registration_identity import attach_current_registration_names, registration_identities
 from app.services.study_membership import group_roster
 
 
@@ -11,7 +11,6 @@ def enrich_export(data: dict, *, event_id: str, user: dict) -> None:
         return
     event = data.get("event") or engine.event_detail(event_id, user=user, permission="attendance:export")
     data["event"] = event
-    attach_current_registration_names(rows, event_id=event_id)
     allowed = engine.allowed_scope(user["id"], "attendance:export")
 
     def read(operation, payload, *, export=False):
@@ -21,6 +20,14 @@ def enrich_export(data: dict, *, event_id: str, user: dict) -> None:
             "payload": payload, "actor": {"id": user["id"], "permissions": ["attendance:export" if export else "attendance:view"]},
             "allowed_org_unit_ids": allowed})
 
+    def hydrate(facts, session_id):
+        missing = [r for r in facts if not r.get("platform_member_id") and not r.get("member_code")]
+        for row, match in zip(missing, registration_identities(missing)):
+            if match:
+                row.update(match)
+        attach_current_registration_names(facts, event_id=session_id)
+
+    hydrate(rows, event_id)
     data["stats"] = read("stats", {"event_id": event_id})
     if str(event.get("activity_type", "")).lower() != "class_meeting":
         return
@@ -58,7 +65,7 @@ def enrich_export(data: dict, *, event_id: str, user: dict) -> None:
             if sibling_class != class_id or group_id and sibling.get("event_group_id") != group_id:
                 raise engine.SigninEngineError("班会场次归属已变化，请刷新后重新导出", 409)
             facts = read("export", {"event_id": session_id}, export=True).get("rows", [])
-            attach_current_registration_names(facts, event_id=session_id)
+            hydrate(facts, session_id)
         daytime.extend(facts)
     with transaction() as connection:
         roster = group_roster(connection, class_id=class_id)
@@ -69,7 +76,7 @@ def enrich_export(data: dict, *, event_id: str, user: dict) -> None:
         group["roster"].add(int(member["member_id"]))
     unresolved = 0
     for row in daytime:
-        if not (row.get("checked") is True or row.get("checked_at")):
+        if not (row.get("checked") is True or row.get("checked_at") or row.get("sign_time")):
             continue
         if row.get("is_team") or row.get("team_id") or row.get("attendance_role") in {"GUEST", "NON_MEMBER"}:
             continue

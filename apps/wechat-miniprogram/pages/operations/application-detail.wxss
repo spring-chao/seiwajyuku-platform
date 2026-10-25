@@ -1,1 +1,2 @@
 @import "./shared.wxss";
+.material-label{flex:0 0 34%;text-align:left}.material-value{flex:1;min-width:0;text-align:right;white-space:pre-wrap;word-break:break-all}

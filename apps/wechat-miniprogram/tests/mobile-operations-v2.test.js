@@ -10,10 +10,10 @@ function page(name, request, wx = {}) {
   const guardModule = { exports: {} };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../utils/page-session.js"), "utf8"), { module: guardModule, getApp: () => app });
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../pages/operations", `${name}.js`), "utf8"), {
-    Page: value => { instance = value; }, require: name => name.endsWith("page-session") ? guardModule.exports : ({ request }),
+    Page: value => { instance = value; }, require: name => name.endsWith("page-session") ? guardModule.exports : name.endsWith("application-material") ? require("../utils/application-material") : ({ request }),
     wx: { showToast() {}, showModal() {}, ...wx }
   });
-  instance.setData = value => Object.assign(instance.data, value);
+  instance.setData = (value, callback) => { Object.assign(instance.data, value); if (callback) callback(); };
   instance.app = app;
   return instance;
 }
@@ -125,4 +125,67 @@ test("renewal modal from a previous identity cannot write using the new account"
   p.saveStatus(); p.app.globalData.personSessionToken = "different-account";
   await modal({ confirm: true });
   assert.equal(writes, 0);
+});
+
+
+test("application images retain all material fields and split long text below canvas limits", async () => {
+  const { applicationSections, drawApplicationImages } = require("../utils/application-material");
+  const a = { name: "合成申请人", phone: "SYNTHETIC-PRIVATE", phone_masked: "合成脱敏", financial_fields_visible: true, annual_sales: "合成区间", company_products: "第一行\n" + "长内容".repeat(2500) + "最后一行", goal_years: 3, invoice_bank: "合成银行", notes: "合成备注", employee_count: 0 };
+  const sections = applicationSections(a, true);
+  const values = sections.flatMap(s => s.fields);
+  assert(values.some(f => f.key === "employee_count" && f.value === "0"));
+  assert(values.some(f => f.key === "annual_sales" && f.value === "合成区间"));
+  assert.equal(applicationSections(a).flatMap(s => s.fields).find(f => f.key === "phone").value, "合成脱敏");
+  const drawn = [], heights = [], contexts = [];
+  let serial = 0;
+  const context = { setFontSize() {}, measureText: s => ({ width: s.length * 22 }), setFillStyle() {}, fillRect() {}, fillText: text => drawn.push(text), draw: (_, done) => done() };
+  const p = { setData: (value, done) => { heights.push(value.canvasHeight); done(); } };
+  const wx = { createCanvasContext: () => context, canvasToTempFilePath: (args, owner) => { contexts.push(owner); assert(args.destHeight <= 4096); args.success({ tempFilePath: "synthetic-" + ++serial }); } };
+  const files = await drawApplicationImages(wx, p, sections, () => true);
+  assert(files.length > 3);
+  assert(heights.every(h => h < 2048));
+  assert(contexts.every(owner => owner === p));
+  assert(drawn.join("").includes("最后一行"));
+});
+
+test("application save opens settings for denied album permission without requesting private export", async () => {
+  let requests = 0, modal, settings = 0;
+  const p = page("application-detail", async () => { requests++; }, { getSetting: args => args.success({ authSetting: { "scope.writePhotosAlbum": false } }), showModal: args => { modal = args; }, openSetting: () => settings++ });
+  p.data.detail = { actions: { visit_export: false } };
+  await p.saveImage();
+  assert.equal(requests, 0);
+  assert.equal(modal.confirmText, "去设置");
+  modal.success({ confirm: true });
+  assert.equal(settings, 1);
+  assert.equal(p.data.exporting, false);
+});
+
+test("image failures distinguish canvas generation from album and privacy errors", () => {
+  const { imageError } = require("../utils/application-material");
+  assert.match(imageError({ errMsg: "canvasToTempFilePath:fail" }, "draw"), /生成失败/);
+  assert.match(imageError({ errMsg: "saveImageToPhotosAlbum:fail auth deny" }, "album"), /相册权限/);
+  assert.match(imageError({ errMsg: "privacy permission not granted" }, "authorization"), /隐私/);
+});
+
+
+test("complete application images save every generated page and record the declared recipient", async () => {
+  let requested, count = 0, saved = 0, toast;
+  const drawn = [];
+  const context = { setFontSize() {}, measureText: s => ({ width: s.length * 22 }), setFillStyle() {}, fillRect() {}, fillText: text => drawn.push(text), draw: (_, done) => done() };
+  const p = page("application-detail", async (url, options) => { requested = { url, options }; return { data: { application: { name: "合成申请", phone: "SYNTHETIC-COMPLETE", notes: "补充说明".repeat(1600) + "结尾不得截断", financial_fields_visible: true, annual_sales: "合成区间" }, purpose: "班主任走访面聊", exported_at: "synthetic-time" } }; }, {
+    showActionSheet: args => args.success({ tapIndex: 0 }), requirePrivacyAuthorize: args => args.success({}), getSetting: args => args.success({ authSetting: { "scope.writePhotosAlbum": true } }),
+    createCanvasContext: () => context, canvasToTempFilePath: (args, owner) => { assert.equal(owner, p); args.success({ tempFilePath: "synthetic-file-" + ++count }); },
+    saveImageToPhotosAlbum: args => { saved++; args.success({}); }, getFileSystemManager: () => ({ unlink() {} }), showToast: value => { toast = value.title; }
+  });
+  p.onLoad({ application_id: "9" }); p.data.detail = { actions: { visit_export: true } };
+  await p.saveImage();
+  assert.match(requested.url, /visit-image-data$/);
+  assert.equal(requested.options.method, "POST");
+  assert.equal(requested.options.data.recipient, "CLASS_TEACHER");
+  assert.equal(requested.options.data.confirmed, true);
+  assert(count > 3); assert.equal(saved, count);
+  assert.match(toast, new RegExp(String(count)));
+  assert(drawn.join("").includes("结尾不得截断"));
+  assert.equal(p.data.exporting, false);
+  assert.equal(p._imagePaths.length, 0);
 });

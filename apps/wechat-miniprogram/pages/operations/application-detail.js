@@ -1,11 +1,12 @@
 const { beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
 const { request } = require("../../utils/request");
+const { applicationSections, invoke, imageError, drawApplicationImages } = require("../../utils/application-material");
 const labels = { SUBMITTED: "待审核", APPROVED: "审核通过", REJECTED: "已驳回", ENROLLED: "已入塾", CANCELLED: "已取消" };
 Page({
-  data: { loading: true, saving: false, exporting: false, canvasHeight: 960, applicationId: null, detail: null, organizations: [], orgIndex: -1, joinDate: "", name: "", note: "", amount: "", statusLabel: "", errorMessage: "" },
+  data: { sections: [], loading: true, saving: false, exporting: false, canvasHeight: 960, applicationId: null, detail: null, organizations: [], orgIndex: -1, joinDate: "", name: "", note: "", amount: "", statusLabel: "", errorMessage: "" },
   onLoad(options) { this.setData({ applicationId: Number(options.application_id) }); },
   onShow() { showPrivatePage(this); this.load(); },
-  onHide() { hidePrivatePage(this, { detail: null, organizations: [], name: "", note: "", amount: "", errorMessage: "", saving: false, exporting: false, loading: false }); },
+  onHide() { this.clearImages(); hidePrivatePage(this, { sections: [], detail: null, organizations: [], name: "", note: "", amount: "", errorMessage: "", saving: false, exporting: false, loading: false }); },
   onUnload() { this.onHide(); },
   async load() {
     const current = beginPrivateRequest(this);
@@ -15,7 +16,7 @@ Page({
       if (!current()) return;
       const application = response.data.application;
       const organizations = response.data.organizations || [];
-      if (current()) this.setData({ detail: response.data, organizations, orgIndex: organizations.findIndex(row => row.id === application.org_unit_id), name: application.name, joinDate: application.join_date ? String(application.join_date).slice(0, 10) : "", statusLabel: labels[application.application_status] || "待确认" });
+      if (current()) this.setData({ sections: applicationSections(application), detail: response.data, organizations, orgIndex: organizations.findIndex(row => row.id === application.org_unit_id), name: application.name, joinDate: application.join_date ? String(application.join_date).slice(0, 10) : "", statusLabel: labels[application.application_status] || "待确认" });
     } catch (error) { if (current()) this.setData({ errorMessage: error.message }); }
     finally { if (current()) this.setData({ loading: false }); }
   },
@@ -51,39 +52,63 @@ Page({
     wx.showModal({ title: "确认驳回申请", content: this.data.note, success: result => { if (result.confirm && current()) this.perform("reject", { reason: this.data.note }); } });
   },
   enroll() { const current = beginPrivateRequest(this, "confirm"); wx.showModal({ title: "确认正式入塾", content: "确认将该申请转为正式学员？系统将再次校验审核、收款、组织和重复学员等条件。", success: result => { if (result.confirm && current()) this.perform("enroll", {}); } }); },
+  clearImages() {
+    for (const filePath of this._imagePaths || []) wx.getFileSystemManager().unlink({ filePath, fail() {} });
+    this._imagePaths = [];
+    this._imageRun = null;
+  },
   async saveImage() {
-    if (this.data.exporting) return;
+    if (this.data.exporting || !this.data.detail) return;
     const current = beginPrivateRequest(this, "image");
+    const complete = this.data.detail.actions.visit_export;
+    const imageRun = {}; this._imageRun = imageRun;
     this.setData({ exporting: true });
+    let stage = "authorization", saved = 0, total = 0;
     try {
-      const response = await request(`/api/v1/wechat/operations/applications/${this.data.applicationId}/image-summary`, { auth: true });
-      if (!current()) return;
-      const row = response.data;
-      const lines = ["待入塾申请摘要", `申请编号：${row.application_no}`, `姓名：${row.name}`, `联系方式：${row.phone_masked || '未提供'}`, `企业：${row.company_name || '未提供'}`, `申请塾：${row.target_shuku_name || '待确认'}`, `管理组织：${row.org_unit_name || '待分配'}`, `审核状态：${labels[row.application_status] || '待确认'}`, `收款状态：${row.payment_status === 'PAID' ? '已确认收款' : '待确认'}`, `入塾日期：${row.join_date || '待确认'}`, "生成时间：" + new Date().toLocaleString(), "此图为脱敏摘要，实时状态以系统为准。"];
-      const ctx = wx.createCanvasContext("applicationSummary", this);
-      ctx.setFontSize(22);
-      const wrapped = [];
-      for (const line of lines.slice(1)) {
-        let part = "";
-        for (const char of line) { if (ctx.measureText(part + char).width > 580) { wrapped.push(part); part = ""; } part += char; }
-        wrapped.push(part, "");
+      let recipient;
+      if (complete) {
+        const choice = await invoke(wx, "showActionSheet", { itemList: ["保存完整资料：班主任走访面聊", "保存完整资料：董事走访面聊"] });
+        if (!current()) return;
+        recipient = choice.tapIndex === 0 ? "CLASS_TEACHER" : "DIRECTOR";
       }
-      const canvasHeight = Math.max(960, 170 + wrapped.length * 32);
-      await new Promise(resolve => this.setData({ canvasHeight }, resolve));
+      if (wx.requirePrivacyAuthorize) await invoke(wx, "requirePrivacyAuthorize");
       if (!current()) return;
-      ctx.setFillStyle("#ffffff"); ctx.fillRect(0, 0, 640, canvasHeight);
-      ctx.setFillStyle("#741f2b"); ctx.fillRect(0, 0, 640, 100);
-      ctx.setFillStyle("#ffffff"); ctx.setFontSize(30); ctx.fillText(lines[0], 28, 62);
-      ctx.setFillStyle("#3d2a2a"); ctx.setFontSize(22);
-      let y = 145;
-      for (const line of wrapped) { ctx.fillText(line, 28, y); y += 32; }
-      await new Promise(resolve => ctx.draw(false, resolve));
+      if (wx.getSetting) {
+        const setting = await invoke(wx, "getSetting");
+        if (!current()) return;
+        if (setting.authSetting && setting.authSetting["scope.writePhotosAlbum"] === false) throw new Error("auth deny");
+        if (wx.authorize && (!setting.authSetting || setting.authSetting["scope.writePhotosAlbum"] !== true)) await invoke(wx, "authorize", { scope: "scope.writePhotosAlbum" });
+      }
       if (!current()) return;
-      const file = await new Promise((resolve, reject) => wx.canvasToTempFilePath({ canvasId: "applicationSummary", width: 640, height: canvasHeight, destWidth: 1280, destHeight: canvasHeight * 2, success: resolve, fail: reject }, this));
+      stage = "request";
+      const response = complete
+        ? await request(`/api/v1/wechat/operations/applications/${this.data.applicationId}/visit-image-data`, { auth: true, method: "POST", data: { recipient, confirmed: true } })
+        : await request(`/api/v1/wechat/operations/applications/${this.data.applicationId}/image-summary`, { auth: true });
       if (!current()) return;
-      await new Promise((resolve, reject) => wx.saveImageToPhotosAlbum({ filePath: file.tempFilePath, success: resolve, fail: reject }));
-      if (current()) wx.showToast({ title: "申请摘要已保存" });
-    } catch (error) { if (current()) wx.showModal({ title: "图片未保存", content: error.message || "请在小程序设置中允许保存到相册后重试。", showCancel: false }); }
-    finally { if (current()) this.setData({ exporting: false }); }
+      const row = complete ? response.data.application : response.data;
+      const sections = applicationSections(row, Boolean(complete));
+      sections.push({ title: "使用说明", fields: [{ label: "用途", value: complete ? response.data.purpose : "脱敏申请资料，实时状态以系统为准" }, { label: "生成时间", value: complete ? response.data.exported_at : new Date().toLocaleString() }] });
+      stage = "draw";
+      const files = await drawApplicationImages(wx, this, sections, current);
+      total = files.length;
+      if (!current()) return;
+      stage = "album";
+      for (const filePath of files) {
+        if (!current()) return;
+        await invoke(wx, "saveImageToPhotosAlbum", { filePath });
+        saved++;
+      }
+      if (current()) wx.showToast({ title: `已保存 ${saved} 张申请资料图片`, icon: "none" });
+    } catch (error) {
+      const raw = String(error && (error.errMsg || error.message) || "");
+      if (/cancel/i.test(raw)) return;
+      if (current()) {
+        const permission = /auth deny|auth denied|authorize|permission|权限/i.test(raw);
+        wx.showModal({ title: "图片未全部保存", content: (saved ? `已保存 ${saved}/${total} 张。` : "") + (stage === "request" ? (error.message || "申请资料读取失败，请重试。") : imageError(error, stage)), showCancel: permission, confirmText: permission ? "去设置" : "确定", success: result => { if (permission && result.confirm && current()) wx.openSetting({}); } });
+      }
+    } finally {
+      if (this._imageRun === imageRun) this.clearImages();
+      if (current()) this.setData({ exporting: false });
+    }
   }
 });

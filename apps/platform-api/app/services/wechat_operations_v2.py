@@ -107,6 +107,22 @@ def meeting_detail(session, session_id):
                            actor_user_id=actor, session_id=session_id)
         except PermissionError:
             pass
+    if preview is not None:
+        posted, elsewhere = [], []
+        for item in preview["entries"]:
+            entry = item.get("existing_entry")
+            if entry:
+                same_source = (str(entry.get("source_type")) == str(item.get("source_type"))
+                               and str(entry.get("source_id")) == str(item.get("source_id")))
+                (posted if same_source else elsewhere).append(entry)
+                item["display_points"] = entry["points"]
+                item["display_status"] = "本场已入账" if same_source else "本周期其他场次已计分"
+            else:
+                item["display_points"] = item["points"]
+                item["display_status"] = {"READY": "待结算", "BLOCKED": "待处理", "NO_CREDIT": "规则不计分"}.get(item["status"], item["status"])
+        preview["totals"].update(posted_points=sum(float(e["points"]) for e in posted),
+            posted_entry_count=len(posted), credited_elsewhere_points=sum(float(e["points"]) for e in elsewhere),
+            credited_elsewhere_count=len(elsewhere))
     can_confirm = False
     if "study_meetings:attendees_edit" in principal["permissions"]:
         try:
@@ -178,6 +194,11 @@ def application_detail(session, application_id):
             allowed = accessible_org_ids(int(principal["user_id"]))
             organizations = [row for row in fetch_all("SELECT id,name FROM org_units WHERE is_active=1 ORDER BY name")
                              if allowed is None or row["id"] in allowed]
+    if actions["review"]:
+        detail = call(principal, "enrollment:review", enrollment.get_enrollment_application,
+                      int(principal["user_id"]), application_id, for_visit_export=True)
+        detail.pop("phone", None)
+    actions["visit_export"] = actions["review"]
     return {"application": detail, "actions": actions, "organizations": organizations}
 
 
@@ -186,13 +207,19 @@ def application_image(session, application_id):
     actor = int(principal["user_id"])
     detail = call(principal, "enrollment:read", enrollment.get_enrollment_application, actor, application_id)
     call(principal, "exports:normal", enrollment.get_enrollment_application, actor, application_id)
-    fields = ("application_no", "name", "phone_masked", "company_name", "target_shuku_name", "org_unit_name", "application_status", "payment_status", "join_date")
+    fields = ("application_no", "name", "phone_masked", "gender", "birthday", "district", "political_status", "social_role", "email", "referrer", "referrer_org_unit_name", "target_shuku_name", "org_unit_name", "join_date", "company_name", "position", "industry_category", "industry_other", "industry", "company_address", "company_products", "employee_count", "annual_sales", "profit_margin", "financial_fields_visible", "has_enterprise_financial_data", "invoice_type", "invoice_title", "invoice_tax_id", "company_tax_id", "invoice_registered_address", "invoice_phone", "invoice_bank", "invoice_account", "invoice_info", "goal_years", "revenue_growth_target", "profit_growth_target", "books_read", "enrollment_reason_philosophy", "enrollment_reason_change", "enrollment_reason_other", "learning_years_goal", "learning_participation_goal", "business_goal", "other_goal", "notes", "review_note", "application_status", "payment_status", "rules_acknowledged", "created_at", "reviewed_at", "payment_confirmed_at", "converted_at")
     from app.db import transaction
     with transaction() as connection:
         write_audit(connection, actor_user_id=actor, action="enrollment.mobile_summary_export",
                     resource_type="member_enrollment_application", resource_id=str(application_id),
                     org_unit_id=detail.get("org_unit_id"), after={"fields": list(fields), "format": "IMAGE_SUMMARY"})
     return {key: detail.get(key) for key in fields}
+
+
+def application_visit_image(session, application_id, recipient, confirmed):
+    principal = _principal(session)
+    return call(principal, "enrollment:review", enrollment.export_enrollment_visit_data,
+                int(principal["user_id"]), application_id, recipient=recipient, confirmed=confirmed)
 
 
 def application_action(session, application_id, action, values, expected_updated_at):
