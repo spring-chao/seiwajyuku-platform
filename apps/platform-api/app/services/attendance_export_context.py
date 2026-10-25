@@ -4,7 +4,7 @@ from app.db import transaction
 from app.services.attendance_registration_identity import attach_current_registration_names, registration_identities
 from app.services.study_membership import group_roster
 
-BASIS = "本次班会上午、下午合并，按当前正式在册学长去重；外班、来宾、团队名额及空巴不计入。班级包含未分组学长；总小组参会率按已分组人数汇总，不平均各组百分比。"
+BASIS = "上午、下午合并去重，空巴、来宾及团队名额排除。整体参会率计入本班在册学长及正式服务本班的班主任、副班主任、辅导员，分母为本班在册人数；小组及学长参会率只计在册学长，未分组计入班级。"
 TEAM_ROLES = {"EVENT_TEAM_MEMBER", "COURSE_TEAM_MEMBER", "GUEST", "NON_MEMBER"}
 
 
@@ -85,6 +85,8 @@ def participation_statistics(*, event_id, user, permission):
         facts.extend(rows)
     with transaction() as connection:
         roster = group_roster(connection, class_id=class_id, include_ungrouped=True)
+        from app.services.class_activity_participation import _class_staff
+        staff_ids = set(_class_staff(connection, [class_id]).get(class_id, {}))
     members, groups = {}, {}
     for member in roster:
         member_id, key = int(member["member_id"]), member["group_org_unit_id"]
@@ -93,6 +95,7 @@ def participation_statistics(*, event_id, user, permission):
             "group_name": member["group_name"] or "未分组", "roster": set(), "present": set()})
         group["roster"].add(member_id)
     unresolved = 0
+    extra_staff = set()
     for row in facts:
         if not (row.get("checked") is True or row.get("checked_at") or row.get("sign_time")):
             continue
@@ -101,7 +104,9 @@ def participation_statistics(*, event_id, user, permission):
         member_id = row.get("current_member_id")
         if member_id in members:
             groups[members[member_id]]["present"].add(member_id)
-        elif not member_id and row.get("attendance_role") == "HOME_CLASS_MEMBER":
+        elif member_id in staff_ids:
+            extra_staff.add(member_id)
+        elif not member_id and row.get("attendance_role") in {"HOME_CLASS_MEMBER", "CROSS_CLASS_MEMBER"}:
             unresolved += 1
     def counts(total, present):
         return {"roster_count": total, "present_count": present,
@@ -112,9 +117,13 @@ def participation_statistics(*, event_id, user, permission):
     result.update(group_statistics=summary,
         class_statistics={"class_org_unit_id": class_id,
             "class_name": next((r["class_name"] for r in roster), event.get("class_name") or "班级"),
-            **counts(len(members), sum(len(g["present"]) for g in groups.values()))},
+            **counts(len(members), sum(len(g["present"]) for g in groups.values()) + len(extra_staff)),
+            "member_present_count": sum(len(g["present"]) for g in groups.values()),
+            "member_participation_rate": counts(len(members), sum(len(g["present"]) for g in groups.values()))["participation_rate"],
+            "staff_present_count": len(extra_staff), "includes_formal_class_staff": True,
+            "event_date": day},
         group_totals=counts(sum(len(g["roster"]) for g in grouped), sum(len(g["present"]) for g in grouped)),
-        group_statistics_session_count=len(sessions),
+        group_statistics_session_count=len(sessions), unresolved_record_count=unresolved, statistics_source="LIVE_SIGNIN",
         group_statistics_message=f"本班有 {unresolved} 条到场身份待核对，参会率暂不展示。" if unresolved else "")
     return result
 

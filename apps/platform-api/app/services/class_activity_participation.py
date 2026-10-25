@@ -110,8 +110,52 @@ def attach_class_activity_overall(rows: list[dict]) -> None:
         count = len(present[int(row['id'])])
         missing = unresolved[int(row['id'])]
         configured = bool(row.get('study_org_unit_id'))
-        row.update(overall_registration_count=size if configured else None,
+        student_count = len(present[int(row['id'])] & roster.get(row.get('study_org_unit_id'), set()))
+        row.update(overall_member_present_count=student_count if configured and not missing else None,
+                   overall_staff_present_count=count-student_count if configured and not missing else None,
+                   overall_member_participation_rate=round(student_count * 100 / size, 1) if size and not missing else None,
+                   overall_data_source="SYNCED", overall_data_message="已同步签到快照；统计口径包含本班正式师资。",
+                   overall_registration_count=size if configured else None,
                    overall_present_count=count if configured and not missing else None,
                    overall_identified_count=count,
                    overall_unresolved_record_count=missing,
                    overall_participation_rate=round(count * 100 / size, 1) if size and not missing else None)
+
+
+def attach_live_class_activity_overall(row: dict, *, user: dict) -> None:
+    """Refresh this authorized signin activity from the same live aggregate as onsite.
+
+    Lists retain the bounded local projection. Details try the exact linked
+    session; no synchronization or business-data write is performed here.
+    """
+    if row.get("source_key") != "signin" or str(row.get("activity_type", "")).upper() != "CLASS_MEETING":
+        return
+    from app.core.settings import get_settings
+    if not get_settings().signin_management_enabled:
+        return
+    from app.db import fetch_one
+    from app.services.attendance_export_context import participation_statistics
+    from app.services.signin_engine import SigninEngineError
+    session = fetch_one("SELECT external_session_id FROM attendance_sessions WHERE event_group_id=? "
+        "AND UPPER(session_code) IN ('MORNING','AM','AFTERNOON','PM') "
+        "AND status NOT IN ('DELETED','CANCELLED') AND external_session_id IS NOT NULL ORDER BY session_order,id LIMIT 1", (row["id"],))
+    if not session or not session["external_session_id"]:
+        return
+    try:
+        result = participation_statistics(event_id=str(session["external_session_id"]), user=user, permission="members:read")
+        total = result.get("class_statistics")
+        if (not total or total["class_org_unit_id"] != row.get("study_org_unit_id")
+                or str(total.get("event_date"))[:10] != str(row.get("event_date"))[:10]):
+            row["overall_data_message"] = "实时场次或班级关联待核对，当前展示已同步快照。"
+            return
+        unresolved = result.get("unresolved_record_count", 0)
+        row.update(overall_registration_count=total["roster_count"],
+            overall_present_count=None if unresolved else total["present_count"],
+            overall_identified_count=total["present_count"], overall_unresolved_record_count=unresolved,
+            overall_participation_rate=None if total["participation_rate"] is None else round(total["participation_rate"]*100,1),
+            overall_member_present_count=total["member_present_count"],
+            overall_staff_present_count=total["staff_present_count"],
+            overall_member_participation_rate=None if total["member_participation_rate"] is None else round(total["member_participation_rate"]*100,1),
+            overall_data_source="LIVE_SIGNIN", overall_data_message="实时签到统计，与签到现场、Excel及移动运营使用同一口径。")
+    except SigninEngineError:
+        row["overall_data_message"] = "实时统计暂不可用，当前展示已同步快照；请核对同步时间后刷新。"

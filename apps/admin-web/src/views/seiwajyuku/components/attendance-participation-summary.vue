@@ -30,9 +30,12 @@ const rowClass = ({ row }: { row: { isTotal?: boolean } }) =>
         >
       </div>
       <div>
-        <span>班级参会率</span
+        <span>整体参会率（含本班师资）</span
         ><strong>{{
-          participationRateLabel(result?.class_statistics?.participation_rate)
+          participationRateLabel(
+            result?.class_statistics?.participation_rate,
+            1
+          )
         }}</strong
         ><small
           >{{ result?.class_statistics?.present_count ?? "—" }} /
@@ -40,6 +43,20 @@ const rowClass = ({ row }: { row: { isTotal?: boolean } }) =>
         >
       </div>
     </div>
+    <p
+      v-if="result?.class_statistics?.includes_formal_class_staff"
+      class="basis"
+    >
+      本班在册学长到场
+      {{
+        result.class_statistics.member_present_count
+      }}
+      人；额外计入本班正式师资
+      {{
+        result.class_statistics.staff_present_count
+      }}
+      人。小组率仅统计在册学长，整体参会率沿用活动签到的师资例外口径。
+    </p>
     <el-alert
       v-if="result?.group_statistics_message"
       :title="result.group_statistics_message"
@@ -67,7 +84,7 @@ const rowClass = ({ row }: { row: { isTotal?: boolean } }) =>
       />
       <el-table-column label="班会小组参会率" min-width="160" align="right"
         ><template #default="{ row }">{{
-          participationRateLabel(row.participation_rate)
+          participationRateLabel(row.participation_rate, row.isTotal ? 1 : 0)
         }}</template></el-table-column
       >
     </el-table>

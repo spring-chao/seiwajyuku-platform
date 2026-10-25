@@ -227,9 +227,9 @@ export function attendanceSummaryRows(stats = {}) {
   ];
 }
 
-export function participationRateLabel(rate) {
+export function participationRateLabel(rate, digits = 0) {
   return typeof rate === "number" && Number.isFinite(rate)
-    ? `${Math.round(rate * 100)}%`
+    ? `${digits ? (rate * 100).toFixed(digits) : Math.round(rate * 100)}%`
     : "—";
 }
 
@@ -239,6 +239,15 @@ export function participationTableRows(result = {}) {
     isTotal: false
   }));
   const total = result.class_statistics;
+  if (total?.staff_present_count)
+    rows.push({
+      group_name: "本班师资（额外去重到场）",
+      roster_count: "—",
+      present_count: total.staff_present_count,
+      participation_rate: null,
+      isStaff: true,
+      isTotal: false
+    });
   if (total)
     rows.push({
       ...total,

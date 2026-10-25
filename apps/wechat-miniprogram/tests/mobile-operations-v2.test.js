@@ -10,7 +10,7 @@ function page(name, request, wx = {}) {
   const guardModule = { exports: {} };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../utils/page-session.js"), "utf8"), { module: guardModule, getApp: () => app });
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../pages/operations", `${name}.js`), "utf8"), {
-    Page: value => { instance = value; }, require: name => name.endsWith("page-session") ? guardModule.exports : name.endsWith("application-material") ? require("../utils/application-material") : ({ request }),
+    Page: value => { instance = value; }, require: name => name.endsWith("page-session") ? guardModule.exports : name.endsWith("application-material") ? require("../utils/application-material") : name.endsWith("mobile-activity") ? require("../utils/mobile-activity") : ({ request }),
     wx: { showToast() {}, showModal() {}, ...wx }
   });
   instance.setData = (value, callback) => { Object.assign(instance.data, value); if (callback) callback(); };
@@ -188,4 +188,57 @@ test("complete application images save every generated page and record the decla
   assert(drawn.join("").includes("结尾不得截断"));
   assert.equal(p.data.exporting, false);
   assert.equal(p._imagePaths.length, 0);
+});
+
+test("mobile activity actions respect staff permissions, session windows and immutable checkins", () => {
+  const a = require("../utils/mobile-activity");
+  const detail = { group: { status: "CONFIRMED", checkin_status: "open", session_code: "MORNING" }, can_manage: true, can_status: true };
+  const row = { registration_id: "row", checked: false };
+  assert.equal(a.rowActions(detail, row).length, 5);
+  assert.equal(a.rowActions(detail, { ...row, checked: true }).length, 0);
+  assert.equal(a.rowActions({ ...detail, group: { ...detail.group, checkin_status: "ended" } }, row).length, 0);
+  assert.equal(a.rowActions({ ...detail, can_manage: false, can_status: false }, row).length, 0);
+  assert.ok(!a.rowActions(detail, { ...row, is_team: true }).some(r => r.value === "manual_checkin"));
+  assert.ok(!a.rowActions({ ...detail, group: { ...detail.group, session_code: "KONPA" } }, row).some(r => r.value === "late"));
+  const view = a.decorate({ ...detail, group: { ...detail.group, activity_type: "class_meeting" }, statistics: { class_statistics: { present_count: 28, roster_count: 35, member_present_count: 26, staff_present_count: 2, participation_rate: .8 }, group_totals: { participation_rate: 25/34 } }, attendees: [{ ...row, registered_display_name: "合成新名", name: "合成旧名" }] }, "新名");
+  assert.equal(view.statistics.overallRate, "80.0%");
+  assert.equal(view.statistics.staffPresent, 2);
+  assert.equal(view.attendees.length, 1);
+  assert.equal(a.clockFromIso("2026-10-25T23:30:00Z"), "07:30");
+});
+
+test("mobile class creation confirms three trusted sessions and keeps the same intent on timeout", async () => {
+  const calls = [];
+  const p = page("activity-detail", async (url, options) => { calls.push({url, options}); throw new Error("timeout"); }, { showModal: options => { if (options.success) options.success({ confirm: true }); } });
+  p.onLoad({});
+  p.data.classes = [{ id: "class-a", name: "合成班级" }]; p.data.activityType = "class_meeting"; p.data.title = "合成班会"; p.data.eventDate = "2026-10-30";
+  await p.save(); await p.save();
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].options.data.request_id, calls[1].options.data.request_id);
+  assert.equal(calls[0].options.data.class_org_unit_id, "class-a");
+  assert.equal(calls[0].options.data.activity_type, "class_meeting");
+  assert.equal(calls[0].options.data.class_times.morning_scheduled_start, "09:00");
+  assert.equal(calls[0].options.data.roster_members, undefined);
+});
+
+test("hiding phone activity cancels delayed confirmations and a late QR file is deleted", async () => {
+  let confirm, resolveFile;
+  const calls = [], deleted = [];
+  const p = page("activity-detail", async (url) => { calls.push(url); return { data: { image_base64: "synthetic" } }; }, {
+    env: { USER_DATA_PATH: "/synthetic" },
+    getFileSystemManager: () => ({ writeFile: options => { resolveFile = options.success; }, unlink: options => deleted.push(options.filePath) }),
+    showModal: options => { confirm = options.success; }
+  });
+  p.onLoad({ event_id: "scene" });
+  p.data.detail = { can_code: true, group: { manual_status: "closed" }, revision: "synthetic" };
+  p.setCheckinState();
+  p.onHide(); p.onShow = () => {}; confirm({ confirm: true });
+  assert.equal(calls.length, 0);
+  // A new visible page may request a code; hiding during file IO still clears it.
+  p._privatePageHidden = false;
+  const guard = require("../utils/page-session"); guard.showPrivatePage(p);
+  p.data.detail = { can_code: true };
+  const pending = p.showCode(); await new Promise(resolve => setImmediate(resolve));
+  p.onHide(); resolveFile(); await pending;
+  assert.equal(p.data.codePath, ""); assert.equal(deleted.length, 1);
 });

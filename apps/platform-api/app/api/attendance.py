@@ -931,6 +931,8 @@ def event_group_detail(
     group["registration_count_status"] = "CONFIRMED" if group["registration_count"] is not None else "UNAVAILABLE"
     from app.services.class_activity_participation import attach_class_activity_overall
     attach_class_activity_overall([group])
+    from app.services.class_activity_participation import attach_live_class_activity_overall
+    attach_live_class_activity_overall(group, user=user)
     return {
         "success": True,
         "data": {

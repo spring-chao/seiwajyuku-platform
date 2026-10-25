@@ -33,8 +33,27 @@ class MeetingVerify(BaseModel):
     expected_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+class ClassMeetingTimes(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    morning_checkin_start: str = Field(default="07:30", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    morning_scheduled_start: str = Field(default="09:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    morning_checkin_end: str = Field(default="10:30", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    morning_scheduled_end: str = Field(default="12:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    afternoon_checkin_start: str = Field(default="12:10", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    afternoon_scheduled_start: str = Field(default="13:30", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    afternoon_checkin_end: str = Field(default="15:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    afternoon_scheduled_end: str = Field(default="17:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    konpa_checkin_start: str = Field(default="17:10", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    konpa_scheduled_start: str = Field(default="18:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    konpa_checkin_end: str = Field(default="20:30", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    konpa_scheduled_end: str = Field(default="20:30", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
 class ActivitySave(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    activity_type: Literal["other", "course", "class_meeting", "group_meeting", "national_report", "center_quarterly_report", "staff_training", "board_meeting", "study_tour"] = "other"
+    class_org_unit_id: str | None = Field(default=None, max_length=64)
+    class_times: ClassMeetingTimes = Field(default_factory=ClassMeetingTimes)
     title: str = Field(min_length=1, max_length=500)
     event_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     org_unit_id: str = Field(min_length=1, max_length=64)
@@ -219,6 +238,42 @@ def update_activity(event_id: str, payload: ActivitySave, identity=Depends(sessi
 @router.post("/activities/{event_id}/attendees")
 def add_attendee(event_id: str, payload: AttendeeAdd, identity=Depends(session)):
     return response(mobile_activities.add_attendee, identity, event_id, payload.model_dump())
+
+
+class ActivityRowAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["manual_checkin", "registration_delete", "late", "leave", "pending"]
+    registration_id: str = Field(min_length=1, max_length=128)
+    request_id: str = Field(min_length=8, max_length=64)
+    note: str | None = Field(default=None, max_length=200)
+    expected_checked: bool
+    expected_status: str | None = Field(default=None, max_length=32)
+
+
+class ActivityCheckinState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    open: bool
+    expected_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+@router.post("/activities/{event_id}/row-action")
+def activity_row_action(event_id: str, payload: ActivityRowAction, identity=Depends(session)):
+    return response(mobile_activities.row_action, identity, event_id, payload.model_dump())
+
+
+@router.post("/activities/{event_id}/checkin-state")
+def activity_checkin_state(event_id: str, payload: ActivityCheckinState, identity=Depends(session)):
+    return response(mobile_activities.checkin_state, identity, event_id, payload.open, payload.expected_revision)
+
+
+@router.post("/activities/{event_id}/sync-roster")
+def activity_sync_roster(event_id: str, identity=Depends(session)):
+    return response(mobile_activities.sync_roster, identity, event_id)
+
+
+@router.post("/activities/{event_id}/entry-code")
+def activity_entry_code(event_id: str, identity=Depends(session)):
+    return response(mobile_activities.entry_code, identity, event_id)
 
 
 @router.post("/activities/{event_id}/lifecycle")

@@ -306,6 +306,8 @@ async function openActivityDetail(row: any) {
     ]);
     if (request !== detailRequest) return;
     detail.value = detailResponse.data;
+    const refreshed = detailResponse.data.group;
+    rows.value = rows.value.map(item => item.id === refreshed.id ? { ...item, ...Object.fromEntries(Object.entries(refreshed).filter(([key]) => key.startsWith("overall_"))) } : item);
     detailRecords.value = recordsResponse.data;
   } catch {
     if (request === detailRequest) ElMessage.error("活动明细加载失败，请关闭后重试");
@@ -461,7 +463,7 @@ async function downloadDetailRecords() {
               <strong>{{ registrationCount(detailSummary) ?? "待核实" }}</strong>
             </div>
             <div><span>{{ isClassMeeting(detail.group.activity_type) ? "整体签到人数（本班及本班师资去重）" : "已签到人次" }}</span><strong>{{ detailSummary.present_count ?? "待核实" }}</strong></div>
-            <div v-if="isClassMeeting(detail.group.activity_type)"><span>整体参会率</span><strong>{{ overallRate(detail.group) }}</strong></div>
+            <div v-if="isClassMeeting(detail.group.activity_type)"><span>整体参会率（含本班师资）</span><strong>{{ overallRate(detail.group) }}</strong></div>
             <div><span>扫码场次</span><strong>{{ visibleDetailSessions.length }}</strong></div>
           </div>
 
@@ -490,6 +492,7 @@ async function downloadDetailRecords() {
           </section>
 
           <section class="detail-section">
+            <el-alert v-if="isClassMeeting(detail.group.activity_type) && detail.group.overall_data_message" :title="detail.group.overall_data_message + ' 在册学长到场 ' + (detail.group.overall_member_present_count ?? '—') + ' 人，额外师资 ' + (detail.group.overall_staff_present_count ?? '—') + ' 人。'" type="info" :closable="false" style="margin-bottom:16px" />
             <el-radio-group v-model="detailSessionId" class="session-switch" aria-label="查看扫码场次">
               <el-radio-button :value="0">全部场次</el-radio-button>
               <el-radio-button v-for="session in detail.sessions" :key="session.id" :value="session.id">
