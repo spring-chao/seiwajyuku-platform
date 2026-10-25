@@ -862,7 +862,7 @@ async function exportExcel() {
       ...(result.class_statistics
         ? [
             [
-              "班级参会率（本次班会去重）",
+              "整体参会率（含本班师资）",
               result.class_statistics.participation_rate ?? "—"
             ],
             [

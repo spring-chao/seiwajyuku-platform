@@ -264,3 +264,106 @@ def test_application_complete_materials_never_borrow_review_scope(mobile):
     assert data["application"]["annual_sales"] is None
     assert phone not in result.text
     assert client.post(endpoint + "/visit-image-data", headers=headers, json={"recipient": "CLASS_TEACHER", "confirmed": True}).status_code == 403
+
+
+def test_mobile_class_creation_uses_trusted_three_sessions_and_one_activity_card(mobile, monkeypatch):
+    from app.services import signin_engine
+    from test_signin_management import ENV
+    import copy
+    for key, value in ENV.items():
+        monkeypatch.setenv(key, value)
+    f, client, headers = mobile
+    class_id = fetch_one("SELECT org_unit_id FROM members WHERE id=?", (f["focal_member_id"],))["org_unit_id"]
+    # This fixture uses formal student class membership; no client roster is accepted.
+    from app.services.study_membership import CURRENT_CLASS_ID_SQL
+    class_id = fetch_one(f"SELECT {CURRENT_CLASS_ID_SQL} AS class_id FROM members m WHERE m.id=?", (f["focal_member_id"],))["class_id"]
+    assert class_id
+    created = []
+    sessions = [{"event_id": "mobile-"+code, "session_code": code, "org_unit_id": class_id, "lifecycle_status": "CONFIRMED", "checkin_status": "open" if code == "AFTERNOON" else "ended"} for code in ("MORNING", "AFTERNOON", "KONPA")]
+    def engine(path, envelope, **kwargs):
+        operation, payload = path.rsplit("/", 1)[-1], envelope["payload"]
+        if operation == "create_class_meeting_sessions":
+            assert envelope["actor"]["permissions"] == ["attendance:create"]
+            assert "roster_members" not in payload and "attendees" not in payload
+            assert payload["org_unit_id"] == payload["class_org_unit_id"] == class_id
+            assert payload["morning_scheduled_start"] == "2026-10-30T09:00"
+            created.append(copy.deepcopy(payload))
+            return {"ok": True, "event_group_id": "mobile-three", "events": sessions}
+        assert operation == "admin_events"
+        return {"items": [{"event_group_id": "mobile-three", "name": "合成三场班会", "sessions": sessions}], "has_more": False}
+    monkeypatch.setattr(signin_engine, "engine_request", engine)
+    context = client.get(f"{PREFIX}/activity-context", headers=headers)
+    assert context.status_code == 200
+    assert any(row["id"] == class_id and row["member_count"] > 0 for row in context.json()["data"]["classes"])
+    payload = {"title": "合成三场班会", "activity_type": "class_meeting", "class_org_unit_id": class_id, "org_unit_id": class_id, "event_date": "2026-10-30", "request_id": uuid4().hex}
+    result = client.post(f"{PREFIX}/activities", headers=headers, json=payload)
+    assert result.status_code == 200, result.text
+    assert result.json()["data"]["id"] == "mobile-MORNING" and result.json()["data"]["session_count"] == 3
+    assert client.post(f"{PREFIX}/activities", headers=headers, json=payload).json()["data"]["replayed"]
+    assert len(created) == 1
+    assert client.post(f"{PREFIX}/activities", headers=headers, json={**payload, "roster_members": []}).status_code == 422
+    listed = client.get(f"{PREFIX}/activities?month=2026-10", headers=headers).json()["data"]["records"]
+    assert len(listed) == 1 and listed[0]["id"] == "mobile-AFTERNOON" and listed[0]["session_count"] == 3
+    rejected = client.post(f"{PREFIX}/activities", headers=headers, json={**payload, "activity_type": "group_meeting", "request_id": uuid4().hex})
+    assert rejected.status_code == 400
+
+
+def test_mobile_actions_keep_fact_permissions_event_scope_and_revision(mobile, monkeypatch):
+    from app.services import signin_engine
+    from test_signin_management import ENV
+    import copy
+    for key, value in ENV.items():
+        monkeypatch.setenv(key, value)
+    f, client, headers = mobile
+    event = {"event_id": "mobile-scene", "name": "合成现场", "org_unit_id": f["center_id"], "event_date": "2026-10-30", "activity_type": "other", "lifecycle_status": "CONFIRMED", "checkin_status": "open", "checkin_start_at": "2026-10-30T00:00:23Z", "checkin_end_at": "2026-10-30T14:00:23Z"}
+    row = {"registration_id": "mobile-row", "name": "合成参加人", "attendance_status": "pending", "checked": False}
+    writes = []
+    def engine(path, envelope, **kwargs):
+        op, payload = path.rsplit("/", 1)[-1], envelope["payload"]
+        if op == "event_detail":
+            return {"event": copy.deepcopy(event), "sessions": [copy.deepcopy(event)], "rows": [copy.deepcopy(row)]}
+        if op == "stats":
+            return {"event": copy.deepcopy(event), "total": 1, "checked": int(row["checked"])}
+        writes.append((op, copy.deepcopy(payload), envelope["actor"]["permissions"]))
+        return {"ok": True}
+    monkeypatch.setattr(signin_engine, "engine_request", engine)
+    def action(value="manual_checkin", **extra):
+        return {"action": value, "registration_id": "mobile-row", "request_id": uuid4().hex, "expected_checked": False, "expected_status": "pending", **extra}
+    url = f"{PREFIX}/activities/mobile-scene"
+    assert client.post(url+"/row-action", headers=headers, json=action("leave")).status_code == 403
+    grant(f, ["attendance:status", "attendance:code", "attendance:import"], f["center_id"])
+    assert client.post(url+"/row-action", headers=headers, json=action("leave")).status_code == 200
+    assert writes[-1][0] == "attendance_status" and writes[-1][2] == ["attendance:status"]
+    assert client.post(url+"/row-action", headers=headers, json=action(registration_id="another-event-row")).status_code == 400
+    row["attendance_status"] = "leave"
+    assert client.post(url+"/row-action", headers=headers, json=action()).status_code == 400
+    row["attendance_status"] = "pending"
+    row["is_team"] = True
+    assert client.post(url+"/row-action", headers=headers, json=action()).status_code == 400
+    row["is_team"] = False
+    event["checkin_status"] = "ended"
+    assert client.post(url+"/row-action", headers=headers, json=action()).status_code == 400
+    event["checkin_status"] = "open"
+    event["session_code"] = "KONPA"
+    assert client.post(url+"/row-action", headers=headers, json=action("late")).status_code == 400
+    assert client.post(url+"/row-action", headers=headers, json=action()).status_code == 200
+    assert writes[-1][0] == "manual_checkin"
+    row["checked"] = True
+    assert client.post(url+"/row-action", headers=headers, json=action("registration_delete")).status_code == 400
+    fresh = client.get(url, headers=headers).json()["data"]
+    # Name-only edits preserve legacy seconds and remain possible after arrival.
+    edit = {"title": "合成改名", "activity_type": "group_meeting", "event_date": "2026-10-30", "org_unit_id": f["center_id"], "request_id": uuid4().hex, "expected_revision": fresh["revision"], "checkin_start": "08:00", "checkin_end": "22:00"}
+    result = client.patch(url, headers=headers, json=edit)
+    assert result.status_code == 200, result.text
+    assert writes[-1][1] == {"event_id": "mobile-scene", "name": "合成改名"}
+    assert client.patch(url, headers=headers, json={**edit, "checkin_start": "08:01"}).status_code == 400
+    assert client.post(url+"/checkin-state", headers=headers, json={"open": False, "expected_revision": "0"*64}).status_code == 400
+    closed = client.post(url+"/checkin-state", headers=headers, json={"open": False, "expected_revision": fresh["revision"]})
+    assert closed.status_code == 200, closed.text
+    assert writes[-1][1]["status"] == "closed" and writes[-1][2] == ["attendance:manage"]
+    outside_org = fetch_one("SELECT org_unit_id FROM members WHERE id=?", (f["outside_member_id"],))["org_unit_id"]
+    grant(f, ["attendance:view"], outside_org)
+    event["org_unit_id"] = outside_org
+    for suffix in ("row-action", "sync-roster"):
+        assert client.post(url+"/"+suffix, headers=headers, json=action() if suffix == "row-action" else {}).status_code == 403
+    assert client.post(url+"/entry-code", headers=headers).status_code == 403

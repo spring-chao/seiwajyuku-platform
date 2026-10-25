@@ -969,3 +969,45 @@ test("reference template totals 32 registered and 17 distinct attendees, display
   assert.equal(restored.Sheets["小组参会统计"].D8.w, "53%");
   assert.equal(restored.Sheets["小组参会统计"].A8.v, "炎武四班参会率");
 });
+
+test("formal host-class teachers reconcile 26 students with 28 overall without inflating groups", () => {
+  const data = {
+    group_statistics: [
+      {
+        group_name: "合成小组",
+        roster_count: 34,
+        present_count: 25,
+        participation_rate: 25 / 34
+      },
+      {
+        group_name: "未分组",
+        roster_count: 1,
+        present_count: 1,
+        participation_rate: 1
+      }
+    ],
+    class_statistics: {
+      class_name: "合成班级",
+      roster_count: 35,
+      present_count: 28,
+      member_present_count: 26,
+      staff_present_count: 2,
+      participation_rate: 0.8
+    }
+  };
+  const rows = management.participationTableRows(data);
+  assert.equal(rows.length, 4);
+  assert.equal(rows[2].isStaff, true);
+  assert.equal(rows[2].present_count, 2);
+  assert.equal(rows[3].present_count, 28);
+  assert.equal(
+    management.participationRateLabel(rows[3].participation_rate, 1),
+    "80.0%"
+  );
+  const sheet = XLSXModule.utils.aoa_to_sheet(
+    management.attendanceGroupSummaryRows(data)
+  );
+  assert.equal(sheet.C4.v, 2);
+  assert.equal(sheet.C5.v, 28);
+  assert.equal(sheet.D5.v, 0.8);
+});

@@ -130,3 +130,46 @@ def test_view_statistics_has_its_own_scope_and_does_not_erase_session_totals_on_
         assert result.json()["total"] == 35 and result.json()["checked"] == 23
         assert result.json()["class_statistics"] is None
         assert "暂不可用" in result.json()["group_statistics_message"]
+
+
+def test_live_statistics_and_retained_detail_use_identical_teacher_exception(monkeypatch):
+    from test_class_activity_overall import fixture, staff_appointment
+    from app.api.attendance import event_group_detail
+    f, event_group_id = fixture()
+    staff_appointment(f, "volunteer_class_counselor", f["class_id"])
+    actor = {"id": fetch_one("SELECT id FROM app_users WHERE username='admin'")["id"]}
+    with transaction() as connection:
+        execute(connection, "UPDATE attendance_event_groups SET source_key='signin' WHERE id=?", (event_group_id,))
+        sessions = [dict(row) for row in execute(connection, "SELECT * FROM attendance_sessions WHERE event_group_id=? ORDER BY session_order", (event_group_id,)).fetchall()]
+    events = [{"event_id": s["external_session_id"], "event_group_id": "teacher-live", "class_org_unit_id": f["class_id"], "org_unit_id": f["class_id"], "event_date": "2026-10-22", "activity_type": "class_meeting", "session_code": s["session_code"], "lifecycle_status": "CONFIRMED"} for s in sessions]
+    def row(member_id, role="HOME_CLASS_MEMBER"):
+        return {"platform_member_id": str(member_id), "checked": True, "attendance_role": role}
+    facts = {
+        "MORNING": [row(f["member_id"]), row(f["foreign_member_id"], "CROSS_CLASS_MEMBER")],
+        "AFTERNOON": [row(f["other_member_id"]), row(f["foreign_member_id"], "CROSS_CLASS_MEMBER"), row(f["member_id"])],
+        "KONPA": [],
+    }
+    def engine(path, envelope, **kwargs):
+        event = next(e for e in events if e["event_id"] == envelope["payload"]["event_id"])
+        return {"event": copy.deepcopy(event), "sessions": copy.deepcopy(events), "rows": copy.deepcopy(facts[event["session_code"]])}
+    for key, value in ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(signin_engine, "engine_request", engine)
+    from app.services.attendance_export_context import participation_statistics
+    live = participation_statistics(event_id=events[0]["event_id"], user=actor, permission="attendance:view")
+    total = live["class_statistics"]
+    assert total["present_count"] == 3 and total["member_present_count"] == 2
+    assert total["staff_present_count"] == 1 and total["roster_count"] == 3
+    assert total["participation_rate"] == 1 and total["member_participation_rate"] == round(2/3, 6)
+    assert sum(r["present_count"] for r in live["group_statistics"]) == 2
+    retained = event_group_detail(event_group_id, user=actor)["data"]["group"]
+    assert retained["overall_data_source"] == "LIVE_SIGNIN"
+    assert retained["overall_present_count"] == 3 and retained["overall_participation_rate"] == 100
+    assert retained["overall_member_present_count"] == 2 and retained["overall_staff_present_count"] == 1
+    with patch.object(signin_engine, "engine_request", side_effect=signin_engine.SigninEngineError("offline", 503)):
+        fallback = event_group_detail(event_group_id, user=actor)["data"]["group"]
+    assert fallback["overall_data_source"] == "SYNCED" and "快照" in fallback["overall_data_message"]
+    # A source session may never replace an unrelated class/date aggregate.
+    events[0]["event_date"] = events[1]["event_date"] = "2026-10-23"
+    mismatch = event_group_detail(event_group_id, user=actor)["data"]["group"]
+    assert mismatch["overall_data_source"] == "SYNCED" and "关联待核对" in mismatch["overall_data_message"]
