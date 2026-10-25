@@ -227,21 +227,40 @@ export function attendanceSummaryRows(stats = {}) {
   ];
 }
 
+export function participationRateLabel(rate) {
+  return typeof rate === "number" && Number.isFinite(rate)
+    ? `${Math.round(rate * 100)}%`
+    : "—";
+}
+
+export function participationTableRows(result = {}) {
+  const rows = (result.group_statistics || []).map(group => ({
+    ...group,
+    isTotal: false
+  }));
+  const total = result.class_statistics;
+  if (total)
+    rows.push({
+      ...total,
+      group_name: `${total.class_name || "班级"}参会率`,
+      isTotal: true
+    });
+  return rows;
+}
+
 export function attendanceGroupSummaryRows(result = {}) {
   return [
     ["小组", "本组在册人数", "本次班会去重到场人数", "班会小组参会率"],
-    ...(result.group_statistics || []).map(group => [
-      group.group_name,
-      group.roster_count,
-      group.present_count,
-      typeof group.participation_rate === "number"
-        ? group.participation_rate
-        : "—"
+    ...participationTableRows(result).map(row => [
+      row.group_name,
+      row.roster_count,
+      row.present_count,
+      typeof row.participation_rate === "number" ? row.participation_rate : "—"
     ]),
     [],
     [
       "统计口径",
-      result.group_statistics_basis || "本次班会日间到场去重人数 / 本组在册人数"
+      result.group_statistics_basis || "本次班会日间去重到场人数 / 当前在册人数"
     ],
     ...(result.group_statistics_message
       ? [["待核对", result.group_statistics_message]]

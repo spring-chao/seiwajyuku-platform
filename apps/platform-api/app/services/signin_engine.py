@@ -205,6 +205,9 @@ def management_request(operation: str, payload: dict, *, user: dict) -> dict:
         rows = data.get("rows", [])
         if isinstance(rows, list):
             attach_current_registration_names([row for row in rows if isinstance(row, dict)], event_id=str(payload.get("event_id") or ""))
+    if operation == "stats":
+        from app.services.attendance_export_context import enrich_statistics
+        enrich_statistics(data, event_id=str(payload.get("event_id") or ""), user=user)
     if operation == "export":
         from app.services.attendance_export_context import enrich_export
         enrich_export(data, event_id=str(payload.get("event_id") or ""), user=user)

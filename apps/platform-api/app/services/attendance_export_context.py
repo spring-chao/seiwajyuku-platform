@@ -1,100 +1,151 @@
-"""Scoped export context from live signin facts and canonical class/group rosters."""
+"""Shared scoped daytime participation for the screen and workbook."""
+import re
 from app.db import transaction
 from app.services.attendance_registration_identity import attach_current_registration_names, registration_identities
 from app.services.study_membership import group_roster
 
+BASIS = "本次班会上午、下午合并，按当前正式在册学长去重；外班、来宾、团队名额及空巴不计入。班级包含未分组学长；总小组参会率按已分组人数汇总，不平均各组百分比。"
+TEAM_ROLES = {"EVENT_TEAM_MEMBER", "COURSE_TEAM_MEMBER", "GUEST", "NON_MEMBER"}
 
-def enrich_export(data: dict, *, event_id: str, user: dict) -> None:
+
+def _hydrate(rows, event_id):
+    missing = [r for r in rows if not r.get("platform_member_id") and not r.get("member_code")]
+    for row, match in zip(missing, registration_identities(missing)):
+        if match:
+            row.update(match)
+    attach_current_registration_names(rows, event_id=event_id)
+
+
+def _class_id(event):
+    return event.get("class_org_unit_id") or event.get("study_org_unit_id") or event.get("org_unit_id")
+
+
+def _sort_group(group):
+    return (group["group_org_unit_id"] is None,
+            tuple((0, int(p)) if p.isdigit() else (1, p) for p in re.split(r"(\d+)", group["group_name"])))
+
+
+def participation_statistics(*, event_id, user, permission):
     from app.services import signin_engine as engine
-    rows = data.get("rows")
-    if not isinstance(rows, list):
-        return
-    event = data.get("event") or engine.event_detail(event_id, user=user, permission="attendance:export")
-    data["event"] = event
-    allowed = engine.allowed_scope(user["id"], "attendance:export")
+    allowed = engine.allowed_scope(user["id"], permission)
 
-    def read(operation, payload, *, export=False):
-        # Export authorization covers only this exact event/group's read context.
-        # Never borrow the caller's union of other permission scopes.
+    def read(operation, payload):
         return engine.engine_request("/ops/v1/manage/" + operation, {
-            "payload": payload, "actor": {"id": user["id"], "permissions": ["attendance:export" if export else "attendance:view"]},
+            "payload": payload, "actor": {"id": user["id"], "permissions": ["attendance:view"]},
             "allowed_org_unit_ids": allowed})
 
-    def hydrate(facts, session_id):
-        missing = [r for r in facts if not r.get("platform_member_id") and not r.get("member_code")]
-        for row, match in zip(missing, registration_identities(missing)):
-            if match:
-                row.update(match)
-        attach_current_registration_names(facts, event_id=session_id)
+    def detail(session_id):
+        result = read("event_detail", {"event_id": session_id})
+        event = result.get("event")
+        if not isinstance(event, dict):
+            raise engine.SigninEngineError("活动不存在", 404)
+        engine.validate_organizations(event, allowed, required=True)
+        return result
 
-    hydrate(rows, event_id)
-    data["stats"] = read("stats", {"event_id": event_id})
+    selected = detail(event_id)
+    event = selected["event"]
     if str(event.get("activity_type", "")).lower() != "class_meeting":
-        return
-    class_id = event.get("class_org_unit_id") or event.get("study_org_unit_id") or event.get("org_unit_id")
-    group_id = event.get("event_group_id")
+        return {}
+    class_id, group_id = _class_id(event), event.get("event_group_id")
     day = str(event.get("event_date") or "")[:10]
-    sessions, complete = {}, False
-    if day:
-        for page in range(1, 21):
-            listing = read("admin_events", {"date_from": day, "date_to": day, "page": page, "page_size": 50})
-            for item in listing.get("items", listing.get("events", [])):
-                candidates = item.get("sessions") or [item]
-                same_group = (bool(group_id) and str(item.get("event_group_id")) == str(group_id)) or any(str(s.get("event_id")) == event_id for s in candidates)
-                if same_group:
-                    for session in candidates:
-                        merged = {**item, **session}
-                        if (str(merged.get("session_code", "")).upper() in {"MORNING", "AM", "AFTERNOON", "PM"}
-                                and merged.get("lifecycle_status") != "CANCELLED"):
-                            sessions[str(merged["event_id"])] = merged
-            if not listing.get("has_more"):
-                complete = True
-                break
-    basis = "本次班会上午、下午本组在册学长去重到场人数 / 本组当前有效在册人数；跨班、来宾及空巴不混入本组参会人数。"
-    if not complete or not sessions or not class_id:
-        data.update(group_statistics=[], group_statistics_basis=basis, group_statistics_message="未取得完整的日间场次或班级关联，小组参会率待核对。")
-        return
-    daytime = []
+    candidates = selected.get("sessions")
+    complete = isinstance(candidates, list) and bool(candidates)
+    if not complete:
+        candidates = []
+        if day:
+            for page in range(1, 21):
+                listing = read("admin_events", {"date_from": day, "date_to": day, "page": page, "page_size": 50})
+                for item in listing.get("items", listing.get("events", [])):
+                    sessions = item.get("sessions") or [item]
+                    if (group_id and str(item.get("event_group_id")) == str(group_id)) or any(str(s.get("event_id")) == event_id for s in sessions):
+                        candidates.extend({**item, **s} for s in sessions)
+                if not listing.get("has_more"):
+                    complete = True
+                    break
+    sessions = {str(s["event_id"]): s for s in candidates
+                if s.get("event_id") and str(s.get("session_code", "")).upper() in {"MORNING", "AM", "AFTERNOON", "PM"}
+                and s.get("lifecycle_status") != "CANCELLED"}
+    result = {"group_statistics": [], "class_statistics": None, "group_totals": None,
+              "group_statistics_basis": BASIS, "group_statistics_message": ""}
+    if not complete or not sessions or not class_id or not day:
+        result["group_statistics_message"] = "未取得完整日间场次或班级关联，参会率待核对。"
+        return result
+    facts = []
     for session_id in sessions:
-        if session_id == event_id:
-            facts = rows
-        else:
-            # Check each source session against the export grant before reading it.
-            sibling = engine.event_detail(session_id, user=user, permission="attendance:export")
-            sibling_class = sibling.get("class_org_unit_id") or sibling.get("study_org_unit_id") or sibling.get("org_unit_id")
-            if sibling_class != class_id or group_id and sibling.get("event_group_id") != group_id:
-                raise engine.SigninEngineError("班会场次归属已变化，请刷新后重新导出", 409)
-            facts = read("export", {"event_id": session_id}, export=True).get("rows", [])
-            hydrate(facts, session_id)
-        daytime.extend(facts)
+        source = selected if session_id == event_id else detail(session_id)
+        source_event = source["event"]
+        if (_class_id(source_event) != class_id or group_id and source_event.get("event_group_id") != group_id
+                or str(source_event.get("event_date") or "")[:10] != day):
+            raise engine.SigninEngineError("班会场次归属已变化，请刷新后重试", 409)
+        rows = source.get("rows")
+        if not isinstance(rows, list):
+            result["group_statistics_message"] = "班会场次名单尚未完整返回，参会率待核对。"
+            return result
+        _hydrate(rows, session_id)
+        facts.extend(rows)
     with transaction() as connection:
-        roster = group_roster(connection, class_id=class_id)
+        roster = group_roster(connection, class_id=class_id, include_ungrouped=True)
     members, groups = {}, {}
     for member in roster:
-        members[int(member["member_id"])] = member["group_org_unit_id"]
-        group = groups.setdefault(member["group_org_unit_id"], {"group_org_unit_id": member["group_org_unit_id"], "group_name": member["group_name"], "roster": set(), "present": set()})
-        group["roster"].add(int(member["member_id"]))
+        member_id, key = int(member["member_id"]), member["group_org_unit_id"]
+        members[member_id] = key
+        group = groups.setdefault(key, {"group_org_unit_id": key,
+            "group_name": member["group_name"] or "未分组", "roster": set(), "present": set()})
+        group["roster"].add(member_id)
     unresolved = 0
-    for row in daytime:
+    for row in facts:
         if not (row.get("checked") is True or row.get("checked_at") or row.get("sign_time")):
             continue
-        if row.get("is_team") or row.get("team_id") or row.get("attendance_role") in {"GUEST", "NON_MEMBER"}:
+        if row.get("is_team") or row.get("team_id") or row.get("attendance_role") in TEAM_ROLES:
             continue
         member_id = row.get("current_member_id")
         if member_id in members:
             groups[members[member_id]]["present"].add(member_id)
         elif not member_id and row.get("attendance_role") == "HOME_CLASS_MEMBER":
             unresolved += 1
-    summary = []
-    for group in sorted(groups.values(), key=lambda item: (item["group_name"], item["group_org_unit_id"])):
-        total, present = len(group["roster"]), len(group["present"])
-        summary.append({"group_org_unit_id": group["group_org_unit_id"], "group_name": group["group_name"],
-                        "roster_count": total, "present_count": present,
-                        "participation_rate": round(present / total, 6) if total and not unresolved else None})
-    rates = {group["group_org_unit_id"]: group["participation_rate"] for group in summary}
+    def counts(total, present):
+        return {"roster_count": total, "present_count": present,
+                "participation_rate": round(present / total, 6) if total and not unresolved else None}
+    summary = [{"group_org_unit_id": g["group_org_unit_id"], "group_name": g["group_name"],
+                **counts(len(g["roster"]), len(g["present"]))} for g in sorted(groups.values(), key=_sort_group)]
+    grouped = [g for g in groups.values() if g["group_org_unit_id"] is not None]
+    result.update(group_statistics=summary,
+        class_statistics={"class_org_unit_id": class_id,
+            "class_name": next((r["class_name"] for r in roster), event.get("class_name") or "班级"),
+            **counts(len(members), sum(len(g["present"]) for g in groups.values()))},
+        group_totals=counts(sum(len(g["roster"]) for g in grouped), sum(len(g["present"]) for g in grouped)),
+        group_statistics_session_count=len(sessions),
+        group_statistics_message=f"本班有 {unresolved} 条到场身份待核对，参会率暂不展示。" if unresolved else "")
+    return result
+
+
+def enrich_statistics(data, *, event_id, user):
+    if str((data.get("event") or {}).get("activity_type", "")).lower() == "class_meeting":
+        from app.services.signin_engine import SigninEngineError
+        try:
+            data.update(participation_statistics(event_id=event_id, user=user, permission="attendance:view"))
+        except SigninEngineError as exc:
+            if exc.status_code not in {502, 503}:
+                raise
+            data.update(group_statistics=[], class_statistics=None, group_totals=None,
+                group_statistics_basis=BASIS, group_statistics_message="班会去重统计暂不可用，请稍后刷新；当前场次指标照常显示。")
+
+
+def enrich_export(data, *, event_id, user):
+    from app.services import signin_engine as engine
+    rows = data.get("rows")
+    if not isinstance(rows, list):
+        return
+    event = data.get("event") or engine.event_detail(event_id, user=user, permission="attendance:export")
+    data["event"] = event
+    _hydrate(rows, event_id)
+    data["stats"] = engine.engine_request("/ops/v1/manage/stats", {
+        "payload": {"event_id": event_id}, "actor": {"id": user["id"], "permissions": ["attendance:view"]},
+        "allowed_org_unit_ids": engine.allowed_scope(user["id"], "attendance:export")})
+    if str(event.get("activity_type", "")).lower() != "class_meeting":
+        return
+    data.update(participation_statistics(event_id=event_id, user=user, permission="attendance:export"))
+    rates = {g["group_org_unit_id"]: g["participation_rate"] for g in data["group_statistics"]}
     for row in rows:
-        if row.get("current_class_org_unit_id") == class_id:
+        if row.get("current_class_org_unit_id") == _class_id(event):
             row["class_group_participation_rate"] = rates.get(row.get("current_group_org_unit_id"))
-    data.update(group_statistics=summary, group_statistics_basis=basis,
-                group_statistics_message=f"本班有 {unresolved} 条已到场记录身份尚待核对，暂不展示参会率。" if unresolved else "",
-                group_statistics_session_count=len(sessions))
