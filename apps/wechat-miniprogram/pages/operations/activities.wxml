@@ -1,0 +1,5 @@
+<view class="page-shell"><view class="hero-card"><view class="eyebrow">移动运营</view><view class="hero-title">活动管理</view><view class="hero-copy">活动安排与现场临时参加人员</view></view>
+  <picker mode="date" fields="month" value="{{month}}" bindchange="chooseMonth"><view class="section-card">{{month}}　选择月份 ›</view></picker><button wx:if="{{canCreate}}" class="primary-button" bindtap="create">创建活动</button>
+  <view wx:if="{{loading}}" class="state-card">正在加载…</view><view wx:if="{{errorMessage}}" class="state-card error">{{errorMessage}}</view><view wx:if="{{!loading && !errorMessage && !records.length}}" class="section-card">本月暂无活动。</view>
+  <view wx:for="{{records}}" wx:key="id" class="section-card" data-id="{{item.id}}" bindtap="open"><view class="section-title">{{item.title}} {{item.session_name || ''}}</view><view>{{item.event_date}} · {{item.org_name}}</view><view class="muted">{{item.status === 'CONFIRMED' ? '已确认' : item.status === 'CANCELLED' ? '已取消' : '草稿'}} · {{item.participant_count}} 人次</view><view class="go-copy">查看与管理 ›</view></view><button wx:if="{{hasMore}}" class="plain-button" disabled="{{loading}}" bindtap="loadMore">加载更多活动</button>
+</view>

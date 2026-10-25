@@ -20,6 +20,7 @@ from app.services.wechat_identity import (
     verify_member_binding,
 )
 from app.services import wechat_operations
+from app.services.signin_engine import SigninEngineError
 from app.services.volunteer_positions import (
     get_member_volunteer_history,
     get_member_volunteer_services,
@@ -35,6 +36,9 @@ from app.services.wechat_credit_summary import (
 
 router = APIRouter(prefix="/api/v1/wechat", tags=["wechat-identity"])
 bearer = HTTPBearer(auto_error=False)
+
+from app.api.wechat_operations_v2 import router as operations_v2_router
+router.include_router(operations_v2_router)
 
 
 class MemberBindingVerifyPayload(BaseModel):
@@ -345,6 +349,8 @@ def _operation_call(function, session: dict, *args, **kwargs):
         return function(session, *args, **kwargs)
     except WeChatIdentityError as exc:
         raise HTTPException(404, str(exc)) from exc
+    except SigninEngineError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:

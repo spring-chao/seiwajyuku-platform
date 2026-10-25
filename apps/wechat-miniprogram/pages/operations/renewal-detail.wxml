@@ -1,0 +1,9 @@
+<view class="page-shell">
+  <view class="hero-card"><view class="eyebrow">移动运营</view><view class="hero-title">续费处理</view><view class="hero-copy">核对实际续费情况后更新本周期状态</view></view>
+  <view wx:if="{{loading}}" class="state-card">正在加载…</view><view wx:if="{{errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <block wx:if="{{!loading && detail}}">
+    <view class="section-card"><view class="section-title">{{detail.member.name}} · {{detail.cycle.renewal_year}} 年续费周期</view><view>{{detail.stage.label}} · 到期月份 {{detail.cycle.due_month}}</view><view class="muted">{{detail.cycle.status === 'RENEWED' ? '已续费' : detail.cycle.status === 'NOT_RENEWING' ? '暂不续费' : detail.cycle.status === 'DEFERRED' ? '延期关注' : detail.cycle.status === 'EXITED' ? '已退出' : '尚未续费'}}</view><button wx:if="{{memberId}}" class="plain-button" bindtap="openMember">查看学长 / 记录关爱</button></view>
+    <view wx:if="{{wechatCopy}}" class="section-card"><view class="section-title">续费微信文案</view><textarea class="copy-editor" value="{{wechatCopy}}" bindinput="editCopy" maxlength="4000" auto-height/><button class="primary-button" bindtap="copyWechat">复制微信文案</button></view>
+    <view wx:if="{{detail.can_manage}}" class="section-card"><view class="section-title">处理是否已经续费</view><picker range="{{statuses}}" range-key="label" value="{{statusIndex}}" bindchange="chooseStatus"><view class="field">{{statuses[statusIndex].label}} ›</view></picker><button class="primary-button" loading="{{saving}}" disabled="{{saving}}" bindtap="saveStatus">确认状态</button></view>
+  </block>
+</view>

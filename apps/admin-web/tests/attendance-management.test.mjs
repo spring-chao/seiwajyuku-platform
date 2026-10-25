@@ -8,6 +8,16 @@ import { computed, nextTick, reactive, ref, watch } from "vue";
 import * as parser from "../src/utils/attendanceImportParser.mjs";
 import * as management from "../src/utils/attendanceManagement.mjs";
 
+test("renamed registrants can be searched and exported by their current master name", () => {
+  const rows = [{ registration_id: "rename-slot", registered_name: "合成学长（旧）", name: "合成学长（旧）",
+    registered_display_name: "合成学长", actual_attendee_name: "合成实际来宾", checked: true }];
+  assert.equal(management.filterAttendanceRows(rows, "all", "合成学长").length, 1);
+  const cells = management.attendanceExportRows(rows);
+  assert.equal(cells[1][1], "合成学长");
+  assert.equal(cells[1][0], "合成实际来宾");
+  assert.equal(rows[0].registered_name, "合成学长（旧）");
+});
+
 test("reused Excel parser finds the richest header and preserves independent team slots", () => {
   const cells = Array.from({ length: 15 }, () => []);
   cells[1] = ["姓名", "手机号"];

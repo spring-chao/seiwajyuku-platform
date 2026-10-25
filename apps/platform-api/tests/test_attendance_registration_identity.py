@@ -11,8 +11,71 @@ from app.db import execute, fetch_one, transaction
 from app.main import app
 from app.services import signin_engine
 from app.services.attendance_registration_identity import registration_identities
+from app.services.attendance_registration_identity import attach_current_registration_names
 from test_v12_mvp import _seed_group_leader_fixture
 from test_signin_management import ENV, _operator
+
+
+def test_master_rename_refreshes_authorized_event_display_without_rewriting_registration_or_actual_person():
+    import copy
+    fixture = _seed_group_leader_fixture()
+    member = fetch_one("SELECT id,member_code,name FROM members WHERE id=?", (fixture["member_id"],))
+    event = {"event_id": "synthetic-rename-event", "name": "合成活动", "org_unit_id": fixture["class_id"]}
+    original = {"registration_id": "existing-slot", "platform_member_id": str(member["id"]),
+                "member_code": member["member_code"], "registered_name": "合成学长（旧）", "name": "合成学长（旧）",
+                "is_team": True, "actual_attendee_name": "合成团队实际来宾", "checked_at": "2026-10-25T01:00:00Z"}
+    with transaction() as connection:
+        execute(connection, "UPDATE members SET name='合成学长' WHERE id=?", (member["id"],))
+    with patch.dict(os.environ, ENV), TestClient(app) as client:
+        headers, _ = _operator({"attendance:view"}, fixture["class_id"])
+        with patch.object(signin_engine, "engine_request", side_effect=lambda *a, **k: {"ok": True, "event": event, "rows": [copy.deepcopy(original)]}):
+            response = client.post("/api/v1/attendance/manage/event_detail", headers=headers, json={"event_id": event["event_id"]})
+            assert response.status_code == 200, response.text
+            row = response.json()["rows"][0]
+            assert row["registered_display_name"] == "合成学长"
+            assert row["registered_name_changed"]
+            assert row["registered_name"] == original["registered_name"]
+            assert row["actual_attendee_name"] == "合成团队实际来宾"
+            with transaction() as connection:
+                execute(connection, "UPDATE members SET name='合成学长新名' WHERE id=?", (member["id"],))
+            again = client.post("/api/v1/attendance/manage/event_detail", headers=headers, json={"event_id": event["event_id"]})
+            assert again.json()["rows"][0]["registered_display_name"] == "合成学长新名"
+    assert "registered_display_name" not in original
+
+
+def test_rename_projection_uses_stable_ids_and_codes_never_same_name_guessing():
+    fixture = _seed_group_leader_fixture()
+    member = fetch_one("SELECT id,member_code,name FROM members WHERE id=?", (fixture["member_id"],))
+    rows = [{"name": member["name"]}, {"member_code": member["member_code"], "name": "旧名"},
+            {"platform_member_id": str(member["id"]), "member_code": "mismatched-code", "name": "旧名"},
+            {"platform_member_id": "missing-id", "member_code": member["member_code"], "name": "旧名"},
+            {"platform_member_id": "9" * 100, "name": "旧名"}]
+    attach_current_registration_names(rows)
+    assert rows[1]["registered_display_name"] == member["name"]
+    assert all("registered_display_name" not in rows[index] for index in (0, 2, 3, 4))
+    with transaction() as connection:
+        execute(connection, "UPDATE members SET status='INACTIVE' WHERE id=?", (member["id"],))
+    inactive = [{"platform_member_id": str(member["id"]), "name": "旧名"}]
+    attach_current_registration_names(inactive)
+    assert "registered_display_name" not in inactive[0]
+
+
+def test_legacy_name_projection_uses_exact_synced_event_registration_link():
+    fixture = _seed_group_leader_fixture()
+    with transaction() as connection:
+        now = "2026-10-25 01:00:00"
+        group_id = int(execute(connection, "INSERT INTO attendance_event_groups(source_key,external_group_id,org_unit_id,event_date,created_at,updated_at) VALUES ('signin',?,?, '2026-10-25',?,?)",
+                               (uuid4().hex, fixture["class_id"], now, now)).lastrowid)
+        session_id = int(execute(connection, "INSERT INTO attendance_sessions(event_group_id,external_session_id,session_code,created_at,updated_at) VALUES (?,'exact-event-rename','MORNING',?,?)", (group_id, now, now)).lastrowid)
+        execute(connection, "INSERT INTO attendance_records(attendance_session_id,external_record_id,member_id,name_snapshot,received_at,created_at,updated_at) VALUES (?,'exact-existing-slot',?,'合成旧名',?,?,?)",
+                (session_id, fixture["member_id"], now, now, now))
+        execute(connection, "UPDATE members SET name='合成主档新名' WHERE id=?", (fixture["member_id"],))
+    rows = [{"registration_id": "exact-existing-slot", "registered_name": "合成旧名"}]
+    attach_current_registration_names(rows, event_id="different-event")
+    assert "registered_display_name" not in rows[0]
+    attach_current_registration_names(rows, event_id="exact-event-rename")
+    assert rows[0]["registered_display_name"] == "合成主档新名"
+    assert rows[0]["registered_name"] == "合成旧名"
 
 
 def test_excel_and_manual_only_associate_unique_active_name_phone_and_strip_client_ids():

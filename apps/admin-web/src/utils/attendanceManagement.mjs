@@ -152,6 +152,7 @@ export function filterAttendanceRows(rows, filter, keyword = "") {
         [
           row.name,
           row.registered_name,
+          row.registered_display_name,
           row.actual_attendee_name,
           row.class_name,
           row.home_class_name,
@@ -185,7 +186,7 @@ export function attendanceExportRows(rows, activityType) {
     ],
     ...(rows || []).map(row => [
       row.actual_attendee_name || row.name || "",
-      row.registered_name || row.name || "",
+      row.registered_display_name || row.registered_name || row.name || "",
       row.phone_masked || row.phone || "",
       row.company || "",
       row.center || "",

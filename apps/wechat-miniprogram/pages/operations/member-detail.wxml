@@ -4,6 +4,8 @@
   <block wx:if="{{!loading && !errorMessage && detail}}">
     <view class="hero-card"><view class="eyebrow">学长详情</view><view class="hero-title">{{detail.member.name}}</view><view class="hero-copy">{{detail.member.class_name || detail.member.org_name || '当前组织待确认'}}</view></view>
 
+    <view wx:if="{{birthdayDueDate || renewalCycleId}}" class="section-card"><view class="section-title">{{copyTitle}}</view><view class="muted">可编辑后复制到微信，联系完成后请记录关爱。</view><textarea wx:if="{{wechatCopy}}" class="copy-editor" value="{{wechatCopy}}" bindinput="editCopy" maxlength="4000" auto-height/><view wx:if="{{copyError}}" class="error">{{copyError}}</view><button wx:if="{{copyError}}" bindtap="retryCopy" class="plain-button">重试加载文案</button><button wx:if="{{wechatCopy}}" bindtap="copyWechat" class="primary-button">复制微信文案</button></view>
+
     <view class="section-card"><view class="section-title">基本资料</view><view class="row">入塾时间 <text>{{detail.member.join_date || '待维护'}}</text></view><view class="row">学习年限 <text>{{detail.member.membership_years || '待维护'}}</text></view><view class="row">当前组织 <text>{{detail.member.org_name || '待维护'}}</text></view></view>
     <view class="section-card"><view class="section-title">续费状态</view><view>{{detail.renewal.status_label || detail.renewal.reason || '待确认'}}</view><view class="muted">{{detail.renewal.stage_label || ''}}{{detail.renewal.months_until_due !== null && detail.renewal.months_until_due !== undefined ? ' · 距续费 ' + detail.renewal.months_until_due + ' 个月' : ''}}</view></view>
     <view class="section-card"><view class="section-title">最近学习情况</view><view wx:if="{{detail.learning.latest}}">{{detail.learning.latest.title || '最近学习记录待确认'}}</view><view wx:else class="muted">暂无可展示的学习记录</view></view>

@@ -263,7 +263,6 @@ def test_staff_mobile_v1_high_frequency_closed_loop_and_live_iam2_scope() -> Non
         assert {entry["key"] for entry in workbench.json()["data"]["entries"]} == {
             "today_actions",
             "member_search",
-            "care_records",
             "renewal_watch",
         }
 

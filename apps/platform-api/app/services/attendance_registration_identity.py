@@ -5,6 +5,69 @@ from app.core.privacy import phone_hash
 from app.db import fetch_all
 
 
+def attach_current_registration_names(rows: list[dict], *, event_id: str = "") -> None:
+    """Project current master names onto already-authorized event rows.
+
+    Registration names and actual-attendee facts remain immutable here. Only
+    stable platform IDs/member codes can resolve a rename; names and phones
+    are never used to guess a different person in this read path.
+    """
+    def canonical_id(value):
+        text = str(value or "").strip()
+        if not text.isascii() or not text.isdigit() or len(text) > 19:
+            return None
+        number = int(text)
+        return str(number) if 0 < number <= 9223372036854775807 else None
+
+    ids, codes, registrations = set(), set(), set()
+    for row in rows:
+        row.pop("registered_display_name", None)
+        row.pop("registered_name_changed", None)
+        member_id = str(row.get("platform_member_id") or "").strip()
+        code = str(row.get("member_code") or "").strip()
+        if canonical_id(member_id):
+            ids.add(int(member_id))
+        elif not member_id and code:
+            codes.add(code)
+        elif not member_id and not code and row.get("registration_id"):
+            registrations.add(str(row["registration_id"]))
+    by_registration = {}
+    if event_id:
+        values = sorted(registrations)
+        for start in range(0, len(values), 200):
+            chunk = values[start:start + 200]
+            marks = ",".join("?" for _ in chunk)
+            matches = fetch_all(
+                "SELECT DISTINCT r.external_record_id,m.id,m.member_code,m.name FROM attendance_records r "
+                "JOIN attendance_sessions s ON s.id=r.attendance_session_id "
+                "JOIN attendance_event_groups g ON g.id=s.event_group_id "
+                "JOIN members m ON m.id=r.member_id AND m.status='ACTIVE' "
+                f"WHERE g.source_key='signin' AND s.external_session_id=? AND r.external_record_id IN ({marks})",
+                (event_id, *chunk))
+            grouped = {}
+            for member in matches:
+                grouped.setdefault(str(member["external_record_id"]), []).append(member)
+            by_registration.update({key: members[0] for key, members in grouped.items() if len(members) == 1})
+    by_id, by_code = {}, {}
+    for field, values in (("id", sorted(ids)), ("member_code", sorted(codes))):
+        for start in range(0, len(values), 200):
+            chunk = values[start:start + 200]
+            marks = ",".join("?" for _ in chunk)
+            for member in fetch_all(f"SELECT id,member_code,name FROM members WHERE status='ACTIVE' AND {field} IN ({marks})", tuple(chunk)):
+                by_id[str(member["id"])] = member
+                by_code[str(member["member_code"])] = member
+    for row in rows:
+        member_id = str(row.get("platform_member_id") or "").strip()
+        code = str(row.get("member_code") or "").strip()
+        member = by_id.get(canonical_id(member_id))
+        if not member_id:
+            member = by_code.get(code) if code else by_registration.get(str(row.get("registration_id")))
+        if not member or code and code != str(member["member_code"]):
+            continue
+        row["registered_display_name"] = member["name"]
+        row["registered_name_changed"] = member["name"] != (row.get("registered_name") or row.get("name"))
+
+
 def registration_identities(rows: list[dict], *, bound_member: dict | None = None) -> list[dict | None]:
     keys = []
     for row in rows:

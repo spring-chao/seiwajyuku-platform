@@ -793,7 +793,7 @@ async function updatePerson(row: any, status: string) {
 async function removePerson(row: any) {
   try {
     await ElMessageBox.confirm(
-      `删除“${row.registered_name || row.name}”这一个报名名额？已签到记录不可删除。`,
+      `删除“${row.registered_display_name || row.registered_name || row.name}”这一个报名名额？已签到记录不可删除。`,
       "删除报名",
       { type: "warning" }
     );
@@ -816,7 +816,7 @@ async function confirmPerson(row: any) {
   }
   try {
     await ElMessageBox.confirm(
-      `确认“${row.registered_name || row.name}”本人现场到场？团队实际参加人请由小程序团队确认入口填写，不能覆盖报名联系人。`,
+      `确认“${row.registered_display_name || row.registered_name || row.name}”本人现场到场？团队实际参加人请由小程序团队确认入口填写，不能覆盖报名联系人。`,
       "人工确认签到"
     );
   } catch {
@@ -1328,7 +1328,7 @@ onUnmounted(() => {
           >
             <el-table-column label="原报名人" min-width="110"
               ><template #default="{ row }">{{
-                row.registered_name || row.name
+                row.registered_display_name || row.registered_name || row.name
               }}</template></el-table-column
             >
             <el-table-column label="实际参加人" min-width="110"
