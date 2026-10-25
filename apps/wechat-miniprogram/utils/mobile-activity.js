@@ -32,7 +32,7 @@ function rowActions(detail, row) {
 }
 function decorate(detail, keyword = "") {
   const s = detail.statistics || {}, c = s.class_statistics || {}, g = s.group_totals || {};
-  const groupRows = (s.group_statistics || []).map(row => ({ ...row, rateLabel: rate(row.participation_rate, 0) }));
+  const groupRows = (s.group_statistics || []).map(row => ({ ...row, group_id: row.group_org_unit_id || "ungrouped", rateLabel: rate(row.participation_rate, 0) }));
   const query = keyword.trim().toLowerCase();
   const attendees = (detail.attendees || []).map(row => ({ ...row,
     displayName: row.registered_display_name || row.registered_name || row.name,
