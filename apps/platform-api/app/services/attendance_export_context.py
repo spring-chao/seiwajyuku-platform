@@ -2,9 +2,9 @@
 import re
 from app.db import transaction
 from app.services.attendance_registration_identity import attach_current_registration_names, registration_identities
-from app.services.study_membership import group_roster
+from app.services.learning_requirement_policy import requirement_roster, excluded_members
 
-BASIS = "上午、下午合并去重，空巴、来宾及团队名额排除。整体参会率计入本班在册学长及正式服务本班的班主任、副班主任、辅导员，分母为本班在册人数；小组及学长参会率只计在册学长，未分组计入班级。"
+BASIS = "上午、下午合并去重，空巴、来宾及团队名额排除。整体参会率计入本班在册学长及正式服务本班的班主任、副班主任、辅导员，分母为本班在册人数；小组及学长参会率只计在册学长，未分组计入班级。各班精进组不计入任何参会率分子或分母，参会事实仍保留。"
 TEAM_ROLES = {"EVENT_TEAM_MEMBER", "COURSE_TEAM_MEMBER", "GUEST", "NON_MEMBER"}
 
 
@@ -70,8 +70,12 @@ def participation_statistics(*, event_id, user, permission):
     if not complete or not sessions or not class_id or not day:
         result["group_statistics_message"] = "未取得完整日间场次或班级关联，参会率待核对。"
         return result
-    facts = []
-    for session_id in sessions:
+    metrics_sessions = dict(sessions)
+    for candidate in candidates:
+        if candidate.get('event_id') and str(candidate.get('session_code','')).upper() in {'KONPA','EVENING'} and candidate.get('lifecycle_status') != 'CANCELLED':
+            metrics_sessions[str(candidate['event_id'])] = candidate
+    facts, session_facts = [], {}
+    for session_id in metrics_sessions:
         source = selected if session_id == event_id else detail(session_id)
         source_event = source["event"]
         if (_class_id(source_event) != class_id or group_id and source_event.get("event_group_id") != group_id
@@ -82,11 +86,14 @@ def participation_statistics(*, event_id, user, permission):
             result["group_statistics_message"] = "班会场次名单尚未完整返回，参会率待核对。"
             return result
         _hydrate(rows, session_id)
-        facts.extend(rows)
+        session_facts[session_id] = rows
+        if session_id in sessions:
+            facts.extend(rows)
     with transaction() as connection:
-        roster = group_roster(connection, class_id=class_id, include_ungrouped=True)
+        roster = requirement_roster(connection, metric="class_meeting", class_id=class_id, include_ungrouped=True)
         from app.services.class_activity_participation import _class_staff
         staff_ids = set(_class_staff(connection, [class_id]).get(class_id, {}))
+        staff_ids -= set(excluded_members(connection, staff_ids, metric="class_meeting"))
     members, groups = {}, {}
     for member in roster:
         member_id, key = int(member["member_id"]), member["group_org_unit_id"]
@@ -114,7 +121,21 @@ def participation_statistics(*, event_id, user, permission):
     summary = [{"group_org_unit_id": g["group_org_unit_id"], "group_name": g["group_name"],
                 **counts(len(g["roster"]), len(g["present"]))} for g in sorted(groups.values(), key=_sort_group)]
     grouped = [g for g in groups.values() if g["group_org_unit_id"] is not None]
-    result.update(group_statistics=summary,
+    per_session = []
+    for source_id, rows in session_facts.items():
+        known, missing = set(), 0
+        for row in rows:
+            if not (row.get('checked') is True or row.get('checked_at') or row.get('sign_time')) or row.get('is_team') or row.get('team_id') or row.get('attendance_role') in TEAM_ROLES:
+                continue
+            mid = row.get('current_member_id')
+            if mid:known.add(mid)
+            elif row.get('attendance_role') in {'HOME_CLASS_MEMBER','CROSS_CLASS_MEMBER'}:missing += 1
+        student_count = len(known & set(members))
+        staff_count = len((known & staff_ids) - set(members))
+        per_session.append({'event_id':source_id,'roster_count':len(members),'member_present_count':student_count,'staff_present_count':staff_count,
+            'present_count':student_count+staff_count,'unresolved_count':missing,
+            'participation_rate':round((student_count+staff_count)/len(members),6) if members and not missing else None})
+    result.update(group_statistics=summary, class_session_statistics=per_session,
         class_statistics={"class_org_unit_id": class_id,
             "class_name": next((r["class_name"] for r in roster), event.get("class_name") or "班级"),
             **counts(len(members), sum(len(g["present"]) for g in groups.values()) + len(extra_staff)),
@@ -132,7 +153,9 @@ def enrich_statistics(data, *, event_id, user):
     if str((data.get("event") or {}).get("activity_type", "")).lower() == "class_meeting":
         from app.services.signin_engine import SigninEngineError
         try:
-            data.update(participation_statistics(event_id=event_id, user=user, permission="attendance:view"))
+            result = participation_statistics(event_id=event_id, user=user, permission="attendance:view")
+            data.update(result)
+            apply_session_requirements(data,result,event_id)
         except SigninEngineError as exc:
             if exc.status_code not in {502, 503}:
                 raise
@@ -158,3 +181,13 @@ def enrich_export(data, *, event_id, user):
     for row in rows:
         if row.get("current_class_org_unit_id") == _class_id(event):
             row["class_group_participation_rate"] = rates.get(row.get("current_group_org_unit_id"))
+
+
+def apply_session_requirements(stats,result,event_id):
+    row = next((row for row in result.get('class_session_statistics',[]) if row['event_id']==event_id),None)
+    if row is None:return
+    stats['requirement_roster_count'] = row['roster_count']
+    stats['requirement_member_present_count'] = row['member_present_count']
+    stats['requirement_present_count'] = row['present_count']
+    stats['requirement_participation_rate'] = row['participation_rate']
+    stats['requirement_basis'] = '精进组不计入应参与和参与率，现场真人数仍保留其自愿参加事实'

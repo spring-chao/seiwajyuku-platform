@@ -134,11 +134,14 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
             trace=entry_sources(c,e)
             descriptions='；'.join(f"{r['original_filename']} · 第{r['excel_row']}行 · {r['source_reference']}" for r in trace)
             details.append([str(e['id']),str(e['member_code']),_safe_text(e['member_name']),e['class_name'],' / '.join(groups.get(member,[])),day,point,LABELS.get(e['credit_type'],e['credit_type']),e['source_type'],str(e['source_id']),descriptions or '业务记录来源（编号见前列）',e['rule_version'],e['status'],str(e['reversal_of_entry_id']) if e.get('reversal_of_entry_id') else ''])
+        from app.services.learning_requirement_policy import excluded_members
+        exempt = excluded_members(c,members,metric="reading")
         summaries=[]
         for member,m in members.items():
             base=Decimal(opening.opening_summary(c,member_id=member,allowed=class_ids)['total_points'])
-            full=target['points'];earned=monthly.get(member,Decimal(0))
-            summaries.append([str(m['member_code']),_safe_text(m['name']),' / '.join(m['classes']),' / '.join(groups.get(member,[])),base,added.get(member,Decimal(0)),base+totals.get(member,Decimal(0)),earned,full if full is not None else '待配置',earned/full if full is not None and full>0 else None,target['reason'],target['plan']])
+            full=None if member in exempt else target['points'];earned=monthly.get(member,Decimal(0))
+            requirement_note=exempt.get(member) or target['reason']
+            summaries.append([str(m['member_code']),_safe_text(m['name']),' / '.join(m['classes']),' / '.join(groups.get(member,[])),base,added.get(member,Decimal(0)),base+totals.get(member,Decimal(0)),earned,full if full is not None else '免要求' if member in exempt else '待配置',earned/full if full is not None and full>0 else None,requirement_note,target['plan']])
         history=[]
         if annual.available(c):
             for r in execute(c,"SELECT a.member_id,m.member_code,m.name,o.name AS class_name,a.year_index,a.points,i.original_filename,i.cutoff_date FROM learning_credit_year_allocations a JOIN learning_credit_year_imports i ON i.id=a.import_id AND i.status='POSTED' JOIN class_learning_bindings b ON b.id=a.binding_id JOIN org_units o ON o.id=b.class_org_unit_id JOIN members m ON m.id=a.member_id WHERE b.class_org_unit_id IN ("+placeholders+")"+(' AND a.member_id=?' if member_id else '')+" ORDER BY m.id,a.year_index",(*params,*((member_id,) if member_id else ()))).fetchall():

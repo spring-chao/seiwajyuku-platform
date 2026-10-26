@@ -37,7 +37,7 @@ def test_progress_includes_uncompleted_groups_and_rate_uses_only_completed_meeti
     center=data['centers'][0]
     assert (center['planned'],center['completed'],center['completion_rate'])==(2,1,.5)
     assert (center['present'],center['denominator'],center['participation_rate'])==(1,1,1)
-    assert [r['status'] for r in center['meetings']]==['已完成','未完成']
+    assert [r['status'] for r in center['meetings']]==['已完成','待完成']
     assert center['meetings'][0]['other_names'] and center['meetings'][0]['present']==1
     assert fetch_one('SELECT COUNT(*) n FROM learning_credit_entries')['n']==before
 
@@ -126,7 +126,7 @@ def test_workbook_has_ready_to_share_sheets_typed_rates_dates_and_no_credits_or_
     assert [summary.cell(7,col).value for col in (2,3,4,5,6,7,8)]==[2,1,1,.5,1,1,1]
     assert summary['E7'].number_format=='0%'
     assert detail['F7'].is_date and detail['I7'].value==1
-    assert detail['J8'].value=='未完成'
+    assert detail['J8'].value=='待完成'
     assert detail['A6'].fill.fgColor.rgb.endswith('4472C4')
     assert detail.freeze_panes=='A7' and detail.page_setup.orientation=='landscape'
     assert f['phone'] not in str([list(ws.values) for ws in book])
@@ -165,15 +165,15 @@ def test_waived_or_suspended_groups_are_not_uncompleted_targets(policy,label):
     assert center['participation_rate']==1
 
 
-def test_missing_cycle_policy_is_pending_and_not_a_fake_zero_or_required_target():
+def test_normal_groups_without_cycles_are_required_by_monthly_organization_catalog():
     f,s=source()
     with transaction() as c:
         execute(c,'UPDATE org_units SET parent_id=? WHERE id=?',(f['other_class_id'],f['other_group_id']))
     data=sharing_dataset(actor_user_id=_admin_id(),report_month='2020-02',report_as_of='2020-02-20',
         class_org_unit_id=f['other_class_id'])
     center=data['centers'][0]
-    assert center['planned'] is None and center['completion_rate'] is None
-    assert center['meetings'][0]['status']=='预定待配置'
+    assert center['planned'] == 1 and center['completion_rate'] == 0
+    assert center['meetings'][0]['status']=='待完成'
 
 
 def test_later_open_cycle_policy_does_not_replace_selected_month_and_group_waiver_is_respected():
@@ -221,3 +221,30 @@ def test_changed_source_fails_closed_and_formula_like_organization_title_stays_t
     book=load_workbook(io.BytesIO(raw))
     assert book.worksheets[1]['A1'].value.startswith('=UNTRUSTED()')
     assert book.worksheets[1]['A1'].data_type=='s'
+
+
+def test_exempt_advanced_and_committee_groups_are_not_targets_or_rate_denominators():
+    f,s=source()
+    with transaction() as c:
+        execute(c,"UPDATE org_units SET name='炎武三班精进组' WHERE id=?",(f['other_group_id'],))
+    center=report(f)['centers'][0]
+    assert center['planned']==1 and len(center['meetings'])==1
+    assert center['completed']==1 and center['participation_rate']==1
+    with transaction() as c:
+        execute(c,"UPDATE org_units SET name='班委组' WHERE id=?",(f['other_group_id'],))
+    center=report(f)['centers'][0]
+    assert center['planned']==1 and len(center['meetings'])==1
+
+
+def test_same_class_elsewhere_updates_home_month_rate_without_completing_home_meeting():
+    f,s=source()
+    # Existing prepared attendance includes a member from the second group.
+    center=report(f)['centers'][0]
+    pending=next(row for row in center['meetings'] if row['group_id']==f['other_group_id'])
+    assert pending['status']=='待完成' and pending['date'] is None
+    assert pending['present']==1 and pending['participation_rate']==1
+    assert '同班跨组参会' in pending['names']
+    assert center['completed']==1
+    raw=export_meeting_workbook(actor_user_id=_admin_id(),layout='sharing',report_month='2020-02',report_as_of='2020-02-20',class_org_unit_id=f['class_id'])
+    book=load_workbook(io.BytesIO(raw));sheet=book.worksheets[1]
+    assert sheet['G8'].value==1 and sheet['I8'].value==1 and sheet['J8'].value=='待完成'

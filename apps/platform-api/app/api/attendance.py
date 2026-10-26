@@ -932,7 +932,7 @@ def event_group_detail(
     from app.services.class_activity_participation import attach_class_activity_overall
     attach_class_activity_overall([group])
     from app.services.class_activity_participation import attach_live_class_activity_overall
-    attach_live_class_activity_overall(group, user=user)
+    attach_live_class_activity_overall(group, user=user, sessions=sessions)
     return {
         "success": True,
         "data": {
@@ -951,7 +951,7 @@ def download_event_group_records(
 ) -> StreamingResponse:
     """Download a privacy-minimized Excel workbook of read-only sign-in details."""
     group = fetch_one(
-        "SELECT id, title, event_date, org_unit_id, study_org_unit_id "
+        "SELECT id, title, event_date, org_unit_id, study_org_unit_id,source_key,activity_type "
         "FROM attendance_event_groups WHERE id=? AND status<>'DELETED'",
         (group_id,),
     )
@@ -973,6 +973,24 @@ def download_event_group_records(
             raise HTTPException(404, "活动场次不存在")
         session_clause = " AND s.id=?"
         params.append(session_id)
+
+    if group.get("source_key") == "signin":
+        from app.services import signin_engine
+        from app.services.attendance_workbooks import live_workbook
+        query = "SELECT external_session_id FROM attendance_sessions WHERE event_group_id=? AND status<>'DELETED'"
+        query_params = [group_id]
+        if session_id is not None:
+            query += " AND id=?"
+            query_params.append(session_id)
+        linked = fetch_all(query + " ORDER BY session_order,id",tuple(query_params))
+        if not linked or any(not row['external_session_id'] for row in linked):
+            raise HTTPException(409,"活动场次缺少可信签到关联，本次未导出旧快照；请先核对关联")
+        try:
+            content = live_workbook([str(row['external_session_id']) for row in linked],user=user,expected=group)
+        except signin_engine.SigninEngineError as exc:
+            raise HTTPException(exc.status_code,str(exc)) from exc
+        return StreamingResponse(iter([content]),media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition":f'attachment; filename="attendance-details-{group_id}.xlsx"',"Cache-Control":"private, no-store"})
 
     sql = (
         "SELECT r.name_snapshot, r.member_code_snapshot, r.participant_type, "

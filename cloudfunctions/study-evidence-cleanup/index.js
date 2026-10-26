@@ -93,6 +93,14 @@ exports.main = async (_event, _context) => {
   const token = requiredEnv("STUDY_EVIDENCE_CLEANUP_TOKEN");
   if (token.length < 32) throw new Error("STUDY_EVIDENCE_CLEANUP_TOKEN is too short");
   const timeoutMs = boundedTimeout(process.env.CLEANUP_REQUEST_TIMEOUT_MS);
+  if (_event && _event.Type === "Timer" && _event.TriggerName === "studyMeetingRosterDaily") {
+    const rosterUrl = new URL(url);
+    rosterUrl.pathname = "/api/v1/internal/study-meeting-roster-monthly";
+    const result = await requestMaintenance(rosterUrl.toString(), token, {}, timeoutMs);
+    const data = result && result.data;
+    const valid = result && result.success === true && data && typeof data.enabled === "boolean" && validCounts(data, ["updated", "failed"]);
+    return { ok: Boolean(valid && data.enabled && data.failed === 0), roster: { enabled: Boolean(valid && data.enabled), updated: valid ? data.updated : 0, failed: valid ? data.failed : 1, state: valid && ["OPEN","FROZEN","SCHEMA_REQUIRED","WRITE_DISABLED","FEATURE_DISABLED"].includes(data.state) ? data.state : "UNKNOWN" } };
+  }
   const monthlyUrl = new URL(url);
   monthlyUrl.pathname = "/api/v1/internal/learning-cycle-monthly";
   // One maintenance failure must not prevent the independent task from

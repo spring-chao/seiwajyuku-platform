@@ -146,6 +146,14 @@ def calculate_monthly_metrics(
             metric_key = METRIC_BY_ACTIVITY.get((row["snapshot_type"], row["activity_type"]))
             if not metric_key:
                 continue
+            from app.services.learning_requirement_policy import exemption_reason
+            policy_metric = {"reading_checkin_rate":"reading","class_meeting_rate":"class_meeting","group_meeting_rate":"group_meeting"}.get(metric_key)
+            if policy_metric:
+                org = execute(connection,"SELECT g.name,g.unit_type,c.name AS class_name FROM org_units g LEFT JOIN org_units c ON c.id=g.parent_id WHERE g.id=?",(row['org_unit_id'],)).fetchone()
+                reason = exemption_reason(org['name'],org['class_name'],metric=policy_metric) if org and org['unit_type']=='GROUP' else ''
+                if reason:
+                    results.append({"org_unit_id":row['org_unit_id'],"metric_key":metric_key,"value":None,"result":"REQUIREMENT_EXEMPT","reason":reason})
+                    continue
             metric = execute(
                 connection,
                 "SELECT mv.id AS metric_version_id FROM metric_versions mv "

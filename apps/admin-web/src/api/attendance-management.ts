@@ -104,3 +104,8 @@ export const generateCommonAttendanceCode = async (
   if (!result.success) throw new Error("通用签到码生成失败");
   return result.data;
 };
+
+export const downloadSigninWorkbook = (eventId: string) =>
+  http.request<Blob>("post", "/api/v1/attendance/manage/export-workbook", {
+    data: { event_id: eventId }, responseType: "blob", timeout: 120000
+  });

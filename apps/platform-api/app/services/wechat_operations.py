@@ -323,9 +323,11 @@ def operation_workbench(session: dict[str, Any]) -> dict[str, Any]:
         "worker_name": principal["display_name"],
         "summary": today["summary"],
         "entries": [
-            _entry_payload(entry)
+            {**_entry_payload(entry), "available": _entry_available(entry, permissions),
+             "description": entry["description"] if _entry_available(entry,permissions) else "活动管理待授权：请管理员在员工管理中按已有服务范围授予活动签到运营能力",
+             "permission_message": "" if _entry_available(entry, permissions) else "活动管理需单独授权，请管理员在员工管理中按现有服务范围授予活动签到运营能力"}
             for entry in MOBILE_ENTRIES
-            if _entry_available(entry, permissions)
+            if entry["key"] == "activities" or _entry_available(entry, permissions)
         ],
     }
 

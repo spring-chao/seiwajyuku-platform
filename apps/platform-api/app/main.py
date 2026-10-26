@@ -34,6 +34,7 @@ from app.api.wechat import router as wechat_router
 from app.api.study_meetings import router as study_meetings_router
 from app.api.study_evidence_cleanup import router as study_evidence_cleanup_router
 from app.api.learning_cycle_monthly import router as learning_cycle_monthly_router
+from app.api.study_meeting_roster_monthly import router as study_meeting_roster_monthly_router
 from app.api.learning_plans import router as learning_plans_router
 from app.api.learning_credits import router as learning_credits_router
 from app.api.credit_opening_balances import router as credit_opening_balances_router
@@ -251,6 +252,7 @@ app.include_router(wechat_router)
 app.include_router(study_meetings_router)
 app.include_router(study_evidence_cleanup_router)
 app.include_router(learning_cycle_monthly_router)
+app.include_router(study_meeting_roster_monthly_router)
 app.include_router(learning_plans_router)
 app.include_router(learning_credits_router)
 app.include_router(credit_opening_balances_router)

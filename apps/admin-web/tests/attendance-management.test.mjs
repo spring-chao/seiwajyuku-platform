@@ -350,10 +350,14 @@ function harness(api = async () => ({ ok: true }), xlsx = XLSXModule) {
     .replaceAll('await import("xlsx")', "XLSXModule")
     .replace(/export \{\};?/, "");
   const calls = [];
+  const downloaded = {};
   const context = vm.createContext({
     ...parser,
     ...management,
     XLSXModule: xlsx,
+    Blob,
+    URL: { createObjectURL: value => { downloaded.blob = value; return "blob:synthetic-attendance"; }, revokeObjectURL: value => { downloaded.revoked = value; } },
+    downloadSigninWorkbook: async eventId => { calls.push({ operation: "export-workbook", payload: { event_id: eventId } }); return api("export-workbook", { event_id: eventId }); },
     computed,
     reactive,
     ref,
@@ -388,7 +392,11 @@ function harness(api = async () => ({ ok: true }), xlsx = XLSXModule) {
         env_version: env
       };
     },
-    document: { hidden: false },
+    document: { hidden: false, body: { appendChild() {} }, createElement: () => ({
+      set href(value) { downloaded.href = value; },
+      set download(value) { downloaded.filename = value; },
+      click() { downloaded.clicked = true; }, remove() { downloaded.removed = true; }
+    }) },
     setInterval,
     clearInterval,
     console
@@ -398,89 +406,25 @@ function harness(api = async () => ({ ok: true }), xlsx = XLSXModule) {
       "\nglobalThis.state = { selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, groupOptions, orgOptions, organizations, rosterOptions, rosterMembers, rosterSource, rosterVersion, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation, openEditor, confirmPerson, exportExcel };",
     context
   );
-  return { state: context.state, actions: context.actions, calls };
+  return { state: context.state, actions: context.actions, calls, downloaded };
 }
 
-test("downloaded workbook round-trips groups, six fresh totals and percentage cell formats", async () => {
-  let workbook;
-  const event = {
-    event_id: "morning",
-    name: "合成班会",
-    activity_type: "CLASS_MEETING",
-    session_code: "MORNING"
-  };
-  const h = harness(
-    async () => ({
-      event,
-      rows: [
-        {
-          name: "合成学长",
-          current_membership_resolved: true,
-          current_group_name: "笃行组",
-          class_group_participation_rate: 0.75
-        }
-      ],
-      stats: {
-        home_class_total: 35,
-        home_class_checked: 23,
-        cross_class_checked: 5,
-        guest_checked: 0,
-        onsite_total: 28,
-        rate: 65
-      },
-      group_statistics: [
-        {
-          group_name: "笃行组",
-          roster_count: 4,
-          present_count: 3,
-          participation_rate: 0.75
-        }
-      ],
-      class_statistics: {
-        class_name: "合成班",
-        roster_count: 4,
-        present_count: 3,
-        participation_rate: 0.75
-      },
-      group_totals: {
-        roster_count: 4,
-        present_count: 3,
-        participation_rate: 0.75
-      },
-      group_statistics_basis: "日间去重 / 本组在册"
-    }),
-    {
-      ...XLSXModule,
-      writeFile: value => {
-        workbook = value;
-      }
-    }
-  );
-  h.state.selected.value = event;
+test("onsite download preserves the shared server workbook and never uses stale displayed totals", async () => {
+  const book = XLSXModule.utils.book_new();
+  XLSXModule.utils.book_append_sheet(book, XLSXModule.utils.aoa_to_sheet([["统计项","数值"],["本班报名人数",35]]), "签到汇总");
+  const bytes = XLSXModule.write(book,{type:"buffer",bookType:"xlsx"});
+  const blob = new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const h = harness(async operation => {
+    assert.equal(operation,"export-workbook");return blob;
+  },{...XLSXModule,writeFile:()=>assert.fail("shared server workbook must not be rebuilt by the page")});
+  h.state.selected.value = {event_id:"morning",name:"合成班会",activity_type:"CLASS_MEETING",session_code:"MORNING"};
   h.state.activeEventId.value = "morning";
-  h.state.stats.value = { home_class_total: 999 };
+  h.state.stats.value = {home_class_total:999};
   await h.actions.exportExcel();
-  assert.ok(workbook);
-  const bytes = XLSXModule.write(workbook, {
-    type: "buffer",
-    bookType: "xlsx"
-  });
-  const result = XLSXModule.read(bytes, { type: "buffer", cellNF: true });
-  assert.deepEqual(result.SheetNames, ["签到名单", "签到汇总", "小组参会统计"]);
-  assert.equal(result.Sheets["签到名单"].G2.v, "笃行组");
-  assert.equal(result.Sheets["签到名单"].H2.v, 0.75);
-  assert.equal(result.Sheets["签到名单"].H2.z, "0.0%");
-  assert.deepEqual(
-    [2, 3, 4, 5, 6, 7].map(row => result.Sheets["签到汇总"][`B${row}`].v),
-    [35, 23, 5, 0, 28, 0.65]
-  );
-  assert.equal(result.Sheets["小组参会统计"].D2.v, 0.75);
-  assert.equal(result.Sheets["小组参会统计"].D2.z, "0%");
-  assert.equal(result.Sheets["小组参会统计"].A3.v, "合成班参会率");
-  assert.equal(result.Sheets["小组参会统计"].D3.v, 0.75);
-  assert.equal(result.Sheets["小组参会统计"].D3.z, "0%");
-  assert.equal(result.Sheets["签到汇总"].B8.v, 0.75);
-  assert.equal(result.Sheets["签到汇总"].B8.z, "0%");
+  assert.equal(h.calls.length,1);assert.equal(h.calls[0].payload.event_id,"morning");
+  assert.equal(h.downloaded.blob,blob);assert.equal(h.downloaded.clicked,true);assert.equal(h.downloaded.removed,true);
+  assert.equal(h.downloaded.revoked,"blob:synthetic-attendance");assert.match(h.downloaded.filename,/合成班会.*xlsx$/);
+  assert.deepEqual(Buffer.from(await h.downloaded.blob.arrayBuffer()),bytes);
 });
 
 test("opening activity management is visible before slow details finish and survives a read error", async () => {
@@ -912,14 +856,13 @@ test("manual attendance explains team slots and event restrictions and never wri
   assert.equal(h.calls.length, 0);
 });
 
-test("reference template totals 32 registered and 17 distinct attendees, displayed as 53 percent", () => {
+test("regular-group template excludes advanced group and totals 29 registered, 17 distinct attendees", () => {
   const groups = [
     ["1实干组", 5, 3],
     ["2笃行组", 6, 3],
     ["3诚善组", 7, 5],
     ["4明心组", 6, 3],
-    ["5力行组", 5, 3],
-    ["炎武四班精进组", 3, 0]
+    ["5力行组", 5, 3]
   ].map(([group_name, roster_count, present_count]) => ({
     group_name,
     roster_count,
@@ -930,44 +873,44 @@ test("reference template totals 32 registered and 17 distinct attendees, display
     group_statistics: groups,
     class_statistics: {
       class_name: "炎武四班",
-      roster_count: 32,
+      roster_count: 29,
       present_count: 17,
-      participation_rate: 17 / 32
+      participation_rate: 17 / 29
     },
     group_totals: {
-      roster_count: 32,
+      roster_count: 29,
       present_count: 17,
-      participation_rate: 17 / 32
+      participation_rate: 17 / 29
     }
   };
   const table = management.participationTableRows(data);
-  assert.equal(table.length, 7);
-  assert.equal(table[6].group_name, "炎武四班参会率");
+  assert.equal(table.length, 6);
+  assert.equal(table[5].group_name, "炎武四班参会率");
   assert.equal(
-    table[6].roster_count,
+    table[5].roster_count,
     groups.reduce((n, g) => n + g.roster_count, 0)
   );
   assert.equal(
-    table[6].present_count,
+    table[5].present_count,
     groups.reduce((n, g) => n + g.present_count, 0)
   );
   assert.deepEqual(
     table.map(row => management.participationRateLabel(row.participation_rate)),
-    ["60%", "50%", "71%", "50%", "60%", "0%", "53%"]
+    ["60%", "50%", "71%", "50%", "60%", "59%"]
   );
   const sheet = XLSXModule.utils.aoa_to_sheet(
     management.attendanceGroupSummaryRows(data)
   );
-  for (let r = 2; r <= 8; r++) sheet[`D${r}`].z = "0%";
+  for (let r = 2; r <= 7; r++) sheet[`D${r}`].z = "0%";
   const book = XLSXModule.utils.book_new();
   XLSXModule.utils.book_append_sheet(book, sheet, "小组参会统计");
   const restored = XLSXModule.read(
     XLSXModule.write(book, { type: "buffer", bookType: "xlsx" }),
     { type: "buffer", cellNF: true }
   );
-  assert.equal(restored.Sheets["小组参会统计"].D8.v, 17 / 32);
-  assert.equal(restored.Sheets["小组参会统计"].D8.w, "53%");
-  assert.equal(restored.Sheets["小组参会统计"].A8.v, "炎武四班参会率");
+  assert.equal(restored.Sheets["小组参会统计"].D7.v, 17 / 29);
+  assert.equal(restored.Sheets["小组参会统计"].D7.w, "59%");
+  assert.equal(restored.Sheets["小组参会统计"].A7.v, "炎武四班参会率");
 });
 
 test("formal host-class teachers reconcile 26 students with 28 overall without inflating groups", () => {

@@ -7,6 +7,7 @@ import AttendanceImportSummary from "./components/attendance-import-summary.vue"
 import AttendanceParticipationSummary from "./components/attendance-participation-summary.vue";
 import {
   manageAttendance,
+  downloadSigninWorkbook,
   generateAttendanceCode,
   generateCommonAttendanceCode,
   type ManagedEvent,
@@ -32,10 +33,7 @@ import {
   canMaintainRegistration,
   scopedRosterOptions,
   manualCheckinReason,
-  filterAttendanceRows,
-  attendanceExportRows,
-  attendanceSummaryRows,
-  attendanceGroupSummaryRows
+  filterAttendanceRows
 } from "@/utils/attendanceManagement.mjs";
 
 defineOptions({ name: "CheckinManagement" });
@@ -837,72 +835,14 @@ async function confirmPerson(row: any) {
 async function exportExcel() {
   await perform(async () => {
     const target = currentEvent.value;
-    const result = await manageAttendance("export", {
-      event_id: activeEventId.value
-    });
-    const XLSX = await import("xlsx");
-    const workbook = XLSX.utils.book_new();
-    const detailRows = attendanceExportRows(
-      result.rows,
-      result.event?.activity_type || target?.activity_type
-    );
-    const worksheet = XLSX.utils.aoa_to_sheet(detailRows);
-    const rateColumn = detailRows[0].indexOf("班会小组参会率");
-    if (rateColumn >= 0) {
-      for (let row = 1; row < detailRows.length; row++) {
-        const cell =
-          worksheet[XLSX.utils.encode_cell({ r: row, c: rateColumn })];
-        if (cell?.t === "n") cell.z = "0.0%";
-      }
-    }
-    worksheet["!cols"] = detailRows[0].map(() => ({ wch: 20 }));
-    XLSX.utils.book_append_sheet(workbook, worksheet, "签到名单");
-    const summaryRows = [
-      ...attendanceSummaryRows(result.stats),
-      ...(result.class_statistics
-        ? [
-            [
-              "整体参会率（含本班师资）",
-              result.class_statistics.participation_rate ?? "—"
-            ],
-            [
-              "总小组参会率（按人数汇总）",
-              result.group_totals?.participation_rate ?? "—"
-            ]
-          ]
-        : []),
-      [],
-      ["活动", eventName(target)],
-      ["当前场次", sessionName(target)],
-      [
-        "汇总口径",
-        "以上六项汇总为当前场次；小组参会率为本次班会上午、下午合并去重。"
-      ]
-    ];
-    const summary = XLSX.utils.aoa_to_sheet(summaryRows);
-    if (summary.B7?.t === "n") summary.B7.z = "0.0%";
-    summaryRows.forEach((row, index) => {
-      if (String(row[0]).includes("参会率") && typeof row[1] === "number")
-        summary[`B${index + 1}`].z = "0%";
-    });
-    summary["!cols"] = [{ wch: 28 }, { wch: 90 }];
-    XLSX.utils.book_append_sheet(workbook, summary, "签到汇总");
-    if (rateColumn >= 0) {
-      const groups = XLSX.utils.aoa_to_sheet(
-        attendanceGroupSummaryRows(result)
-      );
-      attendanceGroupSummaryRows(result).forEach((_, index) => {
-        const cell = groups[`D${index + 1}`];
-        if (cell?.t === "n") cell.z = "0%";
-      });
-      groups["!cols"] = [{ wch: 24 }, { wch: 20 }, { wch: 28 }, { wch: 24 }];
-      XLSX.utils.book_append_sheet(workbook, groups, "小组参会统计");
-    }
-    XLSX.writeFile(
-      workbook,
-      `${eventName(target)}-${sessionName(target)}.xlsx`
-    );
-    ElMessage.success("签到明细已导出");
+    const response = await downloadSigninWorkbook(activeEventId.value);
+    const blob = response instanceof Blob ? response : new Blob([response], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${eventName(target)}-${sessionName(target)}.xlsx`;
+    document.body.appendChild(anchor);anchor.click();anchor.remove();URL.revokeObjectURL(url);
+    ElMessage.success("签到明细与参会汇总已导出");
   });
 }
 async function openCode() {
@@ -1286,11 +1226,11 @@ onUnmounted(() => {
           </div>
           <div v-if="stats" class="summary">
             <el-statistic
-              title="本班应到 / 报名"
+              title="本班报名（含自愿参加）"
               :value="stats.home_class_total ?? stats.total ?? 0"
             />
             <el-statistic
-              title="本班已到 / 已签到"
+              title="本班已签到（报名口径）"
               :value="stats.home_class_checked ?? stats.checked ?? 0"
             />
             <el-statistic
@@ -1306,7 +1246,7 @@ onUnmounted(() => {
               :value="stats.onsite_total ?? stats.checked ?? 0"
             />
             <el-statistic
-              title="本班签到率"
+              title="报名签到率"
               :value="stats.rate || 0"
               suffix="%"
             />
