@@ -242,3 +242,19 @@ test("hiding phone activity cancels delayed confirmations and a late QR file is 
   p.onHide(); resolveFile(); await pending;
   assert.equal(p.data.codePath, ""); assert.equal(deleted.length, 1);
 });
+
+test("activity entry explains missing permission before requesting any event data", async () => {
+  const calls=[];
+  const p=page("activities",async url=>{ calls.push(url); return { data:{can_view:false,organizations:[],permission_message:"请按已有范围授权活动签到运营"} }; });
+  p.onLoad();await p.load();
+  assert.equal(calls.length,1);assert.match(calls[0],/activity-context$/);
+  assert.equal(p.data.needsAuthorization,true);assert.equal(p.data.canCreate,false);
+  assert.equal(p.data.records.length,0);assert.match(p.data.permissionMessage,/授权/);
+});
+
+test("late activity context after hiding cannot request records or restore permissions", async () => {
+  let finish;const calls=[];
+  const p=page("activities",url=>{ calls.push(url);return new Promise(resolve=>{finish=resolve;}); });
+  p.onLoad();const pending=p.load();p.onHide();finish({data:{can_view:true,organizations:[{id:"synthetic"}]}});await pending;
+  assert.equal(calls.length,1);assert.equal(p.data.records.length,0);assert.equal(p.data.canCreate,false);
+});

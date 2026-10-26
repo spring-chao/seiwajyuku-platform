@@ -42,7 +42,7 @@ def _region(class_id, organizations):
 
 
 def _group_policies(connection, class_ids, month):
-    """Use formal cycle policy; missing or contradictory policy stays unknown."""
+    """Normal catalog groups default to monthly required; explicit waivers remain authoritative."""
     from app.services.learning_cycle_calendar import clock, month_label
     bindings, cycles = {}, {}
     for start in range(0,len(class_ids),200):
@@ -61,6 +61,8 @@ def _group_policies(connection, class_ids, month):
     result={}
     for class_id in class_ids:
         rows=cycles.get(class_id,[])
+        if not rows:
+            result[class_id]='REQUIRED';continue
         if rows and {r['group_meeting_policy'] for r in rows}=={'REQUIRED'}:
             result[class_id]='REQUIRED';continue
         dated=[]; invalid=False
@@ -94,7 +96,7 @@ def _group_policies(connection, class_ids, month):
     return result,waived
 
 
-def _targets(connection, actor, filters, month):
+def _targets(connection, actor, filters, month, *, roster=None, attribution=None):
     allowed = None
     for permission in ('exports:normal', 'plans:credit_settlement_preview'):
         scope = accessible_org_ids(actor, permission)
@@ -114,27 +116,30 @@ def _targets(connection, actor, filters, month):
             if organizations[class_id]['is_active'] and (allowed is None or class_id in allowed):
                 classes[class_id] = {'id': class_id, 'name': item['name'], 'center_id': center_id}
     policies,waived=_group_policies(connection,sorted(classes),month)
+    from app.services.learning_requirement_policy import exemption_reason
     groups = {}
-    for group in organizations.values():
+    catalog = list(organizations.values())
+    if attribution and attribution.get('state') == 'FROZEN':
+        catalog = [{**dict(r), 'id':r['group_org_unit_id'], 'parent_id':r['class_org_unit_id'], 'name':organizations.get(r['group_org_unit_id'],{}).get('name') or r['group_name'], 'unit_type':'GROUP', 'is_active':1} for r in execute(connection, 'SELECT * FROM study_meeting_roster_groups WHERE period=?',(month,)).fetchall()]
+    for group in catalog:
         if group['unit_type'] != 'GROUP' or not group['is_active'] or group['parent_id'] not in classes:
             continue
         parent = classes[group['parent_id']]
+        if exemption_reason(group['name'], parent['name'], metric='group_meeting'):
+            continue
         row = {**group, 'class_name': parent['name'], 'center_id': parent['center_id'],
                'policy':'WAIVED' if group['id'] in waived else policies.get(group['parent_id'],'UNKNOWN'), 'roster': set()}
         groups[group['id']] = row
         centers[parent['center_id']]['groups'][group['id']] = row
-    ids = sorted(classes)
-    for start in range(0, len(ids), 200):
-        batch = ids[start:start + 200]
-        marks = ','.join('?' for _ in batch)
-        rows = execute(connection,
-            f'SELECT m.id,{CURRENT_CLASS_ID_SQL} AS class_id,{CURRENT_GROUP_ID_SQL} AS group_id '
-            f"FROM members m WHERE m.status='ACTIVE' AND {CURRENT_CLASS_ID_SQL} IN ({marks})", tuple(batch)).fetchall()
-        for raw in rows:
-            member = dict(raw)
-            group = groups.get(member['group_id'])
-            if group and group['parent_id'] == member['class_id']:
-                group['roster'].add(int(member['id']))
+    if roster is None:
+        from app.services.study_meeting_monthly_roster import roster_for_period
+        roster, attribution = roster_for_period(connection, month)
+    for member in roster:
+        group = groups.get(member['group_org_unit_id'])
+        if group and group['parent_id'] == member['class_org_unit_id']:
+            group['roster'].add(int(member['member_id']))
+    for center in centers.values():
+        center['attribution'] = attribution
     return centers, groups
 
 
@@ -160,7 +165,9 @@ def sharing_dataset(*, actor_user_id, report_month=None, report_as_of=None, **fi
         import sqlite3
         if isinstance(connection, sqlite3.Connection):
             execute(connection, 'BEGIN')
-        centers, groups = _targets(connection, actor_user_id, selection, month)
+        from app.services.study_meeting_monthly_roster import roster_for_period
+        roster, attribution = roster_for_period(connection, month)
+        centers, groups = _targets(connection, actor_user_id, selection, month, roster=roster, attribution=attribution)
         facts = {int(r['id']): [] for r in records}
         for start in range(0, len(records), 200):
             batch = records[start:start + 200]
@@ -184,44 +191,69 @@ def sharing_dataset(*, actor_user_id, report_month=None, report_as_of=None, **fi
                 facts[int(row['study_meeting_session_id'])].append(dict(row))
     finally:
         connection.close()
-    exceptions = []
+    from app.services.learning_requirement_policy import exemption_reason
+    by_member = {int(r['member_id']): r for r in roster}
+    monthly_home = {group_id:{} for group_id in groups}
+    local, exceptions, excluded_records = {}, [], 0
     for record in records:
         group = groups.get(record['study_group_org_unit_id'])
         if not group or group['parent_id'] != record['class_org_unit_id']:
-            exceptions.append(record)
+            if exemption_reason(record.get('group_name'), record.get('class_name'), metric='group_meeting'):
+                excluded_records += 1
+            else:
+                exceptions.append(record)
             continue
         attendees = {int(a['member_id']): a['name'] for a in facts[int(record['id'])]}
-        home = set(attendees) & group['roster']
-        row = {'id': int(record['id']), 'date': str(record['meeting_date'])[:10],
-            'class_name': group['class_name'], 'group_id': group['id'], 'group_name': group['name'],
-            'names': '、'.join(attendees.values()),
-            'other_names': '、'.join(name for mid, name in attendees.items() if mid not in home),
-            'home': home, 'present': len(home), 'roster': len(group['roster']),
-            'status': {'WAIVED':'已完成（免开展）','SUSPENDED':'已完成（暂停）','UNKNOWN':'已完成（预定待配置）'}.get(group['policy'],'已完成')}
-        centers[group['center_id']].setdefault('meetings', []).append(row)
+        local.setdefault(group['id'], []).append((record, attendees))
+        for member_id, name in attendees.items():
+            member = by_member.get(member_id)
+            # Only same-class attendance contributes to one's own group.
+            # Cross-class movers retain their month baseline and cannot gain
+            # credit for a meeting in their new class under the old class.
+            if not member or member['class_org_unit_id'] != record['class_org_unit_id']:
+                continue
+            home_id = member.get('group_org_unit_id')
+            if home_id in monthly_home:
+                monthly_home[home_id][member_id] = name
     for center in centers.values():
-        meetings = center.setdefault('meetings', [])
-        meetings.sort(key=lambda r: (r['class_name'], r['group_name'], r['date'], r['id']))
-        completed = {r['group_id'] for r in meetings}
+        meetings = []
+        for group in sorted(center['groups'].values(), key=lambda r: (r['class_name'], r['name'], r['id'])):
+            hosted = local.get(group['id'], [])
+            actual = {mid:name for _, attendees in hosted for mid,name in attendees.items()}
+            home = monthly_home[group['id']]
+            incoming = {mid:name for mid,name in home.items() if mid not in actual}
+            dates = sorted({str(record['meeting_date'])[:10] for record,_ in hosted})
+            present = len(home) if hosted or home else None
+            names = '、'.join(actual.values())
+            if incoming:
+                names += ('；' if names else '') + '同班跨组参会：' + '、'.join(incoming.values())
+            meetings.append({'id':max((int(r['id']) for r,_ in hosted),default=None),
+                'date':dates[0] if len(dates)==1 else '、'.join(dates) if dates else None,
+                'dates':dates,'class_name':group['class_name'],'group_id':group['id'],'group_name':group['name'],
+                'names':names,'other_names':'、'.join(name for mid,name in actual.items() if mid not in group['roster']),
+                'home':set(home),'present':present,'roster':len(group['roster']),
+                'same_class_elsewhere_names':'、'.join(incoming.values()),
+                'participation_rate':len(home)/len(group['roster']) if group['roster'] and (hosted or home) else None,
+                'status':('已完成' if hosted else '待完成') if group['policy']=='REQUIRED' else
+                    {'WAIVED':'已完成（免开展）' if hosted else '免开展',
+                     'SUSPENDED':'已完成（暂停）' if hosted else '暂停开展',
+                     'UNKNOWN':'已完成（政策待核对）' if hosted else '政策待核对'}[group['policy']]})
         required={g['id'] for g in center['groups'].values() if g['policy']=='REQUIRED'}
         unknown={g['id'] for g in center['groups'].values() if g['policy']=='UNKNOWN'}
+        completed={row['group_id'] for row in meetings if row['id'] is not None}
         planned=None if unknown else len(required)
         finished=len(completed & (required|unknown))
-        present = sum(r['present'] for r in meetings)
-        denominator = sum(r['roster'] for r in meetings)
-        center.update(planned=planned, completed=finished, pending_policy_count=len(unknown),
-            present=present, denominator=denominator,
-            completion_rate=finished / planned if planned else None,
-            participation_rate=present / denominator if denominator else None)
-        for group in sorted(center['groups'].values(), key=lambda r: (r['class_name'], r['name'], r['id'])):
-            if group['id'] not in completed:
-                meetings.append({'id': None, 'date': None, 'class_name': group['class_name'],
-                    'group_id': group['id'], 'group_name': group['name'], 'names': '', 'other_names': '',
-                    'present': 0, 'roster': len(group['roster']),
-                    'status':{'WAIVED':'免开展','SUSPENDED':'暂停开展','UNKNOWN':'预定待配置'}.get(group['policy'],'未完成')})
-    return {'month': month, 'cutoff': cutoff, 'basis': 'completed',
-        'centers': sorted(centers.values(), key=lambda r: (r['name'], r['id'])),
-        'exceptions': exceptions, 'source_count': len(records), 'selection': selection}
+        # Preserve the established completed-group weighted center rate.
+        # Each group's monthly same-class participants are distinct once.
+        present=sum((r['present'] or 0) for r in meetings if r['id'] is not None)
+        denominator=sum(r['roster'] for r in meetings if r['id'] is not None)
+        center['planning_note'] = ('周期政策相互冲突或月份无法唯一确认：' + '、'.join(g['class_name']+'／'+g['name'] for g in center['groups'].values() if g['policy']=='UNKNOWN')) if unknown else '按有效组织目录统计应开小组，精进组及班委组免要求'
+        center.update(meetings=meetings,planned=planned,completed=finished,pending_policy_count=len(unknown),
+            present=present,denominator=denominator,completion_rate=finished/planned if planned else None,
+            participation_rate=present/denominator if denominator else None)
+    return {'month':month,'cutoff':cutoff,'basis':'completed_groups_monthly_distinct',
+        'attribution':attribution,'centers':sorted(centers.values(),key=lambda r:(r['name'],r['id'])),
+        'exceptions':exceptions,'excluded_record_count':excluded_records,'source_count':len(records),'selection':selection}
 
 
 def _workbook(data):
@@ -237,7 +269,7 @@ def _workbook(data):
     blue, pale = '4472C4', 'D9E2F3'
     table_number = 0
     period = f"{data['month']}，截至 {data['cutoff']}"
-    basis = '总参会率＝已完成场次本组参会人次合计÷对应本组在册人次合计（加权）'
+    basis = '总参会率＝已完成组月度本组参会人数合计÷对应本组应参人数合计（加权，同班跨组去重计入本人小组）'
 
     def sheet(name, title, headers, rows, widths, percent_cols, summary=None):
         nonlocal table_number
@@ -280,7 +312,7 @@ def _workbook(data):
                 if isinstance(value, str): cell.data_type = 's'
                 cell.font = Font(name='Microsoft YaHei', size=11, bold=row_number == 6,
                                  color='FFFFFF' if row_number == 6 else '202020')
-                centered = row_number == 6 or isinstance(value,(int,float,date)) or value in ('—','已完成','未完成')
+                centered = row_number == 6 or isinstance(value,(int,float,date)) or value in ('—','已完成','未完成','待完成')
                 cell.alignment = Alignment(vertical='center', horizontal='center' if centered else 'left', wrap_text=True)
                 edge = Side(style='thin', color='C7D0E0')
                 cell.border = Border(left=edge,right=edge,top=edge,bottom=edge)
@@ -303,7 +335,7 @@ def _workbook(data):
         ws.freeze_panes = 'A7'
         note = last + 2
         ws.merge_cells(start_row=note, start_column=1, end_row=note + 1, end_column=count)
-        ws.cell(note, 1, '应开展的小组每月预定1次，免开展、暂停开展不计入预定及完成目标；政策缺失时预定待配置。当前组织及归组以班级与小组管理为准，跨组人员不计本组参会率。同组同周期重复记录只取最新已提交记录，不同周期场次保留。无已完成场次或本组在册人数为0时，参会率为“—”。')
+        ws.cell(note, 1, '正常有效小组每月预定1次；精进组、班委组不纳入统计，免开展、暂停开展不计完成目标。未配置周期的正常小组按组织目录计入应开数，冲突政策单列待核对。本人参加同班其他小组会也计入本人小组月度参会率，同人同月不重复；自己小组未开会仍为待完成。30日0点锁定当月归组（2月月末），跨班调整保持当月原归属，原始记录不改。')
         ws.cell(note, 1).alignment = Alignment(wrap_text=True, vertical='top')
         ws.cell(note, 1).font = Font(name='Microsoft YaHei', size=10, color='595959')
         ws.row_dimensions[note].height = 30
@@ -319,14 +351,14 @@ def _workbook(data):
     summary_rows = [[c['name'], c['planned'] if c['planned'] is not None else '待配置', c['completed'],
         c['planned']-c['completed'] if c['planned'] is not None else '待配置',
         c['completion_rate'] if c['completion_rate'] is not None else '—', c['present'], c['denominator'],
-        c['participation_rate'] if c['participation_rate'] is not None else '—'] for c in data['centers']]
+        c['participation_rate'] if c['participation_rate'] is not None else '—', c['planning_note']] for c in data['centers']]
     sheet('分中心完成情况', '各分中心小组学习会月度完成情况',
-        ['分中心／直属班', '本月预定（组）', '截至已完成（组）', '未完成（组）', '完成率', count_label, denominator_label, '总参会率'],
-        summary_rows, [26,18,19,17,14,23,25,16], (5,8))
+        ['分中心／直属班', '本月预定（组）', '截至已完成（组）', '未完成（组）', '完成率', count_label, denominator_label, '总参会率','统计说明'],
+        summary_rows, [26,18,19,17,14,23,25,16,48], (5,8))
     for center in data['centers']:
         rows = [[i, r['class_name'], r['group_name'], r['names'], r['other_names'],
-            date.fromisoformat(r['date']) if r['date'] else None, r['present'], r['roster'],
-            r['present']/r['roster'] if r['id'] is not None and r['roster'] else '—', r['status']]
+            date.fromisoformat(r['date']) if r['date'] and len(r['date'])==10 else r['date'], r['present'], r['roster'],
+            r['participation_rate'] if r['participation_rate'] is not None else '—', r['status']]
             for i,r in enumerate(center['meetings'],1)]
         sheet(center['name'], center['name']+'小组学习会统计明细',
             ['序号','班级','小组','参会人员（含跨组）','其中跨组／其他人员','会议日期','本组参会人数','本组在册人数','小组参会率','完成情况'],

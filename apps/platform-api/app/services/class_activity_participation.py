@@ -47,17 +47,24 @@ def attach_class_activity_overall(rows: list[dict]) -> None:
     facts = []
     c = connect()
     try:
-        for start in range(0, len(classes), 200):
-            batch = classes[start:start + 200]
-            marks = ','.join('?' for _ in batch)
-            for row in execute(c, f'SELECT m.id,m.member_code,{CURRENT_CLASS_ID_SQL} AS class_id FROM members m '
-                               f"WHERE m.status='ACTIVE' AND {CURRENT_CLASS_ID_SQL} IN ({marks})", tuple(batch)).fetchall():
-                roster[row['class_id']].add(int(row['id']))
+        from app.services.learning_requirement_policy import requirement_roster, excluded_members
+        for class_id in classes:
+            for row in requirement_roster(c, metric="class_meeting", class_id=class_id, include_ungrouped=True):
+                member_id = int(row['member_id'])
+                roster[class_id].add(member_id)
                 code = str(row['member_code'] or '').strip()
                 if code:
-                    roster_codes[row['class_id']].setdefault(code, set()).add(int(row['id']))
+                    roster_codes[class_id].setdefault(code, set()).add(member_id)
+        # Identity resolution includes waived members, so an old unbound
+        # registration code is recognized and excluded instead of blocking all rates.
+        from app.services.study_membership import group_roster
+        for class_id in classes:
+            for row in group_roster(c,class_id=class_id,include_ungrouped=True):
+                code=str(row.get('member_code') or '').strip()
+                if code:roster_codes[class_id].setdefault(code,set()).add(int(row['member_id']))
         for class_id, staff in _class_staff(c, classes).items():
-            eligible[class_id] = roster[class_id] | set(staff)
+            excluded = excluded_members(c, staff, metric="class_meeting")
+            eligible[class_id] = roster[class_id] | (set(staff) - set(excluded))
             for member_id, code in staff.items():
                 if code:
                     roster_codes[class_id].setdefault(code, set()).add(member_id)
@@ -122,7 +129,7 @@ def attach_class_activity_overall(rows: list[dict]) -> None:
                    overall_participation_rate=round(count * 100 / size, 1) if size and not missing else None)
 
 
-def attach_live_class_activity_overall(row: dict, *, user: dict) -> None:
+def attach_live_class_activity_overall(row: dict, *, user: dict, sessions=None) -> None:
     """Refresh this authorized signin activity from the same live aggregate as onsite.
 
     Lists retain the bounded local projection. Details try the exact linked
@@ -148,6 +155,16 @@ def attach_live_class_activity_overall(row: dict, *, user: dict) -> None:
                 or str(total.get("event_date"))[:10] != str(row.get("event_date"))[:10]):
             row["overall_data_message"] = "实时场次或班级关联待核对，当前展示已同步快照。"
             return
+        if sessions is not None:
+            by_source = {item['event_id']:item for item in result.get('class_session_statistics',[])}
+            for item in sessions:
+                current = by_source.get(str(item.get('external_session_id')))
+                if current:
+                    item['class_member_count'] = current['roster_count']
+                    item['class_present_count'] = current['present_count']
+                    item['requirement_member_present_count'] = current['member_present_count']
+                    item['requirement_staff_present_count'] = current['staff_present_count']
+                    item['requirement_participation_rate'] = current['participation_rate']
         unresolved = result.get("unresolved_record_count", 0)
         row.update(overall_registration_count=total["roster_count"],
             overall_present_count=None if unresolved else total["present_count"],
@@ -157,5 +174,5 @@ def attach_live_class_activity_overall(row: dict, *, user: dict) -> None:
             overall_staff_present_count=total["staff_present_count"],
             overall_member_participation_rate=None if total["member_participation_rate"] is None else round(total["member_participation_rate"]*100,1),
             overall_data_source="LIVE_SIGNIN", overall_data_message="实时签到统计，与签到现场、Excel及移动运营使用同一口径。")
-    except SigninEngineError:
-        row["overall_data_message"] = "实时统计暂不可用，当前展示已同步快照；请核对同步时间后刷新。"
+    except SigninEngineError as exc:
+        row["overall_data_message"] = "实时场次或班级关联待核对，当前展示已同步快照。" if exc.status_code == 409 else "实时统计暂不可用，当前展示已同步快照；请核对同步时间后刷新。"

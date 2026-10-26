@@ -318,6 +318,7 @@ async function openActivityDetail(row: any) {
 
 async function downloadDetailRecords() {
   if (!detail.value) return;
+  if (detail.value.group.source_key === "signin" && !hasPerms("attendance:export")) { ElMessage.warning("需要活动签到导出权限，请在员工管理中按现有范围授权活动签到运营能力"); return; }
   downloadingRecords.value = true;
   try {
     const response = await downloadAttendanceRecords(
@@ -501,7 +502,7 @@ async function downloadDetailRecords() {
             </el-radio-group>
             <div class="detail-section__heading">
               <h3>场次汇总</h3>
-              <span>班级会顶部整体统计不随场次切换：上午、下午签到合并去重，计入本班在册学员及正式为本班服务的班主任、副班主任、辅导员；分母仍为本班在册人数。空巴、其他跨班人员和嘉宾不计入整体参会率；各场报名、签到和积分保留在下方明细中。其他活动按原参会口径统计。</span>
+              <span>班级会顶部整体统计不随场次切换：上午、下午签到合并去重，计入本班在册学员及正式为本班服务的班主任、副班主任、辅导员；分母仍为本班在册人数。精进组不计入应参人数和参与率，现场人数保留自愿参加事实；空巴、其他跨班人员和嘉宾不计入整体参会率；各场报名、签到和积分保留在下方明细中。其他活动按原参会口径统计。</span>
             </div>
             <el-table :data="visibleDetailSessions" size="small" stripe class="activity-table">
               <el-table-column prop="session_name" label="场次" min-width="180">
@@ -516,7 +517,7 @@ async function downloadDetailRecords() {
               <el-table-column label="应参会人数" width="110" align="right">
                 <template #default="{ row }">{{ detailParticipationRoster(row) || "—" }}</template>
               </el-table-column>
-              <el-table-column label="参会人数" width="100" align="right">
+              <el-table-column label="现场已签到" width="100" align="right">
                 <template #default="{ row }">{{ row.present_count }}</template>
               </el-table-column>
               <el-table-column label="签到率" width="100" align="right">

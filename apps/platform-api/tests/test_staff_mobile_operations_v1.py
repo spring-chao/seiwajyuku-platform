@@ -264,7 +264,13 @@ def test_staff_mobile_v1_high_frequency_closed_loop_and_live_iam2_scope() -> Non
             "today_actions",
             "member_search",
             "renewal_watch",
+            "activities",
         }
+        activity_entry=next(row for row in workbench.json()["data"]["entries"] if row["key"]=="activities")
+        assert activity_entry["available"] is False and "授权" in activity_entry["permission_message"]
+        activity_context=client.get("/api/v1/wechat/operations/activity-context",headers=headers)
+        assert activity_context.status_code==200 and activity_context.json()["data"]["can_view"] is False
+        assert client.get("/api/v1/wechat/operations/activities?month=2026-10",headers=headers).status_code==403
 
         # TODAY_ACTIONS_SCOPE: only the scoped member's current action appears.
         today = client.get("/api/v1/wechat/operations/today-actions", headers=headers)

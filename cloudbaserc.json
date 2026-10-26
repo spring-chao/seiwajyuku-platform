@@ -18,6 +18,11 @@
           "name": "studyEvidenceCleanupDaily",
           "type": "timer",
           "config": "0 0 2 * * * *"
+        },
+        {
+          "name": "studyMeetingRosterDaily",
+          "type": "timer",
+          "config": "0 0 0 * * * *"
         }
       ]
     }

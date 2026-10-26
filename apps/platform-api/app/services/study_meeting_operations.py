@@ -144,7 +144,7 @@ def _member_export_rows(records, details, previews):
                 '；'.join(course['course_name_snapshot'] for course in detail['courses']), '；'.join(confirmations),
                 member['group_points'], member['course_points'], member['expected_points'], '；'.join(member['reasons']) or '预计值，以正式结算为准',
                 current['current_group_name'], {'HOME_GROUP':'本组','CROSS_GROUP':'跨组','UNRESOLVED':'待核对'}[current['current_attendance_type']],
-                '当前归组与登记快照不同；需区分后来调组与原登记误报，学分仍按登记事实预演' if current['membership_review_required'] else '',
+                '统计归组与登记快照不同；同班按本月归组，跨班保留原归属，原始事实仍保留' if current['membership_review_required'] else '',
             ])
     return headers, rows
 
@@ -210,16 +210,13 @@ def export_meeting_workbook(*, actor_user_id, session_id=None, layout='group',
         organizations = {r['id']: dict(r) for r in execute(connection, 'SELECT id,name,parent_id,unit_type FROM org_units').fetchall()}
         class_ids = sorted({record['class_org_unit_id'] for record in records})
         roster = {}
-        if class_ids:
-            placeholders = ','.join('?' for _ in class_ids)
-            now = _db_timestamp(connection)
-            for row in execute(connection, "SELECT DISTINCT r.org_unit_id,r.member_id FROM member_org_relations r "
-                "JOIN members m ON m.id=r.member_id AND m.status='ACTIVE' "
-                f"WHERE r.org_unit_id IN ({placeholders}) AND r.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
-                f"AND {effective_relation_sql('r')} "
-                + "AND r.org_unit_id=" + CURRENT_CLASS_ID_SQL,
-                tuple(class_ids)).fetchall():
-                roster.setdefault(row['org_unit_id'], set()).add(int(row['member_id']))
+        from app.services.study_meeting_monthly_roster import roster_for_period
+        from app.services.learning_requirement_policy import exemption_reason
+        for month in sorted({str(record['meeting_date'])[:7] for record in records}):
+            members,_=roster_for_period(connection,month,class_ids=class_ids)
+            for member in members:
+                if member.get('group_org_unit_id') and not exemption_reason(member.get('group_name'),member.get('class_name'),metric='group_meeting'):
+                    roster.setdefault((member['class_org_unit_id'],month),set()).add(int(member['member_id']))
     finally:
         connection.close()
 
@@ -245,17 +242,17 @@ def export_meeting_workbook(*, actor_user_id, session_id=None, layout='group',
         month = str(record['meeting_date'])[:7]
         stat = class_stats.setdefault((class_id, record['learning_cycle_id']), {
             'label': record['class_name'], 'region': region_name, 'period': cycle,
-            'roster': roster.get(class_id, set()), 'attendees': set()})
+            'roster': roster.get((class_id,month), set()), 'attendees': set()})
         region_stat = region_stats.setdefault((region_id, month), {
             'label': region_name, 'period': month, 'roster': set(), 'attendees': set()})
-        region_stat['roster'].update(roster.get(class_id, set()))
+        region_stat['roster'].update(roster.get((class_id,month), set()))
         if record['status'] == 'SUBMITTED':
             attended = {int(member['member_id']) for member in details[sid]['attendees']}
             stat['attendees'].update(attended & stat['roster'])
             region_stat['attendees'].update(attended)
 
     headers = ['学习会编号', '日期', '分中心/指导团', '班级', '小组', '周期', '状态', '姓名', '其中跨组姓名',
-               '本组参会人数', '本组在册人数', '小组参会率', '班级参会率（筛选范围）', '分中心参会率（筛选班级及月份）',
+               '本组月度参会人数', '本组应参人数', '小组月度参会率', '班级参会率（筛选范围）', '分中心参会率（筛选班级及月份）',
                '课程', '预计小组会学分合计', '预计课程学分合计', '预计新增学分合计', '说明']
     rows = []
     rate = lambda stat: len(stat['attendees'] & stat['roster']) / len(stat['roster']) if stat['roster'] else None
@@ -268,7 +265,7 @@ def export_meeting_workbook(*, actor_user_id, session_id=None, layout='group',
             {'DRAFT': '草稿', 'SUBMITTED': '已提交', 'CANCELLED': '已取消'}[record['status']],
             '、'.join(m['name'] for m in detail['attendees']),
             '、'.join(m['name'] for m in detail['attendees'] if m['current_attendance_type'] == 'CROSS_GROUP'),
-            detail['current_home_count'], detail['home_group_member_count'],
+            detail.get('monthly_home_present_count',detail['current_home_count']), detail['home_group_member_count'],
             detail['home_group_attendance_rate'] / 100 if detail['home_group_attendance_rate'] is not None else None,
             rate(class_stats[(record['class_org_unit_id'], record['learning_cycle_id'])]),
             rate(region_stats[(region_id, str(record['meeting_date'])[:7])]),

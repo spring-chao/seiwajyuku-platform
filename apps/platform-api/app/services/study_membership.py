@@ -82,6 +82,8 @@ def group_roster(connection, *, class_id=None, group_id=None, member_ids=None, i
 def set_formal_relation(connection, *, member_id, relation_type, org_id, now, source_type='MEMBER_UPDATE'):
     """Existing gated member edits must retire ALL competing formal rows."""
     from datetime import UTC, datetime, timedelta
+    from app.services.study_meeting_monthly_roster import capture_before_change
+    capture_before_change(connection, member_id)
     rows = execute(connection, 'SELECT id,org_unit_id FROM member_org_relations '
         'WHERE member_id=? AND relation_type=? ORDER BY id', (member_id, relation_type)).fetchall()
     selected = next((row for row in rows if row['org_unit_id'] == org_id), None) if org_id else None
@@ -112,17 +114,24 @@ def add_current_participation(connection, records):
     facts = [dict(row) for row in execute(connection,
         'SELECT study_meeting_session_id,member_id,home_study_group_org_unit_id,attendance_type '
         f'FROM study_meeting_attendances WHERE study_meeting_session_id IN ({placeholders})', ids).fetchall()]
-    member_ids = sorted({int(fact['member_id']) for fact in facts})
-    current = {}
-    for start in range(0, len(member_ids), 300):
-        current.update({int(row['member_id']): row for row in group_roster(connection, member_ids=member_ids[start:start+300])})
+    from app.services.study_meeting_monthly_roster import roster_for_period, monthly_participation
+    from app.services.learning_requirement_policy import exemption_reason
+    months = sorted({str(record['meeting_date'])[:7] for record in records})
+    attribution = {}; monthly = {}; roster_by_month = {}
+    for month in months:
+        classes = {record['class_org_unit_id'] for record in records if str(record['meeting_date'])[:7]==month}
+        roster, meta = roster_for_period(connection, month, class_ids=classes)
+        roster_by_month[month] = {int(row['member_id']):row for row in roster}
+        attribution[month] = meta
+        classes = {record['class_org_unit_id'] for record in records if str(record['meeting_date'])[:7]==month}
+        monthly[month] = monthly_participation(connection,month,class_ids=classes)
     counts = {sid: {'HOME_GROUP':0, 'CROSS_GROUP':0, 'UNRESOLVED':0, 'review':0} for sid in ids}
     details = {sid: {int(a['member_id']): a for a in record.get('attendees', [])} for sid, record in by_id.items()}
     for fact in facts:
         sid = int(fact['study_meeting_session_id'])
         record = by_id[sid]
-        member = current.get(int(fact['member_id']))
-        if not member or member['class_org_unit_id'] != record['class_org_unit_id']:
+        member = roster_by_month[str(record['meeting_date'])[:7]].get(int(fact['member_id']))
+        if not member or member['class_org_unit_id'] != record['class_org_unit_id'] or not member.get('group_org_unit_id'):
             kind, group_name = 'UNRESOLVED', '待核对（离册、调班或关系冲突）'
         else:
             kind = 'HOME_GROUP' if member['group_org_unit_id'] == record['study_group_org_unit_id'] else 'CROSS_GROUP'
@@ -138,5 +147,15 @@ def add_current_participation(connection, records):
         count = counts[sid]
         record.update(current_home_count=count['HOME_GROUP'], current_cross_group_count=count['CROSS_GROUP'],
                       current_unresolved_count=count['UNRESOLVED'], membership_review_count=count['review'])
-        roster_count = record.get('home_group_member_count', 0)
-        record['home_group_attendance_rate'] = round(count['HOME_GROUP'] * 100 / roster_count, 1) if roster_count else None
+        month = str(record['meeting_date'])[:7]
+        required = [row for row in roster_by_month[month].values() if row.get('group_org_unit_id')==record['study_group_org_unit_id'] and row['class_org_unit_id']==record['class_org_unit_id'] and not exemption_reason(row.get('group_name'),row.get('class_name'),metric='group_meeting')]
+        roster_count = len(required)
+        participated = monthly[month].get(record['study_group_org_unit_id'],{})
+        record['home_group_member_count'] = roster_count
+        record['monthly_home_present_count'] = len(participated)
+        record['monthly_home_participant_names'] = list(participated.values())
+        record['monthly_home_participant_ids'] = list(participated)
+        record['home_group_attendance_rate'] = round(len(participated) * 100 / roster_count, 1) if roster_count else None
+        record['participation_basis'] = '本月同班任意应开小组会，按本人月度统计归组去重；跨班归属保留，30日锁定'
+        record['monthly_attribution'] = attribution[month]
+        record['requirement_exempt_reason'] = exemption_reason(record.get('group_name'),record.get('class_name'),metric='group_meeting')

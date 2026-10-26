@@ -2405,7 +2405,7 @@ export const downloadAttendanceRecords = (
     `/api/v1/attendance/event-groups/${eventGroupId}/records.xlsx`,
     {
       params: sessionId ? { session_id: sessionId } : undefined,
-      responseType: "blob"
+      responseType: "blob", timeout: 120000
     }
   );
 

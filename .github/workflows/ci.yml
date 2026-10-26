@@ -174,6 +174,9 @@ jobs:
           apps/platform-api/tests/test_study_meeting_attendees.py
           apps/platform-api/tests/test_study_meeting_operations.py
           apps/platform-api/tests/test_study_membership.py
+          apps/platform-api/tests/test_study_meeting_monthly_roster.py
+          apps/platform-api/tests/test_attendance_workbooks.py
+          apps/platform-api/tests/test_learning_requirement_policy.py
           apps/platform-api/tests/test_class_activity_overall.py
           apps/platform-api/tests/test_tabular_exports.py
           apps/platform-api/tests/test_study_meeting_sharing.py
@@ -244,6 +247,12 @@ jobs:
         with:
           name: b21-mysql-results
           path: b21-mysql.xml
+
+      - name: Monthly study roster migration, replay and recovery
+        run: python -m pytest apps/platform-api/tests/test_study_roster_migration_mysql.py -q
+        env:
+          STUDY_ROSTER_ISOLATED_MYSQL: "1"
+          STUDY_ROSTER_ISOLATED_ROOT_PASSWORD: ci-b21-root
 
   learning-credit-mysql:
     # Disposable, isolated MySQL database for the C7.1.2 and C7.1.1 migration

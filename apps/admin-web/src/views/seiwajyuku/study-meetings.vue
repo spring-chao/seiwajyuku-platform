@@ -461,7 +461,7 @@ onMounted(async () => {
             <div v-if="row.membership_review_count" class="muted">{{ row.membership_review_count }} 人登记归组需核对</div>
           </template>
         </el-table-column>
-        <el-table-column label="小组参会率" width="155">
+        <el-table-column label="小组月度参会率" width="155">
           <template #default="{ row }">
             <div>{{ row.home_group_attendance_rate == null ? '待核对' : `${row.home_group_attendance_rate}%` }}</div>
             <div class="muted">当前本组 {{ row.current_home_count ?? row.home_count }} / {{ row.home_group_member_count }} 人</div>
@@ -507,7 +507,7 @@ onMounted(async () => {
             <el-descriptions-item label="提交人">{{ detail.creator_name }}</el-descriptions-item>
             <el-descriptions-item :label="detail.submitted_at ? '提交时间' : '创建时间'">{{ formatDateTime(detail.submitted_at || detail.created_at) }}</el-descriptions-item>
             <el-descriptions-item label="课程" :span="2">{{ courseLabel(detail) }}</el-descriptions-item>
-            <el-descriptions-item label="小组参会率">
+            <el-descriptions-item label="小组月度参会率">
               {{ detail.home_group_attendance_rate == null ? '待核对' : `${detail.home_group_attendance_rate}%` }}
               <span class="muted">（当前本组 {{ detail.current_home_count ?? detail.home_count }} / {{ detail.home_group_member_count }} 人）</span>
             </el-descriptions-item>

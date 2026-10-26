@@ -66,17 +66,20 @@ def renewal_update(session, cycle_id, status, expected_status):
 
 def _participation(record):
     from app.db import transaction
-    from app.services.study_membership import group_roster
+    from app.services.study_meeting_monthly_roster import roster_for_period
+    from app.services.learning_requirement_policy import exemption_reason
     with transaction() as connection:
-        roster = group_roster(connection, group_id=record["study_group_org_unit_id"])
-    attendees = {int(row["member_id"]) for row in record.get("attendees", [])}
+        roster,_ = roster_for_period(connection,str(record['meeting_date'])[:7])
+        roster = [row for row in roster if row.get('group_org_unit_id')==record['study_group_org_unit_id'] and not exemption_reason(row.get('group_name'),row.get('class_name'),metric='group_meeting')]
+    attendees = set(record.get('monthly_home_participant_ids', [int(row['member_id']) for row in record.get('attendees', [])]))
     return {"roster_count": record["home_group_member_count"],
-            "home_present_count": record["current_home_count"],
+            "home_present_count": record.get("monthly_home_present_count",record["current_home_count"]),
             "cross_group_count": record["current_cross_group_count"],
             "unresolved_count": record["current_unresolved_count"],
             "rate": record["home_group_attendance_rate"],
             "absent": [{"member_id": row["member_id"], "name": row["name"]} for row in roster if int(row["member_id"]) not in attendees],
-            "basis": "本组参会人数 / 当前有效在册人数；组织与归组以班级与小组管理为准，跨组及待核对人员单列"}
+            "basis": record.get("participation_basis","本人月度同班跨组参会计入本人小组"),
+            "exempt_reason":record.get("requirement_exempt_reason","")}
 
 
 def meetings(session, month):
@@ -88,10 +91,10 @@ def meetings(session, month):
                 meeting_date_to=date.fromordinal(end.toordinal() - 1).isoformat())
     for row in rows:
         row["participation"] = {"roster_count": row["home_group_member_count"],
-                                "home_present_count": row["current_home_count"],
+                                "home_present_count": row.get("monthly_home_present_count",row["current_home_count"]),
                                 "cross_group_count": row["current_cross_group_count"],
                                 "unresolved_count": row["current_unresolved_count"],
-                                "rate": row["home_group_attendance_rate"]}
+                                "rate": row["home_group_attendance_rate"],"exempt_reason":row.get("requirement_exempt_reason","")}
     return rows
 
 

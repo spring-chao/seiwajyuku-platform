@@ -33,7 +33,7 @@ def test_group_workbook_has_one_row_names_together_and_numeric_rates():
     assert sheet.max_row == 2
     row = dict(zip([c.value for c in sheet[1]], [c.value for c in sheet[2]]))
     assert row['其中跨组姓名'] in row['姓名'] and '、' in row['姓名']
-    assert row['小组参会率'] == 1
+    assert row['小组月度参会率'] == 1
     assert 0 < row['班级参会率（筛选范围）'] <= 1
     assert sheet['L2'].number_format == '0.0%'
     assert sheet['B2'].is_date

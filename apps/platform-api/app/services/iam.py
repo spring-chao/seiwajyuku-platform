@@ -330,6 +330,7 @@ EMPLOYEE_ASSIGNABLE_ROLE_KEYS = frozenset(
         "employee_finance_management",
         "employee_data_management",
         "employee_administration_management",
+        "attendance_operator",
         "read_only",
         *CREDIT_SETTLEMENT_CAPABILITY_ROLE_KEYS,
     }

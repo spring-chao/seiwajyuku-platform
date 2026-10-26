@@ -64,22 +64,19 @@ def _attendance_rate(
     if not event_group_ids:
         return {"event_count": 0, "eligible_count": 0, "present_count": 0, "rate": None}
     placeholders = ",".join("?" for _ in event_group_ids)
-    eligible = fetch_one(
-        "SELECT COUNT(DISTINCT mor.member_id) AS count FROM member_org_relations mor "
-        "JOIN members m ON m.id=mor.member_id AND m.status='ACTIVE' "
-        "WHERE mor.relation_type=? AND mor.org_unit_id=?",
-        (relation_type, org_unit_id),
-    )["count"]
-    present = fetch_one(
-        "SELECT COUNT(*) AS count FROM (SELECT DISTINCT ar.member_id, s.event_group_id "
-        "FROM attendance_records ar JOIN attendance_sessions s ON s.id=ar.attendance_session_id "
-        "JOIN member_org_relations mor ON mor.member_id=ar.member_id "
-        f"WHERE s.event_group_id IN ({placeholders}) AND ar.member_id IS NOT NULL "
-        "AND mor.relation_type=? AND mor.org_unit_id=? "
-        "AND ar.participant_type='MEMBER' "
-        "AND ar.attendance_status IN ('PRESENT','MANUAL_PRESENT')) attended",
-        (*event_group_ids, relation_type, org_unit_id),
-    )["count"]
+    from app.services.learning_requirement_policy import requirement_roster,excluded_members
+    with transaction() as connection:
+        is_group=relation_type=='STUDY_GROUP'
+        roster=requirement_roster(connection,metric='group_meeting' if is_group else 'class_meeting',**({'group_id':org_unit_id} if is_group else {'class_id':org_unit_id,'include_ungrouped':True}))
+        eligible=len(roster)
+        ids={int(row['member_id']) for row in roster}
+        if not is_group:
+            from app.services.class_activity_participation import _class_staff
+            teachers=set(_class_staff(connection,[org_unit_id]).get(org_unit_id,{}))
+            ids.update(teachers-set(excluded_members(connection,teachers,metric='class_meeting')))
+        daytime = " AND UPPER(COALESCE(s.session_code,'')) NOT IN ('KONPA','EVENING')" if not is_group else ""
+        facts=execute(connection,"SELECT DISTINCT ar.member_id,s.event_group_id FROM attendance_records ar JOIN attendance_sessions s ON s.id=ar.attendance_session_id " + f"WHERE s.event_group_id IN ({placeholders}) AND ar.participant_type='MEMBER' AND ar.attendance_status IN ('PRESENT','MANUAL_PRESENT')" + daytime,tuple(event_group_ids)).fetchall()
+        present=sum(1 for row in facts if row['member_id'] is not None and int(row['member_id']) in ids)
     denominator = int(eligible) * len(event_group_ids)
     return {
         "event_count": len(event_group_ids),

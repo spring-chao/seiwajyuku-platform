@@ -197,3 +197,16 @@ for (const failingTask of ["study-evidence", "learning-cycle-monthly"]) {
     }
   });
 }
+
+test("midnight roster trigger is isolated from cleanup, dates and credit progression", async () => {
+  const env={PLATFORM_API_CLEANUP_URL:"https://synthetic.example/api/v1/internal/study-evidence",STUDY_EVIDENCE_CLEANUP_TOKEN:"synthetic-roster-token-".repeat(3)};
+  const previous=Object.fromEntries(Object.keys(env).map(key=>[key,process.env[key]]));const priorFetch=globalThis.fetch;const calls=[];
+  Object.assign(process.env,env);
+  globalThis.fetch=async(url,options)=>{calls.push({url,options});return {ok:true,text:async()=>JSON.stringify({success:true,data:{enabled:true,updated:1,failed:0,state:"FROZEN"}})};};
+  try {
+    const result=await cleanup.main({Type:"Timer",TriggerName:"studyMeetingRosterDaily",Time:"synthetic-cannot-pick-date",Message:"class=anything"},{});
+    assert.equal(result.ok,true);assert.equal(result.roster.state,"FROZEN");assert.equal(calls.length,1);
+    assert.match(calls[0].url,/\/internal\/study-meeting-roster-monthly$/);assert.deepEqual(JSON.parse(calls[0].options.body),{});
+    assert.ok(!JSON.stringify(result).includes(env.STUDY_EVIDENCE_CLEANUP_TOKEN));
+  } finally {globalThis.fetch=priorFetch;for(const [key,value] of Object.entries(previous)){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
+});

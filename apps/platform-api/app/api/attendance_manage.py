@@ -105,6 +105,23 @@ def common_entry_code(payload: CodePayload,
         raise _error(exc) from exc
 
 
+class WorkbookPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    event_id: str = Field(min_length=1,max_length=128)
+
+
+@router.post("/manage/export-workbook")
+def export_workbook(payload: WorkbookPayload,user=Depends(require_permission("attendance:export"))):
+    from fastapi.responses import Response
+    from app.services.attendance_workbooks import live_workbook
+    try:
+        content = live_workbook([payload.event_id],user=user)
+    except signin_engine.SigninEngineError as exc:
+        raise _error(exc) from exc
+    return Response(content,media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition":'attachment; filename="attendance.xlsx"',"Cache-Control":"private, no-store"})
+
+
 @router.post("/manage/{operation}")
 def operation(operation: str, payload: dict = Body(default_factory=dict),
               user: dict = Depends(current_user)) -> dict:

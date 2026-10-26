@@ -29,13 +29,18 @@ def _allowed(principal, permission, org_id):
 
 def context(session):
     principal = _principal(session)
+    can_view = "attendance:view" in principal["permissions"]
+    can_create = "attendance:create" in principal["permissions"]
+    if not can_view and not can_create:
+        return {"organizations":[],"classes":[],"can_view":False,"can_create":False,
+            "permission_message":"请管理员在员工管理中按当前服务范围授予‘活动签到运营’能力；页面不会自动扩大组织范围或授予权限。"}
     rows = fetch_all("SELECT id,name,unit_type FROM org_units WHERE is_active=1 ORDER BY name")
     organizations = [row for row in rows if "attendance:create" in principal["permissions"]
                      and _allowed(principal, "attendance:create", row["id"])]
     from app.services.study_membership import CURRENT_CLASS_ID_SQL
     counts = {r["class_id"]: r["n"] for r in fetch_all(f"SELECT {CURRENT_CLASS_ID_SQL} AS class_id,COUNT(*) AS n FROM members m WHERE m.status='ACTIVE' GROUP BY class_id")}
     classes = [{**row, "member_count": counts.get(row["id"], 0)} for row in organizations if row["unit_type"] == "CLASS"]
-    return {"organizations": organizations, "classes": classes,
+    return {"organizations": organizations, "classes": classes, "can_view":can_view,"can_create":can_create,
         "activity_types": [{"value": value, "label": label} for value, label in (
             ("class_meeting", "班级学习会（三场）"), ("course", "课程"), ("national_report", "全国报告会"),
             ("center_quarterly_report", "分中心季度报告会"), ("staff_training", "班主任辅导员培训会"),
