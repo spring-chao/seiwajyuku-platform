@@ -83,6 +83,7 @@ def test_read_only_api_shares_real_daytime_dedup_and_independent_scene_rules():
                 "phone": "SYNTHETIC-PRIVATE-CONTACT", "attendance_note": "SYNTHETIC-PRIVATE-NOTE", "checked": True, "attendance_role": "HOME_CLASS_MEMBER"}
     facts = {"morning": [row(f["member_id"]), row(second)], "afternoon": [row(second)], "konpa": [row(third)]}
     calls = []
+    moved = [False]
     def engine(path, envelope, **kwargs):
         op = path.rsplit("/", 1)[-1]; payload = envelope["payload"]; calls.append((op, payload))
         assert op in {"admin_events", "event_detail", "stats"}
@@ -91,7 +92,10 @@ def test_read_only_api_shares_real_daytime_dedup_and_independent_scene_rules():
         if op == "admin_events":
             return {"items": [{**events["morning"], "sessions": list(events.values())}], "has_more": False}
         if op == "stats":
-            return {"event": copy.deepcopy(events[payload["event_id"]]), "onsite_total": len(facts[payload["event_id"]])}
+            source = copy.deepcopy(events[payload["event_id"]])
+            if moved[0]:
+                source["event_group_id"] = "different-meeting-after-edit"
+            return {"event": source, "onsite_total": len(facts[payload["event_id"]])}
         return {"event": copy.deepcopy(events[payload["event_id"]]), "sessions": copy.deepcopy(list(events.values())), "rows": copy.deepcopy(facts[payload["event_id"]])}
     with patch.dict("os.environ", ENV), TestClient(app) as client, patch.object(signin_engine, "engine_request", side_effect=engine), patch(
         "app.api.wechat.resolve_member_session", return_value={"member_id": f["member_id"]}
@@ -118,6 +122,9 @@ def test_read_only_api_shares_real_daytime_dedup_and_independent_scene_rules():
         assert next(g for g in scenes["afternoon"]["group_statistics"] if g["group_org_unit_id"] == f["group_id"])["present_count"] == 1
         assert next(g for g in scenes["konpa"]["group_statistics"] if g["group_org_unit_id"] == f["group_id"])["present_count"] == 0
         assert "SYNTHETIC-PRIVATE" not in detail.text and '"attendees"' not in detail.text and '"member_code"' not in detail.text
+        moved[0] = True
+        assert client.get(PREFIX + "/morning", headers=headers).status_code == 409
+        moved[0] = False
         count = len(calls)
         outside = client.get(PREFIX, params={"month": "2026-10", "class_org_unit_id": f["other_class_id"]}, headers=headers)
         assert outside.status_code == 403 and len(calls) == count

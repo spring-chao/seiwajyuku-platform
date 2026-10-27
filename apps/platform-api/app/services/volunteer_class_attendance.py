@@ -107,12 +107,19 @@ def snapshot(member_id, event_id):
     read = _reader(member_id, allowed)
     selected = read("event_detail", {"event_id": event_id})
     event = selected.get("event")
-    _validate(event, allowed)
+    selected_class = _validate(event, allowed)
+    if str(event.get("event_id")) != event_id:
+        raise engine.SigninEngineError("班会信息已变化，请刷新后重试", 409)
     # Revalidate every sibling scene before the common calculator reads its facts.
     def scoped_read(operation, payload):
         data = read(operation, payload)
         if operation in {"event_detail", "stats"}:
-            _validate(data.get("event"), allowed)
+            source = data.get("event")
+            source_class = _validate(source, allowed)
+            if (str(source.get("event_id")) != str(payload.get("event_id")) or source_class != selected_class
+                    or source.get("event_group_id") != event.get("event_group_id")
+                    or str(source.get("event_date"))[:10] != str(event.get("event_date"))[:10]):
+                raise engine.SigninEngineError("班会场次归属已变化，请刷新后重试", 409)
         return data
     statistics = scoped_participation_statistics(event_id=event_id, allowed=sorted(allowed), read=scoped_read)
     if not statistics.get("class_statistics"):
