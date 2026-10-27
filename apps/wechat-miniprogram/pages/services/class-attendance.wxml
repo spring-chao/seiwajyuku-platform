@@ -22,7 +22,7 @@
     <view class="rate-grid"><view><view class="muted">{{activeScene === 'overall' ? '整体参会率' : view.name + '参会率'}}（含本班师资）</view><view class="metric">{{view.overallRate}}</view><view>{{view.present}} / {{view.total}} 人</view></view><view><view class="muted">总小组参会率</view><view class="metric">{{view.groupRate}}</view><view>{{view.groupPresent}} / {{view.groupTotal}} 人</view></view></view>
     <view class="muted">本班在册学长 {{view.members}} 人，额外正式师资 {{view.staff}} 人。</view>
     <view wx:if="{{activeScene !== 'overall'}}" class="row"><text>本场现场总人数</text><text>{{view.onsite_total === null ? '—' : view.onsite_total}} 人</text></view>
-    <view wx:if="{{snapshot.message}}" class="error">{{snapshot.message}}</view>
+    <view wx:if="{{view.message}}" class="error">{{view.message}}</view>
     <view wx:for="{{view.groups}}" wx:key="key" class="row"><text>{{item.group_name}}</text><text>{{item.present_count}} / {{item.roster_count}} 人　{{item.rateLabel}}</text></view>
     <view class="muted">{{view.basis}}</view><view class="muted">更新于 {{updatedLabel}}，可点击“刷新统计”读取最新签到。</view>
   </view>

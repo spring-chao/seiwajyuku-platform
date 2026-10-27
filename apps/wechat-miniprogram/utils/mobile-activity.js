@@ -48,7 +48,7 @@ function decorate(detail, keyword = "", scope = "overall") {
     overallPresent: c.present_count ?? "—", rosterCount: c.roster_count ?? "—", memberPresent: c.member_present_count ?? "—", staffPresent: c.staff_present_count ?? "—",
     sessionTotal: String(detail.group.activity_type).toLowerCase() === "class_meeting" && scope !== "overall" ? scene?.roster_count ?? "—" : s.home_class_total ?? s.total ?? "—",
     sessionChecked: String(detail.group.activity_type).toLowerCase() === "class_meeting" && scope !== "overall" ? scene?.member_present_count ?? "—" : s.home_class_checked ?? s.checked ?? "—", onsite: s.onsite_total ?? s.checked ?? "—",
-    basis: scope === "overall" ? "上午、下午合并去重，空巴另计。" : "仅统计当前选择的场次，不合并其他场次。", message: (scope !== "overall" && !scene ? "本场次参会统计暂不可用，请刷新重试。" : s.group_statistics_message) || detail.statistics_error || ""
+    basis: scope === "overall" ? "上午、下午合并去重，空巴另计。" : "仅统计当前选择的场次，不合并其他场次。", message: (scope === "overall" ? s.group_statistics_message : !scene ? "本场次参会统计暂不可用，请刷新重试。" : scene.unresolved_count ? "本场存在待核对身份，参会率暂不展示。" : "") || detail.statistics_error || ""
   }};
 }
 module.exports = { ACTIVITY_TYPES, CLASS_TIMES, PERIODS, CLOCK_FIELDS, clockFromIso, rate, rowActions, decorate };
