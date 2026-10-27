@@ -122,6 +122,14 @@ def test_read_only_api_shares_real_daytime_dedup_and_independent_scene_rules():
         assert next(g for g in scenes["afternoon"]["group_statistics"] if g["group_org_unit_id"] == f["group_id"])["present_count"] == 1
         assert next(g for g in scenes["konpa"]["group_statistics"] if g["group_org_unit_id"] == f["group_id"])["present_count"] == 0
         assert "SYNTHETIC-PRIVATE" not in detail.text and '"attendees"' not in detail.text and '"member_code"' not in detail.text
+        facts["morning"].append({"registration_id": "synthetic-unresolved", "name": "合成待核对学长", "checked": True, "attendance_role": "HOME_CLASS_MEMBER"})
+        uncertain = client.get(PREFIX + "/morning", headers=headers)
+        assert uncertain.status_code == 200, uncertain.text
+        per_scene = {row["key"]: row for row in uncertain.json()["data"]["scenes"]}
+        assert per_scene["overall"]["class_statistics"]["participation_rate"] is None
+        assert per_scene["morning"]["message"] and per_scene["morning"]["class_statistics"]["participation_rate"] is None
+        assert not per_scene["afternoon"]["message"] and per_scene["afternoon"]["class_statistics"]["participation_rate"] == round(1 / 3, 6)
+        facts["morning"].pop()
         moved[0] = True
         assert client.get(PREFIX + "/morning", headers=headers).status_code == 409
         moved[0] = False

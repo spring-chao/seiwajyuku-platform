@@ -126,7 +126,7 @@ def snapshot(member_id, event_id):
         raise engine.SigninEngineError(statistics.get("group_statistics_message") or "统计资料尚未完整，请稍后刷新", 503)
     scenes = [{"key": "overall", "name": "整体", "class_statistics": statistics["class_statistics"],
                "group_statistics": statistics["group_statistics"], "group_totals": statistics["group_totals"],
-               "basis": BASIS, "onsite_total": None}]
+               "basis": BASIS, "onsite_total": None, "message": statistics.get("group_statistics_message") or ""}]
     candidates = selected.get("sessions") or [event]
     session_events = {str(s.get("event_id")): {**event, **s} for s in candidates if s.get("event_id")}
     labels = {"MORNING": ("morning", "上午"), "AM": ("morning", "上午"),
@@ -145,6 +145,7 @@ def snapshot(member_id, event_id):
                        "class_statistics": {k: row.get(k) for k in ("roster_count", "present_count", "participation_rate", "member_present_count", "staff_present_count", "member_participation_rate")},
                        "group_statistics": row["group_statistics"], "group_totals": row["group_totals"],
                        "onsite_total": raw.get("onsite_total", raw.get("checked")),
+                       "message": "本场存在待核对身份，参会率暂不展示。" if row.get("unresolved_count") else "",
                        "basis": "仅统计本场次。本班精进组免要求；现场总人数保留外班、来宾等实际签到。"})
     order = {"overall": 0, "morning": 1, "afternoon": 2, "konpa": 3}
     return {"event": _event_payload(event), "scenes": sorted(scenes, key=lambda s: order[s["key"]]),

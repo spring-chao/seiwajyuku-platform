@@ -66,10 +66,13 @@ test("missing scene shows no rate and cannot inherit the overall rate", () => {
 });
 test("operator display uses shared per-scene results without changing overall metrics", () => {
   const statistics = { class_statistics: scenes[0].class_statistics, group_totals: scenes[0].group_totals, group_statistics: scenes[0].group_statistics,
+    group_statistics_message: "整体存在待核对身份",
     class_session_statistics: scenes.slice(1).map(row => ({ ...row.class_statistics, event_id: row.key, group_totals: row.group_totals, group_statistics: row.group_statistics })) };
   for (const scene of scenes.slice(1)) {
     const data = { group: { id: scene.key, activity_type: "class_meeting" }, statistics };
     assert.equal(activity.decorate(data).statistics.overallRate, "80.0%");
+    assert.equal(activity.decorate(data).statistics.message, "整体存在待核对身份");
+    assert.equal(activity.decorate(data, "", "session").statistics.message, "");
     assert.equal(activity.decorate(data, "", "session").statistics.overallRate, (scene.class_statistics.participation_rate * 100).toFixed(1) + "%");
     assert.equal(activity.decorate(data, "", "session").groupRows[0].present_count, scene.group_statistics[0].present_count);
   }
