@@ -257,6 +257,19 @@ export function participationTableRows(result = {}) {
   return rows;
 }
 
+export function participationScene(result = {}, sceneId = "overall") {
+  if (sceneId === "overall") return result;
+  const scene = (result.class_session_statistics || []).find(row => row.event_id === sceneId);
+  return {
+    ...result,
+    class_statistics: scene ? { ...scene, class_name: result.class_statistics?.class_name } : null,
+    group_statistics: scene?.group_statistics || [],
+    group_totals: scene?.group_totals || null,
+    group_statistics_basis: "仅统计当前选择的场次；精进组免要求，本班正式师资沿用既有例外规则。",
+    group_statistics_message: scene ? (scene.unresolved_count ? "本场存在待核对身份，参会率暂不展示。" : "") : "本场统计暂不可用，请刷新重试。"
+  };
+}
+
 export function attendanceGroupSummaryRows(result = {}) {
   return [
     ["小组", "本组在册人数", "本次班会去重到场人数", "班会小组参会率"],

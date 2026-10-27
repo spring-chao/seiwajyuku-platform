@@ -25,12 +25,17 @@
       </view>
       <view class="service-arrow">进入服务 ›</view>
     </view>
-    <view wx:elif="{{isVolunteer}}" class="section-card empty-card">
+    <view wx:if="{{isVolunteer && canViewClassAttendance}}" class="service-card" bindtap="openClassAttendance">
+      <view class="service-title">班会签到统计</view>
+      <view class="service-copy">查看本人服务班级当天或当月班会的整体、上午、下午及空巴签到统计</view>
+      <view class="service-arrow">查看统计 ›</view>
+    </view>
+    <view wx:if="{{isVolunteer && !canManageStudyMeeting && !canViewClassAttendance}}" class="section-card empty-card">
       <view class="section-title">当前志工岗位</view>
       <view wx:for="{{serviceAssignments}}" wx:key="key" class="service-scope">{{item.positionName}} · {{item.scopeName}}</view>
       <view class="empty-copy">当前暂无需要操作的线上服务。</view>
     </view>
-    <view wx:else class="section-card empty-card">
+    <view wx:if="{{!isVolunteer}}" class="section-card empty-card">
       <view class="section-title">当前暂无志工服务</view>
       <view class="empty-copy">如承担新的志工岗位，服务会显示在这里。</view>
     </view>
