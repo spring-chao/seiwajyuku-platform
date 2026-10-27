@@ -1,5 +1,5 @@
 <view class="page-shell">
-  <view class="hero-card"><view class="eyebrow">移动运营</view><view class="hero-title">续费关注</view><view class="hero-copy">观3、续2、追1使用现有续费周期；选择学长后可直接记录关爱。</view></view>
+  <view class="hero-card"><view class="eyebrow">移动运营</view><view class="hero-title">续费关注</view><view class="hero-copy">追1：当月续费 · 续2：下月续费 · 观3：第3个月续费。选择学长可查看续费状态、微信文案并记录跟进。</view></view>
   <view wx:if="{{focusMemberId}}" class="section-card">当前仅显示从详情进入的学长。<button class="plain-button" bindtap="showAll">查看全部学长</button></view>
   <view wx:if="{{!loading && !errorMessage}}" class="tabs"><view wx:for="{{groups}}" wx:key="key" class="tab {{activeStage === item.key ? 'active' : ''}}" data-stage="{{item.key}}" bindtap="chooseStage">{{item.name}}</view></view>
   <view wx:if="{{loading}}" class="state-card">正在加载…</view><view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view><view wx:if="{{!loading && !errorMessage && !items.length}}" class="section-card">当前阶段没有需要关注的学长。</view>

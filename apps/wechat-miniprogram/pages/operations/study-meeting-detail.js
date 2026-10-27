@@ -3,9 +3,14 @@ const { request, downloadProtected } = require("../../utils/request");
 Page({
   data: { loading: true, saving: false, sessionId: null, detail: null, errorMessage: "", resultMessage: "" },
   onLoad(options) { this.setData({ sessionId: Number(options.session_id) }); },
-  onShow() { showPrivatePage(this); this.load(); },
-  onHide() { this.clearPhoto(); hidePrivatePage(this, { detail: null, errorMessage: "", resultMessage: "", saving: false, loading: false }); },
-  onUnload() { this.onHide(); },
+  onShow() { this._photoPreviewActive = false; this.clearPhoto(); showPrivatePage(this); this.load(); },
+  onHide() {
+    // Opening WeChat's image viewer hides this page. Keep its local image
+    // until return; deleting here races the viewer reading the file.
+    if (!this._photoPreviewActive) this.clearPhoto();
+    hidePrivatePage(this, { detail: null, errorMessage: "", resultMessage: "", saving: false, loading: false });
+  },
+  onUnload() { this._photoPreviewActive = false; this.onHide(); },
   async load() {
     const current = beginPrivateRequest(this);
     this.setData({ loading: true, detail: null, errorMessage: "" });
@@ -16,14 +21,24 @@ Page({
     finally { if (current()) this.setData({ loading: false }); }
   },
   async viewPhoto() {
+    if (this._photoLoading || this._photoPreviewActive) return;
+    this._photoLoading = true;
     const current = beginPrivateRequest(this, "photo");
     try {
       this.clearPhoto();
       const path = await downloadProtected(`/api/v1/wechat/operations/study-meeting-records/${this.data.sessionId}/evidence-preview`);
-      if (current()) { this._photoPath = path; wx.previewImage({ urls: [path] }); }
+      if (current()) {
+        this._photoPath = path;
+        this._photoPreviewActive = true;
+        wx.previewImage({ urls: [path], current: path, fail: () => {
+          this._photoPreviewActive = false; this.clearPhoto();
+          wx.showToast({ title: "合影打开失败，请返回后重试", icon: "none" });
+        } });
+      }
       else wx.getFileSystemManager().unlink({ filePath: path, fail() {} });
     }
-    catch (error) { if (current()) wx.showToast({ title: error.message, icon: "none" }); }
+    catch (error) { this._photoPreviewActive = false; this.clearPhoto(); if (current()) wx.showToast({ title: error.message || "合影读取失败，请重试", icon: "none" }); }
+    finally { this._photoLoading = false; }
   },
   clearPhoto() { if (this._photoPath) { wx.getFileSystemManager().unlink({ filePath: this._photoPath, fail() {} }); this._photoPath = ""; } },
   verifySettle() {

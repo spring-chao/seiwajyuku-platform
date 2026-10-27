@@ -2,7 +2,7 @@ const { beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../..
 const { request } = require("../../utils/request");
 
 Page({
-  data: { loading: true, groups: [], items: [], activeStage: "OBSERVE_3", focusMemberId: null, errorMessage: "" },
+  data: { loading: true, groups: [], items: [], activeStage: "FOLLOW_1", focusMemberId: null, errorMessage: "" },
   onLoad(options) { this.setData({ focusMemberId: Number(options.member_id) || null }); },
   onShow() { showPrivatePage(this); this.load(); },
   onHide() { hidePrivatePage(this, { loading: false, groups: [], items: [], errorMessage: "" }); },
@@ -31,7 +31,9 @@ Page({
       const groups = (response.data && response.data.groups) || [];
       if (!current()) return;
       const focused = this.data.focusMemberId && groups.find(group => (group.items || []).some(item => Number(item.member_id) === this.data.focusMemberId));
-      const selected = focused || groups.find(group => group.key === this.data.activeStage) || groups[0] || { key: "OBSERVE_3", items: [] };
+      const order = ["FOLLOW_1", "RENEW_2", "OBSERVE_3"];
+      groups.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+      const selected = focused || groups.find(group => group.key === this.data.activeStage) || groups[0] || { key: "FOLLOW_1", items: [] };
       this.setData({ groups, activeStage: selected.key, items: this.focusItems(selected.items || []) });
     } catch (error) {
       if (current()) this.setData({ errorMessage: error.message || "续费关注暂时无法加载" });
