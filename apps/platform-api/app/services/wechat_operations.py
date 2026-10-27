@@ -95,9 +95,9 @@ _RENEWAL_STATUS_NAMES = {
     "EXITED": "已退出",
 }
 _RENEWAL_WATCH_STAGES = (
-    ("OBSERVE_3", "观3"),
-    ("RENEW_2", "续2"),
     ("FOLLOW_1", "追1"),
+    ("RENEW_2", "续2"),
+    ("OBSERVE_3", "观3"),
 )
 _RENEWAL_CONTEXT_STAGE_RANK = {
     "RECOVERY": 0,
@@ -401,7 +401,10 @@ def renewal_watch(session: dict[str, Any]) -> dict[str, Any]:
         stage: [] for stage, _ in _RENEWAL_WATCH_STAGES
     }
     for row in rows:
-        stage = str((row.get("stage") or {}).get("code") or "")
+        # Mobile watch tabs count the current month as month one. Preserve
+        # the shared renewal engine's stages for existing actions and reports.
+        offset = (row.get("stage") or {}).get("months_until_due")
+        stage = {0: "FOLLOW_1", 1: "RENEW_2", 2: "OBSERVE_3"}.get(offset)
         if stage in by_stage:
             by_stage[stage].append(_renewal_payload(row))
     for values in by_stage.values():

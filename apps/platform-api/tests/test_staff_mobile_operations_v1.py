@@ -169,7 +169,7 @@ def _seed_staff_mobile_v1() -> dict[str, object]:
     _set_join_date(outside_member_id, years_ago=1)
 
     renewal_cycles: dict[str, int] = {}
-    for stage, months_ahead in (("OBSERVE_3", 3), ("RENEW_2", 2), ("FOLLOW_1", 1)):
+    for stage, months_ahead in (("OBSERVE_3", 2), ("RENEW_2", 1), ("FOLLOW_1", 0)):
         member_id = focal_member_id
         if stage != "FOLLOW_1":
             member_id = create_member(
