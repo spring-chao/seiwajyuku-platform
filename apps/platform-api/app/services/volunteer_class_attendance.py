@@ -1,4 +1,4 @@
-"""Read-only live class statistics for currently appointed class teachers."""
+"""Read-only live class statistics for currently appointed class-team volunteers."""
 from datetime import UTC, date, datetime, timedelta
 
 from app.core.business_time import business_today
@@ -17,11 +17,18 @@ def class_scopes(member_id):
         if CLASS_ATTENDANCE_VIEW not in role.get("capabilities", []):
             continue
         org_id = role.get("scope_org_unit_id")
-        org = fetch_one("SELECT id,name FROM org_units WHERE id=? AND unit_type='CLASS' AND is_active=1", (org_id,))
+        # Group posts serve their group's parent class, never the member's study class.
+        org = fetch_one(
+            "SELECT c.id,c.name FROM org_units target JOIN org_units c ON "
+            "((target.unit_type='CLASS' AND c.id=target.id) OR "
+            "(target.unit_type='GROUP' AND c.id=target.parent_id)) "
+            "WHERE target.id=? AND target.is_active=1 AND c.unit_type='CLASS' AND c.is_active=1",
+            (org_id,),
+        )
         if org:
             classes[org["id"]] = dict(org)
     if not classes:
-        raise PermissionError("当前没有可查看班会签到的班主任或副班主任任职")
+        raise PermissionError("当前没有可查看班会签到的有效班级志工任职")
     return sorted(classes.values(), key=lambda item: (item["name"], item["id"]))
 
 
@@ -54,7 +61,7 @@ def _validate(event, allowed):
     if (class_id not in allowed or event.get("group_org_unit_id")
             or str(event.get("activity_type", "")).lower() != "class_meeting"
             or event.get("lifecycle_status") != "CONFIRMED"):
-        raise PermissionError("该班会不在当前班主任服务范围内或尚未确认")
+        raise PermissionError("该班会不在本人当前服务班级范围内或尚未确认")
     engine.validate_organizations(event, allowed, required=True)
     return class_id
 

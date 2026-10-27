@@ -113,6 +113,7 @@ def test_current_group_service_is_one_active_row_with_capability_and_audit() -> 
 
     current = read_member_current_volunteer_position(int(data["member_id"]))
     assert current["position_key"] == "volunteer_group_counselor"
+    assert "CLASS_ATTENDANCE_VIEW" in current["capabilities"]
     profile = get_member_edit_profile(int(data["member_id"]), actor)
     assert profile["current_volunteer_position_key"] == "volunteer_group_counselor"
     assert profile["current_volunteer_scope_name"] == "当前志工测试小组"

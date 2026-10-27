@@ -24,7 +24,13 @@ from app.services.iam import accessible_org_ids
 
 STUDY_MEETING_MANAGE = "STUDY_MEETING_MANAGE"
 CLASS_ATTENDANCE_VIEW = "CLASS_ATTENDANCE_VIEW"
-CLASS_ATTENDANCE_POSITIONS = frozenset({"volunteer_class_counselor", "volunteer_deputy_class_teacher"})
+CLASS_ATTENDANCE_POSITION_SCOPES = {
+    "volunteer_class_counselor": "CLASS",
+    "volunteer_deputy_class_teacher": "CLASS",
+    "volunteer_class_monitor": "CLASS",
+    "volunteer_group_counselor": "GROUP",
+    "volunteer_group_leader": "GROUP",
+}
 MEMBER_ADMIN_MANUAL_SOURCE = "MEMBER_ADMIN_MANUAL"
 MEMBER_ADMIN_CURRENT_SERVICE_SOURCE = "MEMBER_ADMIN_CURRENT_SERVICE"
 MEMBER_APPOINTMENT_DEFAULT_PURPOSE = "学员管理手工添加正式志工服务岗位"
@@ -325,10 +331,11 @@ def _position_summary(
     capabilities = (
         list((position or {}).get("capabilities", [])) if position_active else []
     )
-    # This read-only member service follows an active class-teacher post.
+    # This read-only member service follows an active class-team post.
     # It does not create backend users, employee grants or catalog writes.
-    if (position_active and row["appointment_key"] in CLASS_ATTENDANCE_POSITIONS
-            and scope_level == "CLASS" and row.get("scope_org_unit_type") == "CLASS"
+    attendance_scope = CLASS_ATTENDANCE_POSITION_SCOPES.get(row["appointment_key"])
+    if (position_active and attendance_scope
+            and scope_level == attendance_scope and row.get("scope_org_unit_type") == attendance_scope
             and row.get("scope_org_unit_active")
             and row.get("service_system_type") in {None, "CLASS_TEAM"}):
         capabilities = list(dict.fromkeys([*capabilities, CLASS_ATTENDANCE_VIEW]))
