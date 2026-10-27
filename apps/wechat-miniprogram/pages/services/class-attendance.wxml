@@ -1,5 +1,5 @@
 <view class="page-shell">
-  <view class="hero-card"><view class="eyebrow">志工服务 · 班主任、副班主任</view><view class="hero-title">班会签到统计</view><view class="hero-copy">查看本人服务班级当天或当月的班会，整体、上午、下午与空巴分别统计。</view></view>
+  <view class="hero-card"><view class="eyebrow">志工服务 · 班级志工</view><view class="hero-title">班会签到统计</view><view class="hero-copy">查看本人服务班级当天或当月的班会，整体、上午、下午与空巴分别统计。</view></view>
   <view wx:if="{{classes.length}}" class="section-card">
     <picker range="{{classes}}" range-key="name" value="{{classIndex}}" bindchange="chooseClass"><view class="field">服务班级：{{classes[classIndex].name}} ›</view></picker>
     <view class="period-tabs"><view class="tab {{period === 'today' ? 'active' : ''}}" data-period="today" bindtap="choosePeriod">当天</view><view class="tab {{period === 'month' ? 'active' : ''}}" data-period="month" bindtap="choosePeriod">按月查看</view></view>

@@ -13,14 +13,16 @@ from test_study_meeting_attendees import extra_member
 from test_signin_management import ENV
 
 PREFIX = "/api/v1/wechat/volunteer-class-meetings"
+ATTENDANCE_POSITIONS = ["volunteer_class_counselor", "volunteer_deputy_class_teacher",
+    "volunteer_class_monitor", "volunteer_group_counselor", "volunteer_group_leader"]
 
 
 def appointment(f, position="volunteer_class_counselor"):
     return set_member_current_volunteer_position(_admin_id(), f["member_id"], position)
 
 
-@pytest.mark.parametrize("position", ["volunteer_class_counselor", "volunteer_deputy_class_teacher"])
-def test_teacher_and_deputy_get_live_class_scope_without_backend_accounts(position):
+@pytest.mark.parametrize("position", ATTENDANCE_POSITIONS)
+def test_class_team_get_live_class_scope_without_backend_accounts(position):
     f = _fixture()
     appointment(f, position)
     roles = get_member_volunteer_services(f["member_id"])
@@ -32,7 +34,7 @@ def test_teacher_and_deputy_get_live_class_scope_without_backend_accounts(positi
         service.context(f["member_id"])
 
 
-@pytest.mark.parametrize("position", [None, "volunteer_group_leader", "volunteer_group_counselor", "volunteer_class_monitor"])
+@pytest.mark.parametrize("position", [None, "volunteer_regional_service"])
 def test_other_volunteers_and_ordinary_members_cannot_read_class_statistics(position):
     f = _fixture()
     if position:
@@ -43,9 +45,10 @@ def test_other_volunteers_and_ordinary_members_cannot_read_class_statistics(posi
         upstream.assert_not_called()
 
 
-def test_inactive_member_class_and_position_fail_closed():
+@pytest.mark.parametrize("position", ATTENDANCE_POSITIONS)
+def test_inactive_member_class_and_position_fail_closed(position):
     f = _fixture()
-    appointment(f)
+    appointment(f, position)
     with transaction() as connection:
         execute(connection, "UPDATE org_units SET is_active=0 WHERE id=?", (f["class_id"],))
     with pytest.raises(PermissionError):
@@ -53,6 +56,33 @@ def test_inactive_member_class_and_position_fail_closed():
     with transaction() as connection:
         execute(connection, "UPDATE org_units SET is_active=1 WHERE id=?", (f["class_id"],))
         execute(connection, "UPDATE members SET status='INACTIVE' WHERE id=?", (f["member_id"],))
+    with pytest.raises(PermissionError):
+        service.context(f["member_id"])
+
+
+@pytest.mark.parametrize("position", ["volunteer_group_counselor", "volunteer_group_leader"])
+def test_group_post_uses_service_group_parent_and_rejects_inactive_or_invalid_scope(position):
+    from app.services.volunteer_management import create_service_unit, create_appointment
+    from uuid import uuid4
+    f = _fixture()
+    with transaction() as connection:
+        execute(connection, "UPDATE org_units SET parent_id=? WHERE id=?", (f["other_class_id"], f["other_group_id"]))
+    unit = create_service_unit(_admin_id(), unit_code="ATTENDANCE-GROUP-" + uuid4().hex[:10], name="合成跨班小组志工组",
+        system_type="CLASS_TEAM", line_type="GENERAL", parent_id=None,
+        home_shuku_org_unit_id="org-suzhou", service_target_org_unit_id=f["other_group_id"])
+    create_appointment(_admin_id(), member_id=f["member_id"], position_key=position, service_unit_id=unit["id"], confirmation_note="合成小组服务范围验证")
+    assert [r["id"] for r in service.context(f["member_id"])["classes"]] == [f["other_class_id"]]
+    # A member's own study class must not provide extra access.
+    with patch.object(signin_engine, "engine_request") as upstream:
+        with pytest.raises(PermissionError):
+            service.meetings(f["member_id"], month="2026-10", class_id=f["class_id"])
+        upstream.assert_not_called()
+    with transaction() as connection:
+        execute(connection, "UPDATE org_units SET is_active=0 WHERE id=?", (f["other_group_id"],))
+    with pytest.raises(PermissionError):
+        service.context(f["member_id"])
+    with transaction() as connection:
+        execute(connection, "UPDATE org_units SET is_active=1,parent_id=? WHERE id=?", (f["center_id"], f["other_group_id"]))
     with pytest.raises(PermissionError):
         service.context(f["member_id"])
 
@@ -68,9 +98,10 @@ def test_v2_teacher_reads_service_class_instead_of_own_study_class():
     assert [r["id"] for r in service.context(f["member_id"])["classes"]] == [f["other_class_id"]]
 
 
-def test_read_only_api_shares_real_daytime_dedup_and_independent_scene_rules():
+@pytest.mark.parametrize("position", ATTENDANCE_POSITIONS)
+def test_read_only_api_shares_real_daytime_dedup_and_independent_scene_rules(position):
     f = _fixture()
-    appointment(f)
+    appointment(f, position)
     second = extra_member(f)
     third = extra_member(f, group=f["other_group_id"])
     events = {key: {"event_id": key, "event_group_id": "synthetic-class-day", "name": "合成班会", "event_date": "2026-10-27",
