@@ -9,6 +9,7 @@ Page({
     isVolunteer: false,
     volunteerRoles: [],
     canManageStudyMeeting: false,
+    canViewClassAttendance: false,
     serviceAssignments: [],
     errorMessage: ""
   },
@@ -20,7 +21,7 @@ Page({
   onHide() {
     this._loadVersion = (this._loadVersion || 0) + 1;
     this.setData({ loading: false, member: null, isVolunteer: false, volunteerRoles: [],
-      serviceAssignments: [], canManageStudyMeeting: false });
+      serviceAssignments: [], canManageStudyMeeting: false, canViewClassAttendance: false });
   },
 
   onUnload() { this.onHide(); },
@@ -29,7 +30,7 @@ Page({
     const version = this._loadVersion = (this._loadVersion || 0) + 1;
     const token = app.globalData.memberSessionToken;
     const current = () => this._loadVersion === version && app.globalData.memberSessionToken === token;
-    this.setData({ loading: true, member: null, errorMessage: "", isVolunteer: false, volunteerRoles: [], serviceAssignments: [], canManageStudyMeeting: false });
+    this.setData({ loading: true, member: null, errorMessage: "", isVolunteer: false, volunteerRoles: [], serviceAssignments: [], canManageStudyMeeting: false, canViewClassAttendance: false });
     if (!token) {
       this.setData({ loading: false, member: null });
       return;
@@ -48,7 +49,8 @@ Page({
           isVolunteer: serviceState.isVolunteer,
           volunteerRoles: serviceState.roles,
           serviceAssignments: serviceState.serviceAssignments,
-          canManageStudyMeeting: serviceState.canManageStudyMeeting
+          canManageStudyMeeting: serviceState.canManageStudyMeeting,
+          canViewClassAttendance: serviceState.canViewClassAttendance
         });
       } catch (error) {
         if (!current()) return;
@@ -82,6 +84,11 @@ Page({
 
   openBinding() {
     wx.navigateTo({ url: "/pages/identity/bind" });
+  },
+
+  openClassAttendance() {
+    if (!this.data.canViewClassAttendance) return;
+    wx.navigateTo({ url: "/pages/services/class-attendance" });
   },
 
   backHome() {

@@ -3,7 +3,7 @@ const { request } = require("../../utils/request");
 const activity = require("../../utils/mobile-activity");
 function key() { return `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 Page({
-  data: { activityTypes: activity.ACTIVITY_TYPES, typeIndex: 7, activityType: "other", classes: [], classIndex: 0, classTimes: { ...activity.CLASS_TIMES }, periods: activity.PERIODS, clockFields: activity.CLOCK_FIELDS, sessions: [], statistics: null, groupRows: [], people: [], keyword: "", codePath: "", loading: true, saving: false, adding: false, eventId: null, detail: null, organizations: [], orgIndex: 0, title: "", eventDate: "", status: "DRAFT", checkinStart: "08:00", checkinEnd: "22:00", personPhone: "", personName: "", errorMessage: "" },
+  data: { statisticsScope: "overall", activityTypes: activity.ACTIVITY_TYPES, typeIndex: 7, activityType: "other", classes: [], classIndex: 0, classTimes: { ...activity.CLASS_TIMES }, periods: activity.PERIODS, clockFields: activity.CLOCK_FIELDS, sessions: [], statistics: null, groupRows: [], people: [], keyword: "", codePath: "", loading: true, saving: false, adding: false, eventId: null, detail: null, organizations: [], orgIndex: 0, title: "", eventDate: "", status: "DRAFT", checkinStart: "08:00", checkinEnd: "22:00", personPhone: "", personName: "", errorMessage: "" },
   onLoad(options) { this._createKey = key(); this._attendeeKey = key(); this.setData({ eventId: options.event_id || null }); },
   onShow() { showPrivatePage(this); this.load(); },
   onHide() { this._personIntents = {}; this.clearCode(); hidePrivatePage(this, { classes: [], sessions: [], statistics: null, groupRows: [], people: [], keyword: "", codePath: "", detail: null, organizations: [], title: "", personName: "", personPhone: "", errorMessage: "", saving: false, adding: false, loading: false }); },
@@ -27,12 +27,19 @@ Page({
     finally { if (current()) this.setData({ loading: false }); }
   },
   input(event) { const field = event.currentTarget.dataset.field; if (["title", "personName", "personPhone"].includes(field)) { this.setData({ [field]: event.detail.value }); if (field === "personName" || field === "personPhone") this._attendeeKey = key(); } },
-  viewData(detail) { const result = activity.decorate(detail, this.data.keyword); return { people: result.attendees, groupRows: result.groupRows, statistics: result.statistics }; },
+  viewData(detail) { const result = activity.decorate(detail, this.data.keyword, this.data.statisticsScope || "overall"); return { people: result.attendees, groupRows: result.groupRows, statistics: result.statistics }; },
   chooseType(event) { const typeIndex = Number(event.detail.value); this.setData({ typeIndex, activityType: this.data.activityTypes[typeIndex].value }); this.autoTitle(); },
   chooseClass(event) { this.setData({ classIndex: Number(event.detail.value) }); this.autoTitle(); },
   autoTitle() { const row = this.data.classes[this.data.classIndex]; if (this.data.activityType === "class_meeting" && row && (!this.data.title || this.data.title === this._autoTitle)) { this._autoTitle = row.name + "班级学习会"; this.setData({ title: this._autoTitle }); } },
   search(event) { this.setData({ keyword: event.detail.value }); if (this.data.detail) this.setData(this.viewData(this.data.detail)); },
-  switchSession(event) { const id = event.currentTarget.dataset.id; if (this.data.saving || this.data.adding || id === this.data.eventId) return; this.onHide(); showPrivatePage(this); this.setData({ eventId: id }); this.load(); },
+  switchSession(event) {
+    const id = event.currentTarget.dataset.id;
+    if (this.data.saving || this.data.adding) return;
+    if (id === "overall") { this.setData({ statisticsScope: "overall", ...this.viewDataForScope("overall") }); return; }
+    if (id === this.data.eventId) { this.setData({ statisticsScope: "session", ...this.viewDataForScope("session") }); return; }
+    this.onHide(); showPrivatePage(this); this.setData({ eventId: id, statisticsScope: "session" }); this.load();
+  },
+  viewDataForScope(scope) { if (!this.data.detail) return {}; const result = activity.decorate(this.data.detail, this.data.keyword, scope); return { people: result.attendees, groupRows: result.groupRows, statistics: result.statistics }; },
   chooseOrg(event) { this.setData({ orgIndex: Number(event.detail.value) }); },
   chooseDate(event) { this.setData({ eventDate: event.detail.value }); },
   chooseTime(event) { const field = event.currentTarget.dataset.field; if (["checkinStart", "checkinEnd"].includes(field)) this.setData({ [field]: event.detail.value }); else if (Object.prototype.hasOwnProperty.call(activity.CLASS_TIMES, field)) this.setData({ classTimes: { ...this.data.classTimes, [field]: event.detail.value } }); },

@@ -34,6 +34,17 @@ def participation_statistics(*, event_id, user, permission):
             "payload": payload, "actor": {"id": user["id"], "permissions": ["attendance:view"]},
             "allowed_org_unit_ids": allowed})
 
+    return scoped_participation_statistics(event_id=event_id, allowed=allowed, read=read)
+
+
+def scoped_participation_statistics(*, event_id, allowed, read):
+    """Shared calculation; callers must supply a server-verified scope reader.
+
+    Employee callers resolve IAM grants above. Volunteer callers resolve live
+    class appointments and expose only aggregates, without backend IAM grants.
+    """
+    from app.services import signin_engine as engine
+
     def detail(session_id):
         result = read("event_detail", {"event_id": session_id})
         event = result.get("event")
@@ -132,9 +143,20 @@ def participation_statistics(*, event_id, user, permission):
             elif row.get('attendance_role') in {'HOME_CLASS_MEMBER','CROSS_CLASS_MEMBER'}:missing += 1
         student_count = len(known & set(members))
         staff_count = len((known & staff_ids) - set(members))
-        per_session.append({'event_id':source_id,'roster_count':len(members),'member_present_count':student_count,'staff_present_count':staff_count,
+        def scene_counts(total, present):
+            return {"roster_count": total, "present_count": present,
+                    "participation_rate": round(present / total, 6) if total and not missing else None}
+        scene_groups = [{"group_org_unit_id": g["group_org_unit_id"], "group_name": g["group_name"],
+                         **scene_counts(len(g["roster"]), len(known & g["roster"]))}
+                        for g in sorted(groups.values(), key=_sort_group)]
+        per_session.append({'event_id':source_id,'session_code':metrics_sessions[source_id].get('session_code'),
+            'session_name':metrics_sessions[source_id].get('session_name'),'includes_formal_class_staff':True,
+            'roster_count':len(members),'member_present_count':student_count,'staff_present_count':staff_count,
             'present_count':student_count+staff_count,'unresolved_count':missing,
-            'participation_rate':round((student_count+staff_count)/len(members),6) if members and not missing else None})
+            'participation_rate':round((student_count+staff_count)/len(members),6) if members and not missing else None,
+            'member_participation_rate':round(student_count/len(members),6) if members and not missing else None,
+            'group_statistics':scene_groups,
+            'group_totals':scene_counts(sum(len(g['roster']) for g in grouped),sum(len(known & g['roster']) for g in grouped))})
     result.update(group_statistics=summary, class_session_statistics=per_session,
         class_statistics={"class_org_unit_id": class_id,
             "class_name": next((r["class_name"] for r in roster), event.get("class_name") or "班级"),

@@ -7,6 +7,9 @@ function resolveVolunteerServices(data) {
     canManageStudyMeeting: roles.some(item =>
       Array.isArray(item.capabilities) && item.capabilities.includes("STUDY_MEETING_MANAGE")
     ),
+    canViewClassAttendance: !serviceData.needs_manual_review && roles.some(item =>
+      Array.isArray(item.capabilities) && item.capabilities.includes("CLASS_ATTENDANCE_VIEW")
+    ),
     serviceAssignments: roles.map(item => ({
       key: `${item.position_key || item.position_name || "volunteer"}-${item.scope_org_unit_id || item.org_unit_id || "default"}`,
       positionName: item.position_name || "志工",

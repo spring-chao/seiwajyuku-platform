@@ -30,9 +30,11 @@ function rowActions(detail, row) {
   if (detail.can_manage) actions.push({ label: "删除未签到报名", value: "registration_delete" });
   return actions;
 }
-function decorate(detail, keyword = "") {
-  const s = detail.statistics || {}, c = s.class_statistics || {}, g = s.group_totals || {};
-  const groupRows = (s.group_statistics || []).map(row => ({ ...row, group_id: row.group_org_unit_id || "ungrouped", rateLabel: rate(row.participation_rate, 0) }));
+function decorate(detail, keyword = "", scope = "overall") {
+  const s = detail.statistics || {};
+  const scene = scope === "overall" ? null : (s.class_session_statistics || []).find(row => row.event_id === (detail.group.id || detail.group.event_id));
+  const c = (scope === "overall" ? s.class_statistics : scene) || {}, g = (scope === "overall" ? s.group_totals : scene && scene.group_totals) || {};
+  const groupRows = ((scope === "overall" ? s.group_statistics : scene && scene.group_statistics) || []).map(row => ({ ...row, group_id: row.group_org_unit_id || "ungrouped", rateLabel: rate(row.participation_rate, 0) }));
   const query = keyword.trim().toLowerCase();
   const attendees = (detail.attendees || []).map(row => ({ ...row,
     displayName: row.registered_display_name || row.registered_name || row.name,
@@ -41,10 +43,12 @@ function decorate(detail, keyword = "") {
   })).filter(row => !query || [row.displayName, row.actual_attendee_name, row.company, row.current_group_name].some(v => String(v || "").toLowerCase().includes(query)));
   return { attendees, groupRows, statistics: {
     isClassMeeting: String(detail.group.activity_type).toLowerCase() === "class_meeting",
+    scopeLabel: scope === "overall" ? "整体" : (detail.group.session_name || "当前场次"),
     overallRate: rate(c.participation_rate), memberRate: rate(c.member_participation_rate), groupRate: rate(g.participation_rate, 0),
     overallPresent: c.present_count ?? "—", rosterCount: c.roster_count ?? "—", memberPresent: c.member_present_count ?? "—", staffPresent: c.staff_present_count ?? "—",
-    sessionTotal: s.home_class_total ?? s.total ?? "—", sessionChecked: s.home_class_checked ?? s.checked ?? "—", onsite: s.onsite_total ?? s.checked ?? "—",
-    basis: s.group_statistics_basis || "", message: s.group_statistics_message || detail.statistics_error || ""
+    sessionTotal: String(detail.group.activity_type).toLowerCase() === "class_meeting" && scope !== "overall" ? scene?.roster_count ?? "—" : s.home_class_total ?? s.total ?? "—",
+    sessionChecked: String(detail.group.activity_type).toLowerCase() === "class_meeting" && scope !== "overall" ? scene?.member_present_count ?? "—" : s.home_class_checked ?? s.checked ?? "—", onsite: s.onsite_total ?? s.checked ?? "—",
+    basis: scope === "overall" ? "上午、下午合并去重，空巴另计。" : "仅统计当前选择的场次，不合并其他场次。", message: (scope !== "overall" && !scene ? "本场次参会统计暂不可用，请刷新重试。" : s.group_statistics_message) || detail.statistics_error || ""
   }};
 }
 module.exports = { ACTIVITY_TYPES, CLASS_TIMES, PERIODS, CLOCK_FIELDS, clockFromIso, rate, rowActions, decorate };

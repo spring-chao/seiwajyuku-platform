@@ -102,7 +102,7 @@ Page({
           next.isVolunteer = serviceState.isVolunteer;
           next.canManageStudyMeeting = serviceState.canManageStudyMeeting;
           next.displayRole = [...new Set(serviceState.roles.map(item => item.position_name || "志工").filter(Boolean))].join("、");
-          if (next.isVolunteer && !next.canManageStudyMeeting) {
+          if (next.isVolunteer && !next.canManageStudyMeeting && !serviceState.canViewClassAttendance) {
             next.serviceMessage = "当前暂无需要操作的线上服务。";
           }
         } catch (error) {

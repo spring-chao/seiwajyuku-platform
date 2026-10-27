@@ -1257,6 +1257,7 @@ onUnmounted(() => {
               'class_meeting'
             "
             :result="stats"
+            @select-scene="switchSession"
           />
           <el-alert
             title="报名联系人与实际参加人分别保留。外班参加保留原班级；预计迟到、请假属于跟进状态，最终到场以签到事实为准。"

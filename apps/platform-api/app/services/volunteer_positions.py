@@ -23,6 +23,8 @@ from app.services.iam import accessible_org_ids
 
 
 STUDY_MEETING_MANAGE = "STUDY_MEETING_MANAGE"
+CLASS_ATTENDANCE_VIEW = "CLASS_ATTENDANCE_VIEW"
+CLASS_ATTENDANCE_POSITIONS = frozenset({"volunteer_class_counselor", "volunteer_deputy_class_teacher"})
 MEMBER_ADMIN_MANUAL_SOURCE = "MEMBER_ADMIN_MANUAL"
 MEMBER_ADMIN_CURRENT_SERVICE_SOURCE = "MEMBER_ADMIN_CURRENT_SERVICE"
 MEMBER_APPOINTMENT_DEFAULT_PURPOSE = "学员管理手工添加正式志工服务岗位"
@@ -33,6 +35,7 @@ _MEMBER_ADMIN_MANAGED_SOURCES = {
 }
 CAPABILITY_NAMES = {
     STUDY_MEETING_MANAGE: "登记小组学习会",
+    CLASS_ATTENDANCE_VIEW: "查看班会签到统计",
 }
 VOLUNTEER_STATUS_NAMES = {
     "PLANNED": "待开始",
@@ -322,6 +325,13 @@ def _position_summary(
     capabilities = (
         list((position or {}).get("capabilities", [])) if position_active else []
     )
+    # This read-only member service follows an active class-teacher post.
+    # It does not create backend users, employee grants or catalog writes.
+    if (position_active and row["appointment_key"] in CLASS_ATTENDANCE_POSITIONS
+            and scope_level == "CLASS" and row.get("scope_org_unit_type") == "CLASS"
+            and row.get("scope_org_unit_active")
+            and row.get("service_system_type") in {None, "CLASS_TEAM"}):
+        capabilities = list(dict.fromkeys([*capabilities, CLASS_ATTENDANCE_VIEW]))
     return {
         "appointment_id": int(row["id"]),
         "member_id": row.get("member_id"),
@@ -373,7 +383,7 @@ def _effective_current_appointments(
                 "vsu.service_target_org_unit_id, "
                 "COALESCE(vsu.service_target_org_unit_id, va.org_unit_id) AS effective_service_target_org_unit_id, "
                 "o.name AS scope_name, "
-                "o.unit_type AS scope_org_unit_type "
+                "o.unit_type AS scope_org_unit_type, o.is_active AS scope_org_unit_active "
                 "FROM volunteer_appointments va "
                 "JOIN members m ON m.id=va.member_id "
                 "LEFT JOIN volunteer_position_catalog c ON c.position_key=va.appointment_key "
@@ -397,7 +407,7 @@ def _effective_current_appointments(
                 "SELECT va.id, va.person_id, va.member_id, va.appointment_key, "
                 "va.org_unit_id, va.scope_type, va.starts_at, va.ends_at, va.status, "
                 "va.source_reference, va.created_at, va.updated_at, "
-                "o.name AS scope_name, o.unit_type AS scope_org_unit_type "
+                "o.name AS scope_name, o.unit_type AS scope_org_unit_type, o.is_active AS scope_org_unit_active "
                 "FROM volunteer_appointments va "
                 "JOIN members m ON m.id=va.member_id "
                 "LEFT JOIN org_units o ON o.id=va.org_unit_id "

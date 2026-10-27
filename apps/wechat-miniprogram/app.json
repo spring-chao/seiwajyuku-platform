@@ -11,6 +11,7 @@
     "pages/checkin/legacy",
     "pages/profile/index",
     "pages/services/index",
+    "pages/services/class-attendance",
     "pages/identity/bind",
     "pages/identity/staff-bind",
     "pages/operations/index",

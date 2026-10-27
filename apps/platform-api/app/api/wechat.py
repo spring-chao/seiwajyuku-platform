@@ -316,6 +316,41 @@ def volunteer_history(
     return {"success": True, "data": data}
 
 
+def _volunteer_attendance_member(credentials):
+    try:
+        return resolve_member_session(_session_token(credentials))["member_id"]
+    except WeChatIdentityError as exc:
+        raise HTTPException(401, str(exc)) from exc
+
+
+@router.get("/volunteer-class-meetings/context")
+def volunteer_class_attendance_context(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    from app.services import volunteer_class_attendance as service
+    return {"success": True, "data": _operation_call(service.context, _volunteer_attendance_member(credentials))}
+
+
+@router.get("/volunteer-class-meetings")
+def volunteer_class_meetings(
+    month: str = Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    day: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    class_org_unit_id: str | None = Query(default=None, max_length=128),
+    page: int = Query(default=1, ge=1, le=100),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+):
+    from app.services import volunteer_class_attendance as service
+    return {"success": True, "data": _operation_call(service.meetings, _volunteer_attendance_member(credentials),
+        month=month, day=day, class_id=class_org_unit_id, page=page)}
+
+
+@router.get("/volunteer-class-meetings/{event_id}")
+def volunteer_class_attendance_detail(
+    event_id: str = PathParam(min_length=1, max_length=128),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+):
+    from app.services import volunteer_class_attendance as service
+    return {"success": True, "data": _operation_call(service.snapshot, _volunteer_attendance_member(credentials), event_id)}
+
+
 @router.post("/member-bindings/revoke")
 def revoke_binding(
     payload: BindingRevokePayload | None = None,
