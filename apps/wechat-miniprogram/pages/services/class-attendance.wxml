@@ -1,11 +1,13 @@
 <view class="page-shell">
-  <view class="hero-card"><view class="eyebrow">志工服务 · 班级志工</view><view class="hero-title">班会签到统计</view><view class="hero-copy">查看本人服务班级当天或当月的班会，整体、上午、下午与空巴分别统计。</view></view>
+  <view class="hero-card"><view class="eyebrow">志工服务 · 班级志工</view><view class="hero-title">班会签到统计</view><view class="hero-copy">查看服务班级的班会签到情况。</view></view>
   <view wx:if="{{classes.length}}" class="section-card">
     <picker range="{{classes}}" range-key="name" value="{{classIndex}}" bindchange="chooseClass"><view class="field">服务班级：{{classes[classIndex].name}} ›</view></picker>
-    <view class="period-tabs"><view class="tab {{period === 'today' ? 'active' : ''}}" data-period="today" bindtap="choosePeriod">当天</view><view class="tab {{period === 'month' ? 'active' : ''}}" data-period="month" bindtap="choosePeriod">按月查看</view></view>
-    <picker mode="date" fields="month" value="{{month}}" start="2020-01" end="2100-12" bindchange="chooseMonth"><view class="field">{{period === 'today' ? today : month}} ›</view></picker>
+    <view class="period-tabs">
+      <view class="tab {{period === 'today' ? 'active' : ''}}" data-period="today" bindtap="choosePeriod">当天</view>
+      <view wx:if="{{period === 'today'}}" class="tab" data-period="month" bindtap="choosePeriod">按月查看</view>
+      <picker wx:else class="month-picker" mode="date" fields="month" value="{{month}}" start="2020-01" end="2100-12" bindchange="chooseMonth"><view class="tab active">按月 · {{month}} ▾</view></picker>
+    </view>
     <picker wx:if="{{records.length}}" range="{{records}}" range-key="pickerLabel" value="{{meetingIndex}}" bindchange="chooseMeeting"><view class="field">{{records[meetingIndex].pickerLabel}} ›</view></picker>
-    <view class="muted">按每次班会展示；选择月份后可切换查看当月的不同班会。</view>
     <button class="plain-button" disabled="{{loading || detailLoading}}" bindtap="refresh">刷新统计</button>
   </view>
   <view wx:if="{{loading}}" class="state-card">正在读取班会…</view>
@@ -20,10 +22,11 @@
   <view wx:if="{{!loading && !detailLoading && view}}" class="section-card">
     <view class="section-title">{{view.name}}签到统计</view>
     <view class="rate-grid"><view><view class="muted">{{activeScene === 'overall' ? '整体参会率' : view.name + '参会率'}}（含本班师资）</view><view class="metric">{{view.overallRate}}</view><view>{{view.present}} / {{view.total}} 人</view></view><view><view class="muted">总小组参会率</view><view class="metric">{{view.groupRate}}</view><view>{{view.groupPresent}} / {{view.groupTotal}} 人</view></view></view>
-    <view class="muted">本班在册学长 {{view.members}} 人，额外正式师资 {{view.staff}} 人。</view>
+    <view class="muted">学长 {{view.members}} 人 · 师资 {{view.staff}} 人</view>
     <view wx:if="{{activeScene !== 'overall'}}" class="row"><text>本场现场总人数</text><text>{{view.onsite_total === null ? '—' : view.onsite_total}} 人</text></view>
     <view wx:if="{{view.message}}" class="error">{{view.message}}</view>
     <view wx:for="{{view.groups}}" wx:key="key" class="row"><text>{{item.group_name}}</text><text>{{item.present_count}} / {{item.roster_count}} 人　{{item.rateLabel}}</text></view>
-    <view class="muted">{{view.basis}}</view><view class="muted">更新于 {{updatedLabel}}，可点击“刷新统计”读取最新签到。</view>
+    <view class="muted">{{activeScene === 'overall' ? '上午、下午去重；空巴另计。' : '仅统计' + view.name + '场次。'}}精进组免统计。</view>
+    <view class="muted">更新于 {{updatedLabel}}</view>
   </view>
 </view>
