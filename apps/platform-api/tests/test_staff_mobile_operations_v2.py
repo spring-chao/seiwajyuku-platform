@@ -63,6 +63,9 @@ def mobile(monkeypatch, tmp_path):
 def test_renewal_copy_status_conflict_scope_and_birthday(mobile):
     f, client, headers = mobile
     cycle_id = f["renewal_cycles"]["FOLLOW_1"]
+    before = client.get(f"{PREFIX}/renewal-watch", headers=headers)
+    assert before.status_code == 200
+    assert any(item["cycle_id"] == cycle_id for group in before.json()["data"]["groups"] for item in group["items"])
     detail = client.get(f"{PREFIX}/renewals/{cycle_id}", headers=headers)
     assert detail.status_code == 200, detail.text
     assert detail.json()["data"]["wechat_copy"] and detail.json()["data"]["can_manage"]
@@ -72,6 +75,9 @@ def test_renewal_copy_status_conflict_scope_and_birthday(mobile):
     update = client.patch(f"{PREFIX}/renewals/{cycle_id}", headers=headers, json={"status": "RENEWED", "expected_status": "PENDING_FIRST_CONTACT"})
     assert update.status_code == 200, update.text
     assert fetch_one("SELECT status FROM renewal_cycles WHERE id=?", (cycle_id,))["status"] == "RENEWED"
+    watch = client.get(f"{PREFIX}/renewal-watch", headers=headers)
+    assert watch.status_code == 200
+    assert all(item["cycle_id"] != cycle_id for group in watch.json()["data"]["groups"] for item in group["items"])
     assert fetch_one("SELECT COUNT(*) AS n FROM renewal_status_history WHERE renewal_cycle_id=? AND to_status='RENEWED'", (cycle_id,))["n"] == 1
     again = client.patch(f"{PREFIX}/renewals/{cycle_id}", headers=headers, json={"status": "NOT_RENEWING", "expected_status": "PENDING_FIRST_CONTACT"})
     assert again.status_code == 400 and "变化" in again.json()["detail"]
