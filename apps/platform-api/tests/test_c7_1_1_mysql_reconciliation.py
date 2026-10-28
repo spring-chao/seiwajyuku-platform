@@ -218,6 +218,7 @@ def test_c7_1_1_mysql_forward_dry_run_parity_and_loss_averse_rollback() -> None:
 
     # Verify 0049's own fact/ledger guards at its dependency boundary. The
     # empty newer source child has a separate loss-averse reversal contract.
+    _run_mysql_script(MIGRATION_ROOT / 'rollback/mysql/0074_credit_posting_jobs.down.sql')
     _run_mysql_script(MIGRATION_ROOT / 'rollback/mysql/0072_learning_credit_source_imports.down.sql')
     # Existing C7 facts must prevent a destructive downgrade and leave all
     # three C7 tables in place after the rejected script.

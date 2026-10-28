@@ -159,12 +159,12 @@ def _finish(job, status, code=None):
             write_audit(c, actor_user_id=job['actor_user_id'], action='learning.credit_posting_job.step', resource_type='credit_posting_job', resource_id=str(job['id']), after={'status': status, 'error_code': code})
 
 
-def run_sweep(*, budget_seconds=40):
+def run_sweep(*, budget_seconds=20):
     # A scheduler request keeps CloudRun CPU active. Bound the number of steps
     # as well as wall time; never accept actor/import identifiers from it.
     report = {'processed': 0, 'completed': 0, 'needs_review': 0}
     credits._write_allowed()
-    deadline = time.monotonic()+min(max(budget_seconds, 0), 40)
+    deadline = time.monotonic()+min(max(budget_seconds, 0), 20)
     while report['processed'] < 2 and time.monotonic() < deadline:
         job = _claim()
         if not job:

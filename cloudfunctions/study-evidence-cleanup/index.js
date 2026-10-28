@@ -96,7 +96,7 @@ exports.main = async (_event, _context) => {
   if (_event && _event.Type === "Timer" && _event.TriggerName === "creditPostingJobsMinute") {
     const jobsUrl = new URL(url);
     jobsUrl.pathname = "/api/v1/internal/credit-posting-jobs";
-    const result = await requestMaintenance(jobsUrl.toString(), token, {}, Math.max(timeoutMs, 110000));
+    const result = await requestMaintenance(jobsUrl.toString(), token, {}, 50000);
     const data = result && result.data;
     const valid = result && result.success === true && validCounts(data, ["processed", "completed", "needs_review"]);
     return { ok: Boolean(valid), processed: valid ? data.processed : 0,
