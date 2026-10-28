@@ -771,6 +771,44 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertEqual(detail.status_code, 200, detail.text)
         self.assertIn("疑似已有正式学员档案", "；".join(detail.json()["data"]["missing_gates"]))
 
+    def test_confirm_existing_updates_same_member_and_preserves_history(self) -> None:
+        _, token = self._create_link()
+        phone = _phone()
+        member_id = create_member(self.admin_id, member_code=f"CONFIRM-{uuid4().hex[:8]}", name="合成原档案", org_unit_id="enrollment-test-center", development_org_unit_id=None, phone=phone, join_date="2020-01-01", notes="原有备注")
+        original = fetch_one("SELECT member_code FROM members WHERE id=?", (member_id,))
+        self._submit(token, phone, name="合成更新姓名", company_name="合成新企业")
+        application_id = fetch_one("SELECT id FROM member_enrollment_applications WHERE phone_hash=?", (phone_hash(phone),))["id"]
+        url = f"/api/v1/enrollment-applications/{application_id}"
+        before = self.client.post(url + "/enroll", headers=self.headers, json={"existing_member_id": member_id})
+        self.assertEqual(before.status_code, 400)
+        self.assertIn("审核", before.json()["detail"])
+        reviewed = self.client.patch(url + "/review", headers=self.headers, json={"decision": "APPROVE", "org_unit_id": "enrollment-test-center", "join_date": "2026-10-28"})
+        self.assertEqual(reviewed.status_code, 200, reviewed.text)
+        self.assertFalse(reviewed.json()["data"]["can_confirm_existing"])
+        paid = self.client.post(url + "/payment-confirmation", headers=self.headers, json={"payment_status": "PAID", "amount": "50.00"})
+        self.assertEqual(paid.status_code, 200, paid.text)
+        self.assertTrue(paid.json()["data"]["can_confirm_existing"])
+        self.assertEqual(paid.json()["data"]["existing_member_candidates"][0]["id"], member_id)
+        self.assertFalse(paid.json()["data"]["can_enroll"])
+        self.assertEqual(self.client.post(url + "/enroll", headers=self.headers).status_code, 400)
+        self.assertEqual(self.client.post(url + "/enroll", headers=self.headers, json={"existing_member_id": 999999999}).status_code, 400)
+        # A failure after updating the profile must roll back both operations.
+        with patch("app.services.enrollment.write_audit", side_effect=ValueError("模拟确认失败")):
+            failed = self.client.post(url + "/enroll", headers=self.headers, json={"existing_member_id": member_id})
+        self.assertEqual(failed.status_code, 400)
+        self.assertEqual(fetch_one("SELECT name FROM members WHERE id=?", (member_id,))["name"], "合成原档案")
+        result = self.client.post(url + "/enroll", headers=self.headers, json={"existing_member_id": member_id})
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(result.json()["data"]["member_id"], member_id)
+        updated = fetch_one("SELECT * FROM members WHERE id=?", (member_id,))
+        self.assertEqual(updated["name"], "合成更新姓名")
+        self.assertEqual(updated["company_name"], "合成新企业")
+        self.assertEqual(str(updated["join_date"])[:10], "2020-01-01")
+        self.assertEqual(updated["member_code"], original["member_code"])
+        self.assertEqual(fetch_one("SELECT COUNT(*) n FROM members WHERE phone_hash=?", (phone_hash(phone),))["n"], 1)
+        self.assertEqual(self.client.get(url, headers=self.headers).json()["data"]["computed_status"], "ENROLLED")
+        self.assertTrue(self.client.post(url + "/enroll", headers=self.headers, json={"existing_member_id": member_id}).json()["data"]["idempotent"])
+
     def test_scoped_reviewer_cannot_see_unassigned_and_finance_stays_hidden(self) -> None:
         _, token = self._create_link()
         phone = _phone()

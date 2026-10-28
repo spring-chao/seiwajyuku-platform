@@ -27,6 +27,7 @@ import {
 } from "@/api/enrollment";
 
 type StatusFilter = "ALL" | EnrollmentComputedStatus;
+const existingMemberId = ref<number | null>(null);
 
 const loading = ref(false);
 const detailLoading = ref(false);
@@ -42,6 +43,7 @@ const query = ref("");
 const statusFilter = ref<StatusFilter>("ALL");
 const detailVisible = ref(false);
 const detail = ref<EnrollmentApplicationDetail>();
+watch(() => detail.value?.id, () => { existingMemberId.value = null; });
 const centers = ref<OrgUnit[]>([]);
 const orgUnits = ref<OrgUnit[]>([]);
 const activeLink = ref<EnrollmentLink | null>(null);
@@ -598,18 +600,24 @@ async function rejectApplication() {
 
 async function completeEnrollment() {
   if (!detail.value) return;
+  const existing = detail.value.existing_member_candidates?.find(member => member.id === existingMemberId.value);
+  const duplicate = detail.value.duplicate_member_risk;
+  if (duplicate && !existing) {
+    ElMessage.warning("请先核对并选择要更新的现有档案");
+    return;
+  }
   try {
     await ElMessageBox.confirm(
-      "系统将以当前申请资料建立正式学长档案，并写入所选分中心关系。该动作可幂等重试，但不能绕过缺失门槛。",
-      "确认正式入塾",
-      { type: "warning", confirmButtonText: "确认建立正式档案" }
+      existing ? `确认申请人与“${existing.name}（${existing.member_code}）”为同一学长？将以申请中已填写的资料更新此档案，保留原学员编号、首次入塾日期和学习记录，并将本申请标为已入塾。` : "系统将以当前申请资料建立正式学长档案，并写入所选分中心关系。该动作可幂等重试，但不能绕过缺失门槛。",
+      existing ? "确认入塾并更新现有档案" : "确认正式入塾",
+      { type: "warning", modalClass: "enrollment-confirm-overlay", confirmButtonText: existing ? "确认更新并入塾" : "确认建立正式档案" }
     );
     actionLoading.value = true;
-    const response = await enrollApplication(detail.value.id);
+    const response = await enrollApplication(detail.value.id, existing?.id);
     ElMessage.success(
       response.data.idempotent
         ? "该申请已完成入塾，未重复建档"
-        : `正式学长档案已建立（ID ${response.data.member_id}）`
+        : existing ? "现有档案已更新，申请已标记为已入塾" : `正式学长档案已建立（ID ${response.data.member_id}）`
     );
     const refreshed = await getEnrollmentApplication(detail.value.id);
     detail.value = refreshed.data;
@@ -1110,11 +1118,21 @@ onMounted(async () => {
 
           <el-alert
             v-if="detail.duplicate_member_risk"
-            title="该手机号疑似已有正式学员档案。请先人工核对或处理重复档案，服务端不会允许再次建档。"
+            title="该手机号疑似已有正式学员档案。请核对下方档案，选择同一学长后使用“确认入塾”更新资料。仍需完成审核、收款和分中心分配。"
             type="error"
             :closable="false"
             show-icon
           />
+
+          <el-form v-if="detail.duplicate_member_risk && detail.application_status !== 'ENROLLED'" label-position="top">
+          <el-form-item label="核对现有档案">
+            <el-select v-model="existingMemberId" placeholder="请选择已核实为同一学长的档案" clearable style="width: 100%">
+              <el-option v-for="member in detail.existing_member_candidates || []" :key="member.id" :value="member.id"
+                :label="`${member.name} · ${member.member_code} · ${member.company_name || '未填写企业'}`" />
+            </el-select>
+            <span v-if="!detail.existing_member_candidates?.length">当前授权范围内没有可确认的档案，请联系有对应权限的工作人员核对。</span>
+          </el-form-item>
+          </el-form>
 
           <el-alert
             v-if="!detail.target_shuku_org_unit_id"
@@ -1697,11 +1715,11 @@ onMounted(async () => {
             <el-button
               v-if="canEnroll && detail.application_status !== 'ENROLLED'"
               type="success"
-              :disabled="!detail.can_enroll"
+              :disabled="detail.duplicate_member_risk ? (!detail.can_confirm_existing || !detail.existing_member_candidates?.some(member => member.id === existingMemberId)) : !detail.can_enroll"
               :loading="actionLoading"
               @click="completeEnrollment"
             >
-              正式入塾
+              {{ detail.duplicate_member_risk ? "确认入塾" : "正式入塾" }}
             </el-button>
             <el-button
               v-if="
@@ -1762,6 +1780,9 @@ onMounted(async () => {
 </template>
 
 <style scoped lang="scss">
+:global(.enrollment-confirm-overlay) {
+  z-index: 4000 !important;
+}
 .enrollment-admin {
   padding: 20px;
 }

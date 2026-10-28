@@ -255,12 +255,16 @@ def _upsert_record(
     connection, *, session_id: int, record_data: dict, now: str
 ) -> tuple[int, bool, int | None, str, bool]:
     """Upsert a record and return its effective scoring identity and status."""
+    from app.services.attendance_confirmation import lock_group
+    parent = execute(connection, "SELECT event_group_id FROM attendance_sessions WHERE id=?", (session_id,)).fetchone()
+    if parent:
+        lock_group(connection, parent['event_group_id'])
     external_record_id = record_data.get("external_record_id") or record_data.get("record_id")
     existing = None
     if external_record_id:
         existing = execute(
             connection,
-            "SELECT id, source_revision, member_id, attendance_status, score_eligible "
+            "SELECT id, source_revision, member_id, attendance_status, score_eligible, checked_at "
             "FROM attendance_records "
             "WHERE attendance_session_id=? AND external_record_id=?",
             (session_id, external_record_id),
@@ -318,6 +322,21 @@ def _upsert_record(
 
     if existing:
         record_id = existing["id"] if hasattr(existing, "keys") else existing[0]
+        if existing["checked_at"] and fields["checked_at"]:
+            fields["checked_at"] = min(_db_datetime(existing["checked_at"]), fields["checked_at"])
+        # Source refreshes must not erase a staff makeup (or its actual arrival
+        # time). Keep source revisions current while preserving audited facts.
+        manual = execute(connection,
+            "SELECT r.attendance_status, r.checked_at, r.checkin_source, r.member_id, r.score_eligible FROM attendance_records r "
+            "WHERE r.id=? AND r.checkin_source='STAFF_MAKEUP'", (record_id,)).fetchone()
+        if manual:
+            fields.update(attendance_status=manual["attendance_status"],
+                          checked_at=manual["checked_at"], checkin_source=manual["checkin_source"],
+                          member_id=manual["member_id"], score_eligible=manual["score_eligible"])
+            attendance_status = manual["attendance_status"]
+            member_id = manual["member_id"]
+            score_eligible = bool(manual["score_eligible"])
+        record_data["checked_at"] = fields["checked_at"]
         set_clause = ", ".join(f"{k}=?" for k in fields)
         execute(
             connection,

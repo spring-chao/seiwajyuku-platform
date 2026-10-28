@@ -1199,6 +1199,14 @@ export type AttendanceClassParticipation = {
 };
 
 export type AttendanceEventGroupDetail = {
+  confirmation?: {
+    confirmed: boolean;
+    review_fingerprint?: string;
+    facts_changed?: boolean;
+    confirmed_at?: string;
+    settlement_status?: string;
+    total_points?: number;
+  };
   group: AttendanceEventGroup & {
     external_group_id: string;
     source_updated_at?: string;
@@ -2380,6 +2388,13 @@ export const getAttendanceEventGroupDetail = (groupId: number) =>
     "get",
     `/api/v1/attendance/event-groups/${groupId}`
   );
+
+export const makeupAttendance = (recordId: number, data: { occurred_at: string; reason: string }) =>
+  http.request<{ success: boolean }>("post", `/api/v1/attendance/records/${recordId}/makeup`, { data });
+
+export const confirmAttendance = (groupId: number, reason: string, fingerprint: string) =>
+  http.request<{ success: boolean; data: NonNullable<AttendanceEventGroupDetail["confirmation"]> }>(
+    "post", `/api/v1/attendance/event-groups/${groupId}/confirm`, { data: { reason, fingerprint } });
 
 export const getAttendanceRecords = (
   eventGroupId: number,

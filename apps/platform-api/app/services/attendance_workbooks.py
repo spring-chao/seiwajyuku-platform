@@ -58,6 +58,15 @@ def live_dataset(event_ids, *, user, expected=None):
             raise engine.SigninEngineError('导出超过15000条，请按场次导出',400)
         _hydrate(rows,event_id)
         stats = _read('stats',{'event_id':event_id},user,allowed)
+        additions = [row for row in rows if row.get('_staff_makeup_added')]
+        for row in additions:
+            home = row.get('attendance_role') == 'HOME_CLASS_MEMBER' or (row.get('current_class_org_unit_id') or row.get('class_org_unit_id')) == (event.get('class_org_unit_id') or event.get('org_unit_id'))
+            key = 'home_class_checked' if home else 'cross_class_checked'
+            for field in (key, 'checked', 'onsite_total'):
+                if isinstance(stats.get(field), (int, float)):
+                    stats[field] += 1
+        if additions and stats.get('home_class_total'):
+            stats['rate'] = stats.get('home_class_checked', 0) * 100 / stats['home_class_total']
         bundles.append({'event':event,'rows':engine.redact(rows),'stats':engine.redact(stats)})
     shared = participation_statistics(event_id=event_ids[0],user=user,permission='attendance:export') if str(bundles[0]['event'].get('activity_type','')).lower()=='class_meeting' else {}
     for bundle in bundles:

@@ -16,14 +16,14 @@ import httpx
 from app.core.privacy import decrypt_text, encrypt_text, protected_phone
 from app.core.security import create_token, decode_token
 from app.core.settings import get_settings
-from app.db import execute, fetch_all, fetch_one, transaction
+from app.db import execute, fetch_all, fetch_one, transaction, atomic_transaction
 from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
 from app.services.organization_policy import (
     SUZHOU_ROOT_ORG_UNIT_ID,
     is_valid_member_primary_org,
 )
-from app.services.members import create_member
+from app.services.members import create_member, update_member, resolve_member_scope
 from app.services.enrollment_rules import joining_rules_document
 from app.services.shuku_business_config import (
     ANNUAL_MEMBER_SERVICE_FEE_APPLIES_TO,
@@ -1537,7 +1537,7 @@ def _assert_application_scope(actor_user_id: int, row: dict[str, Any]) -> None:
         raise PermissionError("入塾申请不在当前组织授权范围内")
 
 
-def _missing_enrollment_gates(row: dict[str, Any]) -> list[str]:
+def _missing_enrollment_gates(row: dict[str, Any], *, confirmed_member_id: int | None = None) -> list[str]:
     missing: list[str] = []
     if row["application_status"] != "APPROVED":
         missing.append("申请尚未审核通过")
@@ -1575,7 +1575,7 @@ def _missing_enrollment_gates(row: dict[str, Any]) -> list[str]:
     duplicate = fetch_one(
         "SELECT id FROM members WHERE phone_hash=? LIMIT 1", (row.get("phone_hash"),)
     )
-    if duplicate and int(duplicate["id"]) != int(row.get("converted_member_id") or 0):
+    if duplicate and confirmed_member_id is None and int(duplicate["id"]) != int(row.get("converted_member_id") or 0):
         missing.append("疑似已有正式学员档案，需先人工核对")
     return missing
 
@@ -1664,6 +1664,17 @@ def get_enrollment_application(
     safe["referrer_org_unit_id"] = (referrer_center or {}).get("referrer_org_unit_id")
     safe["referrer_org_unit_name"] = (referrer_center or {}).get("referrer_org_unit_name")
     safe["missing_gates"] = _missing_enrollment_gates(row)
+    candidates = []
+    if "enrollment:enroll" in user["permissions"] and row.get("phone_hash"):
+        allowed = accessible_org_ids(actor_user_id, permission="enrollment:enroll")
+        for candidate in fetch_all("SELECT id,member_code,name,company_name,org_unit_id,status FROM members WHERE phone_hash=? ORDER BY id", (row["phone_hash"],)):
+            try:
+                resolve_member_scope(candidate["id"], candidate["org_unit_id"], allowed)
+            except PermissionError:
+                continue
+            candidates.append(candidate)
+    safe["existing_member_candidates"] = candidates
+    safe["can_confirm_existing"] = bool(candidates) and row["application_status"] != "ENROLLED" and not _missing_enrollment_gates(row, confirmed_member_id=candidates[0]["id"])
     safe["can_enroll"] = (
         row["application_status"] != "ENROLLED" and not safe["missing_gates"]
     )
@@ -2036,8 +2047,8 @@ def reject_enrollment_application(
     return get_enrollment_application(actor_user_id, application_id)
 
 
-def enroll_application(actor_user_id: int, application_id: int) -> dict[str, Any]:
-    with transaction() as connection:
+def enroll_application(actor_user_id: int, application_id: int, *, existing_member_id: int | None = None) -> dict[str, Any]:
+    with atomic_transaction() as connection:
         row = _application_row(application_id, connection, lock=True)
         if not row:
             raise ValueError("入塾申请不存在")
@@ -2048,41 +2059,61 @@ def enroll_application(actor_user_id: int, application_id: int) -> dict[str, Any
                 "member_id": int(row["converted_member_id"]),
                 "idempotent": True,
             }
-        missing = _missing_enrollment_gates(row)
+        if existing_member_id is not None:
+            candidate = execute(connection, "SELECT id,phone_hash,org_unit_id,join_date,enterprise_financial_ciphertext FROM members WHERE id=?" + (" FOR UPDATE" if not isinstance(connection, sqlite3.Connection) else ""), (existing_member_id,)).fetchone()
+            if not candidate or candidate["phone_hash"] != row["phone_hash"]:
+                raise ValueError("所选档案与申请手机号不匹配，请重新核对")
+            resolve_member_scope(existing_member_id, candidate["org_unit_id"], accessible_org_ids(actor_user_id))
+        missing = _missing_enrollment_gates(row, confirmed_member_id=existing_member_id)
         if missing:
             raise ValueError("；".join(missing))
-        member_id = create_member(
-            actor_user_id,
-            member_code=None,
-            name=row["name"],
-            org_unit_id=row["org_unit_id"],
-            development_org_unit_id=None,
-            phone=None,
-            company_name=row.get("company_name"),
-            gender=row.get("gender"),
-            district=row.get("district"),
-            company_address=row.get("company_address"),
-            birthday=_json_safe(row.get("birthday")),
-            join_date=_json_safe(row.get("join_date")),
-            status="ACTIVE",
-            position=row.get("position"),
-            referrer=row.get("referrer"),
-            industry_category=row.get("industry_category"),
-            industry=row.get("industry"),
-            company_products=row.get("company_products"),
-            employee_count=row.get("employee_count"),
-            notes=row.get("notes"),
-            connection=connection,
-            source_type="ENROLLMENT_APPLICATION",
-            audit_action="members.create_from_enrollment",
-            protected_phone_fields={
-                "phone_ciphertext": row["phone_ciphertext"],
-                "phone_hash": row["phone_hash"],
-                "phone_last4": row["phone_last4"],
-                "phone_masked": row["phone_masked"],
-            },
-            enterprise_financial_ciphertext=row.get("enterprise_financial_ciphertext"),
-        )
+        if existing_member_id is not None:
+            member_id = existing_member_id
+            fields = ("name", "company_name", "gender", "district", "company_address", "birthday", "position", "referrer", "industry_category", "industry", "company_products", "employee_count", "notes")
+            updates = {key: _json_safe(row[key]) for key in fields if row.get(key) not in (None, "")}
+            updates.update(status="ACTIVE", org_unit_id=row["org_unit_id"])
+            if not candidate["join_date"] and row.get("join_date"):
+                updates["join_date"] = _json_safe(row["join_date"])
+            update_member(actor_user_id, member_id, updates)
+            if row.get("enterprise_financial_ciphertext"):
+                financial = _financial_values(candidate["enterprise_financial_ciphertext"]) if candidate["enterprise_financial_ciphertext"] else {}
+                financial.update({key: value for key,value in _financial_values(row["enterprise_financial_ciphertext"]).items() if value})
+                execute(connection, "UPDATE members SET enterprise_financial_ciphertext=? WHERE id=?", (encrypt_text(json.dumps(financial, ensure_ascii=False)), member_id))
+            write_audit(connection, actor_user_id=actor_user_id, action="members.confirm_from_enrollment", resource_type="member", resource_id=str(member_id), org_unit_id=row["org_unit_id"],
+                        after={"application_id": application_id, "updated_fields": sorted(updates), "financial_updated": bool(row.get("enterprise_financial_ciphertext"))})
+        else:
+            member_id = create_member(
+                actor_user_id,
+                member_code=None,
+                name=row["name"],
+                org_unit_id=row["org_unit_id"],
+                development_org_unit_id=None,
+                phone=None,
+                company_name=row.get("company_name"),
+                gender=row.get("gender"),
+                district=row.get("district"),
+                company_address=row.get("company_address"),
+                birthday=_json_safe(row.get("birthday")),
+                join_date=_json_safe(row.get("join_date")),
+                status="ACTIVE",
+                position=row.get("position"),
+                referrer=row.get("referrer"),
+                industry_category=row.get("industry_category"),
+                industry=row.get("industry"),
+                company_products=row.get("company_products"),
+                employee_count=row.get("employee_count"),
+                notes=row.get("notes"),
+                connection=connection,
+                source_type="ENROLLMENT_APPLICATION",
+                audit_action="members.create_from_enrollment",
+                protected_phone_fields={
+                    "phone_ciphertext": row["phone_ciphertext"],
+                    "phone_hash": row["phone_hash"],
+                    "phone_last4": row["phone_last4"],
+                    "phone_masked": row["phone_masked"],
+                },
+                enterprise_financial_ciphertext=row.get("enterprise_financial_ciphertext"),
+            )
         now = _now()
         execute(
             connection,
