@@ -195,6 +195,7 @@ jobs:
           apps/platform-api/tests/test_credit_year_setup_mysql.py
           apps/platform-api/tests/test_credit_source_excel.py
           apps/platform-api/tests/test_reading_weekly_export.py
+          apps/platform-api/tests/test_credit_posting_jobs.py
           apps/platform-api/tests/test_credit_source_setup_mysql.py
           apps/platform-api/tests/test_credit_opening_setup_mysql.py
           apps/platform-api/tests/test_credit_settlement_setup_mysql.py
@@ -369,6 +370,7 @@ jobs:
           db="seiwajyuku_staging"
           # Exercise 0067 at its dependency boundary. 0072 owns its guarded
           # reversal tests; its empty child schema must be reversed first.
+          docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/rollback/mysql/0074_credit_posting_jobs.down.sql
           docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/rollback/mysql/0072_learning_credit_source_imports.down.sql
           # The migration runner already applied 0067; replay the script once
           # to verify the DDL/catalog registration is idempotent on MySQL.

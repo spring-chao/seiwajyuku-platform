@@ -10,8 +10,8 @@ const script = component.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1
 const compiled = ts.transpileModule(script, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 function harness(api = {}, permissions = ["members:read", "plans:credit_settlement_manage", "plans:credit_settlement_preview", "plans:credit_settlement_approve", "plans:credit_settlement_post", "exports:normal"]) {
   const storage = new Map();
-  const context = vm.createContext({ computed, reactive, ref, watch, onMounted: () => {}, defineEmits: () => () => {}, useUserStoreHook: () => ({ permissions }), creditSettlementErrorMessage: e => e.message, ElMessage: { success() {}, error() {} }, ElMessageBox: { confirm: async () => {} }, localStorage: { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) }, URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} }, document: { createElement: () => ({ click() {} }) }, setTimeout: () => {}, ...api });
-  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail,act,batchSummary,posting,stopRequested,refreshDetail,recover};", context);
+  const context = vm.createContext({ computed, reactive, ref, watch, onMounted: () => {}, onBeforeUnmount: () => {}, setInterval: () => 1, clearInterval() {}, defineEmits: () => () => {}, useUserStoreHook: () => ({ permissions }), creditSettlementErrorMessage: e => e.message, ElMessage: { success() {}, error() {} }, ElMessageBox: { confirm: async () => {} }, localStorage: { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) }, URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} }, document: { createElement: () => ({ click() {} }) }, setTimeout: () => {}, ...api });
+  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail,act,batchSummary,posting,refreshDetail,recover,pausePostingJob};", context);
   return context.result;
 }
 
@@ -114,14 +114,14 @@ test("confirm uses the refreshed displayed settlement and does not call review a
   const calls=[];let release;
   const source={id:9,class_name:'合成班级',source_kind:'DAILY_READING',period_start:'2026-10-09',period_end:'2026-10-10',member_count:2,
     batches:[{status:'DRY_RUN',proposed_entry_count:2}],settlement_fingerprint:'fresh',settlement_summary:{entry_count:2,proposed_points:'2.00',posted_points:'0.00'}};
-  const ui=harness({sourceGet:async()=>({data:source}),sourceAction:async(...args)=>{calls.push(args);await new Promise(r=>release=r);return{data:source};},sourceWorkbench:async()=>({data:{imports:[source]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
+  const ui=harness({sourceGet:async()=>({data:source}),sourceSubmitPostingJob:async(...args)=>{calls.push(args);await new Promise(r=>release=r);return{data:{job:{id:1,status:'PENDING'}}};},sourceWorkbench:async()=>({data:{imports:[source]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
   ui.state.value={imports:[source]};
   const first=ui.act(source,'confirm');
   await new Promise(r=>setImmediate(r));
   await ui.act(source,'confirm');
-  assert.equal(calls.length,1);assert.deepEqual(Array.from(calls[0]),[9,'confirm','fresh',false]);
+  assert.equal(calls.length,1);assert.deepEqual(Array.from(calls[0]),[9,'fresh',false]);
   release();await first;
-  assert.equal((ui.batchSummary(source).match(/待确认入账/g)||[]).length,1);
+  assert.equal(ui.batchSummary(source),'已排队，等待后台处理');
 });
 
 const progressSource = (posted, total = 8) => ({id:18,class_name:'合成班级',source_kind:'DAILY_READING',member_count:8,
@@ -129,31 +129,33 @@ const progressSource = (posted, total = 8) => ({id:18,class_name:'合成班级',
   settlement_summary:{entry_count:total,proposed_points:String(total),posted_points:String(posted)},
   posting_progress:{state:posted===total?'COMPLETE':'READY',posted_entries:posted,total_entries:total,remaining_entries:total-posted,completed:posted===total}});
 
-test("one confirmation continues short steps and exposes durable progress",async()=>{
+test("one confirmation enqueues once and never drives ledger steps in the browser",async()=>{
   let calls=0;
   const start=progressSource(0);
-  const ui=harness({sourceGet:async()=>({data:start}),sourceAction:async()=>({data:progressSource(Math.min(++calls*3,8))}),sourceWorkbench:async()=>({data:{imports:[progressSource(8)]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
+  const ui=harness({sourceGet:async()=>({data:start}),sourceSubmitPostingJob:async()=>{calls++;return{data:{job:{id:1,status:'PENDING'}}};},sourceAction:async()=>{throw new Error('browser must not post');},sourceWorkbench:async()=>({data:{imports:[start]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
   ui.state.value={imports:[start]};await ui.act(start,'confirm');
-  assert.equal(calls,3);assert.equal(ui.detail.value.posting_progress.posted_entries,8);assert.equal(ui.posting.value,false);assert.equal(ui.error.value,'');
+  assert.equal(calls,1);assert.equal(ui.detail.value.posting_job.status,'PENDING');assert.equal(ui.posting.value,false);assert.equal(ui.error.value,'');
 });
 
 test("lost reply refreshes the receipt and reports completion instead of replaying",async()=>{
   let reads=0,calls=0;const start=progressSource(0);
-  const ui=harness({sourceGet:async()=>({data:++reads===1?start:progressSource(8)}),sourceAction:async()=>{calls++;throw new Error('timeout');},sourceWorkbench:async()=>({data:{imports:[progressSource(8)]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
+  const ui=harness({sourceGet:async()=>({data:++reads===1?start:progressSource(8)}),sourceSubmitPostingJob:async()=>{calls++;throw new Error('timeout');},sourceWorkbench:async()=>({data:{imports:[progressSource(8)]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
   ui.state.value={imports:[start]};await ui.act(start,'confirm');
   assert.equal(calls,1);assert.equal(ui.error.value,'');assert.equal(ui.detail.value.posting_progress.completed,true);
 });
 
-test("an unfinished lost reply shows progress and never automatically retries an uncertain write",async()=>{
+test("an unfinished lost enqueue reply reads server state without retrying the mutation",async()=>{
   let reads=0,calls=0;const start=progressSource(0),partial=progressSource(3);partial.batches[0].status='POSTING';partial.posting_progress.state='POSTING';
-  const ui=harness({sourceGet:async()=>({data:++reads===1?start:partial}),sourceAction:async()=>{calls++;throw new Error('timeout');},sourceWorkbench:async()=>({data:{imports:[partial]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
+  partial.posting_job={id:1,status:'RUNNING',pause_requested:false};
+  const ui=harness({sourceGet:async()=>({data:++reads===1?start:partial}),sourceSubmitPostingJob:async()=>{calls++;throw new Error('timeout');},sourceWorkbench:async()=>({data:{imports:[partial]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
   ui.state.value={imports:[start]};await ui.act(start,'confirm');
-  assert.equal(calls,1);assert.match(ui.error.value,/已入账3\/8笔/);assert.match(ui.error.value,/无需重新上传/);assert.equal(ui.posting.value,false);
+  assert.equal(calls,1);assert.equal(ui.error.value,'');assert.equal(ui.detail.value.posting_job.status,'RUNNING');assert.equal(ui.posting.value,false);
 });
 
-test("stopping between steps preserves progress and the refreshed dialog stays resumable",async()=>{
+test("pausing sends a durable server request and keeps completed progress",async()=>{
   const start=progressSource(0);let calls=0,ui;
-  ui=harness({sourceGet:async()=>({data:start}),sourceAction:async()=>{calls++;ui.stopRequested.value=true;return{data:progressSource(3)};},sourceWorkbench:async()=>({data:{imports:[start]}}),sourceExportOptions:async()=>({data:{classes:[]}})});
-  ui.state.value={imports:[start]};await ui.act(start,'confirm');
+  ui=harness({sourcePausePostingJob:async()=>{calls++;return{data:{job:{id:1,status:'PAUSED',pause_requested:true}}};}});
+  ui.detail.value={...progressSource(3),posting_job:{id:1,status:'RUNNING',pause_requested:false}};
+  await ui.pausePostingJob();
   assert.equal(calls,1);assert.equal(ui.detail.value.posting_progress.posted_entries,3);assert.equal(ui.eligible(ui.detail.value),true);
 });

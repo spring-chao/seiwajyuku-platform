@@ -442,6 +442,8 @@ def _receipt(c,actor,import_id,*,allowed_scope=...,summary=False):
         if not matches:raise credits.LearningCreditError('结算批次与原文件来源不同，请核对关联')
     item['created_by_current_actor']=int(row['created_by'])==actor
     for b in item['batches']:b['created_by_current_actor']=int(b['created_by'])==actor
+    from app.services.credit_posting_jobs import for_source
+    item['posting_job']=for_source(c, import_id)
     item.pop('source_snapshot_json',None)
     return item
 
@@ -653,8 +655,11 @@ def get_import(import_id,actor):
     finally:c.close()
 
 
-def process(import_id,actor,operation,expected_fingerprint=None,resume_partial_failure=False,incremental=False):
+def process(import_id,actor,operation,expected_fingerprint=None,resume_partial_failure=False,incremental=False,*,_job_id=None):
     source=get_import(import_id,actor)
+    job=source.get('posting_job')
+    if job and job['status'] in {'PENDING','RUNNING'} and job['id']!=_job_id:
+        raise credits.LearningCreditError('该来源已提交后台入账任务，请刷新任务进度，不要重复入账')
     if operation not in ('submit','approve','post','confirm'):raise credits.LearningCreditError('不支持的结算操作')
     capability={'submit':'plans:credit_settlement_manage','approve':'plans:credit_settlement_approve','post':'plans:credit_settlement_post','confirm':'plans:credit_settlement_post'}[operation]
     if not _has_scope(actor,source['class_org_unit_id'],(capability,)):raise PermissionError('这份来源不在当前复核或入账授权范围')
@@ -694,6 +699,7 @@ def reconcile(import_id,actor):
 
 
 def workbench(actor):
+    from app.services import credit_posting_jobs as jobs
     user=_principal(actor);c=connect()
     try:
         scope=effective_scope(actor)
@@ -715,7 +721,7 @@ def workbench(actor):
                 grouped[key]=receipt
         imports=list(grouped.values())
         tables=present_tables(c);reserved=execute(c,"SELECT id FROM audit_logs WHERE action='production.credit_source.setup' LIMIT 1").fetchone();marker=execute(c,'SELECT version FROM schema_migrations WHERE version=?',(MIGRATION,)).fetchone()
-        return {'classes':classes,'cycles':cycles,'imports':imports,'storage_available':ready,'release_commit':get_build_info()['commit_sha'],'migration_sha256':HASHES['sqlite' if isinstance(c,sqlite3.Connection) else 'mysql'],
+        return {'classes':classes,'cycles':cycles,'imports':imports,'posting_jobs_available':jobs.available(c),'posting_jobs_setup_allowed':ready and not jobs.available(c) and 'system_admin' in user.get('roles',[]) and 'plans:production_rule_reconciliation_apply' in user['permissions'] and get_settings().credit_opening_setup_enabled,'posting_jobs_migration_sha256':jobs.HASHES['sqlite' if isinstance(c,sqlite3.Connection) else 'mysql'],'storage_available':ready,'release_commit':get_build_info()['commit_sha'],'migration_sha256':HASHES['sqlite' if isinstance(c,sqlite3.Connection) else 'mysql'],
                 'setup_allowed':'system_admin' in user.get('roles',[]) and 'plans:production_rule_reconciliation_apply' in user['permissions'] and get_settings().credit_opening_setup_enabled and not tables and not reserved and not marker,
                 'setup_incomplete':not ready and bool(tables or reserved or marker),'can_import_activity':'plans:credit_activity_fact_manage' in user['permissions'],'can_import_attendance':{'attendance:adjudicate','plans:period_write'}<=set(user['permissions']), 'reading_calendar':reading_calendar(c)}
     finally:c.close()
