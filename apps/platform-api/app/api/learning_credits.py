@@ -751,6 +751,28 @@ async def import_hq_reading(
         raise _error(exc) from exc
 
 
+@router.post("/hq-reading/weekly-import")
+async def import_weekly_hq_reading(
+    target_class_org_unit_id: str = Form(..., min_length=1, max_length=64),
+    week_start: str = Form(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    workbook: UploadFile = File(...),
+    user: dict = Depends(require_permission("plans:hq_reading_import_manage")),
+) -> dict:
+    from datetime import date
+    from app.services.weekly_reading_sync import import_weekly_export
+    filename = _read_hq_workbook_name(workbook)
+    content = await workbook.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(400, "工作簿超过20MB限制")
+    try:
+        result = import_weekly_export(actor_user_id=user["id"],
+            target_class_org_unit_id=target_class_org_unit_id,
+            week_start=date.fromisoformat(week_start), original_filename=filename, content=content)
+        return {"success": True, "data": result}
+    except (ValueError, LearningCreditError, PermissionError) as exc:
+        raise _error(exc) from exc
+
+
 @router.post("/hq-reading/{batch_id}/confirm-identities")
 def confirm_hq_reading(
     batch_id: int,

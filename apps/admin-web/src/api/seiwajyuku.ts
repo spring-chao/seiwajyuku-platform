@@ -815,6 +815,8 @@ export type BirthdayGreetingContext = {
 };
 
 export type BirthdayGreetingDraft = {
+  generation_status?: string;
+  model?: string | null;
   member_id: number;
   tone: "standard" | "warm" | "concise";
   selected_memory_ids: string[];

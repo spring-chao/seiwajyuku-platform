@@ -978,6 +978,11 @@ async function generateBirthdayDraft(tone = birthdayGreetingTone.value) {
       }
     );
     birthdayGreetingDraft.value = response.data.draft;
+    if (response.data.generation_status === "GENERATED") {
+      ElMessage.success("个性化祝福已生成，请核对后复制发送");
+    } else if (response.data.generation_status && response.data.generation_status !== "DISABLED") {
+      ElMessage.info("AI 暂不可用，已生成可编辑的基础祝福");
+    }
   } catch (error) {
     ElMessage.error("生日祝福生成失败，请检查已选记忆");
   } finally {
