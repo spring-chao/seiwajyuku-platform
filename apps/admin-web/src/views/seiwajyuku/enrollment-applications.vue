@@ -1124,13 +1124,15 @@ onMounted(async () => {
             show-icon
           />
 
-          <el-form-item v-if="detail.duplicate_member_risk && detail.application_status !== 'ENROLLED'" label="核对现有档案">
+          <el-form v-if="detail.duplicate_member_risk && detail.application_status !== 'ENROLLED'" label-position="top">
+          <el-form-item label="核对现有档案">
             <el-select v-model="existingMemberId" placeholder="请选择已核实为同一学长的档案" clearable style="width: 100%">
               <el-option v-for="member in detail.existing_member_candidates || []" :key="member.id" :value="member.id"
                 :label="`${member.name} · ${member.member_code} · ${member.company_name || '未填写企业'}`" />
             </el-select>
             <span v-if="!detail.existing_member_candidates?.length">当前授权范围内没有可确认的档案，请联系有对应权限的工作人员核对。</span>
           </el-form-item>
+          </el-form>
 
           <el-alert
             v-if="!detail.target_shuku_org_unit_id"
