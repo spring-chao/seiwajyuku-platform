@@ -121,7 +121,7 @@ test("confirm uses the refreshed displayed settlement and does not call review a
   await ui.act(source,'confirm');
   assert.equal(calls.length,1);assert.deepEqual(Array.from(calls[0]),[9,'fresh',false]);
   release();await first;
-  assert.equal(ui.batchSummary(source),'已排队，等待后台处理');
+  assert.equal(ui.batchSummary(source),'已提交，等待后台处理');
 });
 
 const progressSource = (posted, total = 8) => ({id:18,class_name:'合成班级',source_kind:'DAILY_READING',member_count:8,

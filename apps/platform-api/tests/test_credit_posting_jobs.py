@@ -18,8 +18,13 @@ from test_credit_single_migration_mysql import isolated_schema
 import os
 
 
-def ready(f):
-    iid,_,_=registered(f,'DAILY_READING')
+@pytest.fixture(autouse=True)
+def no_external_dispatch(monkeypatch):
+    monkeypatch.setattr(jobs, "_trigger", lambda *args: None)
+
+
+def ready(f,kind='DAILY_READING'):
+    iid,_,_=registered(f,kind)
     source=sources.create_batches(iid,f['actor'])
     return iid, source['settlement_fingerprint']
 
@@ -38,10 +43,10 @@ def test_submit_is_durable_idempotent_and_closing_client_does_not_stop_worker(so
     assert sources.get_import(iid,f['actor'])['posting_job']['status']=='PENDING'
     with pytest.raises(ValueError,match='后台'):sources.process(iid,f['actor'],'confirm',fp)
     # No browser or originating request exists when this scheduler invocation runs.
-    assert jobs.run_sweep()['completed']==1
+    assert jobs.run_job(state(iid)["id"],fp)['completed']==1
     assert state(iid)['status']=='SUCCEEDED'
     assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries')['n']==before+1
-    assert jobs.run_sweep()['processed']==0
+    assert jobs.run_job(state(iid)["id"],fp)['processed']==0
     assert jobs.submit(iid,f['actor'],fp)['job']['status']=='SUCCEEDED'
     assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries')['n']==before+1
 
@@ -50,9 +55,32 @@ def test_pause_and_explicit_resume_preserve_job_identity(source_fixture):
     f=source_fixture;iid,fp=ready(f)
     job=jobs.submit(iid,f['actor'],fp)['job']
     assert jobs.pause(iid,f['actor'])['job']['status']=='PAUSED'
-    assert jobs.run_sweep()['processed']==0
+    assert jobs.run_job(state(iid)["id"],fp)['processed']==0
     assert jobs.submit(iid,f['actor'],fp)['job']['id']==job['id']
-    assert jobs.run_sweep()['completed']==1
+    assert jobs.run_job(state(iid)["id"],fp)['completed']==1
+
+
+def test_event_never_scans_other_pending_jobs_and_old_fingerprint_is_inert(source_fixture):
+    f=source_fixture;iid,fp=ready(f);other,other_fp=ready(f,'EXCELLENT_SHARE')
+    jobs.submit(iid,f['actor'],fp);jobs.submit(other,f['actor'],other_fp)
+    assert jobs.run_job(state(iid)['id'],'f'*64)['processed']==0
+    assert state(iid)['status']=='PENDING'
+    assert jobs.run_job(state(iid)['id'],fp)['completed']==1
+    assert state(other)['status']=='PENDING'
+    assert sources.get_import(other,f['actor'])['posting_progress']['posted_entries']==0
+
+
+def test_click_only_triggers_one_event_and_uncertain_ack_is_not_success(source_fixture):
+    f=source_fixture;iid,fp=ready(f)
+    with patch.object(jobs,'_trigger') as trigger:
+        result=jobs.submit_and_dispatch(iid,f['actor'],fp)
+        trigger.assert_called_once_with(result['job']['id'],fp)
+    assert sources.get_import(iid,f['actor'])['posting_progress']['posted_entries']==0
+    with patch.object(jobs,'_trigger',side_effect=TimeoutError('do not persist upstream headers')):
+        result=jobs.submit_and_dispatch(iid,f['actor'],fp)
+    assert result['job']['status']=='NEEDS_REVIEW' and result['job']['error_code']=='DISPATCH_UNCERTAIN'
+    assert jobs.run_job(state(iid)['id'],fp)['processed']==0
+    assert 'headers' not in str(state(iid))
 
 
 def test_pause_during_a_claim_finishes_current_step_then_waits_for_explicit_resume(source_fixture):
@@ -64,9 +92,9 @@ def test_pause_during_a_claim_finishes_current_step_then_waits_for_explicit_resu
         # Simulate another day remaining, without driving further ledger writes.
         result['posting_progress']={**result['posting_progress'],'completed':False,'state':'READY'}
         return result
-    with patch.object(sources,'process',side_effect=step):jobs.run_sweep()
+    with patch.object(sources,'process',side_effect=step):jobs.run_job(state(iid)["id"],fp)
     assert state(iid)['status']=='PAUSED'
-    assert jobs.run_sweep()['processed']==0
+    assert jobs.run_job(state(iid)["id"],fp)['processed']==0
     assert sources.get_import(iid,f['actor'])['posting_progress']['posted_entries']==1
 
 
@@ -89,12 +117,12 @@ def test_fixed_mysql_job_setup_empty_reversal_and_idempotency(fresh_source_db):
 
 def test_worker_claim_excludes_another_dispatcher_and_expiry_requires_review(source_fixture):
     f=source_fixture;iid,fp=ready(f);jobs.submit(iid,f['actor'],fp)
-    claim=jobs._claim();assert claim
-    assert jobs._claim() is None
+    claim=jobs._claim(state(iid)["id"],fp);assert claim
+    assert jobs._claim(state(iid)["id"],fp) is None
     with transaction() as c:
         execute(c,'UPDATE learning_credit_posting_jobs SET lease_until=? WHERE import_id=?',
             (credits._db_timestamp(c,datetime.now(UTC)-timedelta(minutes=1)),iid))
-    assert jobs.run_sweep()['processed']==0
+    assert jobs.run_job(state(iid)["id"],fp)['processed']==0
     assert state(iid)['status']=='NEEDS_REVIEW' and state(iid)['error_code']=='WORKER_INTERRUPTED'
     jobs._finish(claim,'SUCCEEDED')
     assert state(iid)['status']=='NEEDS_REVIEW'
@@ -103,12 +131,12 @@ def test_worker_claim_excludes_another_dispatcher_and_expiry_requires_review(sou
 def test_failure_and_permission_revocation_stop_without_replay(source_fixture):
     f=source_fixture;iid,fp=ready(f);jobs.submit(iid,f['actor'],fp)
     with patch.object(jobs,'_authorize',side_effect=PermissionError('revoked')):
-        assert jobs.run_sweep()['needs_review']==1
+        assert jobs.run_job(state(iid)["id"],fp)['needs_review']==1
     assert state(iid)['error_code']=='PERMISSION_CHANGED'
-    assert jobs.run_sweep()['processed']==0
+    assert jobs.run_job(state(iid)["id"],fp)['processed']==0
     jobs.submit(iid,f['actor'],fp)
     with patch.object(sources,'process',side_effect=RuntimeError('sensitive raw DB failure')):
-        assert jobs.run_sweep()['needs_review']==1
+        assert jobs.run_job(state(iid)["id"],fp)['needs_review']==1
     assert 'sensitive' not in str(state(iid))
 
 
@@ -118,7 +146,7 @@ def test_changed_confirmed_items_and_foreign_scope_are_rejected(source_fixture):
     with patch.object(sources,'_has_scope',return_value=False),pytest.raises(PermissionError):jobs.submit(iid,f['actor'],fp)
     jobs.submit(iid,f['actor'],fp)
     with transaction() as c:execute(c,"UPDATE learning_credit_posting_jobs SET confirmed_fingerprint=? WHERE import_id=?",('b'*64,iid))
-    assert jobs.run_sweep()['needs_review']==1
+    assert jobs.run_job(state(iid)["id"],'b'*64)['needs_review']==1
     assert sources.get_import(iid,f['actor'])['posting_progress']['posted_entries']==0
 
 
@@ -126,7 +154,7 @@ def test_http_confirmation_and_scheduler_do_not_accept_unauthorized_work(source_
     f=source_fixture;iid,fp=ready(f);url=f'/api/v1/learning-credits/excel/imports/{iid}/posting-job'
     client=TestClient(app)
     assert client.post(url,json={'expected_fingerprint':fp}).status_code==401
-    assert client.post('/api/v1/internal/credit-posting-jobs',json={}).status_code==401
+    assert client.post('/api/v1/internal/credit-posting-jobs',json={'job_id':1,'fingerprint':fp}).status_code==401
     key='synthetic-maintenance-token-for-posting-tests'
     monkeypatch.setenv('STUDY_EVIDENCE_CLEANUP_TOKEN',key)
     headers={'X-Study-Evidence-Cleanup-Token':key}
@@ -135,7 +163,7 @@ def test_http_confirmation_and_scheduler_do_not_accept_unauthorized_work(source_
     try:
         assert client.post(url,json={'expected_fingerprint':fp}).status_code==200
     finally:app.dependency_overrides.pop(current_user,None)
-    result=client.post('/api/v1/internal/credit-posting-jobs',json={},headers=headers)
+    result=client.post('/api/v1/internal/credit-posting-jobs',json={'job_id':state(iid)['id'],'fingerprint':fp},headers=headers)
     assert result.status_code==200 and result.json()['data']['completed']==1
     assert 'member' not in result.text and 'fingerprint' not in result.text
 

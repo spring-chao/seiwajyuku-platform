@@ -14,22 +14,74 @@ const runtime = {
   TENCENTCLOUD_SESSIONTOKEN: "synthetic+token/=",
 };
 
-test("minute posting timer only runs the bounded confirmed-job worker", async () => {
+test("fixed per-job async Invoke signature matches the official Tencent Python SDK fixture",()=>{
+  const dispatch=require('./credit-posting-dispatch');
+  const request=dispatch.signedInvoke({job_id:7,fingerprint:'c'.repeat(64)},0,{...runtime,TENCENTCLOUD_SESSIONTOKEN:'synthetic-token'},1700000000);
+  assert.ok(request.headers.Authorization.endsWith('Signature=31795742779248589b08f08d5dd43a8b945933968f70f36659049639cfd960d0'));
+  const body=JSON.parse(request.body);
+  assert.equal(body.InvocationType,'Event');assert.equal(body.Qualifier,'$LATEST');
+  assert.throws(()=>dispatch.signedInvoke({job_id:0,fingerprint:'c'.repeat(64)},0,runtime,1700000000));
+  assert.throws(()=>dispatch.signedInvoke({job_id:7,fingerprint:'c'.repeat(64)},5000,runtime,1700000000));
+});
+
+test("a posting event only runs its one confirmed job and stops when finished", async () => {
   const previousFetch=globalThis.fetch;
   const savedUrl=process.env.PLATFORM_API_CLEANUP_URL, savedToken=process.env.STUDY_EVIDENCE_CLEANUP_TOKEN;
   process.env.PLATFORM_API_CLEANUP_URL='https://api.example.invalid/api/v1/internal/study-evidence';
   process.env.STUDY_EVIDENCE_CLEANUP_TOKEN='synthetic-posting-worker-token-123456789';
   const calls=[];
-  globalThis.fetch=async(url,options)=>{calls.push([url,options]);return{ok:true,text:async()=>JSON.stringify({success:true,data:{processed:2,completed:1,needs_review:0}})};};
+  globalThis.fetch=async(url,options)=>{calls.push([url,options]);return{ok:true,text:async()=>JSON.stringify({success:true,data:{processed:2,completed:1,needs_review:0,more:false}})};};
   try {
-    const result=await cleanup.main({Type:'Timer',TriggerName:'creditPostingJobsMinute'},{});
+    const result=await cleanup.main({Type:'CreditPostingJob',job_id:8,fingerprint:'a'.repeat(64),hops:0},{});
     assert.equal(result.ok,true);assert.equal(calls.length,1);
     assert.equal(new URL(calls[0][0]).pathname,'/api/v1/internal/credit-posting-jobs');
-    assert.equal(calls[0][1].body,'{}');assert.equal(result.completed,1);
+    assert.deepEqual(JSON.parse(calls[0][1].body),{job_id:8,fingerprint:'a'.repeat(64)});assert.equal(result.completed,1);
   } finally {
     globalThis.fetch=previousFetch;
     if(savedUrl===undefined)delete process.env.PLATFORM_API_CLEANUP_URL;else process.env.PLATFORM_API_CLEANUP_URL=savedUrl;
     if(savedToken===undefined)delete process.env.STUDY_EVIDENCE_CLEANUP_TOKEN;else process.env.STUDY_EVIDENCE_CLEANUP_TOKEN=savedToken;
+  }
+});
+
+test("unfinished posting work enqueues exactly one continuation of the same job",async()=>{
+  const savedFetch=globalThis.fetch, previous={...process.env};
+  Object.assign(process.env,runtime,{PLATFORM_API_CLEANUP_URL:'https://api.example.invalid/api/v1/internal/study-evidence',STUDY_EVIDENCE_CLEANUP_TOKEN:'synthetic-posting-token-'.repeat(2)});
+  const calls=[];
+  globalThis.fetch=async(url,options)=>{
+    calls.push([url,options]);
+    return url.includes('scf.tencentcloudapi.com')?{ok:true,json:async()=>({Response:{RequestId:'synthetic-request'}})}:
+      {ok:true,text:async()=>JSON.stringify({success:true,data:{processed:2,completed:0,needs_review:0,more:true}})};
+  };
+  try{
+    const result=await cleanup.main({Type:'CreditPostingJob',job_id:9,fingerprint:'b'.repeat(64),hops:3},{});
+    assert.equal(result.continued,true);assert.equal(calls.length,2);
+    const next=JSON.parse(calls[1][1].body);
+    assert.equal(next.InvocationType,'Event');assert.equal(next.FunctionName,'studyEvidenceCleanup');
+    assert.equal(next.Namespace,'shengheshu-d2g2zyyl99f6c6fc2');
+    assert.deepEqual(JSON.parse(next.ClientContext),{Type:'CreditPostingJob',job_id:9,fingerprint:'b'.repeat(64),hops:4});
+    assert.ok(!JSON.stringify(result).includes(runtime.TENCENTCLOUD_SECRETKEY));
+  }finally{
+    globalThis.fetch=savedFetch;
+    for(const key of Object.keys(process.env))if(!(key in previous))delete process.env[key];
+    Object.assign(process.env,previous);
+  }
+});
+
+test("authenticated click dispatch returns async acknowledgement without posting inline",async()=>{
+  const savedFetch=globalThis.fetch, previous={...process.env};const calls=[];
+  Object.assign(process.env,runtime,{STUDY_EVIDENCE_STORAGE_BRIDGE_ENABLED:'true',STUDY_EVIDENCE_CLEANUP_TOKEN:'synthetic-posting-token-'.repeat(2)});
+  globalThis.fetch=async(url,options)=>{calls.push([url,options]);return{ok:true,json:async()=>({Response:{RequestId:'synthetic-async-ack'}})};};
+  const event={httpMethod:'POST',path:'/study-evidence-storage',headers:{},body:JSON.stringify({operation:'credit-posting-dispatch',job_id:7,fingerprint:'c'.repeat(64)})};
+  try{
+    assert.equal((await cleanup.main(event,{})).statusCode,401);assert.equal(calls.length,0);
+    event.headers['x-study-evidence-cleanup-token']=process.env.STUDY_EVIDENCE_CLEANUP_TOKEN;
+    const result=await cleanup.main(event,{});assert.equal(result.statusCode,202);assert.deepEqual(JSON.parse(result.body),{accepted:true});
+    assert.equal(calls.length,1);assert.equal(calls[0][0],'https://scf.tencentcloudapi.com/');
+    assert.equal(JSON.parse(calls[0][1].body).InvocationType,'Event');
+  }finally{
+    globalThis.fetch=savedFetch;
+    for(const key of Object.keys(process.env))if(!(key in previous))delete process.env[key];
+    Object.assign(process.env,previous);
   }
 });
 

@@ -1,4 +1,4 @@
-"""User-confirmed durable jobs and a private, data-free scheduler entry."""
+"""User-confirmed durable jobs and a private per-job event worker."""
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,7 +29,7 @@ class ConfirmJob(BaseModel):
 
 @router.post('/api/v1/learning-credits/excel/imports/{import_id}/posting-job')
 def submit(import_id:int,payload:ConfirmJob,user=Depends(require_permission('plans:credit_settlement_post'))):
-    return _call(jobs.submit,import_id,user['id'],payload.expected_fingerprint,payload.resume_partial_failure)
+    return _call(jobs.submit_and_dispatch,import_id,user['id'],payload.expected_fingerprint,payload.resume_partial_failure)
 
 
 @router.post('/api/v1/learning-credits/excel/imports/{import_id}/posting-job/pause')
@@ -37,15 +37,17 @@ def pause(import_id:int,user=Depends(require_permission('plans:credit_settlement
     return _call(jobs.pause,import_id,user['id'])
 
 
-class SweepPayload(BaseModel):
+class JobEventPayload(BaseModel):
     model_config=ConfigDict(extra='forbid')
+    job_id:int=Field(gt=0)
+    fingerprint:str=Field(pattern=r'^[a-f0-9]{64}$')
 
 
 @router.post('/api/v1/internal/credit-posting-jobs')
-def sweep(payload:SweepPayload,x_token:str|None=Header(default=None,alias='X-Study-Evidence-Cleanup-Token')):
+def process_event(payload:JobEventPayload,x_token:str|None=Header(default=None,alias='X-Study-Evidence-Cleanup-Token')):
     require_maintenance_token(x_token)
     try:
-        result=jobs.run_sweep()
+        result=jobs.run_job(payload.job_id,payload.fingerprint)
     except Exception:
         raise HTTPException(503,'后台入账调度暂不可用，请检查任务状态') from None
     return {'success':True,'data':result}

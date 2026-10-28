@@ -39,7 +39,7 @@ function response(statusCode, data) {
     body: JSON.stringify(data), isBase64Encoded: false };
 }
 
-function handle(event) {
+async function handle(event) {
   if (event.httpMethod !== "POST") return response(405, { error: "method not allowed" });
   // CloudBase strips the configured route prefix by default. Accept only
   // that mapped root or the full path when passthrough is enabled.
@@ -53,7 +53,13 @@ function handle(event) {
   try {
     const body = event.isBase64Encoded ? Buffer.from(event.body || "", "base64").toString("utf8") : event.body;
     if (typeof body !== "string" || Buffer.byteLength(body) > 2048) return response(400, { error: "invalid request" });
-    return response(200, signedObjectRequest(JSON.parse(body)));
+    const payload=JSON.parse(body);
+    if (payload && payload.operation === "credit-posting-dispatch") {
+      if (Object.keys(payload).some(k=>!["operation","job_id","fingerprint"].includes(k))) return response(400,{error:"invalid request"});
+      await require("./credit-posting-dispatch").enqueue(payload);
+      return response(202,{accepted:true});
+    }
+    return response(200, signedObjectRequest(payload));
   } catch (_) {
     // Never put runtime credentials, signed URLs, or provider errors in logs.
     return response(503, { error: "storage unavailable" });
