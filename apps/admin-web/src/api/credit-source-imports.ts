@@ -88,6 +88,14 @@ export type SourceForm = {
 };
 type Result<T> = { success: boolean; data: T };
 const base = "/api/v1/learning-credits/excel";
+export type ReadingWeeklyMember = { id: number; name: string; member_code: string; group_name: string };
+export type ReadingWeeklyPause = { member_id?: number; occurred_from: string; occurred_to: string; reason: "COURSE" | "TEMPORARY" };
+export const readingWeeklyRoster = (class_id: string, occurred_from: string, occurred_to: string) =>
+  http.request<Result<{ members: ReadingWeeklyMember[] }>>("get", base + "/reading-weekly-roster", {
+    params: { class_id, occurred_from, occurred_to }, timeout: 60000
+  });
+export const readingWeeklyExport = (data: { class_id: string; occurred_from: string; occurred_to: string; pauses: ReadingWeeklyPause[] }) =>
+  http.request<Blob>("post", base + "/reading-weekly-export", { data, responseType: "blob", timeout: 60000 });
 export const sourcePrepareCalendar = () =>
   http.request<Result<unknown>>("post", base + "/reading-calendar/setup", {
     timeout: 60000

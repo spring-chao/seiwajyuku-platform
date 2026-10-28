@@ -10,6 +10,10 @@ import {
   sourceExportOptions,
   sourceTemplate,
   sourceExport,
+  readingWeeklyRoster,
+  readingWeeklyExport,
+  type ReadingWeeklyMember,
+  type ReadingWeeklyPause,
   sourcePreview,
   sourceRegister,
   sourceFindSaved,
@@ -56,6 +60,29 @@ const form = reactive({
   source_note: ""
 });
 const exportForm = reactive({ class_id: "", from: "2026-10-01", to: "", member_id: undefined as number | undefined });
+const weeklyForm = reactive({ class_id: "", occurred_from: "", occurred_to: "" });
+const weeklyMembers = ref<ReadingWeeklyMember[]>([]);
+const weeklyPauses = ref<ReadingWeeklyPause[]>([]);
+watch(() => [weeklyForm.class_id, weeklyForm.occurred_from, weeklyForm.occurred_to], () => {
+  weeklyMembers.value = [];
+  weeklyPauses.value = [];
+});
+const checkWeeklySelection = () => {
+  if (!weeklyForm.class_id || !weeklyForm.occurred_from || !weeklyForm.occurred_to)
+    throw new Error("请选择班级和完整的每周统计日期；跨月周分段导出");
+};
+const loadWeeklyRoster = () => perform(async () => {
+  checkWeeklySelection();
+  weeklyMembers.value = (await readingWeeklyRoster(weeklyForm.class_id, weeklyForm.occurred_from, weeklyForm.occurred_to)).data.members;
+  if (!weeklyMembers.value.length) throw new Error("所选区间没有有效班级名册");
+  weeklyPauses.value.push({ member_id: undefined, occurred_from: weeklyForm.occurred_from, occurred_to: weeklyForm.occurred_to, reason: "TEMPORARY" });
+});
+const exportWeeklyReading = () => perform(async () => {
+  checkWeeklySelection();
+  if (weeklyPauses.value.some(p => !p.member_id || !p.occurred_from || !p.occurred_to))
+    throw new Error("请补全临时暂停学员和日期，或移除空行");
+  download(await readingWeeklyExport({ ...weeklyForm, pauses: weeklyPauses.value }), `班级每周读书打卡统计_${weeklyForm.occurred_from}_${weeklyForm.occurred_to}.xlsx`);
+});
 const exportMembers = ref<Member[]>([]);
 const searchingMembers = ref(false);
 let memberSearch = 0;
@@ -475,6 +502,31 @@ onMounted(() => perform(reload));
           >导出学分（含新增来源）</el-button
         ></el-form
       >
+    </section>
+    <section v-if="canExport" class="section">
+      <strong>班级每周读书打卡统计</strong>
+      <p>按已保存的读书来源导出分组统计表，含每日打卡、个人完成率、小组完成率及汇总。选择同一自然周的日期，跨月分段导出；按工作日日历计算（含调休），无需先入账。</p>
+      <el-form inline>
+        <el-form-item label="统计班级"><el-select v-model="weeklyForm.class_id" filterable placeholder="选择班级">
+          <el-option v-for="c in exportClasses" :key="c.id" :value="c.id" :label="c.center_name ? `${c.name} · ${c.center_name}` : c.name" />
+        </el-select></el-form-item>
+        <el-form-item label="统计日期"><el-date-picker v-model="weeklyForm.occurred_from" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" />
+          <span>至</span><el-date-picker v-model="weeklyForm.occurred_to" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" />
+        </el-form-item>
+        <el-button :disabled="busy" @click="loadWeeklyRoster">添加本次统计临时暂停</el-button>
+        <el-button type="primary" :loading="busy" @click="exportWeeklyReading">导出每周读书打卡 Excel</el-button>
+      </el-form>
+      <p v-if="weeklyPauses.length">临时暂停用于参加课程等特殊情况，只影响本次统计的应打卡天数。可指定部分日期，不改变档案、原始记录和学分；无需填写病情等私人信息。</p>
+      <el-form v-for="(pause, index) in weeklyPauses" :key="index" inline>
+        <el-form-item label="临时暂停学员"><el-select v-model="pause.member_id" filterable placeholder="选择学员">
+          <el-option v-for="m in weeklyMembers" :key="m.id" :value="m.id" :label="`${m.name} · ${m.group_name} · ${m.member_code}`" />
+        </el-select></el-form-item>
+        <el-form-item label="暂停日期"><el-date-picker v-model="pause.occurred_from" type="date" value-format="YYYY-MM-DD" placeholder="暂停开始" />
+          <span>至</span><el-date-picker v-model="pause.occurred_to" type="date" value-format="YYYY-MM-DD" placeholder="暂停结束" />
+        </el-form-item>
+        <el-form-item label="原因"><el-select v-model="pause.reason"><el-option label="参加课程" value="COURSE" /><el-option label="临时特殊情况" value="TEMPORARY" /></el-select></el-form-item>
+        <el-button :disabled="busy" @click="weeklyPauses.splice(index, 1)">移除</el-button>
+      </el-form>
     </section>
     <section v-if="canManage" class="section">
       <strong>上传10月以后的学习记录</strong>
