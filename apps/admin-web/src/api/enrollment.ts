@@ -164,6 +164,8 @@ export type EnrollmentApplicationDetail = EnrollmentApplicationListItem & {
   profit_margin?: string | null;
   missing_gates: string[];
   can_enroll: boolean;
+  can_confirm_existing?: boolean;
+  existing_member_candidates?: { id: number; member_code: string; name: string; company_name?: string; org_unit_id: string; status: string }[];
 };
 
 export type EnrollmentReviewPayload = {
@@ -318,11 +320,11 @@ export const rejectEnrollmentApplication = (
     { data: { reason } }
   );
 
-export const enrollApplication = (applicationId: number) =>
+export const enrollApplication = (applicationId: number, existingMemberId?: number) =>
   http.request<{
     success: boolean;
     data: { application_id: number; member_id: number; idempotent: boolean };
-  }>("post", `/api/v1/enrollment-applications/${applicationId}/enroll`);
+  }>("post", `/api/v1/enrollment-applications/${applicationId}/enroll`, existingMemberId ? { data: { existing_member_id: existingMemberId } } : undefined);
 
 export const getActiveEnrollmentLink = () =>
   http.request<{ success: boolean; data: EnrollmentLink | null }>(

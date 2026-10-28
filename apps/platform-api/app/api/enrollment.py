@@ -339,13 +339,18 @@ def reject_application(
     return {"success": True, "data": data}
 
 
+class EnrollmentExistingMemberPayload(BaseModel):
+    existing_member_id: int = Field(gt=0)
+
+
 @router.post("/enrollment-applications/{application_id}/enroll")
 def enroll_member(
     application_id: int,
+    payload: EnrollmentExistingMemberPayload | None = None,
     user: dict = Depends(require_permission("enrollment:enroll")),
 ) -> dict:
     try:
-        data = enroll_application(user["id"], application_id)
+        data = enroll_application(user["id"], application_id, existing_member_id=payload.existing_member_id if payload else None)
     except (PermissionError, ValueError) as exc:
         raise _service_error(exc) from exc
     return {"success": True, "data": data}
