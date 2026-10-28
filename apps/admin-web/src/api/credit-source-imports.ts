@@ -27,6 +27,7 @@ export type SourceBatch = {
   created_by_current_actor: boolean;
 };
 export type SourceImport = {
+  posting_job?: { id: number; status: "PENDING" | "RUNNING" | "PAUSED" | "SUCCEEDED" | "NEEDS_REVIEW"; pause_requested: boolean; error_code?: string } | null;
   duplicate_upload_count?: number;
   posting_progress?: { state: string; total_entries: number; posted_entries: number; remaining_entries: number; completed: boolean };
   source_only?: boolean;
@@ -47,6 +48,9 @@ export type SourceImport = {
   batches: SourceBatch[];
 };
 export type SourceWorkbench = {
+  posting_jobs_available?: boolean;
+  posting_jobs_setup_allowed?: boolean;
+  posting_jobs_migration_sha256?: string;
   reading_calendar: {
     status: string;
     day_count: number;
@@ -181,6 +185,16 @@ export const sourceAction = (
   );
 export const sourceReconcile = (id: number) =>
   http.request<Result<SourceImport>>("post", `${base}/imports/${id}/actions/reconcile`, { timeout: 60000 });
+export const sourceSubmitPostingJob = (id: number, expected_fingerprint: string, resume_partial_failure = false) =>
+  http.request<Result<{ job: NonNullable<SourceImport["posting_job"]>; idempotent: boolean }>>("post", `${base}/imports/${id}/posting-job`, {
+    data: { expected_fingerprint, resume_partial_failure }, timeout: 60000
+  });
+export const sourcePausePostingJob = (id: number) =>
+  http.request<Result<{ job: NonNullable<SourceImport["posting_job"]> }>>("post", `${base}/imports/${id}/posting-job/pause`, { timeout: 60000 });
+export const sourceSetupPostingJobs = (state: SourceWorkbench) =>
+  http.request<Result<{ status: string }>>("post", base + "/posting-jobs/setup", { data: {
+    expected_release_commit: state.release_commit, expected_migration_sha256: state.posting_jobs_migration_sha256
+  }, timeout: 60000 });
 export const sourceSetup = (state: SourceWorkbench) =>
   http.request<Result<{ status: string }>>("post", base + "/setup", {
     data: {

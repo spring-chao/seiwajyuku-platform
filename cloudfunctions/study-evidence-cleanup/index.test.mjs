@@ -14,6 +14,25 @@ const runtime = {
   TENCENTCLOUD_SESSIONTOKEN: "synthetic+token/=",
 };
 
+test("minute posting timer only runs the bounded confirmed-job worker", async () => {
+  const previousFetch=globalThis.fetch;
+  const savedUrl=process.env.PLATFORM_API_CLEANUP_URL, savedToken=process.env.STUDY_EVIDENCE_CLEANUP_TOKEN;
+  process.env.PLATFORM_API_CLEANUP_URL='https://api.example.invalid/api/v1/internal/study-evidence';
+  process.env.STUDY_EVIDENCE_CLEANUP_TOKEN='synthetic-posting-worker-token-123456789';
+  const calls=[];
+  globalThis.fetch=async(url,options)=>{calls.push([url,options]);return{ok:true,text:async()=>JSON.stringify({success:true,data:{processed:2,completed:1,needs_review:0}})};};
+  try {
+    const result=await cleanup.main({Type:'Timer',TriggerName:'creditPostingJobsMinute'},{});
+    assert.equal(result.ok,true);assert.equal(calls.length,1);
+    assert.equal(new URL(calls[0][0]).pathname,'/api/v1/internal/credit-posting-jobs');
+    assert.equal(calls[0][1].body,'{}');assert.equal(result.completed,1);
+  } finally {
+    globalThis.fetch=previousFetch;
+    if(savedUrl===undefined)delete process.env.PLATFORM_API_CLEANUP_URL;else process.env.PLATFORM_API_CLEANUP_URL=savedUrl;
+    if(savedToken===undefined)delete process.env.STUDY_EVIDENCE_CLEANUP_TOKEN;else process.env.STUDY_EVIDENCE_CLEANUP_TOKEN=savedToken;
+  }
+});
+
 test("boundedLimit keeps the scheduler batch within the service limit", () => {
   assert.equal(cleanup._test.boundedLimit(undefined), 500);
   assert.equal(cleanup._test.boundedLimit("17"), 17);

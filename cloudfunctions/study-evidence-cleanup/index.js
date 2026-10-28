@@ -93,6 +93,15 @@ exports.main = async (_event, _context) => {
   const token = requiredEnv("STUDY_EVIDENCE_CLEANUP_TOKEN");
   if (token.length < 32) throw new Error("STUDY_EVIDENCE_CLEANUP_TOKEN is too short");
   const timeoutMs = boundedTimeout(process.env.CLEANUP_REQUEST_TIMEOUT_MS);
+  if (_event && _event.Type === "Timer" && _event.TriggerName === "creditPostingJobsMinute") {
+    const jobsUrl = new URL(url);
+    jobsUrl.pathname = "/api/v1/internal/credit-posting-jobs";
+    const result = await requestMaintenance(jobsUrl.toString(), token, {}, 50000);
+    const data = result && result.data;
+    const valid = result && result.success === true && validCounts(data, ["processed", "completed", "needs_review"]);
+    return { ok: Boolean(valid), processed: valid ? data.processed : 0,
+      completed: valid ? data.completed : 0, needs_review: valid ? data.needs_review : 1 };
+  }
   if (_event && _event.Type === "Timer" && _event.TriggerName === "studyMeetingRosterDaily") {
     const rosterUrl = new URL(url);
     rosterUrl.pathname = "/api/v1/internal/study-meeting-roster-monthly";
