@@ -6,6 +6,10 @@ recovery is required. The ledger's existing locks and idempotency remain final.
 import sqlite3
 import time
 import hashlib
+import json
+import os
+from urllib.parse import urlsplit
+from urllib.request import Request, build_opener
 from datetime import datetime, timedelta, UTC
 from uuid import uuid4
 
@@ -66,7 +70,18 @@ def setup(actor, commit, digest):
 def public(row):
     if not row:
         return None
-    return {**{k: row[k] for k in ('id','status','error_code','created_at','updated_at')}, 'pause_requested': bool(row['pause_requested'])}
+    result={**{k: row[k] for k in ('id','status','error_code','created_at','updated_at')}, 'pause_requested': bool(row['pause_requested'])}
+    if _expired(row):
+        result.update(status='NEEDS_REVIEW',error_code='WORKER_INTERRUPTED')
+    return result
+
+
+def _expired(row):
+    if not row or row['status'] != 'RUNNING' or not row['lease_until']:
+        return False
+    until=datetime.fromisoformat(str(row['lease_until']).replace('Z','+00:00'))
+    if until.tzinfo is None:until=until.replace(tzinfo=UTC)
+    return until < datetime.now(UTC)
 
 
 def for_source(c, import_id):
@@ -98,6 +113,9 @@ def submit(import_id, actor, fingerprint, resume=False):
         lock = '' if isinstance(c, sqlite3.Connection) else ' FOR UPDATE'
         execute(c, 'SELECT id FROM learning_credit_source_imports WHERE id=?'+lock, (import_id,)).fetchone()
         existing = execute(c, 'SELECT * FROM '+TABLE+' WHERE import_id=?'+lock, (import_id,)).fetchone()
+        if _expired(existing):
+            execute(c,"UPDATE "+TABLE+" SET status='NEEDS_REVIEW',error_code='WORKER_INTERRUPTED',lease_token=NULL,lease_until=NULL,updated_at=? WHERE id=?",(credits._db_timestamp(c),existing['id']))
+            existing=execute(c,'SELECT * FROM '+TABLE+' WHERE import_id=?',(import_id,)).fetchone()
         if existing and existing['status'] in ACTIVE:
             if existing['confirmed_fingerprint'] != fingerprint:
                 raise credits.LearningCreditError('已有不同版本的后台任务，请核对原任务')
@@ -132,14 +150,14 @@ def pause(import_id, actor):
         return {'job': for_source(c, import_id)}
 
 
-def _claim():
+def _claim(job_id, fingerprint):
     with transaction() as c:
         if not available(c):
             return None
         now = credits._db_timestamp(c)
         # Do not infer whether an expired owner committed its last ledger step.
-        execute(c, "UPDATE "+TABLE+" SET status='NEEDS_REVIEW',error_code='WORKER_INTERRUPTED',lease_token=NULL,lease_until=NULL,updated_at=? WHERE status='RUNNING' AND lease_until<?", (now, now))
-        row = execute(c, "SELECT * FROM "+TABLE+" WHERE status='PENDING' AND pause_requested=0 ORDER BY updated_at,id LIMIT 1").fetchone()
+        execute(c, "UPDATE "+TABLE+" SET status='NEEDS_REVIEW',error_code='WORKER_INTERRUPTED',lease_token=NULL,lease_until=NULL,updated_at=? WHERE id=? AND confirmed_fingerprint=? AND status='RUNNING' AND lease_until<?", (now, job_id, fingerprint, now))
+        row = execute(c, "SELECT * FROM "+TABLE+" WHERE id=? AND confirmed_fingerprint=? AND status='PENDING' AND pause_requested=0", (job_id, fingerprint)).fetchone()
         if not row:
             return None
         token = uuid4().hex
@@ -159,14 +177,14 @@ def _finish(job, status, code=None):
             write_audit(c, actor_user_id=job['actor_user_id'], action='learning.credit_posting_job.step', resource_type='credit_posting_job', resource_id=str(job['id']), after={'status': status, 'error_code': code})
 
 
-def run_sweep(*, budget_seconds=20):
-    # A scheduler request keeps CloudRun CPU active. Bound the number of steps
-    # as well as wall time; never accept actor/import identifiers from it.
-    report = {'processed': 0, 'completed': 0, 'needs_review': 0}
+def run_job(job_id, fingerprint, *, budget_seconds=20):
+    # Each event belongs to ONE confirmed job. It never scans an idle queue or
+    # discovers other pending jobs. HTTP keeps CloudRun CPU active for the step.
+    report = {'processed': 0, 'completed': 0, 'needs_review': 0, 'more': False}
     credits._write_allowed()
     deadline = time.monotonic()+min(max(budget_seconds, 0), 20)
     while report['processed'] < 2 and time.monotonic() < deadline:
-        job = _claim()
+        job = _claim(job_id, fingerprint)
         if not job:
             break
         status, code = 'NEEDS_REVIEW', 'STEP_FAILED'
@@ -185,7 +203,7 @@ def run_sweep(*, budget_seconds=20):
             progress = result['posting_progress']
             if progress['completed']:
                 status, code = 'SUCCEEDED', None
-            elif progress['state'] == 'READY':
+            elif progress['state'] == 'READY' and progress['posted_entries'] > source['posting_progress']['posted_entries']:
                 status, code = 'PENDING', None
             else:
                 code = 'BATCH_REVIEW_REQUIRED'
@@ -198,4 +216,48 @@ def run_sweep(*, budget_seconds=20):
         report['processed'] += 1
         report['completed'] += status == 'SUCCEEDED'
         report['needs_review'] += status == 'NEEDS_REVIEW'
+    c = connect()
+    try:
+        row = execute(c, 'SELECT status,confirmed_fingerprint,pause_requested FROM '+TABLE+' WHERE id=?', (job_id,)).fetchone() if available(c) else None
+        report['more'] = bool(row and row['confirmed_fingerprint'] == fingerprint and row['status'] == 'PENDING' and not row['pause_requested'])
+        report['busy'] = bool(row and row['confirmed_fingerprint'] == fingerprint and row['status'] == 'RUNNING')
+    finally:
+        c.close()
     return report
+
+
+def _trigger(job_id, fingerprint):
+    from app.services.study_evidence_bridge import NoRedirect
+    url = os.getenv('CLOUDBASE_STORAGE_BRIDGE_URL', '').strip()
+    parsed = urlsplit(url)
+    token = credits.get_settings().study_evidence_cleanup_token
+    if (parsed.scheme != 'https' or parsed.hostname != 'shengheshu-d2g2zyyl99f6c6fc2-1453587887.ap-shanghai.app.tcloudbase.com'
+        or parsed.path != '/study-evidence-storage' or parsed.port not in (None,443) or parsed.username or parsed.password or parsed.query or parsed.fragment or len(token) < 32):
+        raise ValueError('后台任务触发接入尚未准备')
+    request = Request(url, data=json.dumps({'operation':'credit-posting-dispatch','job_id':job_id,'fingerprint':fingerprint}).encode(), method='POST',
+        headers={'Content-Type':'application/json','X-Study-Evidence-Cleanup-Token':token})
+    try:
+        with build_opener(NoRedirect()).open(request,timeout=10) as response:
+            result=json.loads(response.read(1025))
+            if response.status != 202 or result != {'accepted':True}:
+                raise ValueError
+    except Exception:
+        raise ValueError('后台任务触发结果待核对，请刷新任务状态') from None
+
+
+def submit_and_dispatch(import_id, actor, fingerprint, resume=False):
+    result = submit(import_id,actor,fingerprint,resume)
+    if result['job']['status'] != 'PENDING':
+        return result
+    try:
+        _trigger(result['job']['id'],fingerprint)
+    except Exception:
+        # An uncertain trigger reply is not authority to retry a ledger write.
+        # A worker already holding a lease continues; untouched work waits for
+        # another explicit user confirmation. No perpetual polling is installed.
+        with transaction() as c:
+            execute(c, "UPDATE "+TABLE+" SET status='NEEDS_REVIEW',error_code='DISPATCH_UNCERTAIN',updated_at=? WHERE id=? AND status='PENDING' AND confirmed_fingerprint=?",
+                (credits._db_timestamp(c),result['job']['id'],fingerprint))
+            write_audit(c,actor_user_id=actor,action='learning.credit_posting_job.dispatch_uncertain',resource_type='credit_posting_job',resource_id=str(result['job']['id']))
+            result['job']=for_source(c,import_id)
+    return result

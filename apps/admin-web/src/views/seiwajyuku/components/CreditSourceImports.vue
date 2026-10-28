@@ -51,7 +51,7 @@ const file = ref<File>();
 const busy = ref(false);
 const posting = ref(false);
 const jobActive = (r?: SourceImport) => !!r?.posting_job && ["PENDING", "RUNNING"].includes(r.posting_job.status);
-const jobLabels = { PENDING: "已排队，等待后台处理", RUNNING: "后台正在入账", PAUSED: "任务已暂停", SUCCEEDED: "后台任务已完成", NEEDS_REVIEW: "任务已停止，请核对后继续" };
+const jobLabels = { PENDING: "已提交，等待后台处理", RUNNING: "后台正在入账", PAUSED: "任务已暂停", SUCCEEDED: "后台任务已完成", NEEDS_REVIEW: "任务已停止，请核对后继续" };
 let progressTimer: ReturnType<typeof setInterval> | undefined;
 let polling = false;
 onBeforeUnmount(() => { if (progressTimer) clearInterval(progressTimer); });
@@ -425,7 +425,8 @@ const act = async (value: unknown, operation: "generate" | "confirm") => {
     }
     await reload();
     emit("posted");
-    ElMessage.success(detail.value?.posting_progress?.completed ? "本次入账已完成" : "后台任务已提交，可关闭页面；重新打开原记录可查看进度");
+    if (detail.value?.posting_job?.status === "NEEDS_REVIEW") ElMessage.warning("任务触发结果待核对，请刷新状态后再确认继续；已入账结果会保留");
+    else ElMessage.success(detail.value?.posting_progress?.completed ? "本次入账已完成" : "后台任务已触发，可关闭页面；重新打开原记录可查看进度");
   });
 };
 const pausePostingJob = () => perform(async () => {
@@ -437,10 +438,10 @@ const pausePostingJob = () => perform(async () => {
 });
 const setupPostingJobs = () => perform(async () => {
   if (!state.value?.posting_jobs_setup_allowed) return;
-  await ElMessageBox.confirm("将按当前发布版本新增后台任务表，保留已有来源、结算和学分。定时调度需由技术人员核验启用。", "准备后台任务存储");
+  await ElMessageBox.confirm("将按当前发布版本新增后台任务表，保留已有来源、结算和学分。按需触发接入需由技术人员核验。", "准备后台任务存储");
   await sourceSetupPostingJobs(state.value);
   await reload();
-  ElMessage.success("后台任务存储已准备，请核验调度后使用");
+  ElMessage.success("后台任务存储已准备，请核验按需触发后使用");
 });
 const setup = () =>
   perform(async () => {
@@ -487,7 +488,7 @@ onMounted(() => perform(reload));
       :closable="false"
       show-icon
     />
-    <el-alert v-if="canManage && state?.posting_jobs_available === false" title="后台入账任务尚未准备，请由管理员完成任务存储与定时调度后使用。" type="warning" :closable="false" show-icon />
+    <el-alert v-if="canManage && state?.posting_jobs_available === false" title="后台入账任务尚未准备，请由管理员完成任务存储与按需触发接入后使用。" type="warning" :closable="false" show-icon />
     <el-button v-if="state?.posting_jobs_setup_allowed" :disabled="busy" @click="setupPostingJobs">准备后台入账任务存储</el-button>
     <section v-if="canExport" class="section">
       <strong>导出学分</strong>
@@ -794,11 +795,12 @@ onMounted(() => perform(reload));
           <el-button v-if="!detail.batches.length && !detail.source_only" :disabled="busy" @click="act(detail, 'generate')">生成结算</el-button>
           <el-button v-if="detail.batches.length" type="primary" :loading="posting" :disabled="busy || !eligible(detail)" @click="act(detail, 'confirm')">{{ posting ? "提交任务中" : detail.posting_progress?.completed ? "已完成入账" : jobActive(detail) ? "后台处理中" : Number(detail.settlement_summary.posted_points) > 0 ? "继续入账" : "确认入账" }}</el-button>
           <el-button :disabled="busy" @click="refreshDetail">刷新进度</el-button>
+          <el-button v-if="detail.posting_job?.status === 'PENDING'" :disabled="busy" @click="act(detail, 'confirm')">重新触发已确认任务</el-button>
           <el-button v-if="jobActive(detail)" :disabled="busy || detail.posting_job?.pause_requested" @click="pausePostingJob">{{ detail.posting_job?.pause_requested ? "当前小段完成后暂停" : "暂停后台任务" }}</el-button>
           <el-button v-if="detail.posting_progress?.state === 'POSTING' && canReconcile" :disabled="busy" @click="recover">核对中断状态</el-button>
         </p>
         <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-        <el-alert v-if="detail.posting_job" :title="jobLabels[detail.posting_job.status] + (jobActive(detail) ? '。任务已保存在服务器，可关闭或刷新页面；定时调度会继续处理。' : detail.posting_job.status === 'NEEDS_REVIEW' ? '。已入账结果保留，请核对进度及批次状态后再确认继续。' : '')" :type="detail.posting_job.status === 'NEEDS_REVIEW' ? 'warning' : 'info'" :closable="false" show-icon />
+        <el-alert v-if="detail.posting_job" :title="jobLabels[detail.posting_job.status] + (jobActive(detail) ? '。任务已保存在服务器，可关闭或刷新页面；服务器只续跑本次已确认的任务，完成后停止。' : detail.posting_job.status === 'NEEDS_REVIEW' ? '。已入账结果保留，请核对进度及批次状态后再确认继续。' : '')" :type="detail.posting_job.status === 'NEEDS_REVIEW' ? 'warning' : 'info'" :closable="false" show-icon />
         <el-alert v-if="detail.posting_progress?.state === 'POSTING' && !posting" title="后台仍在入账，请刷新查看进度，不需要重新上传。若超过30分钟没有新进度，可由有对账权限的人员点击“核对中断状态”。" type="warning" :closable="false" show-icon />
         <p v-if="detail.posting_progress">已入账 {{ detail.posting_progress.posted_entries }} / {{ detail.posting_progress.total_entries }} 笔，剩余 {{ detail.posting_progress.remaining_entries }} 笔。{{ jobActive(detail) ? "后台分段处理，每段成功后保存进度；本页自动刷新。" : "" }}</p>
         <el-table v-if="detail.batches.length" :data="detail.member_results || []" max-height="420" empty-text="请先生成结算，即可查看每位学长的学分">
