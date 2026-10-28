@@ -610,7 +610,7 @@ async function completeEnrollment() {
     await ElMessageBox.confirm(
       existing ? `确认申请人与“${existing.name}（${existing.member_code}）”为同一学长？将以申请中已填写的资料更新此档案，保留原学员编号、首次入塾日期和学习记录，并将本申请标为已入塾。` : "系统将以当前申请资料建立正式学长档案，并写入所选分中心关系。该动作可幂等重试，但不能绕过缺失门槛。",
       existing ? "确认入塾并更新现有档案" : "确认正式入塾",
-      { type: "warning", confirmButtonText: existing ? "确认更新并入塾" : "确认建立正式档案" }
+      { type: "warning", modalClass: "enrollment-confirm-overlay", confirmButtonText: existing ? "确认更新并入塾" : "确认建立正式档案" }
     );
     actionLoading.value = true;
     const response = await enrollApplication(detail.value.id, existing?.id);
@@ -1780,6 +1780,9 @@ onMounted(async () => {
 </template>
 
 <style scoped lang="scss">
+:global(.enrollment-confirm-overlay) {
+  z-index: 4000 !important;
+}
 .enrollment-admin {
   padding: 20px;
 }

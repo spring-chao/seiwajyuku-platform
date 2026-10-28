@@ -13,6 +13,16 @@ from test_class_meeting_credits import _create_class_meeting, _admin_id, _admin_
 from test_v12_mvp import _seed_group_leader_fixture
 
 
+@pytest.fixture(autouse=True)
+def fixed_operating_month(monkeypatch):
+    class October(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 28, 8, tzinfo=UTC).astimezone(tz)
+    monkeypatch.setattr(service, "datetime", October)
+    monkeypatch.setattr("app.api.attendance.datetime", October)
+
+
 @pytest.fixture
 def meeting():
     return _create_class_meeting(_seed_group_leader_fixture(), event_date="2026-10-27")
