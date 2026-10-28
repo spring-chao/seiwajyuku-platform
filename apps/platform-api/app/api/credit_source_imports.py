@@ -7,6 +7,7 @@ from app.api.auth import require_permission
 from app.api.credit_opening_balances import _call,_content,SetupPayload
 from app.services import credit_source_imports as service
 from app.services.credit_source_exports import export_credits,export_options
+from app.services import reading_weekly_export
 
 router=APIRouter(prefix='/api/v1/learning-credits/excel',tags=['学分来源表格'])
 
@@ -57,6 +58,30 @@ def export(class_id:str|None=None,occurred_from:str='2026-10-01',occurred_to:str
 
 @router.get('/export-options')
 def options(user=Depends(require_permission('exports:normal'))):return _call(export_options,user['id'])
+
+class ReadingPause(BaseModel):
+    member_id: int = Field(gt=0)
+    occurred_from: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+    occurred_to: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+    reason: str = Field(pattern=r'^(COURSE|TEMPORARY)$')
+
+class ReadingWeeklyPayload(BaseModel):
+    class_id: str = Field(min_length=1, max_length=128)
+    occurred_from: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+    occurred_to: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+    pauses: list[ReadingPause] = Field(default_factory=list, max_length=200)
+
+@router.get('/reading-weekly-roster')
+def reading_roster(class_id: str, occurred_from: str, occurred_to: str, user=Depends(require_permission('exports:normal'))):
+    return _call(reading_weekly_export.roster, user['id'], class_id, occurred_from, occurred_to)
+
+@router.post('/reading-weekly-export')
+def reading_weekly(payload: ReadingWeeklyPayload, user=Depends(require_permission('exports:normal'))):
+    try:
+        raw=reading_weekly_export.export_weekly(user['id'], payload.class_id, payload.occurred_from, payload.occurred_to, [r.model_dump() for r in payload.pauses])
+        return _xlsx(raw, f'班级每周读书打卡统计_{payload.occurred_from}_{payload.occurred_to}.xlsx')
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(403 if isinstance(exc, PermissionError) else 400, str(exc)) from exc
 
 @router.post('/setup')
 def setup(payload:SetupPayload,user=Depends(require_permission('plans:production_rule_reconciliation_apply'))):
