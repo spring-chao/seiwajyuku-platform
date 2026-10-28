@@ -225,6 +225,10 @@ def generate_birthday_greeting_draft(
         lines.append("苏州盛和塾衷心祝您身体安康、工作顺遂，生活中多些从容与欢喜，与家人幸福常伴！")
     lines.append("——苏州盛和塾")
     draft = ("\n" if tone == "concise" else "\n\n").join(lines)
+    from app.services.birthday_ai import generate_body
+    ai = generate_body(years=member.get("membership_years"), participation=participation, tone=tone)
+    if ai["status"] == "GENERATED":
+        draft = f"{opening}\n\n{ai['body']}\n\n——苏州盛和塾"
     with transaction() as connection:
         write_audit(
             connection,
@@ -233,7 +237,8 @@ def generate_birthday_greeting_draft(
             resource_type="member",
             resource_id=str(member_id),
             org_unit_id=member["org_unit_id"],
-            after={"selected_memory_count": len(memories), "tone": tone, "facts_only": True},
+            after={"selected_memory_count": len(memories), "tone": tone, "facts_only": True,
+                   "generation_status": ai["status"], "model": ai.get("model"), "total_tokens": ai.get("total_tokens", 0)},
         )
     return {
         "member_id": member_id,
@@ -242,4 +247,6 @@ def generate_birthday_greeting_draft(
         "draft": draft,
         "facts_only": True,
         "editable": True,
+        "generation_status": ai["status"],
+        "model": ai.get("model"),
     }
