@@ -12,6 +12,8 @@ import {
   getMemberOrgCatalog,
   type MemberOrgCatalog,
   deleteAttendanceEventGroup,
+  makeupAttendance,
+  confirmAttendance,
   getAttendanceEventGroupDetail,
   getAttendanceRecords,
   downloadAttendanceRecords,
@@ -90,6 +92,72 @@ const detailDisplayTitle = ref("");
 const downloadingRecords = ref(false);
 const detail = ref<AttendanceEventGroupDetail | null>(null);
 const detailRecords = ref<AttendanceRecord[]>([]);
+const savingAttendance = ref(false);
+const makeupVisible = ref(false);
+const makeupRecord = ref<AttendanceRecord | null>(null);
+const makeupTime = ref("");
+const makeupReason = ref("");
+const confirmationLabel = computed(() => {
+  const state = detail.value?.confirmation;
+  if (state?.facts_changed) return "最终确认后签到数据有变化，请由学分管理员核查";
+  if (!state?.confirmed) return "待最终确认；2026年11月起的班会确认后自动结算学分";
+  if (state.settlement_status === "POSTED") return "签到已确认，班会学分已入账";
+  if (state.settlement_status === "PENDING_ENABLEMENT") return "签到已确认，等待正式学分结算开启后再次确认入账";
+  return "签到已确认；11月以前的活动不自动入账学分";
+});
+
+function canMakeup(row: AttendanceRecord) {
+  return hasPerms("attendance:adjudicate") && !detail.value?.confirmation?.confirmed &&
+    row.attendance_status === "ABSENT" && row.member_id && row.event_date.slice(0, 7) === dayjs().format("YYYY-MM");
+}
+
+function openMakeup(row: AttendanceRecord) {
+  makeupRecord.value = row;
+  makeupTime.value = "";
+  makeupReason.value = "";
+  makeupVisible.value = true;
+}
+
+async function refreshDetail() {
+  if (!detail.value) return;
+  await openActivityDetail({ id: detail.value.group.id, session_id: detailSessionId.value, display_title: detailDisplayTitle.value });
+  await load();
+}
+
+async function saveMakeup() {
+  if (!makeupRecord.value || !makeupTime.value || makeupReason.value.trim().length < 4) {
+    ElMessage.warning("请填写实际到场时间和至少4字的补签原因");
+    return;
+  }
+  savingAttendance.value = true;
+  try {
+    await makeupAttendance(makeupRecord.value.id, {
+      occurred_at: dayjs(makeupTime.value).toISOString(), reason: makeupReason.value.trim()
+    });
+    makeupVisible.value = false;
+    ElMessage.success("补签已保存，迟到和积分已按实际到场时间更新");
+    await refreshDetail();
+  } finally { savingAttendance.value = false; }
+}
+
+async function finalizeAttendance() {
+  if (!detail.value) return;
+  const groupId = detail.value.group.id;
+  const fingerprint = detail.value.confirmation?.review_fingerprint;
+  if (!fingerprint || savingAttendance.value) return;
+  try {
+    const { value } = await ElMessageBox.prompt(
+      "请核对全部场次和缺席人员。最终确认后不能继续人工修改；11月起的班会将按现有规则结算学分。请输入核对说明。",
+      "最终确认签到", { inputValidator: value => value?.trim().length >= 4 || "请输入至少4字的核对说明" }
+    );
+    savingAttendance.value = true;
+    const response = await confirmAttendance(groupId, value.trim(), fingerprint);
+    ElMessage.success(response.data.settlement_status === "POSTED" ? "签到已确认，学分已入账" : "签到已确认");
+    await refreshDetail();
+  } catch (error) {
+    if (error !== "cancel" && error !== "close") throw error;
+  } finally { savingAttendance.value = false; }
+}
 const detailClassBreakdown = computed<AttendanceClassParticipation[]>(() =>
   detail.value?.class_breakdown || []
 );
@@ -536,7 +604,11 @@ async function downloadDetailRecords() {
             <div class="detail-section__heading">
               <h3>签到明细</h3>
               <div class="detail-section__actions">
-                <span>只读展示签到状态、时间、迟到、早退和积分，不提供修改入口</span>
+                <span>{{ confirmationLabel }}</span>
+                <el-button v-if="hasPerms('attendance:adjudicate') && detail.group.activity_type === 'CLASS_MEETING' && (!detail.confirmation?.confirmed || detail.confirmation?.settlement_status === 'PENDING_ENABLEMENT')"
+                  type="primary" size="small" :loading="savingAttendance" @click="finalizeAttendance">
+                  最终确认全部场次签到
+                </el-button>
                 <el-button
                   type="primary"
                   plain
@@ -576,10 +648,30 @@ async function downloadDetailRecords() {
               <el-table-column label="积分" width="80">
                 <template #default="{ row }">{{ attendancePointsLabel(row.final_points) }}</template>
               </el-table-column>
+              <el-table-column v-if="hasPerms('attendance:adjudicate')" label="操作" width="90" fixed="right">
+                <template #default="{ row }">
+                  <el-button v-if="canMakeup(row as AttendanceRecord)" link type="primary" @click="openMakeup(row as AttendanceRecord)">补签</el-button>
+                </template>
+              </el-table-column>
             </el-table>
           </section>
         </template>
       </div>
+    </el-dialog>
+    <el-dialog v-model="makeupVisible" title="补录活动签到" width="480px" append-to-body>
+      <p>{{ makeupRecord?.name_snapshot }} · {{ makeupRecord?.session_name || makeupRecord?.session_code }}</p>
+      <el-form label-position="top">
+        <el-form-item label="实际到场时间（用于判断迟到）" required>
+          <el-date-picker v-model="makeupTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="选择活动当天实际到场时间" />
+        </el-form-item>
+        <el-form-item label="补签原因 / 核实依据" required>
+          <el-input v-model="makeupReason" type="textarea" maxlength="500" show-word-limit />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="makeupVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingAttendance" @click="saveMakeup">保存补签</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>

@@ -18,13 +18,14 @@ function harness(overrides = {}) {
   const context = vm.createContext({ ...labels, ...activities, computed, reactive, ref, watch, dayjs,
     defineOptions() {}, onMounted() {},
     useUserStoreHook: () => ({ permissions: [] }),
+    hasPerms: () => true,
     ElMessage: { error: text => errors.push(text) },
     getAttendanceActivityRows: async filters => { calls.push(filters); return { data: [] }; },
     getAttendanceSyncStatus: async () => ({ data: null }),
     getMemberOrgCatalog: async () => ({ data: { units: [], shukus: [], management_units: [], classes: [], groups: [] } }),
     ...overrides
   });
-  vm.runInContext(output + "\nglobalThis.testApi={load,dateRange,rows,loading,filters,visibleRows,openActivityDetail,detail,detailLoading,detailSessionId,visibleDetailSessions,visibleDetailRecords};", context);
+  vm.runInContext(output + "\nglobalThis.testApi={load,dateRange,rows,loading,filters,visibleRows,openActivityDetail,detail,detailLoading,detailSessionId,visibleDetailSessions,visibleDetailRecords,canMakeup,confirmationLabel,finalizeAttendance};", context);
   return { ...context.testApi, calls, errors };
 }
 
@@ -37,6 +38,34 @@ test("query sends the inclusive date range, and clearing it queries all dates", 
   await ui.load();
   assert.equal(ui.calls[1].date_from, undefined);
   assert.equal(ui.calls[1].date_to, undefined);
+});
+
+test("makeup is only offered for an unmatched scan in this month before final confirmation", () => {
+  const ui = harness();
+  const record = { member_id: 7, attendance_status: "ABSENT", event_date: dayjs().format("YYYY-MM-DD") };
+  assert.equal(Boolean(ui.canMakeup(record)), true);
+  assert.equal(Boolean(ui.canMakeup({ ...record, attendance_status: "PRESENT" })), false);
+  assert.equal(Boolean(ui.canMakeup({ ...record, member_id: null })), false);
+  assert.equal(Boolean(ui.canMakeup({ ...record, event_date: "2000-01-01" })), false);
+  ui.detail.value = { confirmation: { confirmed: true } };
+  assert.equal(Boolean(ui.canMakeup(record)), false);
+});
+
+test("confirmation sends the reviewed fingerprint and reports a pending gate without claiming posted", async () => {
+  const calls = [];
+  const detail = { group: { id: 7 }, sessions: [], confirmation: { confirmed: false, review_fingerprint: "a".repeat(64) } };
+  const ui = harness({
+    ElMessageBox: { prompt: async () => ({ value: "全部名单核实完成" }) },
+    ElMessage: { success() {} },
+    confirmAttendance: async (...args) => { calls.push(args); return { data: { settlement_status: "PENDING_ENABLEMENT" } }; },
+    getAttendanceEventGroupDetail: async () => ({ data: detail }),
+    getAttendanceRecords: async () => ({ data: [] })
+  });
+  ui.detail.value = detail;
+  await ui.finalizeAttendance();
+  assert.deepEqual(Array.from(calls[0]), [7, "全部名单核实完成", "a".repeat(64)]);
+  ui.detail.value.confirmation = { confirmed: true, settlement_status: "PENDING_ENABLEMENT" };
+  assert.match(ui.confirmationLabel.value, /等待/);
 });
 
 test("an older list response cannot replace the newer range or clear its loading state", async () => {

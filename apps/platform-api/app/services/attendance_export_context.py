@@ -14,6 +14,25 @@ def _hydrate(rows, event_id):
         if match:
             row.update(match)
     attach_current_registration_names(rows, event_id=event_id)
+    # Overlay audited platform makeups after the caller has authorized this
+    # exact source session. All live participation and workbook readers use
+    # this same effective arrival fact.
+    from app.db import fetch_all
+    makeups = fetch_all(
+        "SELECT r.external_registration_id, r.external_record_id, r.member_id, r.checked_at "
+        "FROM attendance_records r JOIN attendance_sessions s ON s.id=r.attendance_session_id "
+        "JOIN attendance_event_groups eg ON eg.id=s.event_group_id "
+        "WHERE eg.source_key='signin' AND s.external_session_id=? "
+        "AND r.checkin_source='STAFF_MAKEUP' AND r.attendance_status='MANUAL_PRESENT'", (str(event_id),))
+    for row in rows:
+        matches = [item for item in makeups if
+            (item['external_registration_id'] and str(item['external_registration_id']) == str(row.get('registration_id') or '')) or
+            (item['external_record_id'] and str(item['external_record_id']) == str(row.get('record_id') or '')) or
+            (item['member_id'] and str(item['member_id']) == str(row.get('current_member_id') or row.get('platform_member_id') or ''))]
+        if len(matches) == 1:
+            row['_staff_makeup_added'] = not (row.get('checked') or row.get('checked_at') or row.get('sign_time'))
+            row.update(checked=True, checked_at=str(matches[0]['checked_at']), sign_time=str(matches[0]['checked_at']),
+                       sign_status='人工补签', checkin_source='STAFF_MAKEUP')
 
 
 def _class_id(event):

@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 
 from app.api.auth import require_permission
 from app.core.settings import get_settings
-from app.db import execute, fetch_all, fetch_one, transaction
+from app.db import execute, fetch_all, fetch_one, transaction, atomic_transaction
 from app.services.audit import write_audit
 from app.services.attendance_scoring import (
     get_active_rule,
@@ -933,9 +933,15 @@ def event_group_detail(
     attach_class_activity_overall([group])
     from app.services.class_activity_participation import attach_live_class_activity_overall
     attach_live_class_activity_overall(group, user=user, sessions=sessions)
+    from app.services.attendance_confirmation import confirmation_state
+    with transaction() as connection:
+        confirmation = confirmation_state(connection, group_id)
+        from app.services.attendance_confirmation import _fingerprint
+        confirmation['review_fingerprint'] = _fingerprint(connection, group_id)
     return {
         "success": True,
         "data": {
+            "confirmation": confirmation,
             "group": group,
             "sessions": sessions,
             "class_breakdown": class_breakdown,
@@ -1154,6 +1160,30 @@ def create_adjudication(
     payload: AdjudicationPayload,
     user: dict = Depends(require_permission("attendance:adjudicate")),
 ) -> dict:
+    from app.services.attendance_confirmation import confirmation_state, lock_group
+    from app.services.learning_credits import _write_allowed, LearningCreditError
+    try:
+        _write_allowed()
+        with atomic_transaction() as connection:
+            row = fetch_one("SELECT s.event_group_id FROM attendance_records r JOIN attendance_sessions s "
+                            "ON s.id=r.attendance_session_id WHERE r.id=?", (record_id,))
+            if not row:
+                raise HTTPException(404, "出勤记录不存在")
+            group = lock_group(connection, row["event_group_id"])
+            if not _org_is_allowed(group['org_unit_id'], group['study_org_unit_id'], accessible_org_ids(user['id'])):
+                raise HTTPException(403, "不在组织授权范围内")
+            if confirmation_state(connection, row["event_group_id"])["confirmed"]:
+                raise HTTPException(409, "签到已最终确认，不能继续修改，请联系学分管理员核查")
+            return _create_adjudication(record_id, payload, user)
+    except LearningCreditError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+def _create_adjudication(
+    record_id: int,
+    payload: AdjudicationPayload,
+    user: dict = Depends(require_permission("attendance:adjudicate")),
+) -> dict:
     """Create an adjudication for an attendance record."""
     record = fetch_one(
         "SELECT r.id, r.attendance_session_id, r.member_id, r.attendance_status, "
@@ -1293,6 +1323,66 @@ def create_adjudication(
         )
 
     return {"success": True, "data": {"id": adj_id}}
+
+
+class MakeupPayload(BaseModel):
+    occurred_at: datetime
+    reason: str = Field(min_length=4, max_length=500)
+
+
+@router.post("/records/{record_id}/makeup")
+def makeup_attendance(record_id: int, payload: MakeupPayload,
+                      user: dict = Depends(require_permission("attendance:adjudicate"))) -> dict:
+    from zoneinfo import ZoneInfo
+    from app.services.attendance_confirmation import ensure_finished, lock_group
+    from app.services.attendance_sync import _db_datetime
+    from app.services.learning_credits import LearningCreditError
+    with atomic_transaction() as connection:
+        record = fetch_one("SELECT r.*, s.event_group_id FROM attendance_records r "
+                           "JOIN attendance_sessions s ON s.id=r.attendance_session_id WHERE r.id=?", (record_id,))
+        if not record:
+            raise HTTPException(404, "出勤记录不存在")
+        group = lock_group(connection, record["event_group_id"])
+        allowed = accessible_org_ids(user["id"])
+        if not _org_is_allowed(group["org_unit_id"], group["study_org_unit_id"], allowed):
+            raise HTTPException(403, "不在组织授权范围内")
+        try:
+            ensure_finished(connection, dict(group), current_month=True)
+        except LearningCreditError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if not record["member_id"] or record["attendance_status"] != "ABSENT":
+            raise HTTPException(400, "仅可为已匹配且未签到的学长补签")
+        occurred = payload.occurred_at
+        if occurred.tzinfo is None:
+            occurred = occurred.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+        if occurred.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat() != str(group["event_date"])[:10]:
+            raise HTTPException(400, "实际到场时间须在活动当天")
+        if occurred > datetime.now(UTC):
+            raise HTTPException(400, "实际到场时间不能晚于当前时间")
+        result = create_adjudication(record_id, AdjudicationPayload(
+            adjudication_type="MANUAL_CHECKIN", occurred_at=occurred.isoformat(), reason=payload.reason), user)
+        execute(connection, "UPDATE attendance_records SET checked_at=?, checkin_source='STAFF_MAKEUP' WHERE id=?",
+                (_db_datetime(occurred), record_id))
+        recalculate_event_group(record["event_group_id"])
+        return result
+
+
+class ConfirmationPayload(BaseModel):
+    reason: str = Field(min_length=4, max_length=500)
+    fingerprint: str = Field(min_length=64, max_length=64)
+
+
+@router.post("/event-groups/{group_id}/confirm")
+def confirm_event_attendance(group_id: int, payload: ConfirmationPayload,
+                             user: dict = Depends(require_permission("attendance:adjudicate"))) -> dict:
+    from app.services.attendance_confirmation import confirm_attendance
+    from app.services.learning_credits import LearningCreditError
+    try:
+        return {"success": True, "data": confirm_attendance(group_id=group_id, user=user, reason=payload.reason, expected_fingerprint=payload.fingerprint)}
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except LearningCreditError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.post("/event-groups/{group_id}/recalculate")
