@@ -25,6 +25,7 @@ function harness() {
     if (url.includes("/context?")) return context;
     if (url === "/api/v1/study-meetings") {
       state.createCount++;
+      if (state.createError) throw new Error(state.createError);
       state.session = { id: 42, status: "DRAFT", evidence: null };
       return { data: state.session };
     }
@@ -68,6 +69,30 @@ function harness() {
   const pick = name => state.picker.success({ tempFiles: [{ tempFilePath: name || "synthetic-photo" }] });
   return { app, page, state, pick };
 }
+
+test("a response without a submitted acknowledgment never displays success or clears the draft", () => {
+  const {page,state,app}=harness();
+  page.complete({id:42,status:'DRAFT'});
+  assert.match(page.data.submitError,/尚未提交成功/);
+  assert.ok(app.globalData.studyMeetingDraft);
+  assert.equal(state.redirects.length,0);
+  assert.equal(state.toasts.at(-1).title,'提交失败，请重试');
+});
+
+test("creation rejection stays visible with its reason and preserves the chosen photo", async () => {
+  const {page,state,pick,app}=harness();
+  await page.loadContext();
+  const choosing=page.choosePhoto();pick();await choosing;
+  const selected=page.data.photoPath;
+  state.createError='本小组在当前学习周期已有学习会，请查看原记录';
+  await page.submit();
+  assert.match(page.data.submitError,/已有学习会/);
+  assert.equal(page.data.submitting,false);
+  assert.equal(page.data.photoPath,selected);
+  assert.equal(app.globalData.studyMeetingDraft.photoPath,selected);
+  assert.equal(state.uploadCount,0);
+  assert.equal(state.submitCount,0);
+});
 
 for (const returnOrder of ["before picker callback", "after picker callback", "during compression"]) {
   test(`camera/album preview survives onHide with onShow ${returnOrder}`, async () => {

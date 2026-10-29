@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import base64
 import json
 import re
 import sqlite3
@@ -330,6 +331,37 @@ def test_api_auth_photo_and_operator_correction(monkeypatch):
         assert client.patch(f"/api/v1/study-meetings/records/{session['id']}/courses", headers=headers,
                             json={"course_keys": [], "expected_course_keys": []}).status_code == 401
         oversized = client.post(url, headers=headers, content=b"x" * (MAX_BYTES + 65537))
+        assert oversized.status_code == 413
+
+
+def test_json_photo_transport_preserves_auth_validation_and_submit(monkeypatch):
+    f = _seed_group_leader_fixture()
+    monkeypatch.setenv("WECHAT_LOCAL_TEST_MODE", "true")
+    monkeypatch.setattr('app.services.wechat_identity.exchange_wechat_code',
+                        lambda code: {'appid':'json-photo-test','openid':'json-photo-test'})
+    binding = verify_member_binding(code="dev-json-photo-code", name="V1.2组长", phone=f["phone"])
+    headers = {"Authorization": "Bearer " + binding["access_token"]}
+    session = create(f)
+    url = f"/api/v1/study-meetings/{session['id']}/evidence-json"
+    encoded = base64.b64encode(photo()).decode('ascii')
+    other = _seed_group_leader_fixture()
+    foreign = create(other)
+    with TestClient(app) as client:
+        assert client.post(url, json={'base64':encoded}).status_code == 401
+        assert client.post(f"/api/v1/study-meetings/{foreign['id']}/evidence-json",
+                           headers=headers, json={'base64':encoded}).status_code == 403
+        assert client.post(url, headers=headers, json={'base64':'not base64!'}).status_code == 400
+        corrupt = base64.b64encode(b'not image pixels').decode('ascii')
+        assert client.post(url, headers=headers, json={'base64':corrupt}).status_code == 400
+        invalid = client.post(url, headers=headers, json={'base64':encoded, 'member_id':999})
+        assert invalid.status_code == 400 and encoded not in invalid.text
+        result = client.post(url, headers=headers, json={'base64':encoded})
+        assert result.status_code == 200, result.text
+        assert result.json()['data']['content_type'] == 'image/jpeg'
+        assert client.get(url.removesuffix('-json'), headers=headers).status_code == 200
+        assert submit_study_meeting(member_id=f['member_id'],session_id=session['id'])['status']=='SUBMITTED'
+        assert client.post(url, headers=headers, json={'base64':encoded}).status_code == 400
+        oversized = client.post(url, headers=headers, content=b'x' * (4 * ((MAX_BYTES+2)//3) + 1025))
         assert oversized.status_code == 413
 
 

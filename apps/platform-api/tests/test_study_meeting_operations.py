@@ -39,6 +39,20 @@ def prepared(course=False):
     return f, session
 
 
+def test_unsubmitted_drafts_are_hidden_from_formal_records_and_exports():
+    from app.services.study_meeting_operations import export_meeting_workbook
+    from openpyxl import load_workbook
+    f=_seed_group_leader_fixture()
+    draft=create(f)
+    assert list_study_meeting_records(actor_user_id=_admin_id(),class_org_unit_id=f['class_id'])==[]
+    assert list_study_meeting_records(actor_user_id=_admin_id(),class_org_unit_id=f['class_id'],status='DRAFT')==[]
+    book=load_workbook(io.BytesIO(export_meeting_workbook(actor_user_id=_admin_id(),class_org_unit_id=f['class_id'])))
+    assert book['小组汇总'].max_row==1
+    assert fetch_one('SELECT status FROM study_meeting_sessions WHERE id=?',(draft['id'],))['status']=='DRAFT'
+    _submit_without_evidence(draft)
+    assert [r['id'] for r in list_study_meeting_records(actor_user_id=_admin_id(),class_org_unit_id=f['class_id'])]==[draft['id']]
+
+
 def test_region_class_filters_apply_to_records_export_and_authorized_options():
     from app.services.study_meetings import study_meeting_filter_options
     from app.services.study_meeting_operations import export_meeting_workbook

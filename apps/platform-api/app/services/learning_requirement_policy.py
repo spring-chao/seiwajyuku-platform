@@ -13,8 +13,10 @@ def exemption_reason(group_name, class_name="", *, metric):
     if metric not in METRICS:
         raise ValueError("Unknown learning requirement metric")
     name, klass = compact(group_name), compact(class_name)
-    if name == "精进组" or klass and name == klass + "精进组" or re.fullmatch(r".+班精进组", name):
-        return "精进组免学习要求，不计入参与率分子或分母"
+    # A bare 精进组 is an ordinary group. Never manufacture a class prefix
+    # from the separate class_name field displayed beside the group name.
+    if re.fullmatch(r".+班精进组", name):
+        return "带班级前缀的精进组免学习要求，不计入参与率分子或分母"
     if metric == "group_meeting" and (name == "班委组" or klass and name == klass + "班委组"):
         return "班委组不纳入小组学习会应开及参会率要求"
     return ""

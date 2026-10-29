@@ -13,7 +13,7 @@ from app.main import app
 from app.services.iam import authenticate
 from app.services.study_meeting_operations import export_meeting_workbook
 from app.services.study_meeting_sharing import sharing_dataset, report_period
-from app.services.study_meetings import StudyMeetingError
+from app.services.study_meetings import StudyMeetingError, get_study_meeting_record_for_operations
 from test_study_meeting_operations import prepared, flags
 from test_learning_credit_ledger import _admin_id
 
@@ -234,6 +234,30 @@ def test_exempt_advanced_and_committee_groups_are_not_targets_or_rate_denominato
         execute(c,"UPDATE org_units SET name='班委组' WHERE id=?",(f['other_group_id'],))
     center=report(f)['centers'][0]
     assert center['planned']==1 and len(center['meetings'])==1
+
+
+def test_bare_advanced_group_is_a_normal_monthly_target():
+    f,s=source()
+    with transaction() as c:
+        execute(c,"UPDATE org_units SET name='精进组' WHERE id=?",(f['other_group_id'],))
+    center=report(f)['centers'][0]
+    assert center['planned']==2
+    pending=next(row for row in center['meetings'] if row['group_id']==f['other_group_id'])
+    assert pending['status']=='待完成'
+
+
+def test_existing_submitted_bare_advanced_group_is_recalculated_without_resubmission():
+    f,s=source()
+    with transaction() as c:
+        execute(c,"UPDATE org_units SET name='精进组' WHERE id=?",(f['group_id'],))
+    detail=get_study_meeting_record_for_operations(
+        actor_user_id=_admin_id(),session_id=s['id'])
+    assert not detail['requirement_exempt_reason']
+    assert detail['home_group_member_count']==1
+    center=report(f)['centers'][0]
+    completed=next(row for row in center['meetings'] if row['group_id']==f['group_id'])
+    assert completed['status']=='已完成' and completed['present']==1
+    assert fetch_one('SELECT status FROM study_meeting_sessions WHERE id=?',(s['id'],))['status']=='SUBMITTED'
 
 
 def test_same_class_elsewhere_updates_home_month_rate_without_completing_home_meeting():

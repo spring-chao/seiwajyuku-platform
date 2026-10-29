@@ -26,7 +26,7 @@
     <view wx:if="{{activeScene !== 'overall'}}" class="row"><text>本场现场总人数</text><text>{{view.onsite_total === null ? '—' : view.onsite_total}} 人</text></view>
     <view wx:if="{{view.message}}" class="error">{{view.message}}</view>
     <view wx:for="{{view.groups}}" wx:key="key" class="row"><text>{{item.group_name}}</text><text>{{item.present_count}} / {{item.roster_count}} 人　{{item.rateLabel}}</text></view>
-    <view class="muted">{{activeScene === 'overall' ? '上午、下午去重；空巴另计。' : '仅统计' + view.name + '场次。'}}精进组免统计。</view>
+    <view class="muted">{{activeScene === 'overall' ? '上午、下午去重；空巴另计。' : '仅统计' + view.name + '场次。'}}仅带班级前缀的“XX班精进组”免统计，单独“精进组”正常统计。</view>
     <view class="muted">更新于 {{updatedLabel}}</view>
   </view>
 </view>

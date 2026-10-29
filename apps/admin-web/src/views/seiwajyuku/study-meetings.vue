@@ -406,7 +406,6 @@ onMounted(async () => {
           <el-option v-for="item in filteredClasses" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
         <el-select v-model="filters.status" clearable placeholder="全部状态" class="status-select">
-          <el-option label="草稿" value="DRAFT" />
           <el-option label="已提交" value="SUBMITTED" />
           <el-option label="已取消" value="CANCELLED" />
         </el-select>

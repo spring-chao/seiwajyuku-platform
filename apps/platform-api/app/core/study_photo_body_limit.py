@@ -1,4 +1,4 @@
-"""Bound multipart upload size before Starlette writes any temporary file."""
+"""Bound photo upload bodies before multipart or JSON parsing."""
 from starlette.responses import JSONResponse
 
 
@@ -11,13 +11,14 @@ class StudyPhotoBodyLimit:
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
         if scope["type"] != "http" or scope.get("method") != "POST" or not (
-            path.startswith("/api/v1/study-meetings/") and path.endswith("/evidence")
+            path.startswith("/api/v1/study-meetings/") and path.endswith(("/evidence", "/evidence-json"))
         ):
             return await self.app(scope, receive, send)
         rejected = JSONResponse({"detail": "合影不能超过5MB"}, status_code=413)
+        limit = 4 * ((5 * 1024 * 1024 + 2) // 3) + 1024 if path.endswith('/evidence-json') else self.LIMIT
         headers = dict(scope.get("headers", []))
         try:
-            if int(headers.get(b"content-length", b"0")) > self.LIMIT:
+            if int(headers.get(b"content-length", b"0")) > limit:
                 return await rejected(scope, receive, send)
         except ValueError:
             return await rejected(scope, receive, send)
@@ -29,7 +30,7 @@ class StudyPhotoBodyLimit:
                 return
             chunk = message.get("body", b"")
             size += len(chunk)
-            if size > self.LIMIT:
+            if size > limit:
                 return await rejected(scope, receive, send)
             chunks.append(chunk)
             if not message.get("more_body", False):

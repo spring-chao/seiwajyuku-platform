@@ -362,8 +362,10 @@ def _group_type(source_group_name: str | None, class_name: str) -> str:
     value = _compact(source_group_name)
     if not value:
         return NO_GROUP
-    if value == "精进组" or value == f"{_compact(class_name)}精进组":
+    if re.fullmatch(r".+班精进组", value):
         return CLASS_ADVANCED
+    if value == "精进组":
+        return CLASS_REGULAR
     if re.fullmatch(r"\d+组", value):
         return CLASS_REGULAR
     if value.startswith(_compact(class_name)) and re.fullmatch(
@@ -500,7 +502,7 @@ def _group_mapping(
     ]
     if len(matches) != 1:
         return None, group_type, "GROUP_MAPPING_MISSING"
-    return str(matches[0]["id"]), group_type, None
+    return str(matches[0]["id"]), _group_type(matches[0]["name"], str(class_row["name"])), None
 
 
 def _member_candidates(
