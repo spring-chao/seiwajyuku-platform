@@ -57,10 +57,11 @@
     </view>
     <view class="section-card notice-card">
       <view class="section-title">本次登记</view>
+      <view wx:if="{{assignment.previous_submission}}" class="section-hint">本周期已有登记，本次将重新提交。提交成功后更新有效记录，后台重新核实；已计学分按差额处理，不重复计分。</view>
       <view class="section-hint">本组 {{homeCount}} 人{{crossSummary}}。提交后即可完成本次学习会登记。</view>
     </view>
     <view wx:if="{{submitError}}" class="submit-feedback" role="alert">{{submitError}}</view>
-    <button class="primary-button" loading="{{submitting}}" disabled="{{submitting || choosingPhoto || !evidenceEnabled || photoPreviewError}}" bindtap="submit">{{submitting ? submitStage : (submitError ? '重试提交本次学习会' : '提交本次学习会')}}</button>
+    <button class="primary-button" loading="{{submitting}}" disabled="{{submitting || choosingPhoto || !evidenceEnabled || photoPreviewError}}" bindtap="submit">{{submitting ? submitStage : (submitError ? '重试提交本次学习会' : assignment.previous_submission ? '重新提交本次学习会' : '提交本次学习会')}}</button>
   </block>
   <view wx:if="{{!loading && assignment && assignment.current_cycle && !meetingPlanReady}}" class="state-card error">
     {{meetingPlanError || '当前学习周期内容配置尚未完成，请联系运营人员。'}}

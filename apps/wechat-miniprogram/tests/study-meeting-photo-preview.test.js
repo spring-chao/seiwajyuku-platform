@@ -79,6 +79,26 @@ test("a response without a submitted acknowledgment never displays success or cl
   assert.equal(state.toasts.at(-1).title,'提交失败，请重试');
 });
 
+for (const change of ['photo','attendees']) {
+  test(`resubmitting after a lost success response with changed ${change} creates a new version`, async () => {
+    const {page,state,pick,app}=harness();
+    await page.loadContext();
+    let choosing=page.choosePhoto();pick();await choosing;
+    const draft=app.globalData.studyMeetingDraft;
+    await page.submit();
+    assert.equal(state.session.status,'SUBMITTED');
+    // Simulate a client that retained its draft after losing the final response.
+    app.globalData.studyMeetingDraft=draft;
+    if (change==='attendees') draft.member_ids=[1,2];
+    else { choosing=page.choosePhoto();pick('replacement-photo');await choosing; }
+    await page.submit();
+    assert.equal(state.createCount,2);
+    assert.equal(state.submitCount,2);
+    assert.equal(state.uploadCount,2);
+    assert.equal(state.redirects.length,2);
+  });
+}
+
 test("creation rejection stays visible with its reason and preserves the chosen photo", async () => {
   const {page,state,pick,app}=harness();
   await page.loadContext();

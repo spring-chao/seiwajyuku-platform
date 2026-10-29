@@ -138,8 +138,8 @@ def test_multi_course_fact_snapshot_and_one_photo(count):
     assert fetch_one("SELECT COUNT(*) AS n FROM attendance_score_records")["n"] == before_credits
     assert fetch_one("SELECT * FROM class_learning_cycles WHERE id=?", (f["learning_cycle_id"],)) == before_cycle
     assert fetch_all("SELECT * FROM member_org_relations WHERE member_id=?", (f["other_member_id"],)) == original_relations
-    with pytest.raises(StudyMeetingError, match="不能重复上传"):
-        create(f, keys)
+    revision=create(f,keys)
+    assert revision['id']!=session['id'] and revision['status']=='DRAFT'
     listed = next(r for r in list_study_meeting_records(actor_user_id=admin_id()) if r["id"] == session["id"])
     assert len(listed["courses"]) == count
 

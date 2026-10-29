@@ -500,6 +500,8 @@ def _build_study_meeting_preview(connection, session_id: int) -> dict[str, Any]:
     if not session:
         raise LearningCreditError("学习会记录不存在")
     entries = _attendance_proposals(connection, session) + _course_proposals(connection, session)
+    from app.services.study_meeting_resubmissions import proposals as revision_proposals
+    entries = revision_proposals(connection,session,entries)
     proposed = [item for item in entries if item["postable"]]
     blocked_reasons: list[str] = []
     for item in entries:

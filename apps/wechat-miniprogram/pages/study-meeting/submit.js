@@ -200,7 +200,8 @@ Page({
     }
     const draft = app.globalData.studyMeetingDraft || {};
     const payload = {
-      group_org_unit_id: draft.group_org_unit_id, meeting_date: localDateString(),
+      group_org_unit_id: draft.group_org_unit_id,
+      meeting_date: this.data.assignment.previous_submission?.meeting_date || localDateString(),
       member_ids: draft.member_ids || [], cross_group_member_ids: draft.cross_group_member_ids || [],
       learning_cycle_id: cycle.id,
       learning_content_results: serializeLearningContentResults(this.data.learningContentResults)
@@ -210,9 +211,6 @@ Page({
     try {
       // Retry the same draft after upload/submit failure; never silently submit twice.
       if (draft.sessionId && draft.payloadFingerprint !== fingerprint) {
-        const existing = await request("/api/v1/study-meetings/" + draft.sessionId, { auth: true });
-        if (!current()) return;
-        if (existing.data.status === "SUBMITTED") { this.complete(existing.data); return; }
         delete draft.sessionId; delete draft.uploadedPhotoPath;
       }
       if (!draft.sessionId) {
@@ -224,7 +222,14 @@ Page({
       } else {
         const existing = await request("/api/v1/study-meetings/" + draft.sessionId, { auth: true });
         if (!current()) return;
-        if (existing.data.status === "SUBMITTED") { this.complete(existing.data); return; }
+        if (["SUBMITTED", "CANCELLED"].includes(existing.data.status)) {
+          if (existing.data.status === "SUBMITTED" && draft.uploadedPhotoPath === this.data.photoPath) { this.complete(existing.data); return; }
+          const created = await request("/api/v1/study-meetings", { method: "POST", auth: true, data: payload });
+          if (!current()) return;
+          draft.sessionId = created.data.id;
+          draft.payloadFingerprint = fingerprint;
+          delete draft.uploadedPhotoPath;
+        }
         if (!existing.data.evidence) delete draft.uploadedPhotoPath;
       }
       if (draft.uploadedPhotoPath !== this.data.photoPath) {
