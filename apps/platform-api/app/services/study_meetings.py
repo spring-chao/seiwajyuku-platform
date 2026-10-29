@@ -1019,7 +1019,7 @@ def list_study_meeting_records(
     limit: int = 500,
     scope_permissions: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
-    """Read-only operations view for submitted/draft fact records."""
+    """Formal records only; retryable drafts are not completed registrations."""
 
     allowed = accessible_org_ids(actor_user_id)
     for permission in scope_permissions:
@@ -1035,7 +1035,7 @@ def list_study_meeting_records(
                   and (not management_org_unit_id or r['management_org_unit_id']==management_org_unit_id)}
         allowed=selected if allowed is None else allowed & selected
         if not allowed:return []
-    conditions = ["1=1"]
+    conditions = ["s.status<>'DRAFT'"]
     params: list[Any] = []
     if status:
         normalized = status.upper()

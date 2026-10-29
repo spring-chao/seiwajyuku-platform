@@ -7,9 +7,23 @@ from app.services.learning_requirement_policy import exemption_reason,requiremen
 from test_v12_mvp import _seed_group_leader_fixture
 
 @pytest.mark.parametrize('metric',['class_meeting','group_meeting','reading','sharing'])
-@pytest.mark.parametrize('name',['精进组','炎武三班精进组',' 炎武三班 精进组 '])
+@pytest.mark.parametrize('name',['炎武三班精进组',' 炎武三班 精进组 '])
 def test_canonical_advanced_groups_are_exempt_for_every_requirement(metric,name):
     assert exemption_reason(name,'炎武三班',metric=metric)
+
+
+@pytest.mark.parametrize('metric',['class_meeting','group_meeting','reading','sharing'])
+@pytest.mark.parametrize('name',['精进组',' 精进组 ','精进同行组','一班精进组志愿队'])
+def test_unprefixed_or_partial_advanced_names_are_normal_groups(metric,name):
+    assert not exemption_reason(name,'炎武三班',metric=metric)
+
+
+def test_bare_advanced_group_remains_in_requirement_roster():
+    f=_seed_group_leader_fixture()
+    with transaction() as c:
+        execute(c,"UPDATE org_units SET name='精进组' WHERE id=?",(f['group_id'],))
+        rows=requirement_roster(c,metric='group_meeting',class_id=f['class_id'])
+        assert f['member_id'] in {r['member_id'] for r in rows}
 
 
 def test_committee_exemption_is_only_for_group_meeting_not_every_class_duty():

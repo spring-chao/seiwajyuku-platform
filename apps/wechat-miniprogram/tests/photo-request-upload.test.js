@@ -4,7 +4,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const test = require("node:test");
 
-function harness(bytes, respond) {
+function harness(bytes, respond, jsonTransport = false) {
   const calls = [];
   const app = { globalData: { apiBaseUrl: "https://example.test/platform", memberSessionToken: "synthetic-session" } };
   const module = { exports: {} };
@@ -12,6 +12,7 @@ function harness(bytes, respond) {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../utils/request.js"), "utf8"), {
     module, getApp: () => app, Uint8Array,
     wx: {
+      ...(jsonTransport ? { arrayBufferToBase64: data => Buffer.from(data).toString('base64') } : {}),
       getFileSystemManager: () => ({ readFile(options) { reader = options; } }),
       request(options) { calls.push(options); if (respond) respond(options); },
       uploadFile() { throw new Error("Requires an upload domain"); }
@@ -37,6 +38,19 @@ test("multipart request preserves exact binary bytes and uses the existing authe
   const boundary = request.header["content-type"].split("boundary=")[1];
   assert.equal(body.subarray(split + bytes.length).toString(), `\r\n--${boundary}--\r\n`);
   assert.match(body.subarray(0, split).toString(), /name="photo"; filename="photo.bin"/);
+});
+
+test("JSON photo transport preserves image bytes through a JSON-only gateway", async () => {
+  const bytes = [255,216,0,128,255,10,13,255,217];
+  const h = harness(bytes, options => {
+    const wireBody = JSON.parse(JSON.stringify(options.data));
+    assert.deepEqual([...Buffer.from(wireBody.base64, 'base64')], bytes);
+    options.success({statusCode:200,data:{success:true}});
+  }, true);
+  const pending = h.upload('/api/v1/study-meetings/7/evidence','photo.jpg'); h.read(); await pending;
+  assert.equal(h.calls[0].url,'https://example.test/platform/api/v1/study-meetings/7/evidence-json');
+  assert.equal(h.calls[0].header.Authorization,'Bearer synthetic-session');
+  assert.equal(h.calls[0].header['content-type'],'application/json');
 });
 
 test("account switch during file read never sends the old account photo", async () => {

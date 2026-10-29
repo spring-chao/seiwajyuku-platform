@@ -56,6 +56,18 @@ async function uploadPhoto(path, filePath) {
   if (session() !== token) throw new Error("绑定已变更，请重新进入学习会");
   const bytes = new Uint8Array(file.data);
   if (!bytes.length || bytes.length > 5 * 1024 * 1024) throw new Error("请选择不超过5MB的合影");
+  // Use an ASCII JSON envelope when supported. It survives gateway/mobile
+  // binary-body conversions, and also works through callContainer. Retain the
+  // old multipart transport for older runtimes lacking the conversion API.
+  if (typeof wx.arrayBufferToBase64 === "function") {
+    const response = await request(path + "-json", {
+      method: "POST", auth: true, timeout: 30000,
+      header: { "content-type": "application/json" },
+      data: { base64: wx.arrayBufferToBase64(file.data) }
+    });
+    if (session() !== token) throw new Error("绑定已变更，请重新进入学习会");
+    return response;
+  }
   // The server decodes the image itself; phone extensions and MIME labels
   // must not reject an otherwise readable photo.
   const boundary = `study-photo-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;

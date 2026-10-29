@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+import base64
+import binascii
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.responses import Response, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
@@ -319,6 +323,38 @@ def save_evidence(session_id: int, photo: UploadFile = File(...),
         raise _business_error(exc) from exc
     finally:
         photo.file.close()
+
+
+@router.post("/{session_id}/evidence-json")
+async def save_evidence_json(session_id: int, request: Request,
+                             session: dict = Depends(_member_session)) -> dict:
+    """ASCII transport avoids binary multipart conversion on mobile gateways.
+
+    Decode actual pixels through the same private evidence service; no client
+    MIME/extension trust, public storage grant, or change to submission rights.
+    """
+    try:
+        # The body middleware bounds bytes before JSON parsing. Keep validation
+        # failures generic so the photo is never echoed in a 422 input field.
+        try:
+            payload = await request.json()
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            raise StudyMeetingError("合影传输内容无效，请重新选择合影") from None
+        if (not isinstance(payload, dict) or set(payload) != {'base64'}
+                or not isinstance(payload['base64'], str)
+                or not 4 <= len(payload['base64']) <= 4 * ((MAX_BYTES + 2) // 3)):
+            raise StudyMeetingError("合影传输内容无效，请重新选择合影")
+        try:
+            content = base64.b64decode(payload['base64'], validate=True)
+        except (binascii.Error, ValueError):
+            raise StudyMeetingError("合影传输内容无效，请重新选择合影") from None
+        from starlette.concurrency import run_in_threadpool
+        data = await run_in_threadpool(upload_evidence, member_id=session["member_id"],
+                                      session_id=session_id, content=content,
+                                      content_type="application/octet-stream")
+        return {"success": True, "data": data}
+    except (StudyMeetingError, StudyMeetingPermissionError) as exc:
+        raise _business_error(exc) from exc
 
 
 @router.post("/{session_id}/submit")

@@ -52,7 +52,7 @@ def test_all_session_activity_and_onsite_downloads_share_live_rows_and_requireme
         assert names['C2'].value=='合成实时新姓名' and names['B2'].value=='=SYNTHETIC()' and names['B2'].data_type=='s'
         assert names['N2'].value=='2026-10-25 09:00:00'
         values=str([list(ws.values) for ws in book]);assert f['phone'] not in values and '合成过时同步姓名' not in values
-        assert '精进组免学习要求' in values
+        assert '带班级前缀的精进组免学习要求' in values
         assert all(row[0].value!='合成班精进组' for row in book['小组参会统计'].iter_rows(min_row=2))
         summary={r[0].value:r[1].value for r in book['签到汇总'].iter_rows(min_row=2)}
         assert summary['班会应参人数（排除精进组）']==1 and summary['整体去重到场']==1 and summary['总参与率（含本班师资）']==1

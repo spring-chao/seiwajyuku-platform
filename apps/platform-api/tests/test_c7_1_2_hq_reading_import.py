@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, date
 from io import BytesIO
 from uuid import uuid4
 
@@ -348,9 +348,9 @@ def test_group_types_drive_personal_and_class_rate_flags() -> None:
     assert observations["普通完成"]["personal_credit_eligible"] == 1
     assert observations["普通完成"]["class_rate_denominator_eligible"] == 1
     assert observations["普通完成"]["class_rate_numerator_eligible"] == 1
-    assert observations["精进完成"]["group_type"] == "CLASS_ADVANCED"
+    assert observations["精进完成"]["group_type"] == "CLASS_REGULAR"
     assert observations["精进完成"]["personal_credit_eligible"] == 1
-    assert observations["精进完成"]["class_rate_denominator_eligible"] == 0
+    assert observations["精进完成"]["class_rate_denominator_eligible"] == 1
     assert observations["空小组"]["group_type"] == "NO_GROUP"
     assert observations["空小组"]["personal_credit_eligible"] == 0
     assert observations["空小组"]["eligibility_reason"] == "NO_GROUP"
@@ -372,13 +372,23 @@ def test_group_types_drive_personal_and_class_rate_flags() -> None:
     assert preview["class_rates"] == [
         {
             "occurred_on": "2026-03-02",
-            "denominator_person_count": 2,
-            "numerator_person_count": 1,
-            "rate": 0.5,
+            "denominator_person_count": 3,
+            "numerator_person_count": 2,
+            "rate": 0.666667,
             "denominator_basis": "unique_person_id",
             "numerator_basis": "unique_person_id",
         }
     ]
+
+
+def test_mapped_canonical_group_name_controls_advanced_exemption() -> None:
+    from app.services.hq_reading_import import _group_mapping
+    fixture = _hq_fixture(specs=[{'key':'learner','name':'映射测试','group':'精进组'}])
+    with transaction() as c:
+        execute(c,"UPDATE org_units SET name='总部测试班精进组' WHERE id=?",(fixture['group_ids']['精进组'],))
+        mapped,kind,error=_group_mapping(c,class_row={'id':fixture['class_id'],'name':'总部测试班'},
+            source_group_name='精进组',occurred_dates=[date(2026,3,2)])
+    assert mapped==fixture['group_ids']['精进组'] and kind=='CLASS_ADVANCED' and error is None
 
 
 def test_historical_group_node_is_valid_for_source_date_even_when_not_currently_active() -> None:
