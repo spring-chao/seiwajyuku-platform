@@ -39,6 +39,155 @@ def prepared(course=False):
     return f, session
 
 
+def _resubmit(f,monkeypatch,tmp_path,*,home=None,cross=None,courses=None):
+    from app.services.study_meetings import create_study_meeting,submit_study_meeting
+    from app.services.study_meeting_evidence import upload_evidence
+    from test_study_meeting_evidence import photo
+    monkeypatch.setenv('STUDY_MEETING_EVIDENCE_ENABLED','true')
+    monkeypatch.setenv('STUDY_EVIDENCE_STORAGE_BACKEND','local')
+    monkeypatch.setenv('STUDY_EVIDENCE_LOCAL_ROOT',str(tmp_path))
+    keys=courses or []
+    draft=create_study_meeting(member_id=f['member_id'],group_org_unit_id=f['group_id'],meeting_date=None,
+        member_ids=[f['member_id']] if home is None else home,
+        cross_group_member_ids=[f['other_member_id']] if cross is None else cross,
+        has_course=bool(keys),course_keys=keys)
+    upload_evidence(member_id=f['member_id'],session_id=draft['id'],content=photo(),content_type='image/jpeg')
+    return submit_study_meeting(member_id=f['member_id'],session_id=draft['id'])
+
+
+def _review_post(session):
+    from app.services.study_meeting_review import confirm_and_settle_meeting_review
+    args={'actor_user_id':_admin_id(),'session_id':session['id']}
+    detail=get_study_meeting_record_for_operations(**args)
+    return confirm_and_settle_meeting_review(**args,expected_fingerprint=detail['review_fingerprint'])
+
+
+@pytest.mark.parametrize('reviewed',[False,True])
+def test_resubmission_before_or_after_review_replaces_only_after_success(monkeypatch,tmp_path,reviewed):
+    from app.services.study_meetings import create_study_meeting,submit_study_meeting
+    f,first=prepared()
+    if reviewed:
+        d=get_study_meeting_record_for_operations(actor_user_id=_admin_id(),session_id=first['id'])
+        confirm_meeting_review(actor_user_id=_admin_id(),session_id=first['id'],expected_fingerprint=d['review_fingerprint'])
+    draft=create(f)
+    assert draft['id']!=first['id'] and draft['status']=='DRAFT'
+    assert [r['id'] for r in list_study_meeting_records(actor_user_id=_admin_id(),class_org_unit_id=f['class_id'])]==[first['id']]
+    with pytest.raises(StudyMeetingError,match='合影'):
+        submit_study_meeting(member_id=f['member_id'],session_id=draft['id'])
+    assert fetch_one('SELECT status FROM study_meeting_sessions WHERE id=?',(first['id'],))['status']=='SUBMITTED'
+    second=_resubmit(f,monkeypatch,tmp_path)
+    assert second['id']==draft['id'] and second['meeting_date']==first['meeting_date']
+    assert fetch_one('SELECT status FROM study_meeting_sessions WHERE id=?',(first['id'],))['status']=='CANCELLED'
+    assert [r['id'] for r in list_study_meeting_records(actor_user_id=_admin_id(),class_org_unit_id=f['class_id'])]==[second['id']]
+    assert get_study_meeting_record_for_operations(actor_user_id=_admin_id(),session_id=second['id'])['review_status']=='UNCONFIRMED'
+    assert submit_study_meeting(member_id=f['member_id'],session_id=second['id'])['id']==second['id']
+
+
+def test_posted_resubmission_unchanged_does_not_duplicate_credit(monkeypatch,tmp_path):
+    f,first=prepared();_automatic_flags(monkeypatch)
+    assert _review_post(first)['credit_settlement']['status']=='POSTED'
+    before=fetch_one('SELECT COUNT(*) n FROM learning_credit_entries')['n']
+    second=_resubmit(f,monkeypatch,tmp_path)
+    posted=_review_post(second)
+    assert posted['credit_settlement']['status']=='POSTED',posted['credit_settlement']
+    assert fetch_one('SELECT COUNT(*) n FROM learning_credit_entries')['n']==before
+    assert _review_post(second)['credit_settlement']['status']=='POSTED'
+
+
+def test_posted_resubmission_remove_readd_and_repeat_apply_only_differences(monkeypatch,tmp_path):
+    f,first=prepared();_automatic_flags(monkeypatch)
+    assert _review_post(first)['credit_settlement']['status']=='POSTED'
+    original=fetch_one("SELECT * FROM learning_credit_entries WHERE idempotency_key=?",
+                       (f"GROUP_MEETING:{f['other_member_id']}:{f['learning_cycle_id']}",))
+    second=_resubmit(f,monkeypatch,tmp_path,cross=[])
+    preview=meeting_credit_preview(actor_user_id=_admin_id(),session_id=second['id'])
+    assert preview['adjustments'][0]['member_id']==f['other_member_id']
+    assert preview['adjustments'][0]['points']<0
+    assert _review_post(second)['credit_settlement']['status']=='POSTED'
+    assert _review_post(second)['credit_settlement']['status']=='POSTED'
+    total=fetch_one('SELECT SUM(points) n FROM learning_credit_entries WHERE member_id=?',(f['other_member_id'],))['n']
+    assert float(total)==0
+    third=_resubmit(f,monkeypatch,tmp_path)
+    assert _review_post(third)['credit_settlement']['status']=='POSTED'
+    assert float(fetch_one('SELECT SUM(points) n FROM learning_credit_entries WHERE member_id=?',(f['other_member_id'],))['n'])==float(original['points'])
+    assert fetch_one('SELECT * FROM learning_credit_entries WHERE id=?',(original['id'],))==original
+
+
+def test_posted_resubmission_course_removed_keeps_attendance_and_readds_once(monkeypatch,tmp_path):
+    f,first=prepared(course=True);_automatic_flags(monkeypatch)
+    assert _review_post(first)['credit_settlement']['status']=='POSTED'
+    second=_resubmit(f,monkeypatch,tmp_path,courses=[])
+    d=_review_post(second)
+    assert d['credit_settlement']['status']=='POSTED',d['credit_settlement']
+    assert float(fetch_one('SELECT SUM(points) n FROM learning_credit_entries WHERE member_id=?',(f['member_id'],))['n'])==4
+    third=_resubmit(f,monkeypatch,tmp_path,courses=['OPERATOR_VIDEO'])
+    d=_review_post(third)
+    assert d['credit_settlement']['status']=='POSTED',d['credit_settlement']
+    assert float(fetch_one('SELECT SUM(points) n FROM learning_credit_entries WHERE member_id=?',(f['member_id'],))['n'])==44
+
+
+def test_resubmission_preserves_other_group_credit_until_last_participation_removed(monkeypatch,tmp_path):
+    f,first=prepared();_automatic_flags(monkeypatch)
+    assert _review_post(first)['credit_settlement']['status']=='POSTED'
+    with transaction() as c:
+        execute(c,"INSERT INTO volunteer_appointments(person_id,member_id,appointment_key,org_unit_id,scope_type,starts_at,ends_at,status,source_reference,created_at,updated_at) "
+            "SELECT person_id,member_id,appointment_key,?,scope_type,starts_at,ends_at,status,'resubmit-test',created_at,updated_at "
+            "FROM volunteer_appointments WHERE member_id=? AND org_unit_id=?",
+            (f['other_group_id'],f['member_id'],f['group_id']))
+    other={**f,'group_id':f['other_group_id']}
+    other_meeting=_resubmit(other,monkeypatch,tmp_path,home=[f['other_member_id']],cross=[f['member_id']])
+    assert _review_post(other_meeting)['credit_settlement']['status']=='POSTED'
+    replacement=_resubmit(f,monkeypatch,tmp_path,cross=[])
+    assert _review_post(replacement)['credit_settlement']['status']=='POSTED'
+    assert float(fetch_one('SELECT SUM(points) n FROM learning_credit_entries WHERE member_id=?',(f['other_member_id'],))['n'])==4
+    removed=_resubmit(other,monkeypatch,tmp_path,home=[],cross=[f['member_id']])
+    done=_review_post(removed)
+    assert done['credit_settlement']['status']=='POSTED',done['credit_settlement']
+    assert float(fetch_one('SELECT SUM(points) n FROM learning_credit_entries WHERE member_id=?',(f['other_member_id'],))['n'])==0
+
+
+def test_replaced_meeting_cannot_post_stale_approved_preview(monkeypatch,tmp_path):
+    from app.services import credit_settlement_batches as batches,learning_credits as credits
+    from app.services.study_meeting_review import confirm_and_settle_meeting_review
+    f,first=prepared();_automatic_flags(monkeypatch)
+    args={'actor_user_id':_admin_id(),'session_id':first['id']}
+    d=get_study_meeting_record_for_operations(**args)
+    confirm_meeting_review(**args,expected_fingerprint=d['review_fingerprint'])
+    batch=batches.dry_run_study_meeting_batch(**args)
+    with transaction() as c:
+        row=execute(c,'SELECT * FROM learning_credit_settlement_batches WHERE id=?',(batch['id'],)).fetchone()
+        items=execute(c,"SELECT * FROM learning_credit_settlement_batch_items WHERE batch_id=? AND status<>'BLOCKED' ORDER BY id",(batch['id'],)).fetchall()
+        fingerprint=batches._approval_fingerprint(row,items)
+    newer=_resubmit(f,monkeypatch,tmp_path,cross=[])
+    with pytest.raises(credits.LearningCreditError):
+        batches._post_batch(actor_user_id=_admin_id(),batch_id=batch['id'],source_type='STUDY_MEETING',
+            meeting_confirmation={'session_id':first['id'],'review_fingerprint':d['review_fingerprint'],'fingerprint':fingerprint})
+    assert _review_post(newer)['credit_settlement']['status']=='POSTED'
+    assert fetch_one('SELECT COUNT(*) n FROM learning_credit_entries WHERE member_id=?',(f['other_member_id'],))['n']==0
+
+
+def test_partial_difference_posting_retries_without_repeating_deductions(monkeypatch,tmp_path):
+    from app.services import learning_credits as credits
+    f,first=prepared(course=True);_automatic_flags(monkeypatch)
+    assert _review_post(first)['credit_settlement']['status']=='POSTED'
+    second=_resubmit(f,monkeypatch,tmp_path,courses=[])
+    original=credits._insert_entry
+    attempts=0
+    def interrupted(connection,item,**kwargs):
+        nonlocal attempts
+        if item['idempotency_key'].startswith('SMR:'):
+            attempts+=1
+            if attempts==2:raise RuntimeError('synthetic interrupted adjustment')
+        return original(connection,item,**kwargs)
+    with patch.object(credits,'_insert_entry',side_effect=interrupted):
+        partial=_review_post(second)
+    assert partial['credit_settlement']['status']=='PARTIAL_FAILED'
+    assert _review_post(second)['credit_settlement']['status']=='POSTED'
+    assert _review_post(second)['credit_settlement']['status']=='POSTED'
+    for mid in [f['member_id'],f['other_member_id']]:
+        assert float(fetch_one('SELECT SUM(points) n FROM learning_credit_entries WHERE member_id=?',(mid,))['n'])==4
+
+
 def test_unsubmitted_drafts_are_hidden_from_formal_records_and_exports():
     from app.services.study_meeting_operations import export_meeting_workbook
     from openpyxl import load_workbook

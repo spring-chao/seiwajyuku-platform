@@ -373,6 +373,9 @@ def _session_payload(connection, session_id: int) -> dict[str, Any] | None:
         json.loads(confirmation["after_json"]).get("learning_content_results")
         if confirmation and confirmation["after_json"] else None
     )
+    created = execute(connection,"SELECT after_json FROM audit_logs WHERE resource_type='study_meeting_session' "
+        "AND resource_id=? AND action='study_meeting.create' ORDER BY id DESC LIMIT 1",(str(session_id),)).fetchone()
+    result['previous_submission_id']=(json.loads(created['after_json'] or '{}').get('previous_submission_id') if created else None)
     from app.services.study_meeting_evidence import evidence_metadata
     result["evidence"] = evidence_metadata(connection, session_id)
     result["course_rule_status"] = (
@@ -497,6 +500,12 @@ def get_study_meeting_context(
                 assignment["members"] = _active_group_members(
                     connection, target["group_org_unit_id"]
                 )
+                if cycle:
+                    previous=execute(connection,"SELECT id,meeting_date FROM study_meeting_sessions WHERE "
+                        "study_group_org_unit_id=? AND learning_cycle_id=? AND status='SUBMITTED' ORDER BY id DESC LIMIT 1",
+                        (target['group_org_unit_id'],cycle['id'])).fetchone()
+                    assignment['previous_submission'] = ({'id':int(previous['id']),
+                        'meeting_date':str(previous['meeting_date'])[:10]} if previous else None)
             assignments.append(assignment)
         selected_assignment = next(
             (
@@ -756,6 +765,12 @@ def create_study_meeting(
         binding = cycle_data["binding"]
         if learning_content_results is not None:
             keys = _learning_content_course_keys(connection, cycle_data, learning_content_results, learning_cycle_id)
+        previous = execute(connection,
+            "SELECT * FROM study_meeting_sessions WHERE study_group_org_unit_id=? AND learning_cycle_id=? "
+            "AND (submitted_at IS NOT NULL OR status='SUBMITTED') ORDER BY id DESC LIMIT 1",
+            (target['group_org_unit_id'],cycle['id'])).fetchone()
+        if previous:
+            meeting_day = str(previous['meeting_date'])[:10]
         existing = execute(connection,
             "SELECT * FROM study_meeting_sessions WHERE study_group_org_unit_id=? "
             "AND learning_cycle_id=? AND status<>'CANCELLED' ORDER BY id DESC LIMIT 1",
@@ -794,12 +809,20 @@ def create_study_meeting(
                     # A lost creation response or restarted photo upload retries
                     # the original draft instead of creating another fact.
                     return payload
-            raise StudyMeetingError(f"本小组在当前学习周期已有学习会（{existing['session_code']}），请查看原记录；已提交内容请联系运营人员更正，不能重复上传")
+            if existing['status'] == 'DRAFT':
+                # A changed selection starts a fresh retry draft. Stale clients
+                # can no longer upload or submit the abandoned selection.
+                execute(connection,"UPDATE study_meeting_sessions SET status='CANCELLED',updated_at=? WHERE id=?",
+                        (_db_timestamp(connection),existing['id']))
         snapshots = _course_snapshots(
             connection,
             keys,
             binding=binding,
         )
+        if previous:
+            retained={r['course_key']:r for r in _read_courses(connection,dict(previous))}
+            snapshots=[r if r['course_key'] not in retained else {**retained[r['course_key']], 'completions':[]}
+                       for r in snapshots]
         from app.services.study_membership import group_roster
         current = {int(item['member_id']): item['group_org_unit_id'] for item in group_roster(
             connection, class_id=target['class_org_unit_id'], member_ids=[*home_ids, *cross_ids])}
@@ -878,6 +901,7 @@ def create_study_meeting(
                 "courses": snapshots,
                 "learning_content_results": learning_content_results,
                 "created_by_member_id": member_id,
+                "previous_submission_id": int(previous['id']) if previous else None,
             },
         )
         payload = _session_payload(connection, session_id)
@@ -914,6 +938,8 @@ def submit_study_meeting(*, member_id: int, session_id: int) -> dict[str, Any]:
             raise StudyMeetingPermissionError("当前没有该小组的有效登记任职")
         _refresh_monthly_content(session["class_org_unit_id"])
     with transaction() as connection:
+        if session:
+            execute(connection,"UPDATE org_units SET id=id WHERE id=?",(session['study_group_org_unit_id'],))
         row = _lock_session(connection, session_id)
         if not row:
             raise StudyMeetingError("学习会记录不存在")
@@ -931,6 +957,23 @@ def submit_study_meeting(*, member_id: int, session_id: int) -> dict[str, Any]:
             raise StudyMeetingError("当前学习会记录不能提交")
 
         _validate_session_before_submit(connection, row)
+
+        newer=execute(connection,"SELECT id FROM study_meeting_sessions WHERE study_group_org_unit_id=? "
+            "AND learning_cycle_id=? AND status='SUBMITTED' AND id>? LIMIT 1",
+            (row['study_group_org_unit_id'],row['learning_cycle_id'],session_id)).fetchone()
+        if newer:
+            raise StudyMeetingError("已有更新的提交，请重新打开本小组登记")
+        replaced=execute(connection,"SELECT id FROM study_meeting_sessions WHERE study_group_org_unit_id=? "
+            "AND learning_cycle_id=? AND status='SUBMITTED' AND id<?",
+            (row['study_group_org_unit_id'],row['learning_cycle_id'],session_id)).fetchall()
+        for old in replaced:
+            execute(connection,"UPDATE study_meeting_sessions SET status='CANCELLED',updated_at=? WHERE id=?",
+                    (_db_timestamp(connection),old['id']))
+            write_audit(connection,actor_user_id=None,action='study_meeting.superseded',
+                resource_type='study_meeting_session',resource_id=str(old['id']),
+                org_unit_id=row['class_org_unit_id'],
+                before={'status':'SUBMITTED'},after={'status':'CANCELLED','replacement_session_id':session_id,
+                'submitted_by_member_id':member_id})
 
         now = _db_timestamp(connection)
         execute(
@@ -1035,7 +1078,9 @@ def list_study_meeting_records(
                   and (not management_org_unit_id or r['management_org_unit_id']==management_org_unit_id)}
         allowed=selected if allowed is None else allowed & selected
         if not allowed:return []
-    conditions = ["s.status<>'DRAFT'"]
+    conditions = ["s.status<>'DRAFT'", "NOT EXISTS (SELECT 1 FROM audit_logs replaced WHERE "
+                  "replaced.resource_type='study_meeting_session' AND replaced.resource_id=CAST(s.id AS CHAR) "
+                  "AND replaced.action='study_meeting.superseded')"]
     params: list[Any] = []
     if status:
         normalized = status.upper()
@@ -1196,8 +1241,8 @@ def _correction_lock_reason(connection, session: dict, *, lock: bool = False) ->
         return "结算记录尚未就绪，暂不能人工修正"
     lock_clause = " FOR UPDATE" if lock and not isinstance(connection, sqlite3.Connection) else ""
     courses = execute(connection, "SELECT id FROM study_meeting_courses WHERE study_meeting_session_id=?", (session["id"],)).fetchall()
-    source_clause = "(source_type='STUDY_MEETING_ATTENDANCE' AND source_id=?)"
-    params = [str(session["id"])]
+    source_clause = "(source_type='STUDY_MEETING_ATTENDANCE' AND source_id=?) OR idempotency_key LIKE ?"
+    params = [str(session["id"]),f"SMR:{session['id']}:%"]
     if courses:
         placeholders = ",".join("?" for _ in courses)
         source_clause += f" OR (source_type='STUDY_MEETING_COURSE' AND source_id IN ({placeholders}))"

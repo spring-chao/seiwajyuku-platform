@@ -42,7 +42,14 @@ def meeting_credit_preview(*, actor_user_id: int, session_id: int) -> dict:
 
 def _preview_members(preview: dict, detail: dict) -> dict:
     members = []
-    for attendee in detail["attendees"]:
+    attendees=list(detail['attendees'])
+    present={r['member_id'] for r in attendees}
+    for e in preview['entries']:
+        if e.get('adjustment_basis') and e['member_id'] not in present:
+            attendees.append({'member_id':e['member_id'],'name':e.get('member_name',''),
+                'attendance_type':'REMOVED','home_group_name':'已从本次名单移除'})
+            present.add(e['member_id'])
+    for attendee in attendees:
         entries = [item for item in preview["entries"] if item["member_id"] == attendee["member_id"]]
         group = sum(float(item["points"]) for item in entries if item["postable"] and item["entry_kind"] == "GROUP_MEETING_ATTENDANCE")
         course = sum(float(item["points"]) for item in entries if item["postable"] and item["entry_kind"] == "COURSE_COMPLETION")
@@ -59,11 +66,18 @@ def _preview_members(preview: dict, detail: dict) -> dict:
             "member_id": attendee["member_id"], "name": attendee["name"],
             "attendance_type": attendee["attendance_type"], "home_group_name": attendee["home_group_name"],
             "group_points": group, "course_points": course, "expected_points": group + course,
-            "credited_points": sum(float(item["existing_entry"]["points"]) for item in entries
-                if item.get("existing_entry") and item["existing_entry"].get("status")=="POSTED"),
+            "credited_points": sum(float(item['adjustment_basis']['desired_points' if item.get('existing_entry') else 'previous_net'])
+                if item.get('adjustment_basis') else
+                (float((item.get('existing_entry') or {}).get('points') or 0)
+                 if (item.get('existing_entry') or {}).get('status')=='POSTED' else 0)
+                for item in entries),
             "reasons": list(dict.fromkeys(reasons)),
         })
-    return {"members": members, "totals": preview["totals"], "persisted": False}
+    adjustments=[{'member_id':e['member_id'],'name':e.get('member_name',''),
+                  'course_name':e.get('course_name') or e.get('course_key') or '小组学习会参与',
+                  'points':e['points'],'reason':'重新提交核实后的学分差额'}
+                 for e in preview['entries'] if e.get('adjustment_basis') and e['postable']]
+    return {"members": members, "totals": preview["totals"], "adjustments":adjustments,"persisted": False}
 
 
 def _csv_cell(value):
@@ -130,7 +144,8 @@ def _member_export_rows(records, details, previews):
     for record in records:
         detail = details[record['id']]
         for member in previews[record['id']]['members']:
-            current = next(a for a in detail['attendees'] if a['member_id'] == member['member_id'])
+            current = next((a for a in detail['attendees'] if a['member_id'] == member['member_id']),
+                {'current_group_name':'已从本次名单移除','current_attendance_type':'UNRESOLVED','membership_review_required':False})
             confirmations = []
             for course in detail['courses']:
                 fact = next((fact for fact in course.get('completions', []) if fact['member_id'] == member['member_id']), {})
@@ -140,7 +155,7 @@ def _member_export_rows(records, details, previews):
             rows.append([
                 detail['session_code'], detail['meeting_date'], detail['class_name'], detail['group_name'], detail['cycle_index'],
                 {'DRAFT': '草稿', 'SUBMITTED': '已提交', 'CANCELLED': '已取消'}[detail['status']],
-                member['member_id'], member['name'], '本组' if member['attendance_type'] == 'HOME_GROUP' else '跨组', member['home_group_name'],
+                member['member_id'], member['name'], {'HOME_GROUP':'本组','CROSS_GROUP':'跨组','REMOVED':'已移除'}[member['attendance_type']], member['home_group_name'],
                 '；'.join(course['course_name_snapshot'] for course in detail['courses']), '；'.join(confirmations),
                 member['group_points'], member['course_points'], member['expected_points'], '；'.join(member['reasons']) or '预计值，以正式结算为准',
                 current['current_group_name'], {'HOME_GROUP':'本组','CROSS_GROUP':'跨组','UNRESOLVED':'待核对'}[current['current_attendance_type']],

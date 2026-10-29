@@ -290,6 +290,7 @@ def _preview_snapshots(preview: dict[str, Any]) -> tuple[dict[str, Any], dict[st
                 "course_key": item.get("course_key"),
                 "completion_status": item.get("completion_status"),
                 "status": status,
+                **({'adjustment_basis':item['adjustment_basis']} if item.get('adjustment_basis') else {}),
             }
         )
         rules.append(
@@ -606,11 +607,15 @@ def _assert_current_preview(
     posted_points = {
         item["idempotency_key"]: _points(item["points"]) for item in posted_rows
     }
+    intended_keys={r['idempotency_key'] for r in execute(connection,
+        "SELECT idempotency_key FROM learning_credit_settlement_batch_items WHERE batch_id=? AND status<>'BLOCKED'",
+        (row['id'],)).fetchall()}
     if (
         _fingerprint(live_source) != row["source_fingerprint"]
         or _fingerprint(live_rules) != row["rule_fingerprint"]
         or int(preview["totals"]["blocked_entry_count"]) != int(row["blocked_count"])
-        or any(i["status"] == "SKIPPED_DUPLICATE" for i in active)
+        or any(i["status"] == "SKIPPED_DUPLICATE" and
+               (row['source_type']!='STUDY_MEETING' or i.get('idempotency_key') in intended_keys) for i in active)
         or any(i["status"] != "SKIPPED_DUPLICATE" for i in preview["entries"] if i.get("idempotency_key") in posted_keys)
         or set(posted_points) != posted_keys
         or sum(i["postable"] for i in active) + len(posted_keys) != int(row["proposed_entry_count"])

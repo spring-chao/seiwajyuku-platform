@@ -263,12 +263,12 @@ def test_expanded_member_fields_keep_profile_permissions_scopes_and_purpose():
             export_members_xlsx(_admin_id(), fields=['volunteer_positions'])
 
 
-def test_group_cycle_rejects_duplicate_submitted_but_retries_identical_draft():
+def test_group_cycle_allows_resubmission_but_retries_identical_draft():
     f, session = prepared()
     count = fetch_one('SELECT COUNT(*) AS n FROM study_meeting_sessions')['n']
-    with pytest.raises(StudyMeetingError, match='不能重复上传'):
-        create(f)
-    assert fetch_one('SELECT COUNT(*) AS n FROM study_meeting_sessions')['n'] == count
+    revision=create(f)
+    assert revision['id']!=session['id'] and revision['status']=='DRAFT'
+    assert fetch_one('SELECT COUNT(*) AS n FROM study_meeting_sessions')['n'] == count+1
     with transaction() as c:
         execute(c, "UPDATE study_meeting_sessions SET status='CANCELLED' WHERE id=?", (session['id'],))
     new = create(f)

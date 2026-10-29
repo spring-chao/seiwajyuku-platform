@@ -9,6 +9,7 @@ export type MeetingCourse = {
 };
 
 export type StudyMeetingRecord = {
+  previous_submission_id?: number | null;
   id: number;
   session_code: string;
   class_org_unit_id: string;
@@ -130,6 +131,7 @@ export const confirmStudyMeetingReview = (sessionId: number, expectedFingerprint
   );
 
 export type MeetingCreditPreview = {
+  adjustments?: { member_id: number; name: string; course_name: string; points: number; reason: string }[];
   persisted: false;
   members: { member_id: number; name: string; attendance_type: string; home_group_name: string; group_points: number; course_points: number; expected_points: number; credited_points?: number; reasons: string[] }[];
   totals: { proposed_points: number };

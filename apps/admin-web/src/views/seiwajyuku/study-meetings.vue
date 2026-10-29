@@ -495,6 +495,7 @@ onMounted(async () => {
     <el-drawer v-model="detailVisible" title="小组学习会详情" size="min(960px, 100vw)">
       <div v-loading="detailLoading" class="detail-content">
         <template v-if="detail">
+          <el-alert v-if="detail.previous_submission_id" type="warning" :closable="false" title="本记录为重新提交后的有效版本，请重新核实。本次只结算学分增减差额，原有入账记录保留。" />
           <el-descriptions :column="2" border>
             <el-descriptions-item label="日期">{{ detail.meeting_date }}</el-descriptions-item>
             <el-descriptions-item label="状态">
@@ -618,7 +619,13 @@ onMounted(async () => {
               <el-table-column label="计分说明" min-width="220"><template #default="{ row }">{{ personCredit(row.member_id)?.reasons.join('；') || (personCredit(row.member_id) ? '可计入本次预计学分' : '预计学分尚未加载') }}</template></el-table-column>
             </el-table>
             <el-input v-if="detail.can_edit_courses && detail.courses.length" v-model="confirmationNote" class="correction-note" placeholder="观看核实备注（选填，填写后再确认）" maxlength="1000" :disabled="confirming" />
-            <div v-if="creditPreview" class="detail-title">本场预计新增合计 {{ creditPreview.totals.proposed_points }} 学分</div>
+            <div v-if="creditPreview" class="detail-title">本次学分增减合计 {{ creditPreview.totals.proposed_points }} 学分</div>
+            <el-alert v-if="creditPreview?.adjustments?.length" type="warning" :closable="false" title="重新提交后需按差额调整学分，负数为扣回。原始账本及历次提交保留。" />
+            <el-table v-if="creditPreview?.adjustments?.length" :data="creditPreview.adjustments" size="small">
+              <el-table-column prop="name" label="学长" />
+              <el-table-column prop="course_name" label="调整项目" />
+              <el-table-column prop="points" label="本次增减" />
+            </el-table>
             <el-button v-if="canExport" :loading="exporting" :disabled="editingCourses || editingAttendees || confirming || creditLoading" @click="downloadRecords(detail.id)">{{ exporting ? "正在生成导出文件…" : "导出本场人员与预计学分" }}</el-button>
           </div>
           <div class="attendee-section">

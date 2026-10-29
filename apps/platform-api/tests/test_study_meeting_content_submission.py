@@ -73,8 +73,8 @@ def test_viewing_choice_survives_api_submit_and_operations(meeting, cycle_index,
     assert len(row["courses"]) == course_count
     detail = get_study_meeting_record_for_operations(actor_user_id=admin_id, session_id=draft["id"])
     assert detail["courses"] == submitted["courses"]
-    with pytest.raises(StudyMeetingError, match="已有学习会"):
-        create(f, payload)
+    revision=create(f,payload)
+    assert revision['id']!=draft['id'] and revision['status']=='DRAFT'
     if course_count:
         # No credit-policy mapping means a readable course fact, not invented points.
         assert detail["courses"][0]["course_rule_status"] == "PENDING"
