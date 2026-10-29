@@ -21,6 +21,16 @@ from test_v12_mvp import _seed_group_leader_fixture
 
 @pytest.fixture(autouse=True)
 def flags(monkeypatch):
+    # These cases exercise live membership, not a prior test's frozen month.
+    # On/after Beijing's 30th midnight a shared snapshot can exclude fixtures
+    # created later in the suite. Boundary tests build their own snapshots.
+    from app.core.settings import get_settings
+    from app.services.study_meeting_monthly_roster import clock
+    assert get_settings().app_env=='test'
+    period=clock().strftime('%Y-%m')
+    with transaction() as c:
+        for table in ('study_meeting_roster_members','study_meeting_roster_groups','study_meeting_roster_months'):
+            execute(c,'DELETE FROM '+table+' WHERE period=?',(period,))
     monkeypatch.setenv("STUDY_MEETING_SUBMISSION_ENABLED", "true")
     monkeypatch.setenv("STUDY_MEETING_COURSE_EDIT_ENABLED", "true")
     monkeypatch.setenv("STUDY_MEETING_ATTENDEE_EDIT_ENABLED", "true")
