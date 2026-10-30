@@ -125,7 +125,7 @@ def _learning(c, center, first, cutoff):
                    *values, required if not any(flag is None for _, flag in calendar) else None,
                    complete, failures, rate, 1 if shared else None, note]
             detail.append(row)
-            if failures > 5 and not exempt:
+            if failures >= 5 and not exempt:
                 abnormal.append([item['name'], member['group_name'], str(member['member_code']), _safe_text(member['name']),
                                  failures, missing, rate, note or '来源明确未完成'])
             grouped[member['group_id']].append((member, complete, required, missing, shared))
