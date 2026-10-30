@@ -10,8 +10,8 @@ const script = component.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1
 const compiled = ts.transpileModule(script, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 function harness(api = {}, permissions = ["members:read", "plans:credit_settlement_manage", "plans:credit_settlement_preview", "plans:credit_settlement_approve", "plans:credit_settlement_post", "exports:normal"]) {
   const storage = new Map();
-  const context = vm.createContext({ computed, reactive, ref, watch, onMounted: () => {}, onBeforeUnmount: () => {}, setInterval: () => 1, clearInterval() {}, defineEmits: () => () => {}, useUserStoreHook: () => ({ permissions }), creditSettlementErrorMessage: e => e.message, ElMessage: { success() {}, error() {} }, ElMessageBox: { confirm: async () => {} }, localStorage: { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) }, URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} }, document: { createElement: () => ({ click() {} }) }, setTimeout: () => {}, monthlyCoreOptions: async () => ({ data: { centers: [] } }), ...api });
-  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail,act,batchSummary,posting,refreshDetail,recover,pausePostingJob,monthlyForm,exportCenters,exportMonthlyCore};", context);
+  const context = vm.createContext({ computed, reactive, ref, watch, onMounted: () => {}, onBeforeUnmount: () => {}, setInterval: () => 1, clearInterval() {}, defineEmits: () => () => {}, useUserStoreHook: () => ({ permissions }), creditSettlementErrorMessage: e => e.message, ElMessage: { success() {}, error() {} }, ElMessageBox: { confirm: async () => {} }, localStorage: { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) }, URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} }, document: { createElement: () => ({ click() {} }) }, setTimeout: () => {}, monthlyCoreOptions: async () => ({ data: { centers: [] } }), monthlyCoreStatus: async () => ({data:{status:"MISSING",cutoff:"2026-09-30"}}), ...api });
+  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail,act,batchSummary,posting,refreshDetail,recover,pausePostingJob,busy,monthlyForm,exportCenters,exportMonthlyCore,monthlyState,monthlyStatusText,refreshMonthlyStatus};", context);
   return context.result;
 }
 
@@ -68,11 +68,12 @@ test("a source-read failure leaves the independently authorized export usable", 
 
 test("monthly export passes the selected centre and month and validates empty selection", async () => {
   const calls = [];
-  const ui = harness({ monthlyCoreExport: async (...args) => { calls.push(args); return {}; } });
+  const ui = harness({ monthlyCorePrepare:async()=>({data:{status:'READY',cutoff:'2026-09-30'}}), monthlyCoreExport: async (...args) => { calls.push(args); return {}; } });
   await ui.exportMonthlyCore();
   assert.equal(calls.length, 0);
   assert.match(ui.error.value, /分中心/);
   ui.monthlyForm.center_id = 'synthetic-center'; ui.monthlyForm.month = '2026-09';
+  await nextTick();
   await ui.exportMonthlyCore();
   assert.deepEqual(calls, [['synthetic-center','2026-09']]);
 });
@@ -84,6 +85,31 @@ test("monthly options failure preserves existing weekly and credit export option
   await ui.reload();
   assert.equal(ui.exportClasses.value[0].id, 'class-1');
   assert.match(ui.error.value, /月度选项暂不可用/);
+});
+
+test("missing monthly file returns a background state and never starts a synchronous download",async()=>{
+  let downloads=0;
+  const ui=harness({monthlyCorePrepare:async()=>({data:{status:'PENDING',cutoff:'2026-09-30'}}),monthlyCoreExport:async()=>{downloads++;}});
+  ui.monthlyForm.center_id='synthetic-center';ui.monthlyForm.month='2026-09';await nextTick();
+  await ui.exportMonthlyCore();
+  assert.equal(downloads,0);assert.equal(ui.busy.value,false);
+  assert.equal(ui.monthlyState.value.status,'PENDING');assert.match(ui.monthlyStatusText.value,/后台/);
+});
+
+test("a superseded monthly selection cannot download a previous scope",async()=>{
+  let finish,downloads=0;
+  const ui=harness({monthlyCorePrepare:()=>new Promise(resolve=>{finish=resolve;}),monthlyCoreExport:async()=>{downloads++;}});
+  ui.monthlyForm.center_id='first';await nextTick();const pending=ui.exportMonthlyCore();
+  ui.monthlyForm.center_id='second';await nextTick();finish({data:{status:'READY',cutoff:'2026-09-30'}});await pending;
+  assert.equal(downloads,0);
+});
+
+test('ready monthly reports go straight to download without another prepare request',async()=>{
+  let downloads=0;
+  const ui=harness({monthlyCorePrepare:async()=>{throw new Error('should not prepare');},monthlyCoreExport:async()=>{downloads++;return {};}});
+  ui.monthlyForm.center_id='synthetic-center';await nextTick();
+  ui.monthlyState.value={status:'READY',cutoff:'2026-09-30'};
+  await ui.exportMonthlyCore();assert.equal(downloads,1);
 });
 
 test("source details are loaded for the selected receipt instead of every list row", async () => {

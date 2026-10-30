@@ -14,6 +14,9 @@ import {
   readingWeeklyExport,
   monthlyCoreOptions,
   monthlyCoreExport,
+  monthlyCoreStatus,
+  monthlyCorePrepare,
+  type MonthlyCoreStatus,
   type ReadingWeeklyMember,
   type ReadingWeeklyPause,
   sourcePreview,
@@ -84,14 +87,49 @@ const form = reactive({
 const exportForm = reactive({ class_id: "", from: "2026-10-01", to: "", member_id: undefined as number | undefined });
 const weeklyForm = reactive({ class_id: "", occurred_from: "", occurred_to: "" });
 const exportCenters = ref<{ id: string; name: string }[]>([]);
-const monthlyForm = reactive({ center_id: "", month: new Intl.DateTimeFormat("sv-SE", {
-  timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit"
-}).format(new Date()) });
+const reportToday = new Intl.DateTimeFormat("sv-SE", {timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+const monthlyForm = reactive({ center_id: "", month: new Date(Date.UTC(Number(reportToday.slice(0,4)),Number(reportToday.slice(5,7))-1,0)).toISOString().slice(0,7) });
+const monthlyState = ref<MonthlyCoreStatus>();
+const monthlyNotice = ref("");
+let monthlyTimer: ReturnType<typeof setInterval> | undefined;
+let monthlyGeneration = 0;
+let monthlyReading = false;
+let monthlyDisposed = false;
+const monthlyStatusText = computed(() => monthlyNotice.value || ({MISSING:"尚未生成，点击后在后台生成",PENDING:"已进入后台生成队列，可离开页面稍后下载",RUNNING:"后台正在生成，可离开页面稍后下载",READY:"文件已生成，可直接下载",FAILED:"生成未完成，点击可重新生成",EXPIRED:"任务已超时，点击可重新生成"}[monthlyState.value?.status || "MISSING"]));
+const refreshMonthlyStatus = async () => {
+  if (!monthlyForm.center_id || !monthlyForm.month || monthlyReading) return;
+  const generation = monthlyGeneration;
+  const {center_id,month} = monthlyForm;
+  monthlyReading = true;
+  try {
+    const result = (await monthlyCoreStatus(center_id,month)).data;
+    if (generation !== monthlyGeneration) return;
+    monthlyState.value = result; monthlyNotice.value = "";
+    if (!["PENDING","RUNNING"].includes(result.status) && monthlyTimer) {clearInterval(monthlyTimer);monthlyTimer=undefined;}
+  } catch {if (generation === monthlyGeneration) monthlyNotice.value = "状态读取未完成，点击导出可重新查看";}
+  finally {monthlyReading=false;if(!monthlyDisposed && generation!==monthlyGeneration)void refreshMonthlyStatus();}
+};
+const watchMonthlyProgress = () => {
+  if (monthlyTimer) clearInterval(monthlyTimer);
+  monthlyTimer=setInterval(refreshMonthlyStatus,5000);
+};
+watch(() => [monthlyForm.center_id,monthlyForm.month], () => {
+  monthlyGeneration++; monthlyState.value=undefined;monthlyNotice.value="";
+  if(monthlyTimer)clearInterval(monthlyTimer);monthlyTimer=undefined;
+  void refreshMonthlyStatus();
+});
+onBeforeUnmount(() => {monthlyDisposed=true;monthlyGeneration++;if(monthlyTimer)clearInterval(monthlyTimer);});
 const exportMonthlyCore = () => perform(async () => {
   if (!monthlyForm.center_id || !monthlyForm.month) throw new Error("请选择分中心和统计月份");
-  const center = exportCenters.value.find(c => c.id === monthlyForm.center_id);
-  download(await monthlyCoreExport(monthlyForm.center_id, monthlyForm.month), `${center?.name || "分中心"}${monthlyForm.month}核心数据.xlsx`);
-});
+  const generation = monthlyGeneration;
+  const {center_id,month} = monthlyForm;
+  const center = exportCenters.value.find(c => c.id === center_id);
+  const result=monthlyState.value?.status === 'READY' ? monthlyState.value : (await monthlyCorePrepare(center_id,month)).data;
+  if(generation!==monthlyGeneration)return;
+  monthlyState.value=result;monthlyNotice.value="";
+  if(result.status === "READY") download(await monthlyCoreExport(center_id,month), `${center?.name || "分中心"}${month}核心数据.xlsx`);
+  else {watchMonthlyProgress();ElMessage.success("已在后台生成，完成后点击导出即可下载");}
+}, true);
 const weeklyMembers = ref<ReadingWeeklyMember[]>([]);
 const weeklyPauses = ref<ReadingWeeklyPause[]>([]);
 watch(() => [weeklyForm.class_id, weeklyForm.occurred_from, weeklyForm.occurred_to], () => {
@@ -575,14 +613,15 @@ onMounted(() => perform(reload));
     </section>
     <section v-if="canExport" class="section">
       <strong>分中心月度核心数据</strong>
-      <p>按吴江核心数据表模板生成六张表，保留原表配色、分区和学分分类，可直接发群。选择分中心和月份，历史月份统计整月，本月统计到昨天；来源不足的项目留空，仅导出当前授权班级。</p>
+      <p>每月1日凌晨2点（北京时间）自动生成各分中心上月核心数据，保留吴江模板的六张表、配色和分区。已生成文件直接下载；其他月份首次在后台生成，本月截至昨天，缺失资料留空。</p>
       <el-form inline>
         <el-form-item label="分中心"><el-select v-model="monthlyForm.center_id" filterable placeholder="选择分中心" :disabled="busy">
           <el-option v-for="c in exportCenters" :key="c.id" :value="c.id" :label="c.name" />
         </el-select></el-form-item>
         <el-form-item label="统计月份"><el-date-picker v-model="monthlyForm.month" type="month" value-format="YYYY-MM" placeholder="选择月份" :disabled="busy" /></el-form-item>
-        <el-button type="primary" :loading="busy" @click="exportMonthlyCore">导出当月核心数据 Excel</el-button>
+        <el-button type="primary" :loading="busy" @click="exportMonthlyCore">导出核心数据</el-button>
       </el-form>
+      <p v-if="monthlyForm.center_id">{{ monthlyStatusText }}<span v-if="monthlyState?.generated_at">（生成时间：{{ monthlyState.generated_at.slice(0,19).replace('T',' ') }}）</span></p>
     </section>
     <section v-if="canManage" class="section">
       <strong>上传10月以后的学习记录</strong>

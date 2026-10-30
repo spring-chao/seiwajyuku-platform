@@ -259,6 +259,8 @@ app.include_router(learning_credits_router)
 app.include_router(credit_opening_balances_router)
 app.include_router(credit_year_allocations_router)
 app.include_router(credit_source_imports_router)
+from app.api.monthly_core_reports import router as monthly_core_reports_router
+app.include_router(monthly_core_reports_router)
 app.include_router(credit_posting_jobs_router)
 app.include_router(production_actions_router)
 app.include_router(member_roster_import_router)

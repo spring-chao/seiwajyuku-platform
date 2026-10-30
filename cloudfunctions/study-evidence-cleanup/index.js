@@ -93,6 +93,12 @@ exports.main = async (_event, _context) => {
   const token = requiredEnv("STUDY_EVIDENCE_CLEANUP_TOKEN");
   if (token.length < 32) throw new Error("STUDY_EVIDENCE_CLEANUP_TOKEN is too short");
   const timeoutMs = boundedTimeout(process.env.CLEANUP_REQUEST_TIMEOUT_MS);
+  if (_event && _event.Type === 'Timer' && _event.TriggerName === 'monthlyCoreReports') {
+    await require('./report-dispatch').enqueue({});
+    return {ok:true,queued:true};
+  }
+  if (_event && ['MonthlyCoreReport','MonthlyCoreReportSweep'].includes(_event.Type))
+    return require('./report-dispatch').run(_event,url,token,requestMaintenance);
   if (_event && _event.Type === "CreditPostingJob")
     return require("./credit-posting-dispatch").run(_event,url,token,requestMaintenance);
   if (_event && _event.Type === "Timer" && _event.TriggerName === "studyMeetingRosterDaily") {

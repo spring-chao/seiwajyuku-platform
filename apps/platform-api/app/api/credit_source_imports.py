@@ -9,6 +9,7 @@ from app.services import credit_source_imports as service
 from app.services.credit_source_exports import export_credits,export_options
 from app.services import reading_weekly_export
 from app.services import monthly_core_export
+from app.services import monthly_core_reports
 
 router=APIRouter(prefix='/api/v1/learning-credits/excel',tags=['学分来源表格'])
 
@@ -69,9 +70,22 @@ def monthly_core(center_id: str = Query(..., min_length=1, max_length=128),
                  month: str = Query(..., pattern=r'^\d{4}-\d{2}$'),
                  user=Depends(require_permission('exports:normal'))):
     try:
-        return _xlsx(monthly_core_export.export_monthly(user['id'], center_id, month), f'分中心{month}核心数据.xlsx')
+        return _xlsx(monthly_core_reports.download(user['id'], center_id, month), f'分中心{month}核心数据.xlsx')
     except (ValueError, PermissionError) as exc:
         raise HTTPException(403 if isinstance(exc, PermissionError) else 400, str(exc)) from exc
+
+@router.get('/monthly-core-status')
+def monthly_status(center_id:str,month:str,user=Depends(require_permission('exports:normal'))):
+    return _call(monthly_core_reports.status,user['id'],center_id,month)
+
+class MonthlyCorePrepare(BaseModel):
+    model_config={'extra':'forbid'}
+    center_id:str=Field(min_length=1,max_length=128)
+    month:str=Field(pattern=r'^20\d{2}-(0[1-9]|1[0-2])$')
+
+@router.post('/monthly-core-prepare')
+def monthly_prepare(payload:MonthlyCorePrepare,user=Depends(require_permission('exports:normal'))):
+    return _call(monthly_core_reports.prepare,user['id'],payload.center_id,payload.month)
 
 class ReadingPause(BaseModel):
     member_id: int = Field(gt=0)

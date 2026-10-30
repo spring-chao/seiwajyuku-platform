@@ -15,6 +15,11 @@
       "description": "受保护地触发 platform-api 合影到期清理；不复制业务逻辑",
       "triggers": [
         {
+          "name": "monthlyCoreReports",
+          "type": "timer",
+          "config": "0 0 2,3,4 1 * * *"
+        },
+        {
           "name": "studyEvidenceCleanupDaily",
           "type": "timer",
           "config": "0 0 2 * * * *"

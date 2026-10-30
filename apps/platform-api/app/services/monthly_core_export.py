@@ -117,7 +117,7 @@ def _learning(c, center, first, cutoff):
                     seen = set().union(*(states.get((cid, member['id'], day.isoformat()), set()) for cid in class_ids))
                     value = '√' if seen == {'是'} else '×' if seen == {'否'} else '待核对' if seen else None
                     values.append(value); complete += value == '√'; missing += value in (None, '待核对')
-            rate = complete/required if required and not missing and not (class_ids & ignored) else None
+            rate = complete/required if required and not missing else None
             failures = values.count('×')
             shared = any((cid, member['id']) in shares for cid in class_ids)
             note = '来源或日历不全' if missing else '来源含待核对记录' if class_ids & ignored else '免要求' if exempt else ''
@@ -133,7 +133,7 @@ def _learning(c, center, first, cutoff):
             required = sum(r[2] for r in members_in_group)
             completed = sum(r[1] for r in members_in_group)
             missing = sum(r[3] for r in members_in_group)
-            rate = completed/required if required and not missing and not class_ids & ignored else None
+            rate = completed/required if required and not missing else None
             analyses.append([center['name'], item['name'], members_in_group[0][0]['group_name'], len(members_in_group),
                              required if not any(flag is None for _, flag in calendar) else None, completed, rate,
                              sum(r[4] for r in members_in_group) or None, None,
@@ -176,16 +176,20 @@ def _activities(c, center, scope, first, cutoff):
 
 def _meetings(actor, center, month, cutoff):
     rows = []
-    for item in center['classes']:
-        data = sharing_dataset(actor_user_id=actor, report_month=month, report_as_of=cutoff.isoformat(),
-                               class_org_unit_id=item['id'], management_org_unit_id=center['id'],
-                               scope_permissions=('members:read',))
-        for summary in data['centers']:
-            for r in summary['meetings']:
+    data = sharing_dataset(actor_user_id=actor, report_month=month, report_as_of=cutoff.isoformat(),
+                           management_org_unit_id=center['id'],scope_permissions=('members:read',))
+    for summary in data['centers']:
+        grouped=defaultdict(list)
+        for r in summary['meetings']:grouped[r['class_name']].append(r)
+        for members in grouped.values():
+            pending=any('待核对' in r['status'] for r in members)
+            planned=sum(r['status'] in ('已完成','待完成') for r in members) if not pending else None
+            completed=sum(r['status'] in ('已完成','已完成（政策待核对）') for r in members)
+            for r in members:
                 rows.append([r['class_name'], r['group_name'], r['status'], r['date'],
                              r['roster'], r['present'], r['participation_rate'],
-                             _safe_text(r['names']), summary['planned'], summary['completed'],
-                             summary['completion_rate'], data['attribution']['state']])
+                             _safe_text(r['names']), planned, completed,
+                             completed/planned if planned else None, data['attribution']['state']])
     return rows
 
 

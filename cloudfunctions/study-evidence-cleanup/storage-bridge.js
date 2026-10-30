@@ -54,6 +54,12 @@ async function handle(event) {
     const body = event.isBase64Encoded ? Buffer.from(event.body || "", "base64").toString("utf8") : event.body;
     if (typeof body !== "string" || Buffer.byteLength(body) > 2048) return response(400, { error: "invalid request" });
     const payload=JSON.parse(body);
+    if (payload && payload.operation === 'monthly-core-object') return response(200,require('./report-storage').signedObjectRequest(payload));
+    if (payload && payload.operation === 'monthly-core-dispatch') {
+      if (Object.keys(payload).some(k=>!['operation','month','report_id'].includes(k))) return response(400,{error:'invalid request'});
+      await require('./report-dispatch').enqueue({month:payload.month,report_id:payload.report_id});
+      return response(202,{accepted:true});
+    }
     if (payload && payload.operation === "credit-posting-dispatch") {
       if (Object.keys(payload).some(k=>!["operation","job_id","fingerprint"].includes(k))) return response(400,{error:"invalid request"});
       await require("./credit-posting-dispatch").enqueue(payload);
