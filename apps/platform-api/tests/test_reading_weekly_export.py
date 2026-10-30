@@ -135,3 +135,18 @@ def test_unmatched_sources_do_not_block_complete_groups_and_names_stay_literal(r
     assert member[1].data_type=='s' and member[7].value==1 and ws['I4'].value=='=COUNTIF(C4:G5,"√")/5'
     assert all(c.value.startswith('=COUNTIF(') for row in ws for c in row if c.data_type=='f')
     assert '1条' in '\n'.join(str(c.value or '') for row in ws for c in row)
+
+
+def test_reading_export_does_not_transfer_frozen_workbook_per_daily_row(reading_fixture):
+    f=reading_fixture;iid=save(f,[('2026-10-05','是')])
+    with transaction() as c:
+        raw=execute(c,'SELECT source_snapshot_json FROM learning_credit_source_imports WHERE id=?',(iid,)).fetchone()
+        snapshot=json.loads(raw['source_snapshot_json']);snapshot['ignored_rows']=[{'reason':'synthetic'}];snapshot['padding']='synthetic'*100000
+        execute(c,'UPDATE learning_credit_source_imports SET source_snapshot_json=? WHERE id=?',(json.dumps(snapshot),iid))
+        metadata=weekly.source_metadata(c,[iid]*2000)
+        assert len(metadata)==1 and metadata[0]['ignored_count']==1 and 'source_snapshot_json' not in metadata[0]
+    from app.db import execute as real_execute
+    with patch.object(weekly,'execute',wraps=real_execute) as query:
+        export(f,[pause(f['paused_id'],end='2026-10-05')],end='2026-10-05')
+    joined=[call.args[1] for call in query.call_args_list if 'JOIN learning_credit_source_imports' in call.args[1]]
+    assert joined and all('source_snapshot_json' not in sql for sql in joined)

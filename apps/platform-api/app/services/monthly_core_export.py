@@ -68,20 +68,20 @@ def _source_records(c, ids, first, cutoff):
         return states, shares, ignored
     marks = ','.join('?' for _ in ids)
     rows = execute(c,
-        'SELECT i.id,i.class_org_unit_id,i.source_kind,i.source_snapshot_json,r.member_id,r.occurred_on,r.record_json '
+        'SELECT i.id,i.class_org_unit_id,i.source_kind,r.member_id,r.occurred_on,r.record_json '
         'FROM learning_credit_source_rows r JOIN learning_credit_source_imports i ON i.id=r.import_id '
         f'WHERE i.class_org_unit_id IN ({marks}) AND r.occurred_on>=? AND r.occurred_on<=? '
         "AND i.source_kind IN ('DAILY_READING','EXCELLENT_SHARE') ORDER BY i.id,r.id LIMIT 100001",
         (*sorted(ids), first.isoformat(), cutoff.isoformat())).fetchall()
     if len(rows) > 100000:
         raise ValueError('月度学习来源超过100000条，请按班级导出')
+    ignored.update(source['class_org_unit_id'] for source in weekly.source_metadata(c,(r['id'] for r in rows))
+                   if source['source_kind']=='DAILY_READING' and source['ignored_count'])
     for row in rows:
         cid, mid = row['class_org_unit_id'], int(row['member_id'])
         record = json.loads(row['record_json'])
         if row['source_kind'] == 'DAILY_READING':
             states[cid, mid, str(row['occurred_on'])[:10]].add(record.get('已完成录音'))
-            if json.loads(row['source_snapshot_json']).get('ignored_rows'):
-                ignored.add(cid)
         elif record.get('已评定优秀') == '是':
             shares.add((cid, mid))
     return states, shares, ignored
