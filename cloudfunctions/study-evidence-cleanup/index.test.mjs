@@ -14,6 +14,35 @@ const runtime = {
   TENCENTCLOUD_SESSIONTOKEN: "synthetic+token/=",
 };
 
+test('monthly report objects are private, isolated and conditional writes are signed',()=>{
+  const storage=require('./report-storage');
+  const key='monthly-core/production/2026-10/'+'a'.repeat(64)+'/state.json';
+  const result=storage.signedObjectRequest({operation:'monthly-core-object',method:'PUT',key,content_type:'application/json',if_match:'"'+'b'.repeat(32)+'"'},runtime,1700000000);
+  assert.equal(result.headers['x-cos-acl'],'private');assert.equal(result.headers['if-match'],'"'+'b'.repeat(32)+'"');
+  for(const invalid of ['study-meetings/production/2026/10/'+ 'a'.repeat(32)+'.jpg',key.replace('2026-10','2026-99'),key.replace('/state.json','/../state.json')])
+    assert.throws(()=>storage.signedObjectRequest({operation:'monthly-core-object',method:'GET',key:invalid},runtime));
+  assert.throws(()=>storage.signedObjectRequest({operation:'monthly-core-object',method:'DELETE',key},runtime));
+});
+
+test('monthly dispatch is limited to its fixed function and report identifier',()=>{
+  const dispatcher=require('./report-dispatch');
+  const body=JSON.parse(dispatcher.signedInvoke({month:'2026-10',report_id:'a'.repeat(64)},0,runtime,1700000000).body);
+  assert.equal(body.FunctionName,'studyEvidenceCleanup');assert.equal(body.InvocationType,'Event');
+  assert.deepEqual(JSON.parse(body.ClientContext),{Type:'MonthlyCoreReport',month:'2026-10',report_id:'a'.repeat(64),hops:0});
+  assert.throws(()=>dispatcher.signedInvoke({month:'2026-13',report_id:'a'.repeat(64)},0,runtime));
+  assert.throws(()=>dispatcher.signedInvoke({},100,runtime));
+});
+
+test('monthly schedule only queues a sweep and does not run cleanup or posting',async()=>{
+  const previous={...process.env},saved=globalThis.fetch,calls=[];
+  Object.assign(process.env,runtime,{PLATFORM_API_CLEANUP_URL:'https://api.example.invalid/api/v1/internal/study-evidence',STUDY_EVIDENCE_CLEANUP_TOKEN:'synthetic-token-'.repeat(4)});
+  globalThis.fetch=async(url,options)=>{calls.push([url,options]);return{ok:true,json:async()=>({Response:{RequestId:'synthetic'}})};};
+  try{
+    assert.equal((await cleanup.main({Type:'Timer',TriggerName:'monthlyCoreReports'},{})).queued,true);
+    assert.equal(calls.length,1);assert.equal(JSON.parse(JSON.parse(calls[0][1].body).ClientContext).Type,'MonthlyCoreReportSweep');
+  }finally{globalThis.fetch=saved;for(const key of Object.keys(process.env))if(!(key in previous))delete process.env[key];Object.assign(process.env,previous);}
+});
+
 test("fixed per-job async Invoke signature matches the official Tencent Python SDK fixture",()=>{
   const dispatch=require('./credit-posting-dispatch');
   const request=dispatch.signedInvoke({job_id:7,fingerprint:'c'.repeat(64)},0,{...runtime,TENCENTCLOUD_SESSIONTOKEN:'synthetic-token'},1700000000);

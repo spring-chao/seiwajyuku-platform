@@ -20,6 +20,11 @@ class Layout:
     def __init__(self):
         self.reference = load_workbook(ASSET)
         self.book = Workbook(); self.book.remove(self.book.active)
+        self.styles={}
+        edge=Side(style='thin',color='000000')
+        self.border=Border(left=edge,right=edge,top=edge,bottom=edge)
+        self.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+        self.yellow=PatternFill('solid',fgColor='FFFF00')
 
     def sheet(self, name, source=None):
         ws = self.book.create_sheet(name)
@@ -30,14 +35,15 @@ class Layout:
         return ws
 
     def cell(self, ws, r, c, value=None, ref=(4,14), percent=False):
-        source = self.reference[ws._template_name].cell(*ref)
+        key=(ws._template_name,ref)
+        if key not in self.styles:
+            source = self.reference[ws._template_name].cell(*ref)
+            self.styles[key]={attr:copy(getattr(source,attr)) for attr in ('font','fill','protection','number_format')}
         cell = _literal(ws,r,c,_safe_text(value) if isinstance(value,str) else value)
-        for attr in ('font','fill','border','alignment','protection','number_format'):
-            setattr(cell,attr,copy(getattr(source,attr)))
-        cell.alignment = Alignment(horizontal='center',vertical='center',wrap_text=True)
-        edge = Side(style='thin', color='000000')
-        cell.border = Border(left=edge,right=edge,top=edge,bottom=edge)
-        if value == '×': cell.fill=PatternFill('solid',fgColor='FFFF00')
+        for attr,value_style in self.styles[key].items():setattr(cell,attr,value_style)
+        cell.alignment = self.alignment
+        cell.border = self.border
+        if value == '×': cell.fill=self.yellow
         if percent: cell.number_format='0%'
         elif isinstance(value,date): cell.number_format='m"月"d"日"'
         ws.row_dimensions[r].height = max(ws.row_dimensions[r].height or 0, 23)
@@ -69,7 +75,7 @@ def _weeks(calendar):
 
 def _rate(rows, indexes):
     values=[r[4+i] for r in rows for i in indexes]
-    if not values or any(v is None or v=='待核对' for v in values) or any(r[-1]=='来源含待核对记录' for r in rows):
+    if not values or any(v is None or v=='待核对' for v in values):
         return None
     required=sum(v in ('√','×') for v in values)
     return values.count('√')/required if required else None

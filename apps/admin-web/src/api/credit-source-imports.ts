@@ -103,9 +103,14 @@ export const readingWeeklyExport = (data: { class_id: string; occurred_from: str
 
 export const monthlyCoreOptions = () =>
   http.request<Result<{ centers: { id: string; name: string }[] }>>("get", base + "/monthly-core-options");
+export type MonthlyCoreStatus = { status: "MISSING" | "PENDING" | "RUNNING" | "READY" | "FAILED" | "EXPIRED"; cutoff: string; generated_at?: string };
+export const monthlyCoreStatus = (center_id: string, month: string) =>
+  http.request<Result<MonthlyCoreStatus>>("get",base+"/monthly-core-status",{params:{center_id,month},timeout:30000});
+export const monthlyCorePrepare = (center_id: string, month: string) =>
+  http.request<Result<MonthlyCoreStatus>>("post",base+"/monthly-core-prepare",{data:{center_id,month},timeout:30000});
 export const monthlyCoreExport = (center_id: string, month: string) =>
   http.request<Blob>("get", base + "/monthly-core-export", {
-    params: { center_id, month }, responseType: "blob", timeout: 180000
+    params: { center_id, month }, responseType: "blob", timeout: 30000
   });
 export const sourcePrepareCalendar = () =>
   http.request<Result<unknown>>("post", base + "/reading-calendar/setup", {

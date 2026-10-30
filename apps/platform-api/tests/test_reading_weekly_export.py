@@ -123,7 +123,7 @@ def test_calendar_missing_cross_month_and_no_source_fail_explicitly(reading_fixt
     with patch.object(activity,'is_workday',return_value=None),pytest.raises(ValueError,match='日历'): export(f)
 
 
-def test_ignored_rows_and_formula_like_names_do_not_create_success_or_formulas(reading_fixture):
+def test_unmatched_sources_do_not_block_complete_groups_and_names_stay_literal(reading_fixture):
     f=reading_fixture; iid=save(f,[(f'2026-10-{d:02}','是') for d in range(5,10)])
     with transaction() as c:
         row=execute(c,'SELECT source_snapshot_json FROM learning_credit_source_imports WHERE id=?',(iid,)).fetchone()
@@ -132,6 +132,6 @@ def test_ignored_rows_and_formula_like_names_do_not_create_success_or_formulas(r
         execute(c,"UPDATE members SET name='=HYPERLINK(\"https://example.invalid\")' WHERE id=?",(f['member_id'],))
     ws=export(f,[pause(f['paused_id'])]).active
     member=next(r for r in ws.iter_rows() if isinstance(r[1].value,str) and r[1].value.startswith('=HYPERLINK'))
-    assert member[1].data_type=='s' and member[7].value==1 and ws['I4'].value=='待核对'
-    assert not any(c.data_type=='f' for row in ws for c in row)
+    assert member[1].data_type=='s' and member[7].value==1 and ws['I4'].value=='=COUNTIF(C4:G5,"√")/5'
+    assert all(c.value.startswith('=COUNTIF(') for row in ws for c in row if c.data_type=='f')
     assert '1条' in '\n'.join(str(c.value or '') for row in ws for c in row)

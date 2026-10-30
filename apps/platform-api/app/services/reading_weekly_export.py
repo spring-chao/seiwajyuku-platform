@@ -280,21 +280,21 @@ def build_workbook(data):
             ws.row_dimensions[row].height=19
             row+=1
         merged(first,1,row-1,1,group['name'],colors[index%len(colors)])
-        value='待核对' if group['pending'] or data['ignored'] else '—'
+        value='待核对' if group['pending'] else '—'
         merged(first,group_col,row-1,group_col,value)
-        if not group['pending'] and not data['ignored'] and group['required']:
+        if not group['pending'] and group['required']:
             # Only trusted formula text is assigned as a formula. Names and source text stay literal.
             ws.cell(first,group_col,f'=COUNTIF(C{first}:{get_column_letter(personal-1)}{row-1},"√")/{group["required"]}')
         ws.cell(first,group_col).number_format='0%'
     merged(row,1,row,2,'汇总','C00000'); ws.cell(row,1).font=Font(name='宋体',size=12,bold=True,color='FFFFFF')
     for col in range(3,personal): cell(row,col,'')
     cell(row,personal,data['total_completed'],'E2EFDA',True)
-    value='待核对' if data['pending'] or data['ignored'] else data['total_completed']/data['total_required'] if data['total_required'] else '—'
+    value='待核对' if data['pending'] else data['total_completed']/data['total_required'] if data['total_required'] else '—'
     cell(row,group_col,value,'E2EFDA',True).number_format='0%'
     notes = [f"{data['center_name']}　统计区间：{data['start']}至{data['end']}。汇总数量为已完成打卡人天。",
         '√＝已完成录音；×＝来源明确未完成；待同步＝尚无来源；待核对＝记录冲突或资料待核对。完成率＝已完成人天÷应打卡人天。',
         '小组完成率＝小组√总数÷（小组在册人数×应打卡天数）；临时暂停、停学、免要求及不在本班日期扣除对应人天。按工作日日历（含调休）统计，分组按区间内最后有效本班归属；临时暂停只用于本次导出。']
-    if data['ignored']: notes.append(f"来源另有{data['ignored']}条未通过身份或内容检查的记录，仍待核对。本表为暂报，小组及汇总完成率暂不确定。")
+    if data['ignored']: notes.append(f"来源另有{data['ignored']}条未通过身份或内容检查的记录，仍待核对；仅本组缺失或冲突的打卡影响本组完成率，已齐全的小组正常计算。")
     notes.append('保存来源：'+'；'.join(f"#{key} {value}" for key,value in data['sources'].items()))
     for offset,note in enumerate(notes,2):
         ws.merge_cells(start_row=row+offset,start_column=1,end_row=row+offset,end_column=group_col)

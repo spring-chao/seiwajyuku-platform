@@ -30,8 +30,10 @@ class StorageBridge:
         self.host = f"{bucket}.cos.{region}.myqcloud.com"
         self.opener = build_opener(NoRedirect())
 
-    def request(self, method, key, content=None, content_type=None):
+    def request(self, method, key, content=None, content_type=None, *, operation=None, if_match=None, with_metadata=False):
         payload = {"method": method, "key": key}
+        if operation: payload['operation'] = operation
+        if if_match: payload['if_match'] = if_match
         if method == "PUT":
             payload["content_type"] = content_type
         request = Request(self.url, data=json.dumps(payload).encode(), method="POST", headers={
@@ -50,12 +52,13 @@ class StorageBridge:
                 or parsed.username or parsed.password or parsed.fragment or signed.get("expires_in") != 90):
             raise ValueError("invalid object grant")
         headers = signed.get("headers", {})
-        expected = {"content-type": content_type, "x-cos-acl": "private", "if-none-match": "*"} if method == "PUT" else {}
+        expected = {"content-type": content_type, "x-cos-acl": "private", **({'if-match':if_match} if if_match else {'if-none-match':'*'})} if method == "PUT" else {}
         if headers != expected:
             raise ValueError("invalid private object headers")
         try:
             with self.opener.open(Request(signed["url"], data=content, method=method, headers=headers), timeout=15) as response:
-                return response.read(5 * 1024 * 1024 + 1) if method == "GET" else b""
+                body = response.read((20 if operation=='monthly-core-object' else 5) * 1024 * 1024 + 1) if method == "GET" else b""
+                return (body,response.headers.get('ETag')) if with_metadata else body
         except HTTPError as error:
             raise BridgeObjectError(error.code) from None
         except Exception:

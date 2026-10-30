@@ -16,6 +16,8 @@ from app.services import credit_source_imports as sources
 from app.services import reading_weekly_export as weekly
 from test_reading_weekly_export import reading_fixture, save
 from test_credit_source_excel import source_fixture
+from test_monthly_core_reports import cache
+from app.services import monthly_core_reports
 
 
 def workbook(f, month='2026-10'):
@@ -81,7 +83,7 @@ def test_period_on_first_day_allows_previous_full_month_and_current_empty_month(
         with pytest.raises(ValueError): monthly.period('2026-13')
 
 
-def test_monthly_api_auth_scope_and_download(reading_fixture):
+def test_monthly_api_auth_scope_and_download(reading_fixture,cache):
     f = reading_fixture; client = TestClient(app)
     params = {'center_id':f['center_id'],'month':'2026-10'}
     assert client.get('/api/v1/learning-credits/excel/monthly-core-export',params=params).status_code == 401
@@ -89,6 +91,10 @@ def test_monthly_api_auth_scope_and_download(reading_fixture):
     try:
         result = client.get('/api/v1/learning-credits/excel/monthly-core-options')
         assert result.status_code == 200 and 'phone' not in result.text
+        with patch.object(monthly_core_reports,'_dispatch'):
+            monthly_core_reports.prepare(f['actor'],f['center_id'],'2026-10')
+        _,key=monthly_core_reports._context(f['actor'],f['center_id'],'2026-10')
+        assert monthly_core_reports.run('2026-10',key.rsplit('/',1)[1])['completed']==1
         result = client.get('/api/v1/learning-credits/excel/monthly-core-export',params=params)
         assert result.status_code == 200 and result.content[:2] == b'PK'
         with patch.object(sources,'effective_scope',return_value=set()):
