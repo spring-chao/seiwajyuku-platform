@@ -2,6 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script id="canonical-admin-domain">
+      // Only the legacy admin entry moves; other apps on this host stay separate.
+      if (
+        window.location.hostname ===
+          "shengheshu-d2g2zyyl99f6c6fc2-1453587887.tcloudbaseapp.com" &&
+        (window.location.pathname === "/ops-platform" ||
+          window.location.pathname.startsWith("/ops-platform/"))
+      ) {
+        const target = new URL(window.location.href);
+        target.protocol = "https:";
+        target.host = "ops.jnshengheshu.cn";
+        if (target.pathname === "/ops-platform") target.pathname += "/";
+        window.location.replace(target.href);
+      }
+    </script>
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
     <meta name="renderer" content="webkit" />
     <meta
