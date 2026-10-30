@@ -3,6 +3,7 @@ import io
 import json
 import re
 import zipfile
+import sqlite3
 from xml.etree import ElementTree as ET
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -23,6 +24,18 @@ from app.services.learning_requirement_policy import exemption_reason
 
 PERMISSIONS = ('exports:normal', 'members:read', 'plans:credit_settlement_preview')
 PAUSE_REASONS = {'COURSE': '参加课程', 'TEMPORARY': '临时特殊情况'}
+
+
+def source_metadata(c, import_ids):
+    """Inspect each import once in SQL; do not transfer its large frozen workbook."""
+    ids=sorted(set(import_ids));result=[]
+    count="json_array_length(source_snapshot_json,'$.ignored_rows')" if isinstance(c,sqlite3.Connection) else "JSON_LENGTH(JSON_EXTRACT(source_snapshot_json,'$.ignored_rows'))"
+    for start in range(0,len(ids),400):
+        batch=ids[start:start+400]
+        result.extend(dict(r) for r in execute(c,
+            'SELECT id,class_org_unit_id,source_kind,original_filename,file_sha256,'+count+' AS ignored_count '
+            'FROM learning_credit_source_imports WHERE id IN ('+','.join('?' for _ in batch)+')',tuple(batch)).fetchall())
+    return result
 
 
 def period(start, end):
@@ -155,7 +168,7 @@ def export_weekly(actor, class_id, occurred_from, occurred_to, pauses=()):
             raise ValueError('所选班级在统计区间没有有效名册')
         paused = _pauses(pauses, {m['id'] for m in members}, start, end)
         raw = [dict(r) for r in execute(c,
-            'SELECT r.member_id,r.occurred_on,r.record_json,i.id AS import_id,i.original_filename,i.file_sha256,i.source_snapshot_json '
+            'SELECT r.member_id,r.occurred_on,r.record_json,i.id AS import_id '
             'FROM learning_credit_source_rows r JOIN learning_credit_source_imports i ON i.id=r.import_id '
             "WHERE i.source_kind='DAILY_READING' AND i.class_org_unit_id IN (" + ','.join('?' for _ in ids) + ') '
             'AND r.occurred_on>=? AND r.occurred_on<=? ORDER BY i.id,r.id',
@@ -165,9 +178,9 @@ def export_weekly(actor, class_id, occurred_from, occurred_to, pauses=()):
             record = json.loads(row['record_json'])
             state = record.get('已完成录音')
             records[(int(row['member_id']), str(row['occurred_on'])[:10])].add(state)
-            imports[row['import_id']] = _safe_text(row['original_filename'])
-            snapshot = json.loads(row['source_snapshot_json'])
-            ignored[row['file_sha256']] = len(snapshot.get('ignored_rows', []))
+        for source in source_metadata(c,(r['import_id'] for r in raw)):
+            imports[source['id']] = _safe_text(source['original_filename'])
+            ignored[source['file_sha256']] = int(source['ignored_count'] or 0)
         if not raw:
             raise ValueError('所选区间尚未保存读书打卡来源，请先同步或上传')
         data = {'class_name': selected['name'], 'center_name': selected.get('parent_name') or '',
