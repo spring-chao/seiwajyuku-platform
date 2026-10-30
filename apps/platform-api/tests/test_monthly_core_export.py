@@ -58,6 +58,18 @@ def test_historical_month_without_sources_exports_blanks_and_literal_names(readi
     assert name.data_type == 's'
     assert ws.cell(name.row,14).value is None
     assert not any(c.data_type == 'f' for s in book for r in s for c in r)
+    assert not any(c.value==f['name'] for r in book['学习异常人员'] for c in r)
+    assert not any(c.value=='线下课程' for r in book['学分明细'] for c in r)
+
+
+def test_abnormal_requires_more_than_five_explicit_missing_recording_days(reading_fixture):
+    f=reading_fixture
+    save(f,[(f'2026-10-{d:02}','否') for d in range(5,10)])
+    assert not any(c.value==f['name'] for r in workbook(f)['学习异常人员'] for c in r)
+    save(f,[('2026-10-10','否')],'sixth-day.xlsx')
+    ws=workbook(f)['学习异常人员']
+    assert any(c.value==f['name'] for r in ws for c in r)
+    assert not any(c.value=='临时暂停学员' for r in ws for c in r)
 
 
 def test_monthly_scope_intersects_all_permissions_and_rejects_foreign_center(reading_fixture):

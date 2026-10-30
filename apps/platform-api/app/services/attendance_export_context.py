@@ -2,7 +2,7 @@
 import re
 from app.db import transaction
 from app.services.attendance_registration_identity import attach_current_registration_names, registration_identities
-from app.services.learning_requirement_policy import requirement_roster, excluded_members
+from app.services.learning_requirement_policy import requirement_roster, excluded_members, exemption_reason
 
 BASIS = "上午、下午合并去重，空巴、来宾及团队名额排除。整体参会率计入本班在册学长及正式服务本班的班主任、副班主任、辅导员，分母为本班在册人数；小组及学长参会率只计在册学长，未分组计入班级。各班精进组不计入任何参会率分子或分母，参会事实仍保留。"
 TEAM_ROLES = {"EVENT_TEAM_MEMBER", "COURSE_TEAM_MEMBER", "GUEST", "NON_MEMBER"}
@@ -40,7 +40,7 @@ def _class_id(event):
 
 
 def _sort_group(group):
-    return (group["group_org_unit_id"] is None,
+    return (bool(exemption_reason(group['group_name'],metric='reading')), group["group_org_unit_id"] is None,
             tuple((0, int(p)) if p.isdigit() else (1, p) for p in re.split(r"(\d+)", group["group_name"])))
 
 

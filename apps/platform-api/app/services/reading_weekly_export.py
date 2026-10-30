@@ -107,7 +107,7 @@ def _roster(c, class_ids, start, end):
             'group_name': group['org_name'] if group else '未分组', 'included_days': set(included)})
     if len(result) > 1000:
         raise ValueError('班级名册超过1000人，请核对组织范围')
-    return sorted(result, key=lambda r: (r['group_name'] == '未分组', r['group_name'], r['group_id'], r['name'], r['id']))
+    return sorted(result, key=lambda r: (bool(exemption_reason(r['group_name'], metric='reading')), r['group_name'] == '未分组', r['group_name'], r['group_id'], r['name'], r['id']))
 
 
 def roster(actor, class_id, occurred_from, occurred_to):
