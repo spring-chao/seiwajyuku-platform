@@ -4,6 +4,7 @@ import json
 import re
 from datetime import date, datetime
 from decimal import Decimal
+from collections import defaultdict
 from openpyxl import Workbook
 from openpyxl.styles import Font,PatternFill,Alignment
 from openpyxl.comments import Comment
@@ -18,6 +19,48 @@ from app.services.learning_org_catalog import class_catalog, selected_class_ids
 from app.services.study_membership import current_study_relation_sql
 
 LABELS={'CLASS_MEETING_SCORE':'班会签到','DAILY_READING':'读书打卡','EXCELLENT_SHARE':'优秀分享','GROUP_MEETING_ATTENDANCE':'小组学习会','COURSE_COMPLETION':'课程完成'}
+
+
+def entry_sources_batch(c, entries):
+    """Resolve source links in bounded batches, never inspect schema per ledger row."""
+    if not entries or not sources.available(c): return {}
+    originals = {int(e['id']):e for e in entries}
+    missing = sorted({int(e['reversal_of_entry_id']) for e in entries if e.get('reversal_of_entry_id')} - originals.keys())
+    for start in range(0,len(missing),400):
+        ids=missing[start:start+400]
+        for row in execute(c,'SELECT * FROM learning_credit_entries WHERE id IN ('+','.join('?' for _ in ids)+')',tuple(ids)).fetchall():
+            originals[int(row['id'])]=dict(row)
+    links={}; wanted={'fact_id':set(),'attendance_record_id':set()}
+    for entry in entries:
+        original=originals.get(int(entry.get('reversal_of_entry_id') or entry['id']))
+        if not original or original['member_id']!=entry['member_id']: continue
+        try: snapshot=json.loads(original.get('rule_snapshot_json') or '{}')
+        except (ValueError,TypeError): continue
+        if not isinstance(snapshot,dict): continue
+        facts=[v for v in snapshot.get('fact_ids',[]) if type(v) is int and v>0][:500]
+        attendance=[v.get('attendance_record_id') for v in snapshot.get('score_records',[]) if isinstance(v,dict) and type(v.get('attendance_record_id')) is int and v['attendance_record_id']>0][:500]
+        links[entry['id']]=(original,{'fact_id':facts,'attendance_record_id':attendance})
+        wanted['fact_id'].update(facts); wanted['attendance_record_id'].update(attendance)
+    lookup=defaultdict(list)
+    for field,ids in wanted.items():
+        ids=sorted(ids)
+        for start in range(0,len(ids),400):
+            batch=ids[start:start+400]
+            rows=execute(c,'SELECT r.member_id,i.class_org_unit_id,r.'+field+' AS link_id,i.id AS import_id,i.original_filename,i.file_sha256,i.source_kind,r.excel_row,r.occurred_on,r.source_reference FROM learning_credit_source_rows r JOIN learning_credit_source_imports i ON i.id=r.import_id WHERE r.'+field+' IN ('+','.join('?' for _ in batch)+')',tuple(batch)).fetchall()
+            for raw in rows:
+                row=dict(raw)
+                lookup[field,int(row['member_id']),row['class_org_unit_id'],row['link_id']].append(row)
+    result={}
+    for eid,(original,references) in links.items():
+        rows={}
+        for field,ids in references.items():
+            for link_id in ids:
+                for row in lookup[field,int(original['member_id']),original.get('class_org_unit_id'),link_id]:
+                    value={k:v for k,v in row.items() if k not in ('member_id','class_org_unit_id','link_id')}
+                    value['original_filename']=_safe_text(value['original_filename']); value['occurred_on']=str(value['occurred_on'])[:10]
+                    rows[tuple(value.values())]=value
+        result[eid]=sorted(rows.values(),key=lambda r:(r['import_id'],r['excel_row'],r['source_reference']))
+    return result
 
 
 def entry_sources(c,entry):
@@ -52,12 +95,14 @@ def _literal(sheet,row,col,value):
 
 def _sheet(book,name,headers,rows):
     s=book.create_sheet(name);s.sheet_view.showGridLines=False
+    body_font=Font(name='Arial',size=11,color='263238')
+    body_alignment=Alignment(vertical='center')
     for i,label in enumerate(headers,1):
         cell=_literal(s,1,i,label);cell.font=Font(name='Arial',bold=True,color='FFFFFF',size=11);cell.fill=PatternFill('solid',fgColor='275747');cell.alignment=Alignment(horizontal='center',vertical='center')
     s.row_dimensions[1].height=28
     for row_index,values in enumerate(rows,2):
         for col,value in enumerate(values,1):
-            cell=_literal(s,row_index,col,value);cell.font=Font(name='Arial',size=11,color='263238');cell.alignment=Alignment(vertical='center')
+            cell=_literal(s,row_index,col,value);cell.font=body_font;cell.alignment=body_alignment
             if isinstance(value,(Decimal,float,int)) and not isinstance(value,bool):cell.number_format='#,##0.00' if isinstance(value,(Decimal,float)) else '#,##0'
             if isinstance(value,(date,datetime)):cell.number_format='yyyy-mm-dd'
         s.row_dimensions[row_index].height=22
@@ -122,6 +167,9 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
                 groups.setdefault(r['member_id'],[]).append(r['name']);seen_groups.add(key)
         month_start=end.replace(day=1)
         target=monthly_target(c,None,end)
+        detail_entries=[e for e in ledger if e.get('occurred_precision')=='EXACT_DATE' and e.get('occurred_at') and start.isoformat()<=str(e['occurred_at'])[:10]<=end.isoformat()]
+        traces=entry_sources_batch(c,detail_entries)
+        bases=opening.opening_totals_by_member(c,allowed=class_ids)
         totals={};added={};monthly={};details=[]
         for e in ledger:
             member=int(e['member_id']);point=Decimal(str(e['points']));totals[member]=totals.get(member,Decimal(0))+point
@@ -131,14 +179,14 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
             if month_start<=day<=end and e['credit_type'] in BASIC_CREDIT_TYPES:monthly[member]=monthly.get(member,Decimal(0))+point
             if not start<=day<=end:continue
             added[member]=added.get(member,Decimal(0))+point
-            trace=entry_sources(c,e)
+            trace=traces.get(e['id'],[])
             descriptions='；'.join(f"{r['original_filename']} · 第{r['excel_row']}行 · {r['source_reference']}" for r in trace)
             details.append([str(e['id']),str(e['member_code']),_safe_text(e['member_name']),e['class_name'],' / '.join(groups.get(member,[])),day,point,LABELS.get(e['credit_type'],e['credit_type']),e['source_type'],str(e['source_id']),descriptions or '业务记录来源（编号见前列）',e['rule_version'],e['status'],str(e['reversal_of_entry_id']) if e.get('reversal_of_entry_id') else ''])
         from app.services.learning_requirement_policy import excluded_members
         exempt = excluded_members(c,members,metric="reading")
         summaries=[]
         for member,m in members.items():
-            base=Decimal(opening.opening_summary(c,member_id=member,allowed=class_ids)['total_points'])
+            base=bases.get(member,Decimal(0))
             full=None if member in exempt else target['points'];earned=monthly.get(member,Decimal(0))
             requirement_note=exempt.get(member) or target['reason']
             summaries.append([str(m['member_code']),_safe_text(m['name']),' / '.join(m['classes']),' / '.join(groups.get(member,[])),base,added.get(member,Decimal(0)),base+totals.get(member,Decimal(0)),earned,full if full is not None else '免要求' if member in exempt else '待配置',earned/full if full is not None and full>0 else None,requirement_note,target['plan']])
