@@ -96,9 +96,9 @@ def _group_policies(connection, class_ids, month):
     return result,waived
 
 
-def _targets(connection, actor, filters, month, *, roster=None, attribution=None):
+def _targets(connection, actor, filters, month, *, roster=None, attribution=None, scope_permissions=()):
     allowed = None
-    for permission in ('exports:normal', 'plans:credit_settlement_preview'):
+    for permission in ('exports:normal', 'plans:credit_settlement_preview', *scope_permissions):
         scope = accessible_org_ids(actor, permission)
         if scope is not None:
             allowed = set(scope) if allowed is None else allowed & set(scope)
@@ -143,13 +143,13 @@ def _targets(connection, actor, filters, month, *, roster=None, attribution=None
     return centers, groups
 
 
-def sharing_dataset(*, actor_user_id, report_month=None, report_as_of=None, **filters):
+def sharing_dataset(*, actor_user_id, report_month=None, report_as_of=None, scope_permissions=(), **filters):
     from app.services.study_meeting_operations import _export_records
 
     month, first, cutoff = report_period(report_month, report_as_of)
     selection = {k: filters.get(k) for k in ('management_org_unit_id', 'class_org_unit_id')}
     records = _export_records(actor_user_id, None, {**selection, 'status': 'SUBMITTED',
-        'meeting_date_from': first, 'meeting_date_to': cutoff})
+        'meeting_date_from': first, 'meeting_date_to': cutoff}, scope_permissions=scope_permissions)
     # Preserve legitimate different-cycle meetings. Historic duplicates of the
     # same group/cycle are represented once; completed groups are also unique.
     chosen = {}
@@ -167,7 +167,8 @@ def sharing_dataset(*, actor_user_id, report_month=None, report_as_of=None, **fi
             execute(connection, 'BEGIN')
         from app.services.study_meeting_monthly_roster import roster_for_period
         roster, attribution = roster_for_period(connection, month)
-        centers, groups = _targets(connection, actor_user_id, selection, month, roster=roster, attribution=attribution)
+        centers, groups = _targets(connection, actor_user_id, selection, month, roster=roster, attribution=attribution,
+                                  scope_permissions=scope_permissions)
         facts = {int(r['id']): [] for r in records}
         for start in range(0, len(records), 200):
             batch = records[start:start + 200]

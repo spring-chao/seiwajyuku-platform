@@ -8,6 +8,7 @@ from app.api.credit_opening_balances import _call,_content,SetupPayload
 from app.services import credit_source_imports as service
 from app.services.credit_source_exports import export_credits,export_options
 from app.services import reading_weekly_export
+from app.services import monthly_core_export
 
 router=APIRouter(prefix='/api/v1/learning-credits/excel',tags=['学分来源表格'])
 
@@ -58,6 +59,19 @@ def export(class_id:str|None=None,occurred_from:str='2026-10-01',occurred_to:str
 
 @router.get('/export-options')
 def options(user=Depends(require_permission('exports:normal'))):return _call(export_options,user['id'])
+
+@router.get('/monthly-core-options')
+def monthly_core_options(user=Depends(require_permission('exports:normal'))):
+    return _call(monthly_core_export.export_options, user['id'])
+
+@router.get('/monthly-core-export')
+def monthly_core(center_id: str = Query(..., min_length=1, max_length=128),
+                 month: str = Query(..., pattern=r'^\d{4}-\d{2}$'),
+                 user=Depends(require_permission('exports:normal'))):
+    try:
+        return _xlsx(monthly_core_export.export_monthly(user['id'], center_id, month), f'分中心{month}核心数据.xlsx')
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(403 if isinstance(exc, PermissionError) else 400, str(exc)) from exc
 
 class ReadingPause(BaseModel):
     member_id: int = Field(gt=0)

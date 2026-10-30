@@ -59,7 +59,7 @@ def test_partial_and_full_temporary_pause_exclude_person_days_and_keep_original_
     member=next(r for r in ws.iter_rows() if r[1].value==f['name']); full=next(r for r in ws.iter_rows() if r[1].value=='临时暂停学员')
     assert [v.value for v in member[2:7]]==['√','√','暂停','暂停','暂停']
     assert member[7].value==1 and full[2].value=='暂停' and full[7].value==0
-    assert ws['I4'].value==1
+    assert ws['I4'].value=='=COUNTIF(C4:G5,"√")/2'
     summary=next(r for r in ws.iter_rows() if r[0].value=='汇总')
     assert summary[7].value==2 and summary[8].value==1
     assert fetch_one('SELECT status FROM members WHERE id=?',(f['paused_id'],))==original
@@ -73,6 +73,7 @@ def test_missing_days_are_pending_explicit_incomplete_is_zero_and_overlap_dedupl
     ws=export(f,[pause(f['paused_id'])]).active
     member=next(r for r in ws.iter_rows() if r[1].value==f['name'])
     assert [c.value for c in member[2:7]]==['√','×','待同步','待同步','待同步']
+    assert member[3].fill.fgColor.rgb == '00FFFF00'
     assert member[7].value=='待核对'
     summary=next(r for r in ws.iter_rows() if r[0].value=='汇总')
     assert summary[7].value==1 and summary[8].value=='待核对'
