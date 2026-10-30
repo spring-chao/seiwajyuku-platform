@@ -182,7 +182,7 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
             trace=traces.get(e['id'],[])
             descriptions='；'.join(f"{r['original_filename']} · 第{r['excel_row']}行 · {r['source_reference']}" for r in trace)
             details.append([str(e['id']),str(e['member_code']),_safe_text(e['member_name']),e['class_name'],' / '.join(groups.get(member,[])),day,point,LABELS.get(e['credit_type'],e['credit_type']),e['source_type'],str(e['source_id']),descriptions or '业务记录来源（编号见前列）',e['rule_version'],e['status'],str(e['reversal_of_entry_id']) if e.get('reversal_of_entry_id') else ''])
-        from app.services.learning_requirement_policy import excluded_members
+        from app.services.learning_requirement_policy import excluded_members, exemption_reason
         exempt = excluded_members(c,members,metric="reading")
         summaries=[]
         for member,m in members.items():
@@ -194,6 +194,7 @@ def export_credits(actor,class_id=None,occurred_from='2026-10-01',occurred_to=No
         if annual.available(c):
             for r in execute(c,"SELECT a.member_id,m.member_code,m.name,o.name AS class_name,a.year_index,a.points,i.original_filename,i.cutoff_date FROM learning_credit_year_allocations a JOIN learning_credit_year_imports i ON i.id=a.import_id AND i.status='POSTED' JOIN class_learning_bindings b ON b.id=a.binding_id JOIN org_units o ON o.id=b.class_org_unit_id JOIN members m ON m.id=a.member_id WHERE b.class_org_unit_id IN ("+placeholders+")"+(' AND a.member_id=?' if member_id else '')+" ORDER BY m.id,a.year_index",(*params,*((member_id,) if member_id else ()))).fetchall():
                 history.append([str(r['member_code']),_safe_text(r['name']),r['class_name'],int(r['year_index']),Decimal(str(r['points'])),date.fromisoformat(str(r['cutoff_date'])[:10]),_safe_text(r['original_filename'])])
+        summaries.sort(key=lambda row: (row[2],any(exemption_reason(g,metric='reading') for g in row[3].split(' / '))))
         book=Workbook();book.remove(book.active)
         summary_sheet=_sheet(book,'学分汇总',['学长编号','姓名','班级','小组','已确认期初及补差学分',f'{start}至{end}新增学分','累计学分（账本原值）',f'{month_start}至{end}当月基础获得学分','当月基础满分','学分率','基础满分构成/待配置原因','统计口径及日历版本'],summaries)
         for row in summary_sheet.iter_rows(min_row=2):row[9].number_format='0.0%'

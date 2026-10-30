@@ -218,7 +218,7 @@ def sharing_dataset(*, actor_user_id, report_month=None, report_as_of=None, scop
                 monthly_home[home_id][member_id] = name
     for center in centers.values():
         meetings = []
-        for group in sorted(center['groups'].values(), key=lambda r: (r['class_name'], r['name'], r['id'])):
+        for group in sorted(center['groups'].values(), key=lambda r: (r['class_name'], bool(exemption_reason(r['name'], metric='reading')), r['name'], r['id'])):
             hosted = local.get(group['id'], [])
             actual = {mid:name for _, attendees in hosted for mid,name in attendees.items()}
             home = monthly_home[group['id']]

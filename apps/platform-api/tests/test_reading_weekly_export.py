@@ -52,6 +52,21 @@ def pause(mid, start='2026-10-05', end='2026-10-09'):
     return {'member_id':mid,'occurred_from':start,'occurred_to':end,'reason':'TEMPORARY'}
 
 
+def test_class_prefixed_exempt_group_is_last_in_workbook_and_monthly_roster(reading_fixture):
+    f=reading_fixture
+    with transaction() as c:
+        now=credits._db_timestamp(c); gid='exempt-last-'+f['suffix']
+        execute(c,"INSERT INTO org_units(id,unit_code,name,unit_type,parent_id,is_active,created_at,updated_at) VALUES (?,?,'吴越一班精进组','GROUP',?,1,?,?)",(gid,gid,f['class_id'],now,now))
+        execute(c,"UPDATE member_org_relations SET org_unit_id=? WHERE member_id=? AND relation_type='STUDY_GROUP'",(gid,f['paused_id']))
+        roster=weekly._roster(c,{f['class_id']},date(2026,10,5),date(2026,10,9))
+    assert [r['group_name'] for r in roster]==['第一组','吴越一班精进组']
+    save(f,[('2026-10-05','是')])
+    ws=export(f).active
+    people=[r for r in ws.iter_rows() if r[1].value in (f['name'],'临时暂停学员')]
+    assert [r[1].value for r in people]==[f['name'],'临时暂停学员']
+    assert people[-1][2].value=='免要求'
+
+
 def test_partial_and_full_temporary_pause_exclude_person_days_and_keep_original_facts(reading_fixture):
     f=reading_fixture; save(f, [('2026-10-05','是'),('2026-10-06','是'),('2026-10-07','否')])
     original=fetch_one('SELECT status FROM members WHERE id=?',(f['paused_id'],))

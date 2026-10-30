@@ -12,6 +12,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter as letter
 
 from app.services.credit_source_exports import _literal, _safe_text
+from app.services.learning_requirement_policy import exemption_reason
 
 ASSET = Path(__file__).resolve().parents[1] / 'assets' / 'monthly-core-template.xlsx'
 
@@ -247,7 +248,8 @@ def _meetings(layout, ws, center, month, meetings):
 def _credits(layout, ws, center, month, learning, ledger):
     # Extend the template's monthly bands through the selected month.
     first_band=6; second=first_band+month; third=second+12; courses=third+month
-    reference=layout.reference['学分']; course_labels=[reference.cell(3,c).value for c in range(36,77)]
+    reference=layout.reference['学分']; course_columns=[*range(36,46),*range(57,77)]
+    course_labels=[reference.cell(3,c).value for c in course_columns]
     end=courses+len(course_labels)-1
     layout.merge(ws,1,1,1,end,f'{center}学员学分统计表',(1,1))
     for c,label in enumerate(['班级','序号','姓名','组别'],1): layout.merge(ws,2,c,4,c,label,(2,c))
@@ -259,11 +261,11 @@ def _credits(layout, ws, center, month, learning, ledger):
         for index in range(count):
             layout.cell(ws,3,start+index,f'{index+1}月',(3,ref[1]))
             layout.cell(ws,4,start+index,None,(4,ref[1]))
-    for start,stop,label,ref in [(0,9,'线上课程',(2,36)),(10,20,'线下课程',(2,46)),
-                               (21,28,'报告会',(2,57)),(29,40,'游学',(2,65))]:
+    for start,stop,label,ref in [(0,9,'线上课程',(2,36)),
+                               (10,17,'报告会',(2,57)),(18,29,'游学',(2,65))]:
         layout.merge(ws,2,courses+start,2,courses+stop,label,ref)
     for n,label in enumerate(course_labels):
-        layout.cell(ws,3,courses+n,label,(3,36+n)); layout.cell(ws,4,courses+n,None,(4,36+n))
+        layout.cell(ws,3,courses+n,label,(3,course_columns[n])); layout.cell(ws,4,courses+n,None,(4,course_columns[n]))
         ws.column_dimensions[letter(courses+n)].width=14
     people={}; points=defaultdict(lambda:defaultdict(float))
     for r in learning: people[r[0],r[2]]=(r[3],r[1])
@@ -271,7 +273,8 @@ def _credits(layout, ws, center, month, learning, ledger):
         key=(r[1],r[2]); people.setdefault(key,(r[3],None))
         points[key]['TOTAL']+=float(r[6]); points[key][r[5]]+=float(r[6])
     class_start={}
-    for row,((class_name,code),(name,group)) in enumerate(people.items(),5):
+    ordered=sorted(people.items(),key=lambda item:(item[0][0],bool(exemption_reason(item[1][1],metric='reading'))))
+    for row,((class_name,code),(name,group)) in enumerate(ordered,5):
         class_start.setdefault(class_name,[]).append(row)
         values={2:row-4,3:name,4:group,5:points[class_name,code].get('TOTAL'),
                 first_band+month-1:sum(points[class_name,code][k] for k in ('读书打卡','优秀分享')) if any(k in points[class_name,code] for k in ('读书打卡','优秀分享')) else None,

@@ -50,7 +50,7 @@ def _context(actor,center_id,month):
         centers,scope=report._selection(c,actor)
         center=centers.get(center_id)
         if not center:raise PermissionError('分中心不在核心数据导出授权范围')
-        context={'layout':'wujiang-v2','month':month,'cutoff':str(cutoff),'center_id':center_id,
+        context={'layout':'wujiang-v3','month':month,'cutoff':str(cutoff),'center_id':center_id,
                  'classes':sorted({cid for item in center['classes'] for cid in item['related_class_ids']}),
                  'center_activity':scope is None or center_id in scope}
         digest=hashlib.sha256(json.dumps(context,sort_keys=True).encode()).hexdigest()
