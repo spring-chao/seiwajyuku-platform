@@ -104,6 +104,14 @@ test("a superseded monthly selection cannot download a previous scope",async()=>
   assert.equal(downloads,0);
 });
 
+test('ready monthly reports go straight to download without another prepare request',async()=>{
+  let downloads=0;
+  const ui=harness({monthlyCorePrepare:async()=>{throw new Error('should not prepare');},monthlyCoreExport:async()=>{downloads++;return {};}});
+  ui.monthlyForm.center_id='synthetic-center';await nextTick();
+  ui.monthlyState.value={status:'READY',cutoff:'2026-09-30'};
+  await ui.exportMonthlyCore();assert.equal(downloads,1);
+});
+
 test("source details are loaded for the selected receipt instead of every list row", async () => {
   let id;
   const ui = harness({ sourceGet: async value => { id=value;return { data: { id:value,rows:[{excel_row:2}] } }; } });

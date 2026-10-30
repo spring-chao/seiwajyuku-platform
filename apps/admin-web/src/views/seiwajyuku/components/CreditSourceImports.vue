@@ -124,7 +124,7 @@ const exportMonthlyCore = () => perform(async () => {
   const generation = monthlyGeneration;
   const {center_id,month} = monthlyForm;
   const center = exportCenters.value.find(c => c.id === center_id);
-  const result=(await monthlyCorePrepare(center_id,month)).data;
+  const result=monthlyState.value?.status === 'READY' ? monthlyState.value : (await monthlyCorePrepare(center_id,month)).data;
   if(generation!==monthlyGeneration)return;
   monthlyState.value=result;monthlyNotice.value="";
   if(result.status === "READY") download(await monthlyCoreExport(center_id,month), `${center?.name || "分中心"}${month}核心数据.xlsx`);
