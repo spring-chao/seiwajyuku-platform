@@ -247,7 +247,7 @@ watch(
     form.actual_start = "";
   }
 );
-const perform = async (action: () => Promise<void>) => {
+const perform = async (action: () => Promise<void>, readOnly = false) => {
   if (busy.value) return;
   busy.value = true;
   error.value = "";
@@ -256,7 +256,8 @@ const perform = async (action: () => Promise<void>) => {
   } catch (err) {
     error.value = creditSettlementErrorMessage(
       err,
-      "操作未完成，请刷新查看实际结果；保存来源可用同一检查结果重试，不会重复保存"
+      readOnly ? "导出未完成" : "操作未完成，请刷新查看实际结果；保存来源可用同一检查结果重试，不会重复保存",
+      readOnly
     );
     ElMessage.error(error.value);
   } finally {
@@ -482,7 +483,7 @@ const exportFile = () =>
       await sourceExport(exportForm.class_id, exportForm.from, exportForm.to, exportForm.member_id),
       "学分汇总及新增来源.xlsx"
     );
-  });
+  }, true);
 const reasons = (values?: string[]) =>
   (values || []).map(v => reasonLabels[v] || v).join("；");
 onMounted(() => perform(reload));

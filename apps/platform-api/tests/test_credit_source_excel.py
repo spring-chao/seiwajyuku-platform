@@ -507,6 +507,26 @@ def DecimalText(value):
     return format(Decimal(str(value)),'.2f')
 
 
+def test_bulk_export_sources_match_single_lookup_without_per_entry_queries(source_fixture):
+    f=source_fixture
+    iid,_,_=registered(f,'DAILY_READING')
+    sources.create_batches(iid,f['actor']); sources.process(iid,f['actor'],'submit')
+    sources.process(iid,f['reviewer'],'approve'); sources.process(iid,f['actor'],'post')
+    c=connect()
+    try:
+        original=dict(execute(c,'SELECT * FROM learning_credit_entries WHERE member_id=?',(f['member_id'],)).fetchone())
+        expected=exports.entry_sources(c,original)
+        assert expected
+        entries=[{**original,'id':original['id']+10000+i} for i in range(2000)]
+        with patch.object(exports,'execute',wraps=execute) as query, patch.object(sources,'available',wraps=sources.available) as availability:
+            result=exports.entry_sources_batch(c,entries)
+            assert query.call_count < 10 and availability.call_count == 1
+        assert len(result)==2000 and all(value==expected for value in result.values())
+        bases=exports.opening.opening_totals_by_member(c,allowed={f['class_id']})
+        assert bases.get(f['member_id'],0)==__import__('decimal').Decimal(exports.opening.opening_summary(c,member_id=f['member_id'],allowed={f['class_id']})['total_points'])
+    finally:c.close()
+
+
 def test_export_can_target_one_member_without_other_roster_or_ledger(source_fixture):
     f = source_fixture
     iid, _, _ = registered(f, 'DAILY_READING')

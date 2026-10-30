@@ -121,6 +121,17 @@ def _guard_cutoff(item: dict, occurrence: tuple, row) -> None:
         raise LearningCreditError("这条学分的期间已包含在期初余额中，不能重复入账；请核对统计截止日")
 
 
+def opening_totals_by_member(connection, *, allowed: set[str]) -> dict:
+    if not allowed or not storage_available(connection) or not execute(connection,'SELECT version FROM schema_migrations WHERE version=?',(MIGRATION,)).fetchone():
+        return {}
+    from app.services import credit_year_reconciliation as reconciliation
+    ledger='learning_credit_opening_balances'
+    if reconciliation.available(connection):
+        ledger="(SELECT member_id,org_unit_id,points FROM learning_credit_opening_balances UNION ALL SELECT a.member_id,a.org_unit_id,a.points FROM learning_credit_opening_adjustments a JOIN learning_credit_opening_imports i ON i.id=a.import_id AND i.status='POSTED' JOIN learning_credit_year_imports y ON y.id=a.year_import_id AND y.status='POSTED') confirmed_opening"
+    return {int(r['member_id']):Decimal(format(Decimal(str(r['points'])),'.2f')) for r in execute(connection,
+        'SELECT member_id,SUM(points) AS points FROM '+ledger+' WHERE org_unit_id IN ('+','.join('?' for _ in allowed)+') GROUP BY member_id',tuple(sorted(allowed))).fetchall()}
+
+
 def opening_summary(connection, *, member_id: int | None = None, allowed: set[str] | None = None) -> dict:
     empty = {"entry_count": 0, "total_points": "0.00", "cutoff_date": None}
     if not storage_available(connection) or allowed == set() or not execute(connection, "SELECT version FROM schema_migrations WHERE version=?", (MIGRATION,)).fetchone():

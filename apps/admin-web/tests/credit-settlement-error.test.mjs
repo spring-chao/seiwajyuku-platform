@@ -34,3 +34,9 @@ test('HTTP errors retain useful status while traces and transport config stay pr
   }
   assert.match(message({ response: { status: 400, data: { detail: '学分类别无效' } } }, '读取失败'), /学分类别无效/);
 });
+
+test('read-only export timeout never implies a saved business mutation', () => {
+  const result=message({code:'ECONNABORTED'},'导出未完成',true);
+  assert.match(result,/导出响应超时.*不会修改学分/);
+  assert.doesNotMatch(result,/可能已保存|核对处理结果/);
+});

@@ -1,5 +1,5 @@
 /** Report the failed section without exposing transport config or backend traces. */
-export function creditSettlementErrorMessage(error: unknown, action: string): string {
+export function creditSettlementErrorMessage(error: unknown, action: string, readOnly = false): string {
   const failure = error as {
     response?: { status?: number; data?: { detail?: unknown } };
     code?: string;
@@ -36,7 +36,7 @@ export function creditSettlementErrorMessage(error: unknown, action: string): st
       ? detail : "";
   const timedOut = !status && ["ECONNABORTED", "ETIMEDOUT"].includes(failure?.code || "");
   const reason = safeDetail || reasons[status || 0] || (timedOut ?
-    "学分接口响应超时，结果可能已保存；请先核对处理结果，再决定是否重试。" : "") ||
+    (readOnly ? "导出响应超时，未能下载文件；可稍后重试或选择班级缩小范围，本次不会修改学分。" : "学分接口响应超时，结果可能已保存；请先核对处理结果，再决定是否重试。") : "") ||
     (status ? "请求未完成，请核对输入后重试。" :
       "无法连接学分接口，请检查网络；若其他页面正常，请联系管理员检查该接口。");
   return `${action}${status ? `（HTTP ${status}）` : ""}：${reason}`;
