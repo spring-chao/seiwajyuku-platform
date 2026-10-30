@@ -62,10 +62,12 @@ def test_historical_month_without_sources_exports_blanks_and_literal_names(readi
     assert not any(c.value=='线下课程' for r in book['学分明细'] for c in r)
 
 
-def test_abnormal_requires_more_than_five_explicit_missing_recording_days(reading_fixture):
+def test_abnormal_includes_five_explicit_missing_recording_days(reading_fixture):
     f=reading_fixture
-    save(f,[(f'2026-10-{d:02}','否') for d in range(5,10)])
+    save(f,[(f'2026-10-{d:02}','否') for d in range(5,9)])
     assert not any(c.value==f['name'] for r in workbook(f)['学习异常人员'] for c in r)
+    save(f,[('2026-10-09','否')],'fifth-day.xlsx')
+    assert any(c.value==f['name'] for r in workbook(f)['学习异常人员'] for c in r)
     save(f,[('2026-10-10','否')],'sixth-day.xlsx')
     ws=workbook(f)['学习异常人员']
     assert any(c.value==f['name'] for r in ws for c in r)
