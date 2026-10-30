@@ -1,11 +1,15 @@
 """Scoped weekly reading matrix from saved sources, independent of credit posting."""
 import io
 import json
+import re
+import zipfile
+from xml.etree import ElementTree as ET
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.formatting.rule import CellIsRule
 from openpyxl.utils import get_column_letter
 
 from app.db import connect, execute
@@ -197,15 +201,37 @@ def export_weekly(actor, class_id, occurred_from, occurred_to, pauses=()):
         for group in data['groups']:
             data['total_completed'] += group['completed']; data['total_required'] += group['required']; data['pending'] |= group['pending']
         book = build_workbook(data)
-        out = io.BytesIO(); book.save(out)
+        content = _workbook_bytes(book)
         write_audit(c, actor_user_id=actor, action='learning.reading_weekly.export', resource_type='reading_weekly_export',
             org_unit_id=class_id, after={'occurred_from': str(start), 'occurred_to': str(end), 'member_count': len(members),
             'source_count': len(imports), 'ignored_count': data['ignored'], 'temporary_pauses': list(pauses),
             'contact_fields': False, 'ledger_write': False})
         c.commit()
-        return out.getvalue()
+        return content
     finally:
         c.close()
+
+
+def _workbook_bytes(book):
+    """Keep formula results visible in mobile viewers that do not recalculate."""
+    raw = io.BytesIO(); book.save(raw)
+    ns = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
+    output = io.BytesIO()
+    with zipfile.ZipFile(raw) as original, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as result:
+        for item in original.infolist():
+            data = original.read(item.filename)
+            if item.filename == 'xl/worksheets/sheet1.xml':
+                root = ET.fromstring(data)
+                for node in root.iter(ns+'c'):
+                    formula = node.find(ns+'f')
+                    match = re.fullmatch(r'COUNTIF\(([A-Z]+\d+:[A-Z]+\d+),"√"\)/(\d+)', formula.text or '') if formula is not None else None
+                    if match:
+                        value = node.find(ns+'v')
+                        if value is None: value = ET.SubElement(node, ns+'v')
+                        value.text = str(sum(cell.value == '√' for row in book.active[match[1]] for cell in row)/int(match[2]))
+                data = ET.tostring(root, encoding='utf-8')
+            result.writestr(item, data)
+    return output.getvalue()
 
 
 def build_workbook(data):
@@ -246,15 +272,19 @@ def build_workbook(data):
         for member in group['members']:
             cell(row,2,_safe_text(member['name']))
             values=member['values']
-            for col,value in enumerate(values,3): cell(row,col,value)
+            for col,value in enumerate(values,3):
+                cell(row,col,value,'FFFF00' if value == '×' else 'FFFFFF')
             if len(set(values))==1 and values[0] in ('暂停','停学','免要求'):
                 merged(row,3,row,personal-1,values[0])
             cell(row,personal,'待核对' if member['pending'] else member['rate']).number_format='0%'
             ws.row_dimensions[row].height=19
             row+=1
         merged(first,1,row-1,1,group['name'],colors[index%len(colors)])
-        value='待核对' if group['pending'] or data['ignored'] else group['completed']/group['required'] if group['required'] else '—'
+        value='待核对' if group['pending'] or data['ignored'] else '—'
         merged(first,group_col,row-1,group_col,value)
+        if not group['pending'] and not data['ignored'] and group['required']:
+            # Only trusted formula text is assigned as a formula. Names and source text stay literal.
+            ws.cell(first,group_col,f'=COUNTIF(C{first}:{get_column_letter(personal-1)}{row-1},"√")/{group["required"]}')
         ws.cell(first,group_col).number_format='0%'
     merged(row,1,row,2,'汇总','C00000'); ws.cell(row,1).font=Font(name='宋体',size=12,bold=True,color='FFFFFF')
     for col in range(3,personal): cell(row,col,'')
@@ -263,7 +293,7 @@ def build_workbook(data):
     cell(row,group_col,value,'E2EFDA',True).number_format='0%'
     notes = [f"{data['center_name']}　统计区间：{data['start']}至{data['end']}。汇总数量为已完成打卡人天。",
         '√＝已完成录音；×＝来源明确未完成；待同步＝尚无来源；待核对＝记录冲突或资料待核对。完成率＝已完成人天÷应打卡人天。',
-        '按已配置工作日（含调休）统计；本次临时暂停、停学及精进组免要求日期不计分母。分组按区间内最后有效本班归属；临时暂停只用于本次导出，不修改档案、原记录或学分。']
+        '小组完成率＝小组√总数÷（小组在册人数×应打卡天数）；临时暂停、停学、免要求及不在本班日期扣除对应人天。按工作日日历（含调休）统计，分组按区间内最后有效本班归属；临时暂停只用于本次导出。']
     if data['ignored']: notes.append(f"来源另有{data['ignored']}条未通过身份或内容检查的记录，仍待核对。本表为暂报，小组及汇总完成率暂不确定。")
     notes.append('保存来源：'+'；'.join(f"#{key} {value}" for key,value in data['sources'].items()))
     for offset,note in enumerate(notes,2):
@@ -275,6 +305,8 @@ def build_workbook(data):
     ws.column_dimensions[get_column_letter(personal)].width=14; ws.column_dimensions[last].width=14
     ws.row_dimensions[1].height=34; ws.row_dimensions[2].height=22; ws.row_dimensions[3].height=20
     ws.freeze_panes='C4'; ws.print_title_rows='1:3'
+    ws.conditional_formatting.add(f'C4:{get_column_letter(personal-1)}{row-1}',
+        CellIsRule(operator='equal', formula=['"×"'], fill=PatternFill('solid',fgColor='FFFF00')))
     ws.sheet_properties.pageSetUpPr.fitToPage=True
     ws.page_setup.orientation='portrait'; ws.page_setup.paperSize=ws.PAPERSIZE_A4
     ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=0

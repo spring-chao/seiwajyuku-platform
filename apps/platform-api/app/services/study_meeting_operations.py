@@ -86,7 +86,7 @@ def _csv_cell(value):
     return value
 
 
-def _export_records(actor_user_id, session_id, filters):
+def _export_records(actor_user_id, session_id, filters, *, scope_permissions=()):
     user = user_context(actor_user_id) or {}
     if not {"exports:normal", "plans:credit_settlement_preview"}.issubset(user.get("permissions", [])):
         raise StudyMeetingPermissionError("需要普通导出和学分预览权限")
@@ -98,7 +98,7 @@ def _export_records(actor_user_id, session_id, filters):
                 raise StudyMeetingPermissionError("学习会不在导出授权范围内")
         else:
             records = list_study_meeting_records(actor_user_id=actor_user_id, limit=501,
-                                                scope_permissions=('exports:normal',), **filters)
+                                                scope_permissions=('exports:normal', *scope_permissions), **filters)
             records = [item for item in records if export_scope is None or item["class_org_unit_id"] in export_scope]
             if len(records) > 500:
                 raise StudyMeetingError('导出超过500场，请缩小日期范围')

@@ -12,6 +12,8 @@ import {
   sourceExport,
   readingWeeklyRoster,
   readingWeeklyExport,
+  monthlyCoreOptions,
+  monthlyCoreExport,
   type ReadingWeeklyMember,
   type ReadingWeeklyPause,
   sourcePreview,
@@ -81,6 +83,15 @@ const form = reactive({
 });
 const exportForm = reactive({ class_id: "", from: "2026-10-01", to: "", member_id: undefined as number | undefined });
 const weeklyForm = reactive({ class_id: "", occurred_from: "", occurred_to: "" });
+const exportCenters = ref<{ id: string; name: string }[]>([]);
+const monthlyForm = reactive({ center_id: "", month: new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit"
+}).format(new Date()) });
+const exportMonthlyCore = () => perform(async () => {
+  if (!monthlyForm.center_id || !monthlyForm.month) throw new Error("请选择分中心和统计月份");
+  const center = exportCenters.value.find(c => c.id === monthlyForm.center_id);
+  download(await monthlyCoreExport(monthlyForm.center_id, monthlyForm.month), `${center?.name || "分中心"}${monthlyForm.month}核心数据.xlsx`);
+});
 const weeklyMembers = ref<ReadingWeeklyMember[]>([]);
 const weeklyPauses = ref<ReadingWeeklyPause[]>([]);
 watch(() => [weeklyForm.class_id, weeklyForm.occurred_from, weeklyForm.occurred_to], () => {
@@ -267,6 +278,11 @@ const reload = async () => {
       run: async () => {
         exportClasses.value = (await sourceExportOptions()).data.classes;
       }
+    });
+  if (canExport.value)
+    tasks.push({
+      label: "导出分中心读取失败",
+      run: async () => { exportCenters.value = (await monthlyCoreOptions()).data.centers; }
     });
   const results = await Promise.allSettled(tasks.map(task => task.run()));
   const failures = results.flatMap((result, index) =>
@@ -554,6 +570,17 @@ onMounted(() => perform(reload));
         </el-form-item>
         <el-form-item label="原因"><el-select v-model="pause.reason"><el-option label="参加课程" value="COURSE" /><el-option label="临时特殊情况" value="TEMPORARY" /></el-select></el-form-item>
         <el-button :disabled="busy" @click="weeklyPauses.splice(index, 1)">移除</el-button>
+      </el-form>
+    </section>
+    <section v-if="canExport" class="section">
+      <strong>分中心月度核心数据</strong>
+      <p>按吴江核心数据表模板生成六张表，保留原表配色、分区和学分分类，可直接发群。选择分中心和月份，历史月份统计整月，本月统计到昨天；来源不足的项目留空，仅导出当前授权班级。</p>
+      <el-form inline>
+        <el-form-item label="分中心"><el-select v-model="monthlyForm.center_id" filterable placeholder="选择分中心" :disabled="busy">
+          <el-option v-for="c in exportCenters" :key="c.id" :value="c.id" :label="c.name" />
+        </el-select></el-form-item>
+        <el-form-item label="统计月份"><el-date-picker v-model="monthlyForm.month" type="month" value-format="YYYY-MM" placeholder="选择月份" :disabled="busy" /></el-form-item>
+        <el-button type="primary" :loading="busy" @click="exportMonthlyCore">导出当月核心数据 Excel</el-button>
       </el-form>
     </section>
     <section v-if="canManage" class="section">

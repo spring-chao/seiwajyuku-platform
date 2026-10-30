@@ -100,6 +100,13 @@ export const readingWeeklyRoster = (class_id: string, occurred_from: string, occ
   });
 export const readingWeeklyExport = (data: { class_id: string; occurred_from: string; occurred_to: string; pauses: ReadingWeeklyPause[] }) =>
   http.request<Blob>("post", base + "/reading-weekly-export", { data, responseType: "blob", timeout: 60000 });
+
+export const monthlyCoreOptions = () =>
+  http.request<Result<{ centers: { id: string; name: string }[] }>>("get", base + "/monthly-core-options");
+export const monthlyCoreExport = (center_id: string, month: string) =>
+  http.request<Blob>("get", base + "/monthly-core-export", {
+    params: { center_id, month }, responseType: "blob", timeout: 180000
+  });
 export const sourcePrepareCalendar = () =>
   http.request<Result<unknown>>("post", base + "/reading-calendar/setup", {
     timeout: 60000

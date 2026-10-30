@@ -10,8 +10,8 @@ const script = component.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1
 const compiled = ts.transpileModule(script, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 function harness(api = {}, permissions = ["members:read", "plans:credit_settlement_manage", "plans:credit_settlement_preview", "plans:credit_settlement_approve", "plans:credit_settlement_post", "exports:normal"]) {
   const storage = new Map();
-  const context = vm.createContext({ computed, reactive, ref, watch, onMounted: () => {}, onBeforeUnmount: () => {}, setInterval: () => 1, clearInterval() {}, defineEmits: () => () => {}, useUserStoreHook: () => ({ permissions }), creditSettlementErrorMessage: e => e.message, ElMessage: { success() {}, error() {} }, ElMessageBox: { confirm: async () => {} }, localStorage: { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) }, URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} }, document: { createElement: () => ({ click() {} }) }, setTimeout: () => {}, ...api });
-  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail,act,batchSummary,posting,refreshDetail,recover,pausePostingJob};", context);
+  const context = vm.createContext({ computed, reactive, ref, watch, onMounted: () => {}, onBeforeUnmount: () => {}, setInterval: () => 1, clearInterval() {}, defineEmits: () => () => {}, useUserStoreHook: () => ({ permissions }), creditSettlementErrorMessage: e => e.message, ElMessage: { success() {}, error() {} }, ElMessageBox: { confirm: async () => {} }, localStorage: { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) }, URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} }, document: { createElement: () => ({ click() {} }) }, setTimeout: () => {}, monthlyCoreOptions: async () => ({ data: { centers: [] } }), ...api });
+  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail,act,batchSummary,posting,refreshDetail,recover,pausePostingJob,monthlyForm,exportCenters,exportMonthlyCore};", context);
   return context.result;
 }
 
@@ -64,6 +64,26 @@ test("a source-read failure leaves the independently authorized export usable", 
   await ui.reload();
   assert.equal(ui.exportClasses.value[0].id,'test-class');
   assert.match(ui.error.value,/source timeout/);
+});
+
+test("monthly export passes the selected centre and month and validates empty selection", async () => {
+  const calls = [];
+  const ui = harness({ monthlyCoreExport: async (...args) => { calls.push(args); return {}; } });
+  await ui.exportMonthlyCore();
+  assert.equal(calls.length, 0);
+  assert.match(ui.error.value, /分中心/);
+  ui.monthlyForm.center_id = 'synthetic-center'; ui.monthlyForm.month = '2026-09';
+  await ui.exportMonthlyCore();
+  assert.deepEqual(calls, [['synthetic-center','2026-09']]);
+});
+
+test("monthly options failure preserves existing weekly and credit export options", async () => {
+  const ui = harness({ sourceWorkbench: async () => ({data:{imports:[]}}),
+    sourceExportOptions: async () => ({data:{classes:[{id:'class-1',name:'合成班级'}]}}),
+    monthlyCoreOptions: async () => { throw new Error('月度选项暂不可用'); } });
+  await ui.reload();
+  assert.equal(ui.exportClasses.value[0].id, 'class-1');
+  assert.match(ui.error.value, /月度选项暂不可用/);
 });
 
 test("source details are loaded for the selected receipt instead of every list row", async () => {
