@@ -109,7 +109,8 @@ function engineConfirmUrl(value, apiBaseUrl, transport = {}) {
   return sameHost || cloudbase ? url : "";
 }
 
-function directConfirm(url, ticket, transport = {}) {
+function directConfirm(url, ticket, transport = {}, choice) {
+  const payload = { ticket, ...(typeof choice === "boolean" ? { konpa_choice: choice } : {}) };
   return new Promise((resolve, reject) => {
     const success = response => {
         const result = response.data || {};
@@ -138,7 +139,7 @@ function directConfirm(url, ticket, transport = {}) {
       // the signed, short-lived ticket is sent; no platform session is added.
       wx.cloud.callFunction({ config: { env: transport.cloudbaseEnvironment }, name: transport.signinEngineFunction,
         data: { httpMethod: "POST", path: "/native/v1/checkin/confirm",
-          headers: { "content-type": "application/json" }, body: JSON.stringify({ ticket }) }
+          headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }
       }).then(result => {
         try { success({ statusCode: result.result.statusCode, data: JSON.parse(result.result.body) }); }
         catch (_) { fail(); }
@@ -149,7 +150,7 @@ function directConfirm(url, ticket, transport = {}) {
       fail(); return;
     }
     wx.request({ url, method: "POST", timeout: 15000, header: { "content-type": "application/json" },
-      data: { ticket }, success, fail });
+      data: payload, success, fail });
   });
 }
 

@@ -12,6 +12,7 @@
     "pages/profile/index",
     "pages/services/index",
     "pages/services/class-attendance",
+    "pages/services/konpa",
     "pages/identity/bind",
     "pages/identity/staff-bind",
     "pages/operations/index",

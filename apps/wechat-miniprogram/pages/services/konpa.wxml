@@ -1,0 +1,18 @@
+<view class="page-shell">
+ <view class="hero-card"><view class="hero-title">空巴意向与确认</view><view class="hero-copy">上午用于订餐，下午登记参加计划。空巴结束满一周后，未核实的参加记录自动确认。</view></view>
+ <view wx:if="{{!eventId}}"><view wx:for="{{events}}" wx:key="event_id" class="section-card" data-id="{{item.event_id}}" bindtap="selectEvent">{{item.event_date}} · {{item.name || item.title}} ›</view></view>
+ <block wx:if="{{eventId}}">
+  <view class="section-card"><view>最新预计参加：{{estimatedCount}} 人</view><view>已确认参加：{{confirmedCount}} 人</view><view>自动确认：{{deadline}}（北京时间）</view><view wx:if="{{dinnerLocked}}">订餐已锁定：{{dinnerCount}} 人；之后新增 {{dinnerAdded}} 人、减少 {{dinnerRemoved}} 人</view><button wx:if="{{canManage && !dinnerLocked}}" class="plain-button" disabled="{{busy}}" bindtap="lockDinner">订餐时锁定人数</button><view class="section-hint">最终确认后进入空巴实际签到、参会率及计分。仅本组查看人员无法修改名单。</view><button class="plain-button" bindtap="refresh" disabled="{{busy}}">刷新名单</button></view>
+  <view wx:for="{{rows}}" wx:key="registration_id" class="section-card">
+   <view class="section-title">{{item.name}} · {{item.group_name}}</view>
+   <view>上午：{{item.morning_choice === null ? '未选择' : item.morning_choice ? '参加' : '不参加'}}　下午：{{item.afternoon_choice === null ? '未选择' : item.afternoon_choice ? '参加' : '不参加'}}</view>
+   <view>{{item.statusLabel}}</view>
+   <block wx:if="{{canManage}}">
+    <button class="plain-button" disabled="{{busy}}" data-id="{{item.registration_id}}" data-action="set" data-choice="yes" bindtap="update">补录／改为参加</button>
+    <button class="plain-button" disabled="{{busy}}" data-id="{{item.registration_id}}" data-action="set" data-choice="no" bindtap="update">改为不参加</button>
+    <button wx:if="{{item.choice !== null}}" class="primary-button" disabled="{{busy}}" data-id="{{item.registration_id}}" data-action="confirm" bindtap="update">最终确认</button>
+   </block>
+  </view>
+ </block>
+ <view wx:if="{{busy}}" class="state-card">正在处理…</view><view wx:if="{{error}}" class="state-card error">{{error}}</view>
+</view>
