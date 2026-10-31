@@ -1580,6 +1580,39 @@ def _missing_enrollment_gates(row: dict[str, Any], *, confirmed_member_id: int |
     return missing
 
 
+def suggest_referrer_center(actor_user_id: int, application_id: int, referrer: str) -> dict:
+    """Ephemeral suggestion from one exact learner identity; never save a fact."""
+    if 'enrollment:review' not in (user_context(actor_user_id) or {}).get('permissions', []):
+        raise PermissionError('无入塾申请审核权限')
+    application = fetch_one('SELECT org_unit_id,target_shuku_org_unit_id,application_status FROM member_enrollment_applications WHERE id=?', (application_id,))
+    if not application:
+        raise ValueError('入塾申请不存在')
+    _assert_application_scope(actor_user_id, application)
+    name = str(referrer or '').strip()
+    if not name or len(name) > 255:
+        raise ValueError('请填写有效的推荐人姓名')
+    manual = {'status': 'MANUAL', 'referrer_org_unit_id': None, 'referrer_org_unit_name': None}
+    if application['application_status'] not in EDITABLE_APPLICATION_STATUSES:
+        return manual
+    # Do not make a duplicate name appear unique by filtering out an inactive
+    # or out-of-scope namesake. No member IDs, counts or personal fields leave
+    # this function; ambiguous/unavailable cases share one neutral response.
+    rows = fetch_all('SELECT m.status,m.org_unit_id,o.name,o.unit_type,o.parent_id,o.is_active '
+                     'FROM members m LEFT JOIN org_units o ON o.id=m.org_unit_id '
+                     'WHERE TRIM(m.name)=? ORDER BY m.id LIMIT 2', (name,))
+    if len(rows) != 1:
+        return manual
+    member = rows[0]
+    if member['status'] != 'ACTIVE' or not member['is_active'] or not is_valid_member_primary_org(
+        org_unit_id=member['org_unit_id'], unit_type=member['unit_type'], parent_id=member['parent_id'],
+    ):
+        return manual
+    allowed = accessible_org_ids(actor_user_id, 'enrollment:review')
+    if allowed is not None and member['org_unit_id'] not in allowed:
+        return manual
+    return {'status': 'MATCHED', 'referrer_org_unit_id': member['org_unit_id'], 'referrer_org_unit_name': member['name']}
+
+
 def _referrer_center(application_id: int) -> tuple[bool, dict[str, Any] | None]:
     try:
         return True, fetch_one(

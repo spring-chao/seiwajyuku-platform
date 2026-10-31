@@ -26,6 +26,7 @@ from app.services.enrollment import (
     review_enrollment_application,
     rotate_enrollment_link,
     submit_public_enrollment,
+    suggest_referrer_center,
 )
 
 
@@ -267,6 +268,18 @@ def enrollment_application_detail(
     except (PermissionError, ValueError) as exc:
         raise _service_error(exc) from exc
     return {"success": True, "data": data}
+
+
+@router.get("/enrollment-applications/{application_id}/referrer-center-suggestion")
+def referrer_center_suggestion(
+    application_id: int,
+    referrer: str = Query(min_length=1, max_length=255),
+    user: dict = Depends(require_permission("enrollment:review")),
+) -> dict:
+    try:
+        return {"success": True, "data": suggest_referrer_center(user['id'], application_id, referrer)}
+    except (PermissionError, ValueError) as exc:
+        raise _service_error(exc) from exc
 
 
 @router.post("/enrollment-applications/{application_id}/visit-image-data")
