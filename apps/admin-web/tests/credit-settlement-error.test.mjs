@@ -40,3 +40,15 @@ test('read-only export timeout never implies a saved business mutation', () => {
   assert.match(result,/导出响应超时.*不会修改学分/);
   assert.doesNotMatch(result,/可能已保存|核对处理结果/);
 });
+
+test('ledger queries distinguish a missing response from saved mutations and downloads', () => {
+  for (const code of ['ECONNABORTED', 'ETIMEDOUT']) {
+    const result = message({code}, '学分账本读取失败', 'query');
+    assert.match(result, /查询响应超时.*不会修改已有学分/);
+    assert.doesNotMatch(result, /可能已保存|下载|导出|核对处理结果/);
+  }
+  const page = readFileSync(new URL('../src/views/seiwajyuku/learning-credit-settlements.vue', import.meta.url), 'utf8');
+  for (const action of ['结算批次读取失败','学分账本读取失败','学分总览读取失败','批次详情读取失败']) {
+    assert.ok(page.includes(`errorMessage(err, "${action}", "query")`));
+  }
+});

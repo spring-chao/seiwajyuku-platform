@@ -527,6 +527,34 @@ def test_bulk_export_sources_match_single_lookup_without_per_entry_queries(sourc
     finally:c.close()
 
 
+def test_ledger_list_resolves_1000_source_rows_in_bounded_queries(source_fixture):
+    f=source_fixture
+    iid,_,_=registered(f,'DAILY_READING')
+    sources.create_batches(iid,f['actor']);sources.process(iid,f['actor'],'submit')
+    sources.process(iid,f['reviewer'],'approve');sources.process(iid,f['actor'],'post')
+    c=connect()
+    try:
+        row=dict(execute(c,'SELECT e.*,m.name AS member_name,NULL AS reversal_entry_id FROM learning_credit_entries e JOIN members m ON m.id=e.member_id WHERE e.member_id=?',(f['member_id'],)).fetchone())
+        expected=exports.entry_sources(c,row)
+    finally:c.close()
+    # Represent a full result page while retaining the real source tables and
+    # lookup queries. Independent IDs must all receive their source links.
+    rows=[{**row,'id':row['id']+10000+i} for i in range(1000)]
+    class Result:
+        def fetchall(self):return rows
+    original=credits.execute
+    def select(c,sql,params=()):
+        if sql.startswith('SELECT e.*, m.name AS member_name'):return Result()
+        return original(c,sql,params)
+    with patch.object(credits,'execute',side_effect=select), \
+         patch.object(exports,'execute',wraps=execute) as queries, \
+         patch.object(sources,'available',wraps=sources.available) as availability, \
+         patch.object(exports,'entry_sources',side_effect=AssertionError('per-entry source lookup')):
+        result=credits.list_credit_entries(actor_user_id=f['actor'],member_id=f['member_id'])
+    assert len(result)==1000 and all(item['import_sources']==expected for item in result)
+    assert queries.call_count < 10 and availability.call_count==1
+
+
 def test_export_can_target_one_member_without_other_roster_or_ledger(source_fixture):
     f = source_fixture
     iid, _, _ = registered(f, 'DAILY_READING')
