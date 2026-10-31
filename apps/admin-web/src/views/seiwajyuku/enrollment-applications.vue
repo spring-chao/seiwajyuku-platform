@@ -6,6 +6,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { useUserStoreHook } from "@/store/modules/user";
 import { getOrgUnits, type OrgUnit } from "@/api/seiwajyuku";
 import { renderVisitImages } from "@/utils/enrollmentVisitImage";
+import { createReferrerCenterAutofill } from "@/utils/referrerCenterAutofill";
 import {
   confirmEnrollmentPayment,
   createEnrollmentLink,
@@ -15,6 +16,7 @@ import {
   generateEnrollmentMiniProgramCode,
   getEnrollmentLinks,
   getEnrollmentApplication,
+  getReferrerCenterSuggestion,
   getEnrollmentApplications,
   rejectEnrollmentApplication,
   reviewEnrollmentApplication,
@@ -295,7 +297,26 @@ async function loadCenters() {
   }
 }
 
+const referrerCenterLoading = ref(false);
+const referrerCenterHint = ref("");
+const referrerAutofill = createReferrerCenterAutofill({
+  current: () => ({applicationId: detail.value?.id || 0, referrer: editForm.referrer,
+    centerId: editForm.referrer_org_unit_id,
+    enabled: detailVisible.value && canReview.value && !!detail.value?.referrer_center_available &&
+      ["SUBMITTED", "APPROVED"].includes(detail.value?.application_status || "")}),
+  lookup: async (id, name) => (await getReferrerCenterSuggestion(id, name)).data,
+  apply: center => { editForm.referrer_org_unit_id = center; },
+  notify: (loading, message) => {
+    referrerCenterLoading.value = loading;
+    referrerCenterHint.value = message;
+  }
+});
+watch(detailVisible, visible => { if (!visible) referrerAutofill.reset(); });
+onUnmounted(referrerAutofill.reset);
+
 function syncEditForm(value: EnrollmentApplicationDetail) {
+  referrerAutofill.reset();
+  referrerCenterHint.value = "";
   Object.assign(editForm, {
     name: value.name || "",
     gender: value.gender || "",
@@ -346,6 +367,7 @@ function syncEditForm(value: EnrollmentApplicationDetail) {
 }
 
 async function openDetail(row: unknown) {
+  referrerAutofill.reset();
   const application = row as EnrollmentApplicationListItem;
   detailVisible.value = true;
   detailLoading.value = true;
@@ -353,6 +375,7 @@ async function openDetail(row: unknown) {
     const response = await getEnrollmentApplication(application.id);
     detail.value = response.data;
     syncEditForm(response.data);
+    void referrerAutofill.run();
   } catch (error: any) {
     detailVisible.value = false;
     ElMessage.error(errorText(error, "申请详情加载失败"));
@@ -1221,11 +1244,15 @@ onMounted(async () => {
                   <el-input
                     v-model="editForm.referrer"
                     :disabled="!canReview"
+                    @input="referrerAutofill.edited()"
+                    @blur="referrerAutofill.run()"
                   />
                 </el-form-item>
                 <el-form-item label="推荐人所属分中心/指导团">
                   <el-select
                     v-model="editForm.referrer_org_unit_id"
+                    :loading="referrerCenterLoading"
+                    @change="referrerAutofill.manual()"
                     clearable
                     filterable
                     :disabled="!canReview || !detail.referrer_center_available"
@@ -1242,6 +1269,7 @@ onMounted(async () => {
                       :value="center.id"
                     />
                   </el-select>
+                  <div v-if="referrerCenterHint" class="w-full text-sm text-gray-500">{{ referrerCenterHint }}</div>
                 </el-form-item>
                 <el-form-item label="申请加入的塾">
                   <el-select

@@ -273,6 +273,17 @@ export const getEnrollmentApplication = (applicationId: number) =>
     `/api/v1/enrollment-applications/${applicationId}`
   );
 
+export type ReferrerCenterSuggestion = {
+  status: "MATCHED" | "MANUAL";
+  referrer_org_unit_id: string | null;
+  referrer_org_unit_name: string | null;
+};
+export const getReferrerCenterSuggestion = (applicationId: number, referrer: string) =>
+  http.request<{success: boolean; data: ReferrerCenterSuggestion}>(
+    "get", `/api/v1/enrollment-applications/${applicationId}/referrer-center-suggestion`,
+    {params: {referrer}}
+  );
+
 export const reviewEnrollmentApplication = (
   applicationId: number,
   data: EnrollmentReviewPayload

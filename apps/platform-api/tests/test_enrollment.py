@@ -133,6 +133,58 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertEqual(submitted.status_code, 200, submitted.text)
         return fetch_one("SELECT id FROM member_enrollment_applications WHERE phone_hash=?", (phone_hash(phone),))["id"], phone
 
+    def test_referrer_center_suggestion_is_ephemeral_scoped_and_minimal(self):
+        application_id, _ = self._visit_application()
+        name = 'Synthetic Referrer ' + uuid4().hex[:8]
+        create_member(self.admin_id,member_code='REF-'+uuid4().hex[:10],name=name,
+                      org_unit_id='enrollment-test-center',development_org_unit_id=None,phone=None)
+        url=f'/api/v1/enrollment-applications/{application_id}/referrer-center-suggestion'
+        before=fetch_one('SELECT * FROM member_enrollment_applications WHERE id=?',(application_id,))
+        response=self.client.get(url,headers=self.headers,params={'referrer':' '+name+' '})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['data'],{'status':'MATCHED','referrer_org_unit_id':'enrollment-test-center','referrer_org_unit_name':'入塾申请测试分中心'})
+        self.assertEqual(fetch_one('SELECT * FROM member_enrollment_applications WHERE id=?',(application_id,)),before)
+        self.assertIsNone(fetch_one('SELECT * FROM enrollment_application_referrer_centers WHERE application_id=?',(application_id,)))
+        self.assertEqual(self.client.get(url,params={'referrer':name}).status_code,401)
+        readonly=self._visit_actor_headers(['read_only'])
+        self.assertEqual(self.client.get(url,headers=readonly,params={'referrer':name}).status_code,403)
+        scoped=self._visit_actor_headers(['operations_admin'],[{'scope_type':'SUBTREE','org_unit_id':'enrollment-test-center'}])
+        self.assertEqual(self.client.get(url,headers=scoped,params={'referrer':name}).status_code,403)
+        with transaction() as connection:
+            execute(connection,'UPDATE member_enrollment_applications SET org_unit_id=? WHERE id=?',('enrollment-test-center',application_id))
+        self.assertEqual(self.client.get(url,headers=scoped,params={'referrer':name}).json()['data']['status'],'MATCHED')
+        # Another authorized application's reviewer cannot discover the center
+        # of a matching learner outside their own organization scope.
+        with transaction() as connection:
+            other='referrer-foreign-'+uuid4().hex[:12]
+            execute(connection,"INSERT INTO org_units(id,unit_code,name,unit_type,parent_id,is_active,created_at,updated_at) VALUES (?,?,?,'REGIONAL_CENTER','org-suzhou',1,?,?)",
+                    (other,other,'Synthetic foreign center',datetime.now(UTC).isoformat(),datetime.now(UTC).isoformat()))
+            execute(connection,"UPDATE members SET org_unit_id=? WHERE name=?",(other,name))
+        self.assertEqual(self.client.get(url,headers=scoped,params={'referrer':name}).json()['data'],{'status':'MANUAL','referrer_org_unit_id':None,'referrer_org_unit_name':None})
+        self.assertEqual(self.client.get(url,headers=self.headers,params={'referrer':name}).json()['data']['referrer_org_unit_id'],other)
+
+    def test_referrer_suggestion_does_not_guess_duplicates_inactive_or_legacy_ownership(self):
+        application_id, _ = self._visit_application()
+        url=f'/api/v1/enrollment-applications/{application_id}/referrer-center-suggestion'
+        for case in ('missing','duplicate','inactive_duplicate','inactive','invalid_owner'):
+            with self.subTest(case=case):
+                name='Synthetic '+case+' '+uuid4().hex[:8]
+                if case!='missing':
+                    member=create_member(self.admin_id,member_code='REF-'+uuid4().hex[:10],name=name,
+                        org_unit_id='enrollment-test-center',development_org_unit_id=None,phone=None)
+                    with transaction() as connection:
+                        if case=='inactive':execute(connection,"UPDATE members SET status='INACTIVE' WHERE id=?",(member,))
+                        if case=='invalid_owner':execute(connection,"UPDATE members SET org_unit_id='org-suzhou' WHERE id=?",(member,))
+                    if case in ('duplicate','inactive_duplicate'):
+                        create_member(self.admin_id,member_code='REF-'+uuid4().hex[:10],name=name,
+                            org_unit_id='enrollment-test-center',development_org_unit_id=None,phone=None,
+                            status='INACTIVE' if case=='inactive_duplicate' else 'ACTIVE')
+                response=self.client.get(url,headers=self.headers,params={'referrer':name})
+                self.assertEqual(response.status_code,200,response.text)
+                self.assertEqual(response.json()['data'],{'status':'MANUAL','referrer_org_unit_id':None,'referrer_org_unit_name':None})
+        self.assertEqual(self.client.get(url,headers=self.headers,params={'referrer':'x'*256}).status_code,422)
+        self.assertEqual(self.client.get(url,headers=self.headers,params={'referrer':'  '}).status_code,400)
+
     def test_referrer_center_roundtrip_validation_and_atomic_failure(self):
         application_id, _ = self._visit_application()
         url = f"/api/v1/enrollment-applications/{application_id}/review"
