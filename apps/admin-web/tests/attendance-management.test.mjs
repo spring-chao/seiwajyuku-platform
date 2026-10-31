@@ -403,11 +403,23 @@ function harness(api = async () => ({ ok: true }), xlsx = XLSXModule) {
   });
   vm.runInContext(
     output +
-      "\nglobalThis.state = { selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, groupOptions, orgOptions, organizations, rosterOptions, rosterMembers, rosterSource, rosterVersion, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation, openEditor, confirmPerson, exportExcel };",
+      "\nglobalThis.state = { selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, groupOptions, orgOptions, organizations, rosterOptions, rosterMembers, rosterSource, rosterVersion, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { eventName, sessionName, selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation, openEditor, confirmPerson, exportExcel };",
     context
   );
   return { state: context.state, actions: context.actions, calls, downloaded };
 }
+
+test("onsite activity headings show the unified meeting title while sessions remain distinct", () => {
+  const h = harness();
+  for (const [code,label] of [["MORNING","上午"],["AFTERNOON","下午"],["KONPA","晚上空巴"]]) {
+    const row={event_id:code,name:`圆融五班班级学习会 · ${label}`,activity_type:"class_meeting",session_code:code};
+    const original=JSON.stringify(row);
+    assert.equal(h.actions.eventName(row),"圆融五班班级学习会");
+    assert.equal(h.actions.sessionName(row),label);
+    assert.equal(JSON.stringify(row),original);
+  }
+  assert.equal(h.calls.length,0);
+});
 
 test("onsite download preserves the shared server workbook and never uses stale displayed totals", async () => {
   const book = XLSXModule.utils.book_new();

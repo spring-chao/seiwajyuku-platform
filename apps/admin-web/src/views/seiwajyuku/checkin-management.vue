@@ -160,7 +160,7 @@ const sessionTimes = reactive<Record<string, string>>({});
 const sessionPrefixes = [
   { code: "MORNING", prefix: "morning", label: "上午" },
   { code: "AFTERNOON", prefix: "afternoon", label: "下午" },
-  { code: "KONPA", prefix: "konpa", label: "晚上空巴" }
+  { code: "KONPA", prefix: "konpa", label: "空巴时段（出席与计分记录）" }
 ];
 const manualVisible = ref(false);
 const rosterReconciliation = ref<EngineResult | null>(null);
@@ -197,11 +197,7 @@ function timeLabel(value: string) {
   return chinaLocalDateTime(value).replace("T", " ") || "未配置";
 }
 function eventName(event: any) {
-  return activityDisplayTitle(
-    event?.name,
-    event?.activity_type,
-    event?.session_code
-  );
+  return activityDisplayTitle(event?.name, event?.activity_type);
 }
 function sessionName(event: any) {
   return activitySessionLabel(
@@ -1545,7 +1541,7 @@ onUnmounted(() => {
       </el-form>
       <template v-if="!editingId && editor.activity_type === 'class_meeting'">
         <el-alert
-          title="上午、下午、晚上空巴生成三个独立签到场次。必须从当前可信组织名单创建；不通过姓名或班级名称猜测身份。"
+          title="统一创建一场班级学习会，关联上午、下午签到与空巴出席记录。空巴时段用于出席统计、计分及确认截止时间；名单从所选班级读取。"
           type="info"
           :closable="false"
           class="notice"
@@ -1698,7 +1694,7 @@ onUnmounted(() => {
           @click="saveEditor"
           >{{
             !editingId && editor.activity_type === "class_meeting"
-              ? "创建上午、下午、空巴三场"
+              ? "创建班级学习会"
               : "保存活动"
           }}</el-button
         ></template
