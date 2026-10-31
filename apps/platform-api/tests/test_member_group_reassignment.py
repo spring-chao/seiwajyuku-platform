@@ -93,3 +93,63 @@ def test_permission_scope_and_http_payload_validation(monkeypatch):
         assert client.post(url, json=body).status_code == 401
         assert client.post(url, json={**body, "unexpected": True}, headers=headers).status_code == 422
         assert client.post(url, json=body, headers=headers).status_code == 200
+
+
+@pytest.mark.parametrize("case", ["normal", "ungrouped", "conflict", "primary", "expired", "inactive", "foreign_class"])
+def test_bulk_roster_matches_individual_membership_rules(case):
+    from app.db import connect
+    from app.services.member_group_reassignment import _member_snapshot
+    f, payload = prepared()
+    with transaction() as connection:
+        if case == "ungrouped":
+            execute(connection, "DELETE FROM member_org_relations WHERE member_id=? AND relation_type='STUDY_GROUP'", (f["member_id"],))
+        if case in {"conflict", "primary"}:
+            execute(connection, "INSERT INTO member_org_relations(member_id,org_unit_id,relation_type,is_primary,created_at,updated_at) VALUES (?,?,'STUDY_GROUP',?,'2020-01-01','2020-01-01')",
+                    (f["member_id"], f["other_group_id"], 1 if case == "conflict" else 0))
+        if case == "expired":
+            execute(connection, "UPDATE member_org_relations SET valid_until='2000-01-01' WHERE member_id=? AND relation_type='STUDY_GROUP'", (f["member_id"],))
+        if case == "inactive":
+            execute(connection, "UPDATE members SET status='INACTIVE' WHERE id=?", (f["member_id"],))
+        if case == "foreign_class":
+            execute(connection, "UPDATE member_org_relations SET org_unit_id=? WHERE member_id=? AND relation_type='STUDY_CLASS'", (f["other_class_id"], f["member_id"]))
+    connection = connect()
+    try:
+        expected = []
+        for member_id in (f["member_id"], f["other_member_id"]):
+            try:
+                item = _member_snapshot(connection, payload["actor_user_id"], member_id, f["class_id"])
+                expected.append({key: item[key] for key in ("id", "member_code", "name", "group_org_unit_id", "group_name")})
+            except ValueError:
+                pass
+    finally:
+        connection.close()
+    # Class-level authorization must still include formally enrolled members
+    # whose primary organization belongs to a different organizational tree.
+    with patch("app.services.member_group_reassignment.accessible_org_ids", return_value={f["class_id"], f["group_id"], f["other_group_id"]}):
+        actual = group_reassignment_roster(actor_user_id=payload["actor_user_id"], class_org_unit_id=f["class_id"])
+    assert actual["members"] == sorted(expected, key=lambda item: item["id"])
+    with patch("app.services.member_group_reassignment.accessible_org_ids", return_value={f["group_id"]}), pytest.raises(PermissionError):
+        group_reassignment_roster(actor_user_id=payload["actor_user_id"], class_org_unit_id=f["class_id"])
+
+
+def test_roster_database_round_trips_do_not_grow_with_class_size():
+    from app.services import member_group_reassignment as service
+    f, payload = prepared()
+    def measured():
+        with patch.object(service, "execute", wraps=execute) as queries, \
+             patch.object(service, "accessible_org_ids", return_value=None) as scope, \
+             patch.object(service, "_member_snapshot", side_effect=AssertionError("per-person query")):
+            result = service.group_reassignment_roster(actor_user_id=payload["actor_user_id"], class_org_unit_id=f["class_id"])
+        return result, queries.call_count, scope.call_count
+    small, small_queries, small_scopes = measured()
+    with transaction() as connection:
+        for i in range(100):
+            cursor = execute(connection, "INSERT INTO members(member_code,name,org_unit_id,status,created_at,updated_at) VALUES (?,?,?,'ACTIVE','2020-01-01','2020-01-01')",
+                             (f"bulk-{f['suffix']}-{i}", f"Synthetic {i}", f["class_id"]))
+            execute(connection, "INSERT INTO member_org_relations(member_id,org_unit_id,relation_type,is_primary,created_at,updated_at) VALUES (?,?,'STUDY_CLASS',1,'2020-01-01','2020-01-01')",
+                    (cursor.lastrowid, f["class_id"]))
+    large, large_queries, large_scopes = measured()
+    assert len(large["members"]) == len(small["members"]) + 100
+    assert small_scopes == large_scopes == 1
+    assert small_queries <= large_queries <= 4
+    assert all(item["group_name"] == "未分组" for item in large["members"][2:])

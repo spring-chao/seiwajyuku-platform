@@ -12,7 +12,7 @@ from app.services.audit import write_audit
 from app.services.iam import accessible_org_ids, user_context
 from app.services.members import resolve_member_scope, update_member
 from app.services.volunteer_positions import _relation_boundary_is_current, get_current_member_study_orgs
-from app.services.study_membership import CURRENT_CLASS_ID_SQL
+from app.services.study_membership import CURRENT_CLASS_ID_SQL, CURRENT_GROUP_ID_SQL
 
 
 def _require_manager(actor_user_id):
@@ -67,17 +67,39 @@ def group_reassignment_roster(*, actor_user_id: int, class_org_unit_id: str) -> 
     connection = connect()
     try:
         klass, groups = _class_and_groups(connection, actor_user_id, class_org_unit_id)
-        rows = execute(connection, f"SELECT m.id FROM members m WHERE {CURRENT_CLASS_ID_SQL}=? "
-                       "AND m.status='ACTIVE' ORDER BY m.id", (class_org_unit_id,)).fetchall()
-        members = []
-        for row in rows:
-            try:
-                snapshot = _member_snapshot(connection, actor_user_id, row["id"], class_org_unit_id)
-                members.append({key: snapshot[key] for key in ("id", "member_code", "name", "group_org_unit_id", "group_name")})
-            except PermissionError:
-                continue
-            except ValueError:
-                members.append({"id": row["id"], "name": "归属待核对", "member_code": "", "group_org_unit_id": None, "group_name": "请先逐人核对", "unavailable": True})
+        # The class authorization above covers every member selected by the
+        # same formal-class expression used by individual edits. Resolve the
+        # roster in one query, rather than rebuilding IAM and membership for
+        # each person (and opening additional database connections).
+        members = [dict(row) for row in execute(connection,
+            "SELECT m.id,m.member_code,m.name,g.id AS group_org_unit_id,g.name AS group_name "
+            f"FROM members m LEFT JOIN org_units g ON g.id={CURRENT_GROUP_ID_SQL} "
+            f"WHERE {CURRENT_CLASS_ID_SQL}=? AND m.status='ACTIVE' ORDER BY m.id",
+            (class_org_unit_id,)).fetchall()]
+        unresolved = {row["id"] for row in members if row["group_org_unit_id"] is None}
+        names = {}
+        if unresolved:
+            # Preserve the old explicit conflict labels, including relations
+            # requiring cleanup. Dates use the same boundary rule as previews.
+            now = datetime.now(UTC)
+            ids = sorted(unresolved)
+            for start in range(0, len(ids), 500):
+                chunk = ids[start:start + 500]
+                placeholders = ','.join('?' for _ in chunk)
+                rows = execute(connection,
+                    "SELECT r.member_id,r.valid_from,r.valid_until,o.name FROM member_org_relations r "
+                    "JOIN org_units o ON o.id=r.org_unit_id "
+                    f"WHERE r.member_id IN ({placeholders}) "
+                    "AND r.relation_type='STUDY_GROUP' AND o.is_active=1 ORDER BY r.id", tuple(chunk)).fetchall()
+                for row in rows:
+                    if all((
+                        _relation_boundary_is_current(row["valid_from"], before_or_equal=True, now=now),
+                        _relation_boundary_is_current(row["valid_until"], before_or_equal=False, now=now),
+                    )):
+                        names.setdefault(row["member_id"], []).append(row["name"])
+        for row in members:
+            if row["id"] in unresolved:
+                row["group_name"] = ('待核对：' + '、'.join(names[row["id"]])) if row["id"] in names else '未分组'
         return {"class_name": klass["name"], "groups": groups, "members": members}
     finally:
         connection.close()
