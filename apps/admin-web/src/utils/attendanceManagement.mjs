@@ -7,7 +7,7 @@ export {
 
 export const activityTypes = [
   ["course", "课程"],
-  ["class_meeting", "班级学习会（三场）"],
+  ["class_meeting", "班级学习会"],
   ["group_meeting", "小组学习会"],
   ["national_report", "全国报告会"],
   ["center_quarterly_report", "分中心季度报告会"],
