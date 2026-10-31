@@ -683,10 +683,12 @@ def list_credit_entries(
         ).fetchall()
     finally:
         connection.close()
-    from app.services.credit_source_exports import entry_sources
+    from app.services.credit_source_exports import entry_sources_batch
     trace_connection = connect()
     try:
-        return [{**_entry_payload(row), 'import_sources': entry_sources(trace_connection,dict(row))} for row in rows]
+        entries = [dict(row) for row in rows]
+        traces = entry_sources_batch(trace_connection, entries)
+        return [{**_entry_payload(row), 'import_sources': traces.get(row['id'], [])} for row in entries]
     finally:
         trace_connection.close()
 

@@ -114,7 +114,7 @@ const loadBatches = async () => {
     batches.value = result.data.batches || [];
     totalCount.value = result.data.total_count || 0;
   } catch (err) {
-    error.value = errorMessage(err, "结算批次读取失败");
+    error.value = errorMessage(err, "结算批次读取失败", "query");
     batches.value = [];
     ElMessage.error(error.value);
   } finally {
@@ -139,7 +139,7 @@ const loadLedger = async () => {
     });
     ledgerEntries.value = result.data.entries || [];
   } catch (err) {
-    ledgerError.value = errorMessage(err, "学分账本读取失败");
+    ledgerError.value = errorMessage(err, "学分账本读取失败", "query");
     ledgerEntries.value = [];
     ElMessage.error(ledgerError.value);
   } finally { ledgerLoading.value = false; }
@@ -152,7 +152,7 @@ const loadLedgerOverview = async () => {
   try {
     ledgerOverview.value = (await getCreditLedgerOverview()).data;
   } catch (err) {
-    overviewError.value = errorMessage(err, "学分总览读取失败");
+    overviewError.value = errorMessage(err, "学分总览读取失败", "query");
     ledgerOverview.value = undefined;
   } finally {
     overviewLoading.value = false;
@@ -176,7 +176,7 @@ const openDetail = async (batch: any) => {
   try {
     detail.value = (await getSettlementBatch(batch.id)).data;
   } catch (err) {
-    ElMessage.error(errorMessage(err, "批次详情读取失败"));
+    ElMessage.error(errorMessage(err, "批次详情读取失败", "query"));
   } finally {
     detailLoading.value = false;
   }
