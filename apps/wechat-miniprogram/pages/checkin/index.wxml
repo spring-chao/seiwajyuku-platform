@@ -11,13 +11,17 @@
       <view class="activity-top"><view class="activity-dot"></view><view class="activity-name">{{event.title}}</view></view>
       <view class="activity-date">{{event.event_date_display}} · {{event.session_name}}</view>
     </view>
-    <view class="section-hint">各场次分别签到，上午签到不会代替下午或空巴签到。</view>
+    <view class="section-hint">{{konpaRequired ? '上午、下午分别签到；空巴参加选择由负责人核实，学员无需再次扫码。' : '各场次分别签到，上午签到不会代替下午或空巴签到。'}}</view>
   </view>
   <view wx:if="{{member && !result}}" class="section-card">
     <view class="section-title">本人</view><view class="identity-name">{{member.name || member.name_masked}}</view>
     <view class="detail-line">{{member.class_name || '暂未关联班级'}}{{member.group_name ? ' · ' + member.group_name : ''}}</view>
     <view wx:if="{{registration.registered_name}}" class="section-hint">报名记录：{{registration.registered_name}}</view>
-    <button wx:if="{{canCheckin && !alreadyChecked}}" class="primary-button" style="width:100%;" loading="{{confirming}}" disabled="{{confirming || loading}}" bindtap="confirmCheckin">确认本人签到</button>
+    <view wx:if="{{konpaRequired && canCheckin && !alreadyChecked}}">
+      <view class="input-label">{{event.session_code === 'MORNING' ? '预计是否参加空巴（用于订餐）' : '是否参加空巴'}}</view>
+      <radio-group bindchange="chooseKonpa"><label><radio value="yes" checked="{{konpaChoice === true}}" disabled="{{confirming}}" />参加</label><label><radio value="no" checked="{{konpaChoice === false}}" disabled="{{confirming}}" />不参加</label></radio-group>
+    </view>
+    <button wx:if="{{canCheckin && !alreadyChecked}}" class="primary-button" style="width:100%;" loading="{{confirming}}" disabled="{{confirming || loading || (konpaRequired && konpaChoice === null)}}" bindtap="confirmCheckin">确认本人签到</button>
   </view>
   <view wx:if="{{!result && !guestAllowed && (notice || alreadyChecked)}}" class="state-card {{alreadyChecked ? 'success' : ''}}">{{notice || '本场次已签到'}}</view>
   <button wx:if="{{member && alreadyChecked && !result}}" class="plain-button" bindtap="openHistory">查看我的参与记录</button>
@@ -34,6 +38,7 @@
     <view class="result-info"><view wx:for="{{item.card.lines}}" wx:for-item="line" wx:key="index">{{line}}</view></view>
   </view>
   <view wx:if="{{guestAllowed && !loading && !alreadyChecked}}" class="section-card">
+    <view wx:if="{{konpaRequired}}"><view class="input-label">是否参加空巴（必选）</view><radio-group bindchange="chooseKonpa"><label><radio value="yes" checked="{{konpaChoice === true}}" disabled="{{confirming}}" />参加</label><label><radio value="no" checked="{{konpaChoice === false}}" disabled="{{confirming}}" />不参加</label></radio-group></view>
     <view class="section-title">✍️ 签到</view>
     <view class="section-hint">输入报名姓名，确认签到。</view>
     <view class="input-label">姓名</view>

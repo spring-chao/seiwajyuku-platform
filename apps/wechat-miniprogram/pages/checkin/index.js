@@ -6,7 +6,7 @@ const { successCard } = require("../../utils/checkin-success");
 
 function empty() {
   return { event: null, member: null, registration: null, loading: false, confirming: false,
-    canCheckin: false, alreadyChecked: false, bindingRequired: false, requiresFallback: false,
+    konpaChoice: null, konpaRequired: false, canCheckin: false, alreadyChecked: false, bindingRequired: false, requiresFallback: false,
     fallbackAvailable: false, guestName: "", guestAllowed: false, nameCandidates: [], selectedCandidateIndexes: [], guestResults: [], historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null, successCard: null };
 }
 
@@ -55,7 +55,7 @@ Page({
         // Keep the ticket outside render data and persistent application state.
         this._checkinTicket = ticket; this._engineConfirmUrl = url;
       }
-      this.setData({ event: displayEvent(data.event), member: data.member || null,
+      this.setData({ event: displayEvent(data.event), konpaRequired: data.event.konpa_choice_required === true, member: data.member || null,
         registration: data.registration || null, canCheckin: Boolean(data.can_checkin && data.member),
         alreadyChecked: Boolean(data.already_checked_in), bindingRequired: false,
         guestAllowed: Boolean(!data.member && data.guest_allowed),
@@ -95,6 +95,9 @@ Page({
   },
   async submitGuest() {
     if (this.data.confirming || !this.data.guestAllowed || this.data.alreadyChecked || !this.data.event) return;
+    if (this.data.konpaRequired && typeof this.data.konpaChoice !== 'boolean') {
+      this.setData({errorMessage:'请选择是否参加空巴'}); return;
+    }
     const name = String(this.data.guestName || "").trim();
     if (!name || name.length > 120 || /[\x00-\x1f\x7f]/.test(name)) {
       this.setData({ errorMessage: "请填写有效报名姓名。" }); return;
@@ -138,7 +141,8 @@ Page({
           if (!current()) return;
           if (!login.code) throw new Error("微信身份暂时无法确认，请重试。");
           const response = await request("/api/v1/wechat/checkin/guest-confirm", {
-            method: "POST", data: { ...this._target, name, candidate_token: selected.token, wx_login_code: login.code }
+            method: "POST", data: { ...this._target, name, candidate_token: selected.token, wx_login_code: login.code,
+              ...(this.data.konpaRequired ? {konpa_choice:this.data.konpaChoice} : {}) }
           });
           if (!current()) return;
           const result = response.data || {};
@@ -171,8 +175,14 @@ Page({
     } finally { if (current()) this.setData({ confirming: false }); }
   },
 
+  chooseKonpa(event) {
+    if (!this.data.confirming) this.setData({ konpaChoice: event.detail.value === "yes" });
+  },
   async confirmCheckin() {
     if (this.data.confirming || !this.data.canCheckin || this.data.alreadyChecked || !this.data.event) return;
+    if (this.data.konpaRequired && typeof this.data.konpaChoice !== "boolean") {
+      this.setData({ errorMessage: "请选择是否参加空巴" }); return;
+    }
     const current = beginPrivateRequest(this, "confirm");
     const eventId = this.data.event.event_id;
     this.setData({ confirming: true, errorMessage: "" });
@@ -180,10 +190,11 @@ Page({
       // The platform resolves the member and registration from the credential.
       // Names, phone numbers, member IDs and registration IDs are never sent.
       const data = { event_id: String(eventId) };
+      if (this.data.konpaRequired) data.konpa_choice = this.data.konpaChoice;
       if (this._target.token) data.token = this._target.token;
       let response;
       if (this._checkinTicket) {
-        const engine = await directConfirm(this._engineConfirmUrl, this._checkinTicket, app.globalData);
+        const engine = await directConfirm(this._engineConfirmUrl, this._checkinTicket, app.globalData, data.konpa_choice);
         response = { data: { status: engine.already === true ? "ALREADY_CHECKED_IN" : "CHECKED_IN",
           checked_at: engine.checked_at || (engine.data && engine.data.checked_at),
           sync_status: engine.sync_status === "SYNCED" ? "SYNCED" : "PENDING",

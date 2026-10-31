@@ -7,7 +7,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from app.core.settings import get_settings
 from app.db import fetch_one
@@ -28,7 +28,48 @@ bearer = HTTPBearer(auto_error=False)
 class ConfirmPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_id: str = Field(min_length=1, max_length=128)
+    konpa_choice: StrictBool | None = None
     token: str | None = Field(default=None, min_length=16, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class KonpaReviewPayload(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    registration_id:str=Field(min_length=1,max_length=128)
+    expected_revision:str=Field(min_length=1,max_length=128)
+    choice:StrictBool|None=None
+
+
+@router.get('/konpa/events')
+def konpa_events(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    from app.services.konpa_review import event_list
+    try:return {'success':True,'data':event_list(_member(credentials)['member_id'])}
+    except PermissionError as exc:raise HTTPException(403,str(exc)) from exc
+    except signin_engine.SigninEngineError as exc:raise _raise(exc) from exc
+
+
+@router.get('/konpa/{event_id}')
+def konpa_list(event_id:str,credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    from app.services.konpa_review import request
+    try:return {'success':True,'data':request(_member(credentials)['member_id'],event_id,'list')}
+    except PermissionError as exc:raise HTTPException(403,str(exc)) from exc
+    except signin_engine.SigninEngineError as exc:raise _raise(exc) from exc
+
+
+@router.post('/konpa/{event_id}/{action}')
+def konpa_update(event_id:str,action:str,payload:KonpaReviewPayload,credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    from app.services.konpa_review import request
+    if action not in ('set','confirm'):raise HTTPException(400,'操作无效')
+    try:return {'success':True,'data':request(_member(credentials)['member_id'],event_id,action,**payload.model_dump())}
+    except PermissionError as exc:raise HTTPException(403,str(exc)) from exc
+    except signin_engine.SigninEngineError as exc:raise _raise(exc) from exc
+
+
+@router.post('/konpa-dinner/{event_id}')
+def konpa_dinner_lock(event_id:str,credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    from app.services.konpa_review import request
+    try:return {'success':True,'data':request(_member(credentials)['member_id'],event_id,'dinner_lock')}
+    except PermissionError as exc:raise HTTPException(403,str(exc)) from exc
+    except signin_engine.SigninEngineError as exc:raise _raise(exc) from exc
 
 
 class EntryPayload(BaseModel):
@@ -44,6 +85,7 @@ class GuestLookupPayload(EntryPayload):
 
 class GuestConfirmPayload(GuestLookupPayload):
     candidate_token: str | None = Field(default=None, max_length=2048)
+    konpa_choice: StrictBool | None = None
 
 
 def _raise(exc: signin_engine.SigninEngineError) -> HTTPException:
@@ -261,6 +303,8 @@ def _registration_name_request(payload: GuestLookupPayload, *, confirm: bool) ->
         engine_payload = {"event_id": selected_id, "guest_id": guest_id, "name": name}
         if confirm:
             engine_payload["candidate_token"] = payload.candidate_token
+            if payload.konpa_choice is not None:
+                engine_payload['konpa_choice'] = payload.konpa_choice
         result = signin_engine.engine_request("/ops/v1/guest-checkin/" + ("confirm" if confirm else "lookup"),
                                               engine_payload, timeout=12)
         if not confirm:
@@ -304,6 +348,7 @@ def confirm(payload: ConfirmPayload,
             raise signin_engine.SigninEngineError("未找到本人报名记录，请联系现场工作人员", 409)
         result = signin_engine.engine_request("/ops/v1/member-checkin/confirm", {
             "event_id": selected_id, "member": member,
+            "konpa_choice": payload.konpa_choice,
             "registration_id": registration_id,
         }, timeout=12)
         data = result.get("data") or {}

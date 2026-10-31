@@ -17,6 +17,7 @@
   </view>
 
   <block wx:if="{{!loading && member}}">
+    <view wx:if="{{isVolunteer && canManageStudyMeeting}}" class="service-card" bindtap="openKonpa"><view class="service-title">空巴意向与确认</view><view class="service-copy">查看本组或授权班级空巴人数，负责人核实与补录</view><view class="service-arrow">查看名单 ›</view></view>
     <view wx:if="{{isVolunteer && canManageStudyMeeting}}" class="service-card" bindtap="openStudyMeeting">
       <view class="service-title">小组学习会登记</view>
       <view class="service-copy">查看本期学习流程，登记参加人员和现场合影</view>

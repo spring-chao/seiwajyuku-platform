@@ -48,6 +48,26 @@ function context(eventId = 10, extra = {}) {
     can_checkin: true, already_checked_in: false, ...extra } };
 }
 
+test('required konpa choice starts empty, blocks submit, and explicit no is submitted as false',async()=>{
+ const source=context();source.data.event.konpa_choice_required=true;
+ const h=harness('checkin/index',async(_,options)=>options.method==='POST'?{data:{status:'CHECKED_IN',checked_at:'2026-10-31T01:00:00Z'}}:source);
+ h.page.onLoad({event_id:'10'});await h.page.onShow();
+ assert.equal(h.page.data.konpaChoice,null);
+ await h.page.confirmCheckin();assert.equal(h.calls.length,1);
+ h.page.chooseKonpa({detail:{value:'no'}});await h.page.confirmCheckin();
+ assert.equal(h.calls[1].options.data.konpa_choice,false);
+});
+
+test('konpa group viewer cannot submit edits and hidden pages discard pending participant lists',async()=>{
+ const pending=deferred();
+ const h=harness('services/konpa',async(url)=>url.endsWith('/events')?{data:{events:[{event_id:'evening'}]}}:pending.promise);
+ await h.page.onShow();const loading=h.page.selectEvent({currentTarget:{dataset:{id:'evening'}}});
+ h.page.onHide();pending.resolve({data:{rows:[{registration_id:'private',name:'合成学员'}],can_manage:true,auto_confirm_at:'2026-11-07T12:30:00Z'}});
+ await loading;assert.equal(h.page.data.rows.length,0);assert.equal(h.page.data.canManage,false);
+ const before=h.calls.length;await h.page.update({currentTarget:{dataset:{id:'private',action:'set',choice:'yes'}}});
+ assert.equal(h.calls.length,before);
+});
+
 test("activity scene and scanned route resolve opaque token; generic QR data and invalid IDs fail closed", () => {
   assert.deepEqual(checkin.checkinTarget({ scene: "short_token_1234567890" }), { token: "short_token_1234567890" });
   assert.deepEqual(checkin.checkinTarget({ scene: "ci_short_123456789012" }), { token: "short_123456789012" });

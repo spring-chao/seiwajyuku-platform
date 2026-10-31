@@ -3,6 +3,7 @@ const { request } = require("../../utils/request");
 const { resolveVolunteerServices } = require("../../utils/volunteer-services");
 
 Page({
+  openKonpa() { wx.navigateTo({url:'/pages/services/konpa'}); },
   data: {
     loading: true,
     member: null,
