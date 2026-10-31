@@ -60,7 +60,7 @@
         </label>
       </checkbox-group>
     </view>
-    <button class="primary-button" style="width:100%;" loading="{{confirming}}" disabled="{{confirming || (nameCandidates.length > 1 && !selectedCandidateIndexes.length)}}" bindtap="submitGuest">{{nameCandidates.length > 1 ? '确认签到（' + selectedCandidateIndexes.length + '）' : '确认签到'}}</button>
+    <button class="primary-button" style="width:100%;" loading="{{confirming}}" disabled="{{confirming || (konpaRequired && konpaChoice === null) || (nameCandidates.length > 1 && !selectedCandidateIndexes.length)}}" bindtap="submitGuest">{{nameCandidates.length > 1 ? '确认签到（' + selectedCandidateIndexes.length + '）' : '确认签到'}}</button>
     <button class="binding-entry" style="width:100%;" disabled="{{confirming}}" bindtap="openBinding">
       <view class="binding-copy"><view class="binding-title">塾生身份绑定</view><view class="binding-hint">绑定后，后续活动可直接确认签到</view></view>
       <text class="binding-arrow">›</text>
