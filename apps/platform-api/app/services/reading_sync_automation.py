@@ -216,7 +216,12 @@ def status(class_id, source_meeting_id, start, end, import_id):
         result='POSTING_PENDING'
     return {'import_id':import_id,'status':result,'saved_rows':source['row_count'],
             'job_status':job.get('status'),'posting_completed':bool(state['completed'] and (source['batches'] or source['source_only'])),
-            'source_only':bool(source['source_only']),'unmatched_rows':len(source.get('ignored_rows',[]))}
+            'source_only':bool(source['source_only']),'unmatched_rows':len(source.get('ignored_rows',[])),
+            'review_code':job.get('error_code'),
+            'total_entries':state['total_entries'],'posted_entries':state['posted_entries'],
+            'proposed_points':source['settlement_summary']['proposed_points'],
+            'posted_points':source['settlement_summary']['posted_points'],
+            'batch_states':{name:sum(b['status']==name for b in source['batches']) for name in sorted({b['status'] for b in source['batches']})}}
 
 
 def plan(intervals):
