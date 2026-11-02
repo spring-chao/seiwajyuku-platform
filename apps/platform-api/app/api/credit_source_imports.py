@@ -70,7 +70,9 @@ def monthly_core(center_id: str = Query(..., min_length=1, max_length=128),
                  month: str = Query(..., pattern=r'^\d{4}-\d{2}$'),
                  user=Depends(require_permission('exports:normal'))):
     try:
-        return _xlsx(monthly_core_reports.download(user['id'], center_id, month), f'分中心{month}核心数据.xlsx')
+        response = _xlsx(monthly_core_reports.download(user['id'], center_id, month), f'分中心{month}核心数据.xlsx')
+        response.headers['Cache-Control'] = 'no-store'
+        return response
     except (ValueError, PermissionError) as exc:
         raise HTTPException(403 if isinstance(exc, PermissionError) else 400, str(exc)) from exc
 
@@ -82,10 +84,11 @@ class MonthlyCorePrepare(BaseModel):
     model_config={'extra':'forbid'}
     center_id:str=Field(min_length=1,max_length=128)
     month:str=Field(pattern=r'^20\d{2}-(0[1-9]|1[0-2])$')
+    refresh:bool=False
 
 @router.post('/monthly-core-prepare')
 def monthly_prepare(payload:MonthlyCorePrepare,user=Depends(require_permission('exports:normal'))):
-    return _call(monthly_core_reports.prepare,user['id'],payload.center_id,payload.month)
+    return _call(monthly_core_reports.prepare,user['id'],payload.center_id,payload.month,payload.refresh)
 
 class ReadingPause(BaseModel):
     member_id: int = Field(gt=0)

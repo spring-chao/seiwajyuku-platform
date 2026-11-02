@@ -107,7 +107,7 @@ def test_api_requires_auth_and_download_missing_never_generates(reading_fixture,
             response=client.get('/api/v1/learning-credits/excel/monthly-core-export',params=payload)
             assert response.status_code==400 and generate.call_count==0
         with patch.object(reports,'_dispatch'):
-            assert client.post('/api/v1/learning-credits/excel/monthly-core-prepare',json=payload).json()['data']['status']=='PENDING'
+            assert client.post('/api/v1/learning-credits/excel/monthly-core-prepare',json={**payload,'refresh':True}).json()['data']['status']=='PENDING'
     finally:app.dependency_overrides.pop(current_user,None)
 
 
@@ -131,3 +131,24 @@ def test_worker_reports_failure_without_leaking_errors_and_retries_are_bounded(c
         clock.now.return_value=datetime(2026,11,1,2)
         for _ in range(3):assert reports.sweep()['failed']==1
         assert reports.sweep()['more'] is False and generate.call_count==3
+
+
+def test_refresh_replaces_ready_snapshot_and_blocks_old_download(reading_fixture,cache):
+    f=reading_fixture
+    with patch.object(reports,'_dispatch') as dispatch,patch.object(export,'export_monthly',side_effect=[b'PK-old',b'PK-new']):
+        reports.prepare(f['actor'],f['center_id'],'2026-10')
+        context,key=reports._context(f['actor'],f['center_id'],'2026-10')
+        report_id=key.rsplit('/',1)[1]
+        reports.run('2026-10',report_id)
+        old,_=reports._state(cache,key)
+        assert reports.download(f['actor'],f['center_id'],'2026-10')==b'PK-old'
+        assert reports.prepare(f['actor'],f['center_id'],'2026-10',True)['status']=='PENDING'
+        with pytest.raises(ValueError,match='尚未生成'):reports.download(f['actor'],f['center_id'],'2026-10')
+        reports.prepare(f['actor'],f['center_id'],'2026-10',True)
+        assert dispatch.call_count==2
+        reports.run('2026-10',report_id)
+        new,_=reports._state(cache,key)
+        assert new['attempt']!=old['attempt'] and new['generated_at']
+        assert reports.download(f['actor'],f['center_id'],'2026-10')==b'PK-new'
+        with patch.object(sources,'effective_scope',return_value=set()),pytest.raises(PermissionError):
+            reports.prepare(f['actor'],f['center_id'],'2026-10',True)
