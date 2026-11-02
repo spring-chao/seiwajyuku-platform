@@ -94,6 +94,14 @@ jobs:
           node --test apps/reading-sync-worker/test/*.test.mjs
       - name: Build isolated reading collector image
         run: docker build --build-arg APP_GIT_SHA="$GITHUB_SHA" -f apps/reading-sync-worker/Dockerfile -t reading-sync-worker:ci .
+      - name: Verify Chromium runs as the collector user
+        run: |
+          docker run --rm --init reading-sync-worker:ci node --input-type=module -e '
+            import {chromium} from "playwright";
+            const browser=await chromium.launch({headless:true});
+            try {const page=await browser.newPage();await page.setContent("<p>collector smoke</p>");if(await page.locator("p").innerText()!=="collector smoke")throw Error("BROWSER_SMOKE_FAILED");}
+            finally {await browser.close();}
+          '
 
   api-container:
     runs-on: ubuntu-latest
