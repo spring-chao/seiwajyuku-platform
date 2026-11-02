@@ -202,11 +202,16 @@ def status(class_id, source_meeting_id, start, end, import_id):
         raise PermissionError('SYNC_IMPORT_OUT_OF_SCOPE')
     if any(not start <= str(r['occurred_on'])[:10] <= end for r in source['rows']):
         raise PermissionError('SYNC_IMPORT_INTERVAL_CHANGED')
+    return _status_report(source,import_id)
+
+
+def _status_report(source,import_id,ignored_count=None):
+    ignored_count=len(source.get('ignored_rows',[])) if ignored_count is None else ignored_count
     state = source['posting_progress']
     job = source.get('posting_job') or {}
     if job.get('status') in {'NEEDS_REVIEW','PAUSED','FAILED'}:
         result='NEEDS_REVIEW'
-    elif source.get('ignored_rows'):
+    elif ignored_count:
         result='PARTIAL_PENDING_IDENTITY'
     elif not source['batches'] and not source['source_only']:
         result='SOURCE_SAVED_POSTING_NOT_CREATED'
@@ -216,7 +221,7 @@ def status(class_id, source_meeting_id, start, end, import_id):
         result='POSTING_PENDING'
     return {'import_id':import_id,'status':result,'saved_rows':source['row_count'],
             'job_status':job.get('status'),'posting_completed':bool(state['completed'] and (source['batches'] or source['source_only'])),
-            'source_only':bool(source['source_only']),'unmatched_rows':len(source.get('ignored_rows',[])),
+            'source_only':bool(source['source_only']),'unmatched_rows':ignored_count,
             'review_code':job.get('error_code'),
             'total_entries':state['total_entries'],'posted_entries':state['posted_entries'],
             'proposed_points':source['settlement_summary']['proposed_points'],
@@ -226,21 +231,43 @@ def status(class_id, source_meeting_id, start, end, import_id):
 
 def plan(intervals):
     actor, classes = configuration()
+    principal=sources._principal(actor,'DAILY_READING',write=True)
+    if 'plans:credit_settlement_post' not in principal.get('permissions',[]):
+        raise PermissionError('SYNC_POST_OUT_OF_SCOPE')
+    allowed=sources.effective_scope(actor,('members:read','plans:credit_settlement_manage','plans:credit_settlement_preview','plans:credit_activity_fact_manage','plans:credit_settlement_post'))
     pending=[]
-    for interval in intervals:
-        start,end=interval['start'],interval['end']
-        validate_interval(start,end)
-        for class_id,mapping in classes.items():
-            scope(class_id,mapping['source_meeting_id'])
-            c=connect()
-            try:
+    c=connect()
+    try:
+        for interval in intervals:
+            start,end=interval['start'],interval['end']
+            validate_interval(start,end)
+            for class_id,mapping in classes.items():
+                if allowed is not None and class_id not in allowed:
+                    raise PermissionError('SYNC_SOURCE_OUT_OF_SCOPE')
                 row=execute(c,"SELECT after_json FROM audit_logs WHERE action='learning.reading_sync.machine' AND resource_type='reading_sync_interval' AND resource_id=? AND org_unit_id=? ORDER BY id DESC LIMIT 1",(receipt_key(class_id,start,end),class_id)).fetchone()
-            finally:
-                c.close()
-            previous=json.loads(row['after_json']) if row else {}
-            live=status(class_id,mapping['source_meeting_id'],start,end,previous['import_id']) if previous.get('import_id') else previous if previous.get('empty_report') and previous.get('status')=='SUCCESS' else None
-            pending.append({**mapping,'start':start,'end':end,'previous':live,
-                            'skip':bool(live and live['status']=='SUCCESS')})
+                previous=json.loads(row['after_json']) if row else {}
+                live=None
+                if previous.get('import_id'):
+                    # List progress must not hydrate every member and compute
+                    # every approval fingerprint on every continuation. This
+                    # existing summary reads live ledger/batch/job state. All
+                    # mutation/status/resume paths retain full validation.
+                    source=sources._receipt(c,actor,previous['import_id'],allowed_scope=allowed,summary=True)
+                    if source['source_kind']!='DAILY_READING' or source['class_org_unit_id']!=class_id:
+                        raise PermissionError('SYNC_IMPORT_OUT_OF_SCOPE')
+                    if not source['period_start'] or not start<=source['period_start']<=source['period_end']<=end:
+                        raise PermissionError('SYNC_IMPORT_INTERVAL_CHANGED')
+                    if source['row_count']!=previous.get('saved_rows',source['row_count']):
+                        raise SyncError('SYNC_SOURCE_COUNT_CHANGED')
+                    ignored=int(previous.get('unmatched_rows',-1))
+                    if ignored<0:raise SyncError('SYNC_SOURCE_EXCEPTION_COUNT_UNKNOWN')
+                    live=_status_report(source,previous['import_id'],ignored)
+                elif previous.get('empty_report') and previous.get('status')=='SUCCESS':
+                    live=previous
+                pending.append({**mapping,'start':start,'end':end,'previous':live,
+                                'skip':bool(live and live['status']=='SUCCESS')})
+    finally:
+        c.close()
     return pending
 
 
