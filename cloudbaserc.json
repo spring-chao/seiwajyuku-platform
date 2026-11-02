@@ -12,8 +12,7 @@
       "timeout": 180,
       "memorySize": 128,
       "installDependency": false,
-      "description": "22班读书来源采集与自动入账调度；每事件只处理一个班级区间；正式验收前不创建定时触发器",
-      "triggers": []
+      "description": "22班读书来源采集与自动入账调度；每事件只处理一个班级区间；签名定时器单独管理，见docs/deployment/reading-sync-cloud.md"
     },
     {
       "name": "studyEvidenceCleanup",
