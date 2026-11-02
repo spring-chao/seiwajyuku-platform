@@ -74,7 +74,16 @@ def test_packaged_class_manifest_pins_22_unique_formal_sources(monkeypatch):
     actor,classes=sync.configuration()
     assert actor==1 and len(classes)==22
     assert len({r['source_meeting_id'] for r in classes.values()})==22
+    assert all(r['search_term']==r['source_title'] for r in classes.values())
     assert all(not any(word in r['source_title'] for word in ('补课','补卡','塾友之家','工作人员')) for r in classes.values())
+
+
+def test_failed_interval_is_reported_and_never_treated_as_missing_or_complete(source_fixture,monkeypatch):
+    f=source_fixture;configure(monkeypatch,f)
+    sync.outcome(f['class_id'],'synthetic-meeting','2026-10-05','2026-10-09','SOURCE_OR_POSTING_NOT_VERIFIED')
+    task=next(t for t in sync.plan([{'start':'2026-10-05','end':'2026-10-09'}]) if t['class_id']==f['class_id'])
+    assert not task['skip'] and task['previous']['status']=='FAILED'
+    assert task['previous']['error_code']=='SOURCE_OR_POSTING_NOT_VERIFIED'
 
 
 def test_identity_exceptions_do_not_block_valid_rows_or_mark_whole_class_success(source_fixture,monkeypatch):
