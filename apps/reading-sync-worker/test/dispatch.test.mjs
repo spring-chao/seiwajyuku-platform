@@ -62,6 +62,14 @@ test('a verified success is skipped without reading or writing sources',async()=
  const result=await dispatcher.run(event,{env,periodModule,request:async url=>{assert.ok(url.endsWith('/plan'));return tasks.map(t=>({...t,skip:true}));},dispatch:async()=>{}});
  assert.equal(result.status,'SKIPPED_VERIFIED_SUCCESS');
 });
+
+test('signed recovery continues only through explicitly selected failed intervals',async()=>{
+ const sent=[];
+ const request=async(url,payload)=>url.endsWith('/plan')?tasks:url.endsWith('/collect')?{...payload,file_sha256:'a'.repeat(64),workbook_base64:'synthetic'}:done;
+ await dispatcher.run({...event,index:1,recovery_indices:[1,4,7]},{env,periodModule,request,dispatch:async e=>sent.push(e)});
+ assert.equal(sent[0].index,4);assert.deepEqual(sent[0].recovery_indices,[1,4,7]);
+ await assert.rejects(dispatcher.run({...event,index:1,recovery_indices:[1,44]},{env,periodModule,request,dispatch:async()=>{}}),/RECOVERY_SCOPE/);
+});
 test('exhausted collection failure is recorded before advancing and never marked complete',async()=>{
  const calls=[];
  const request=async(url,payload)=>{

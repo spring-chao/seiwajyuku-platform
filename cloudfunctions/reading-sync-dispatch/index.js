@@ -80,8 +80,11 @@ async function run(event,{env=process.env,request=call,dispatch=enqueue,today,pe
  if(!Number.isInteger(index)||index<0||index>=44||!Number.isInteger(attempt)||attempt<0||attempt>2||!Number.isInteger(polls)||polls<0||polls>30)throw Error('INVALID_CONTINUATION');
  const tasks=await request(API+'/api/v1/internal/reading-sync/plan',{intervals},env.READING_SYNC_SIGNING_KEY);
  if(!Array.isArray(tasks)||tasks.length!==22*intervals.length)throw Error('PLAN_INCOMPLETE');
+ const recovery=event.recovery_indices;
+ if(recovery!==undefined&&(!Array.isArray(recovery)||!recovery.length||recovery.length>44||recovery.some((n,i)=>!Number.isInteger(n)||n<0||n>=tasks.length||(i>0&&n<=recovery[i-1]))||!recovery.includes(index)))throw Error('INVALID_RECOVERY_SCOPE');
+ const continuation={Type:'ReadingSyncContinuation',kind,runDate,...(recovery?{recovery_indices:recovery}:{})};
  const task=tasks[index];
- const next=async()=>{if(index+1<tasks.length)await dispatch({Type:'ReadingSyncContinuation',kind,runDate,index:index+1},env);};
+ const next=async()=>{const selected=recovery?recovery.find(n=>n>index):index+1;if(selected!==undefined&&selected<tasks.length)await dispatch({...continuation,index:selected},env);};
  if(task.skip){await next();return{class_id:task.class_id,start:task.start,end:task.end,status:'SKIPPED_VERIFIED_SUCCESS'};}
  const selected={class_id:task.class_id,source_meeting_id:task.source_meeting_id,start:task.start,end:task.end};
  let result,digest=event.file_sha256;
@@ -103,13 +106,13 @@ async function run(event,{env=process.env,request=call,dispatch=enqueue,today,pe
   }
   if(result.status==='SOURCE_SAVED_POSTING_NOT_CREATED')result=await request(API+'/api/v1/internal/reading-sync/resume',{...selected,import_id:result.import_id},env.READING_SYNC_SIGNING_KEY);
  }catch{
-  if(attempt<2){await dispatch({Type:'ReadingSyncContinuation',kind,runDate,index,attempt:attempt+1,import_id:event.import_id,file_sha256:digest,polls},env);return{...selected,status:'RETRY_PENDING'};}
+  if(attempt<2){await dispatch({...continuation,index,attempt:attempt+1,import_id:event.import_id,file_sha256:digest,polls},env);return{...selected,status:'RETRY_PENDING'};}
   await request(API+'/api/v1/internal/reading-sync/outcome',{...selected,error_code:'SOURCE_OR_POSTING_NOT_VERIFIED'},env.READING_SYNC_SIGNING_KEY);
   await next();return{...selected,status:'FAILED',error_code:'SOURCE_OR_POSTING_NOT_VERIFIED'};
  }
  if(!result.posting_completed&&!result.source_only&&result.job_status!=='NEEDS_REVIEW'&&polls<30){
   await new Promise(resolve=>setTimeout(resolve,10000));
-  await dispatch({Type:'ReadingSyncContinuation',kind,runDate,index,import_id:result.import_id,polls:polls+1},env);
+  await dispatch({...continuation,index,import_id:result.import_id,polls:polls+1},env);
  }else await next();
  return{...selected,...result};
 }
