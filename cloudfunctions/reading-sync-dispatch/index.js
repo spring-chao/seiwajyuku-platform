@@ -1,10 +1,36 @@
 "use strict";
-const {createHash,createHmac}=require('node:crypto');
+const {createHash,createHmac,timingSafeEqual}=require('node:crypto');
 const API='https://seiwajyuku-platform-api-287369-8-1453587887.sh.run.tcloudbase.com';
 const FUNCTION='readingSyncDispatch';
 const NAMESPACE='shengheshu-d2g2zyyl99f6c6fc2';
 const sha=v=>createHash('sha256').update(v).digest('hex');
 const mac=(k,v)=>createHmac('sha256',k).update(v).digest();
+
+const eventMaterial=event=>JSON.stringify(Object.fromEntries(Object.entries(event).sort(([a],[b])=>a<b?-1:a>b?1:0)));
+const matches=(a,b)=>typeof a==='string'&&a.length===64&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
+function signEvent(event,key,now=Math.floor(Date.now()/1000)){
+ if(typeof key!=='string'||key.length<32)throw Error('EVENT_IDENTITY_NOT_CONFIGURED');
+ const signature=createHmac('sha256',key).update(`event\n${now}\n${eventMaterial(event)}`).digest('hex');
+ return{...event,auth_time:now,auth_signature:signature};
+}
+function verifyEvent(event,env=process.env,now=Math.floor(Date.now()/1000)){
+ const key=env.READING_DISPATCH_SIGNING_KEY;
+ if(typeof key!=='string'||key.length<32)throw Error('EVENT_IDENTITY_NOT_CONFIGURED');
+ if(event.Type==='Timer'){
+  if(!['readingSyncWeekly','readingSyncMonthly'].includes(event.TriggerName))throw Error('INVALID_TIMER_IDENTITY');
+  const message=JSON.parse(event.Message||'{}');
+  const expected=createHmac('sha256',key).update('timer\n'+event.TriggerName).digest('hex');
+  if(!matches(message.timer_signature,expected))throw Error('INVALID_TIMER_IDENTITY');
+  // A timer cannot supply an arbitrary date/index/kind, even if its static
+  // schedule proof is replayed. Business dates always come from Shanghai now.
+  return{Type:'Timer',TriggerName:event.TriggerName};
+ }
+ const {auth_time,auth_signature,...payload}=event;
+ if(!Number.isInteger(auth_time)||Math.abs(now-auth_time)>3600)throw Error('INVALID_EVENT_IDENTITY');
+ const expected=signEvent(payload,key,auth_time).auth_signature;
+ if(!matches(auth_signature,expected))throw Error('INVALID_EVENT_IDENTITY');
+ return payload;
+}
 
 function signed(url,payload,key,now=Math.floor(Date.now()/1000)){
  if(typeof key!=='string'||key.length<32)throw Error('SIGNING_NOT_CONFIGURED');
@@ -27,7 +53,7 @@ async function call(url,payload,key){
 async function enqueue(event,env=process.env,now=Math.floor(Date.now()/1000)){
  const id=env.TENCENTCLOUD_SECRETID,key=env.TENCENTCLOUD_SECRETKEY,token=env.TENCENTCLOUD_SESSIONTOKEN;
  if(!id||!key||!token)throw Error('RUNTIME_IDENTITY_UNAVAILABLE');
- const body=JSON.stringify({FunctionName:FUNCTION,Namespace:NAMESPACE,InvocationType:'Event',Qualifier:'$LATEST',ClientContext:JSON.stringify(event)});
+ const body=JSON.stringify({FunctionName:FUNCTION,Namespace:NAMESPACE,InvocationType:'Event',Qualifier:'$LATEST',ClientContext:JSON.stringify(signEvent(event,env.READING_DISPATCH_SIGNING_KEY,now))});
  const host='scf.tencentcloudapi.com',type='application/json; charset=utf-8',day=new Date(now*1000).toISOString().slice(0,10);
  const scope=`${day}/scf/tc3_request`;
  const canonical=`POST\n/\n\ncontent-type:${type}\nhost:${host}\n\ncontent-type;host\n${sha(body)}`;
@@ -90,7 +116,9 @@ async function run(event,{env=process.env,request=call,dispatch=enqueue,today,pe
 
 // Let SCF record a failed invocation and apply its retry policy. Do not turn a
 // dispatch/plan failure into a successful invocation containing a FAILED word.
-exports.main=async event=>{try{return await run(event);}catch{throw Error('READING_SYNC_DISPATCH_NOT_VERIFIED');}};
+exports.main=async event=>{try{return await run(verifyEvent(event));}catch{throw Error('READING_SYNC_DISPATCH_NOT_VERIFIED');}};
 exports.run=run;
 exports.signed=signed;
 exports.workerUrl=workerUrl;
+exports.signEvent=signEvent;
+exports.verifyEvent=verifyEvent;

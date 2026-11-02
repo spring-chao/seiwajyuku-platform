@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {createHmac} from 'node:crypto';
 import dispatcher from '../../../cloudfunctions/reading-sync-dispatch/index.js';
 import * as periodModule from '../periods.mjs';
 const env={READING_SYNC_SIGNING_KEY:'synthetic-api-key-'+'a'.repeat(40),READING_WORKER_SIGNING_KEY:'synthetic-worker-key-'+'b'.repeat(40),READING_WORKER_URL:'https://seiwajyuku-reading-sync-test.sh.run.tcloudbase.com'};
@@ -7,6 +8,20 @@ const event={Type:'ReadingSyncContinuation',kind:'weekly',runDate:'2026-11-09',i
 const task={class_id:'synthetic-class',source_meeting_id:'synthetic-meeting',start:'2026-11-02',end:'2026-11-08',skip:false};
 const tasks=Array.from({length:22},(_,i)=>({...task,class_id:'synthetic-class-'+i}));
 const done={import_id:1,status:'SUCCESS',posting_completed:true,job_status:'SUCCEEDED'};
+
+test('untrusted cloud calls cannot forge timers or continuations',()=>{
+ const secret='synthetic-dispatch-key-'+'c'.repeat(40),runtime={READING_DISPATCH_SIGNING_KEY:secret};
+ assert.throws(()=>dispatcher.verifyEvent(event,runtime));
+ const signed=dispatcher.signEvent(event,secret,100);
+ assert.deepEqual(dispatcher.verifyEvent(signed,runtime,100),event);
+ assert.throws(()=>dispatcher.verifyEvent({...signed,index:3},runtime,100));
+ assert.throws(()=>dispatcher.verifyEvent(signed,runtime,4000));
+ assert.throws(()=>dispatcher.verifyEvent({Type:'Timer',TriggerName:'readingSyncWeekly'},runtime));
+ const proof=createHmac('sha256',secret).update('timer\nreadingSyncWeekly').digest('hex');
+ const timer={Type:'Timer',TriggerName:'readingSyncWeekly',runDate:'2026-01-01',index:30,Message:JSON.stringify({timer_signature:proof})};
+ assert.deepEqual(dispatcher.verifyEvent(timer,runtime),{Type:'Timer',TriggerName:'readingSyncWeekly'});
+ assert.throws(()=>dispatcher.verifyEvent({...timer,TriggerName:'readingSyncMonthly'},runtime));
+});
 test('month start Monday belongs exclusively to monthly trigger',async()=>{
  const result=await dispatcher.run({Type:'Timer',TriggerName:'readingSyncWeekly'},{env,periodModule,today:'2026-06-01',request:()=>assert.fail('must skip')});
  assert.equal(result.skipped,true);
