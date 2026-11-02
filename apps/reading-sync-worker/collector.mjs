@@ -30,13 +30,23 @@ export async function login(page,{username,password},report=()=>{}) {
 async function downloadInventory(page) {
   const loaded=page.waitForResponse(r=>new URL(r.url()).pathname==='/file/ExportRecord/list',{timeout:30000});
   await page.locator('i.ri-download-line').click();
-  await loaded;
+  const response=await loaded;
+  const payload=await response.json();
+  const total=payload.data?.total,records=payload.data?.list;
+  if(!Number.isSafeInteger(total)||total<0||!Array.isArray(records))throw Error('EXPORT_INVENTORY_UNCONFIRMED');
   const dialog=page.getByRole('dialog');
   await dialog.waitFor();
   // Waiting for the total makes an initially empty loading table observable.
-  await dialog.getByText(/共\s*\d+\s*条/).waitFor();
-  const text=await dialog.innerText();
-  return {dialog,total:Number(text.match(/共\s*(\d+)\s*条/)[1])};
+  await dialog.getByText(new RegExp('共\\s*'+total+'\\s*条')).waitFor();
+  return {dialog,total,records,responseCode:payload.code};
+}
+
+export function createdExport(before,after){
+ if(after.total===before.total)return null;
+ const previous=new Set(before.records.map(r=>r.bizId));
+ const created=after.records.filter(r=>!previous.has(r.bizId));
+ if(after.total!==before.total+1||created.length!==1||!created[0].bizId||created[0].bizType!=='BookClubTasKStat'||created[0].fileName!=='读书会打卡统计列表')throw Error('EXPORT_TASK_ASSOCIATION_UNCERTAIN');
+ return created[0];
 }
 
 export async function collect(page,{sourceTitle,searchTerm=sourceTitle,interval,directory,report=()=>{}}) {
@@ -83,10 +93,19 @@ export async function collect(page,{sourceTitle,searchTerm=sourceTitle,interval,
   await page.locator('button.export-btn').click();
   const exported=page.waitForResponse(r=>new URL(r.url()).pathname==='/reading/bcBookStat/exportData',{timeout:30000});
   await page.getByRole('dialog',{name:'是否确认导出？'}).getByRole('button',{name:'确定',exact:true}).click();
-  await exported;
-  const after=await downloadInventory(page);
-  if(after.total!==before.total+1)throw Error('EXPORT_TASK_ASSOCIATION_UNCERTAIN');
-  const row=after.dialog.getByRole('row').filter({hasText:'读书会打卡统计列表'}).first();
+  const exportedReply=await(await exported).json();
+  if(exportedReply.code!==before.responseCode)throw Error('EXPORT_NOT_ACCEPTED');
+  let after,created;
+  for(let attempt=0;attempt<8;attempt++){
+   after=await downloadInventory(page);created=createdExport(before,after);
+   if(created)break;
+   await after.dialog.getByRole('button',{name:'确定',exact:true}).click();
+   await new Promise(resolve=>setTimeout(resolve,500));
+  }
+  if(!created)throw Error('EXPORT_TASK_ASSOCIATION_UNCERTAIN');
+  const index=after.records.findIndex(r=>r.bizId===created.bizId);
+  const ordinal=after.records.slice(0,index).filter(r=>r.fileName===created.fileName).length;
+  const row=after.dialog.getByRole('row').filter({hasText:'读书会打卡统计列表'}).nth(ordinal);
   await row.getByText('下载',{exact:true}).waitFor({timeout:60000});
   const exportRecord=await row.innerText();
   report('download');
@@ -100,5 +119,5 @@ export async function collect(page,{sourceTitle,searchTerm=sourceTitle,interval,
   const content=await readFile(file);
   if(content.length<4||content[0]!==0x50||content[1]!==0x4b)throw Error('INVALID_WORKBOOK');
   await after.dialog.getByRole('button',{name:'确定',exact:true}).click();
-  return {file,sourceMeetingId,sourceTitle,interval,fileSha256:createHash('sha256').update(content).digest('hex'),expectedRows:Number.isSafeInteger(total)&&total>=0?total:null,exportRecord};
+  return {file,sourceMeetingId,sourceTitle,interval,fileSha256:createHash('sha256').update(content).digest('hex'),expectedRows:Number.isSafeInteger(total)&&total>=0?total:null,exportRecord,exportTaskId:created.bizId};
 }

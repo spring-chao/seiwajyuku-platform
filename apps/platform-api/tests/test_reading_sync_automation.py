@@ -56,6 +56,18 @@ def test_machine_subject_never_defaults_to_administrator(monkeypatch):
     with pytest.raises(sync.SyncError,match='ACTOR_NOT_CONFIGURED'):sync.configured_actor()
 
 
+def test_plan_refreshes_live_posting_without_hydrating_all_member_details(source_fixture,monkeypatch):
+    f=source_fixture;configure(monkeypatch,f)
+    created=sync.ingest(raw_report(f['name']),f['class_id'],'synthetic-meeting','2026-10-05','2026-10-09')
+    source=sources.get_import(created['import_id'],f['actor'])
+    jobs.run_job(source['posting_job']['id'],source['settlement_fingerprint'])
+    monkeypatch.setattr(sources,'get_import',lambda *args:pytest.fail('planning must use bounded summaries'))
+    planned=sync.plan([{'start':'2026-10-05','end':'2026-10-09'}])
+    first=next(t for t in planned if t['class_id']==f['class_id'])
+    assert len(planned)==22 and first['skip'] and first['previous']['status']=='SUCCESS'
+    assert first['previous']['posted_entries']==1
+
+
 def test_packaged_class_manifest_pins_22_unique_formal_sources(monkeypatch):
     monkeypatch.delenv('READING_SYNC_CLASS_MAP',raising=False)
     monkeypatch.setenv('READING_SYNC_ACTOR_ID','1')
@@ -72,6 +84,9 @@ def test_identity_exceptions_do_not_block_valid_rows_or_mark_whole_class_success
     source=sources.get_import(a['import_id'],f['actor'])
     jobs.run_job(source['posting_job']['id'],source['settlement_fingerprint'])
     assert sync.status(f['class_id'],'synthetic-meeting','2026-10-05','2026-10-09',a['import_id'])['status']=='PARTIAL_PENDING_IDENTITY'
+    planned=sync.plan([{'start':'2026-10-05','end':'2026-10-09'}])
+    selected=next(t for t in planned if t['class_id']==f['class_id'])
+    assert not selected['skip'] and selected['previous']['unmatched_rows']==1
 
 
 def test_invalid_date_on_unmatched_identity_row_rejects_the_entire_workbook_before_writes(monkeypatch):
