@@ -84,6 +84,9 @@ def test_identity_exceptions_do_not_block_valid_rows_or_mark_whole_class_success
     source=sources.get_import(a['import_id'],f['actor'])
     jobs.run_job(source['posting_job']['id'],source['settlement_fingerprint'])
     assert sync.status(f['class_id'],'synthetic-meeting','2026-10-05','2026-10-09',a['import_id'])['status']=='PARTIAL_PENDING_IDENTITY'
+    planned=sync.plan([{'start':'2026-10-05','end':'2026-10-09'}])
+    selected=next(t for t in planned if t['class_id']==f['class_id'])
+    assert not selected['skip'] and selected['previous']['unmatched_rows']==1
 
 
 def test_invalid_date_on_unmatched_identity_row_rejects_the_entire_workbook_before_writes(monkeypatch):
