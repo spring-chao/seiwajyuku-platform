@@ -74,7 +74,7 @@ def configuration_candidates():
     for name,parent,title in CLASS_TARGETS:
         matches=[r for r in catalog if r['name']==name and r['parent_name']==parent]
         if len(matches)!=1:raise SyncError('CLASS_MAPPING_REQUIRES_REVIEW')
-        result.append({'class_id':matches[0]['id'],'class_name':name,'center_name':parent,'source_title':title,'search_term':name})
+        result.append({'class_id':matches[0]['id'],'class_name':name,'center_name':parent,'source_title':title,'search_term':title})
     return {'actor_id':actor,'classes':result}
 
 
@@ -264,6 +264,8 @@ def plan(intervals):
                     live=_status_report(source,previous['import_id'],ignored)
                 elif previous.get('empty_report') and previous.get('status')=='SUCCESS':
                     live=previous
+                elif previous.get('status')=='FAILED':
+                    live={'status':'FAILED','error_code':previous.get('error_code'),'posting_completed':False}
                 pending.append({**mapping,'start':start,'end':end,'previous':live,
                                 'skip':bool(live and live['status']=='SUCCESS')})
     finally:
