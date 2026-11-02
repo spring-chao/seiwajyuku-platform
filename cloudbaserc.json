@@ -5,6 +5,17 @@
   "functionRoot": "./cloudfunctions",
   "functions": [
     {
+      "name": "readingSyncDispatch",
+      "dir": "cloudfunctions/reading-sync-dispatch",
+      "runtime": "Nodejs18.15",
+      "handler": "index.main",
+      "timeout": 180,
+      "memorySize": 128,
+      "installDependency": false,
+      "description": "22班读书来源采集与自动入账调度；每事件只处理一个班级区间；正式验收前不创建定时触发器",
+      "triggers": []
+    },
+    {
       "name": "studyEvidenceCleanup",
       "dir": "cloudfunctions/study-evidence-cleanup",
       "runtime": "Nodejs18.15",

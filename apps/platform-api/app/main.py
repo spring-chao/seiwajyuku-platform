@@ -40,6 +40,7 @@ from app.api.learning_credits import router as learning_credits_router
 from app.api.credit_opening_balances import router as credit_opening_balances_router
 from app.api.credit_year_allocations import router as credit_year_allocations_router
 from app.api.credit_source_imports import router as credit_source_imports_router
+from app.api.reading_sync_automation import router as reading_sync_automation_router
 from app.api.credit_posting_jobs import router as credit_posting_jobs_router
 from app.api.production_actions import router as production_actions_router
 from app.api.member_roster_import import router as member_roster_import_router
@@ -259,6 +260,7 @@ app.include_router(learning_credits_router)
 app.include_router(credit_opening_balances_router)
 app.include_router(credit_year_allocations_router)
 app.include_router(credit_source_imports_router)
+app.include_router(reading_sync_automation_router)
 from app.api.monthly_core_reports import router as monthly_core_reports_router
 app.include_router(monthly_core_reports_router)
 app.include_router(credit_posting_jobs_router)
