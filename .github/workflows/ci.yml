@@ -88,6 +88,12 @@ jobs:
           node -e 'const fs = require("fs"); const c = JSON.parse(fs.readFileSync("cloudbaserc.json", "utf8")); const f = (c.functions || []).find(item => item.name === "studyEvidenceCleanup"); if (c.version !== "2.1" || !f || f.dir !== "cloudfunctions/study-evidence-cleanup" || f.triggers?.[0]?.type !== "timer") process.exit(1); if (JSON.stringify(f).includes("STUDY_EVIDENCE_CLEANUP_TOKEN")) process.exit(1);'
           node --check cloudfunctions/study-evidence-cleanup/index.js
           node --test cloudfunctions/study-evidence-cleanup/index.test.mjs
+          node --check cloudfunctions/reading-sync-dispatch/index.js
+          node --check apps/reading-sync-worker/collector.mjs
+          node --check apps/reading-sync-worker/server.mjs
+          node --test apps/reading-sync-worker/test/*.test.mjs
+      - name: Build isolated reading collector image
+        run: docker build --build-arg APP_GIT_SHA="$GITHUB_SHA" -f apps/reading-sync-worker/Dockerfile -t reading-sync-worker:ci .
 
   api-container:
     runs-on: ubuntu-latest
@@ -196,6 +202,7 @@ jobs:
           apps/platform-api/tests/test_credit_source_excel.py
           apps/platform-api/tests/test_reading_weekly_export.py
           apps/platform-api/tests/test_credit_posting_jobs.py
+          apps/platform-api/tests/test_reading_sync_automation.py
           apps/platform-api/tests/test_credit_source_setup_mysql.py
           apps/platform-api/tests/test_credit_opening_setup_mysql.py
           apps/platform-api/tests/test_credit_settlement_setup_mysql.py
