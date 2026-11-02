@@ -27,7 +27,7 @@
         {
           "name": "monthlyCoreReports",
           "type": "timer",
-          "config": "0 0 2,3,4 1 * * *"
+          "config": "0 30 9 1 * ? *"
         },
         {
           "name": "studyEvidenceCleanupDaily",

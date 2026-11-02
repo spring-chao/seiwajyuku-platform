@@ -106,8 +106,8 @@ export const monthlyCoreOptions = () =>
 export type MonthlyCoreStatus = { status: "MISSING" | "PENDING" | "RUNNING" | "READY" | "FAILED" | "EXPIRED"; cutoff: string; generated_at?: string };
 export const monthlyCoreStatus = (center_id: string, month: string) =>
   http.request<Result<MonthlyCoreStatus>>("get",base+"/monthly-core-status",{params:{center_id,month},timeout:30000});
-export const monthlyCorePrepare = (center_id: string, month: string) =>
-  http.request<Result<MonthlyCoreStatus>>("post",base+"/monthly-core-prepare",{data:{center_id,month},timeout:30000});
+export const monthlyCorePrepare = (center_id: string, month: string, refresh = false) =>
+  http.request<Result<MonthlyCoreStatus>>("post",base+"/monthly-core-prepare",{data:{center_id,month,refresh},timeout:30000});
 export const monthlyCoreExport = (center_id: string, month: string) =>
   http.request<Blob>("get", base + "/monthly-core-export", {
     params: { center_id, month }, responseType: "blob", timeout: 30000

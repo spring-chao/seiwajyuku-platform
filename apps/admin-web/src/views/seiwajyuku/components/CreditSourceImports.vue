@@ -105,7 +105,8 @@ const refreshMonthlyStatus = async () => {
     const result = (await monthlyCoreStatus(center_id,month)).data;
     if (generation !== monthlyGeneration) return;
     monthlyState.value = result; monthlyNotice.value = "";
-    if (!["PENDING","RUNNING"].includes(result.status) && monthlyTimer) {clearInterval(monthlyTimer);monthlyTimer=undefined;}
+    if (["PENDING","RUNNING"].includes(result.status)) {if (!monthlyTimer) watchMonthlyProgress();}
+    else if (monthlyTimer) {clearInterval(monthlyTimer);monthlyTimer=undefined;}
   } catch {if (generation === monthlyGeneration) monthlyNotice.value = "状态读取未完成，点击导出可重新查看";}
   finally {monthlyReading=false;if(!monthlyDisposed && generation!==monthlyGeneration)void refreshMonthlyStatus();}
 };
@@ -129,6 +130,18 @@ const exportMonthlyCore = () => perform(async () => {
   monthlyState.value=result;monthlyNotice.value="";
   if(result.status === "READY") download(await monthlyCoreExport(center_id,month), `${center?.name || "分中心"}${month}核心数据.xlsx`);
   else {watchMonthlyProgress();ElMessage.success("已在后台生成，完成后点击导出即可下载");}
+}, true);
+const monthlyGenerating = computed(() => ["PENDING", "RUNNING"].includes(monthlyState.value?.status || ""));
+const refreshMonthlyCore = () => perform(async () => {
+  if (!monthlyForm.center_id || !monthlyForm.month) throw new Error("请选择分中心和统计月份");
+  const generation = monthlyGeneration;
+  const {center_id, month} = monthlyForm;
+  const result = (await monthlyCorePrepare(center_id, month, true)).data;
+  if (generation !== monthlyGeneration) return;
+  monthlyState.value = result;
+  monthlyNotice.value = "";
+  watchMonthlyProgress();
+  ElMessage.success("已提交后台刷新，生成完成后可导出最新数据");
 }, true);
 const weeklyMembers = ref<ReadingWeeklyMember[]>([]);
 const weeklyPauses = ref<ReadingWeeklyPause[]>([]);
@@ -613,13 +626,14 @@ onMounted(() => perform(reload));
     </section>
     <section v-if="canExport" class="section">
       <strong>分中心月度核心数据</strong>
-      <p>每月1日凌晨2点（北京时间）自动生成各分中心上月核心数据，保留吴江模板的六张表、配色和分区。已生成文件直接下载；其他月份首次在后台生成，本月截至昨天，缺失资料留空。</p>
+      <p>每月1日上午9:30（北京时间）自动生成各分中心上月核心数据，保留吴江模板的六张表、配色和分区。已生成文件直接下载；其他月份首次在后台生成，本月截至昨天，缺失资料留空。数据更新后请点击“刷新数据”重新生成，完成后再导出。</p>
       <el-form inline>
         <el-form-item label="分中心"><el-select v-model="monthlyForm.center_id" filterable placeholder="选择分中心" :disabled="busy">
           <el-option v-for="c in exportCenters" :key="c.id" :value="c.id" :label="c.name" />
         </el-select></el-form-item>
         <el-form-item label="统计月份"><el-date-picker v-model="monthlyForm.month" type="month" value-format="YYYY-MM" placeholder="选择月份" :disabled="busy" /></el-form-item>
-        <el-button type="primary" :loading="busy" @click="exportMonthlyCore">导出核心数据</el-button>
+        <el-button :loading="busy" :disabled="monthlyGenerating" @click="refreshMonthlyCore">刷新数据</el-button>
+        <el-button type="primary" :loading="busy" :disabled="monthlyGenerating" @click="exportMonthlyCore">导出核心数据</el-button>
       </el-form>
       <p v-if="monthlyForm.center_id">{{ monthlyStatusText }}<span v-if="monthlyState?.generated_at">（生成时间：{{ monthlyState.generated_at.slice(0,19).replace('T',' ') }}）</span></p>
     </section>

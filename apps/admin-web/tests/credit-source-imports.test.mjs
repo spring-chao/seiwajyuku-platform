@@ -11,7 +11,7 @@ const compiled = ts.transpileModule(script, { compilerOptions: { target: ts.Scri
 function harness(api = {}, permissions = ["members:read", "plans:credit_settlement_manage", "plans:credit_settlement_preview", "plans:credit_settlement_approve", "plans:credit_settlement_post", "exports:normal"]) {
   const storage = new Map();
   const context = vm.createContext({ computed, reactive, ref, watch, onMounted: () => {}, onBeforeUnmount: () => {}, setInterval: () => 1, clearInterval() {}, defineEmits: () => () => {}, useUserStoreHook: () => ({ permissions }), creditSettlementErrorMessage: e => e.message, ElMessage: { success() {}, error() {} }, ElMessageBox: { confirm: async () => {} }, localStorage: { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) }, URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} }, document: { createElement: () => ({ click() {} }) }, setTimeout: () => {}, monthlyCoreOptions: async () => ({ data: { centers: [] } }), monthlyCoreStatus: async () => ({data:{status:"MISSING",cutoff:"2026-09-30"}}), ...api });
-  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail,act,batchSummary,posting,refreshDetail,recover,pausePostingJob,busy,monthlyForm,exportCenters,exportMonthlyCore,monthlyState,monthlyStatusText,refreshMonthlyStatus};", context);
+  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail,act,batchSummary,posting,refreshDetail,recover,pausePostingJob,busy,monthlyForm,exportCenters,exportMonthlyCore,monthlyState,monthlyStatusText,refreshMonthlyStatus,refreshMonthlyCore,monthlyGenerating};", context);
   return context.result;
 }
 
@@ -204,4 +204,24 @@ test("pausing sends a durable server request and keeps completed progress",async
   ui.detail.value={...progressSource(3),posting_job:{id:1,status:'RUNNING',pause_requested:false}};
   await ui.pausePostingJob();
   assert.equal(calls,1);assert.equal(ui.detail.value.posting_progress.posted_entries,3);assert.equal(ui.eligible(ui.detail.value),true);
+});
+
+
+test("refresh queues new workbook instead of downloading the cached snapshot",async()=>{
+  let args,downloads=0;
+  const ui=harness({monthlyCorePrepare:async(...values)=>{args=values;return{data:{status:'PENDING',cutoff:'2026-10-31'}};},monthlyCoreExport:async()=>{downloads++;}});
+  ui.monthlyForm.center_id='selected';ui.monthlyForm.month='2026-10';await nextTick();
+  ui.monthlyState.value={status:'READY',cutoff:'2026-10-31'};
+  await ui.refreshMonthlyCore();
+  assert.deepEqual(args,['selected','2026-10',true]);assert.equal(downloads,0);
+  assert.equal(ui.monthlyGenerating.value,true);assert.equal(ui.monthlyState.value.status,'PENDING');
+});
+
+
+test("opening an active monthly report resumes progress polling",async()=>{
+  let timers=0;
+  const ui=harness({setInterval:()=>{timers++;return 1;},monthlyCoreStatus:async()=>({data:{status:'RUNNING',cutoff:'2026-10-31'}})});
+  ui.monthlyForm.center_id='selected';ui.monthlyForm.month='2026-10';await nextTick();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(timers,1);assert.equal(ui.monthlyGenerating.value,true);
 });

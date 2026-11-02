@@ -82,10 +82,10 @@ def _dispatch(key):
         if response.status!=202:raise ValueError('报表后台任务启动待确认，请稍后查看状态')
 
 
-def prepare(actor,center_id,month):
+def prepare(actor,center_id,month,refresh=False):
     context,key=_context(actor,center_id,month);store=_store()
     state,etag=_state(store,key); current=_public(state,context)
-    if current['status'] in ('READY','PENDING','RUNNING'):return current
+    if current['status'] in ('PENDING','RUNNING') or (current['status']=='READY' and not refresh):return current
     pending={'context':context,'actor':actor,'status':'PENDING','attempt':uuid4().hex,'updated_at':time.time(),
              'attempt_count':(state or {}).get('attempt_count',0)+1,'trigger':'manual'}
     try:_save(store,key,pending,etag)
