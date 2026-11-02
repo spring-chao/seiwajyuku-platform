@@ -216,3 +216,12 @@ test("refresh queues new workbook instead of downloading the cached snapshot",as
   assert.deepEqual(args,['selected','2026-10',true]);assert.equal(downloads,0);
   assert.equal(ui.monthlyGenerating.value,true);assert.equal(ui.monthlyState.value.status,'PENDING');
 });
+
+
+test("opening an active monthly report resumes progress polling",async()=>{
+  let timers=0;
+  const ui=harness({setInterval:()=>{timers++;return 1;},monthlyCoreStatus:async()=>({data:{status:'RUNNING',cutoff:'2026-10-31'}})});
+  ui.monthlyForm.center_id='selected';ui.monthlyForm.month='2026-10';await nextTick();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(timers,1);assert.equal(ui.monthlyGenerating.value,true);
+});

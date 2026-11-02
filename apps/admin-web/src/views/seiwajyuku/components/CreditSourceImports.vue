@@ -105,7 +105,8 @@ const refreshMonthlyStatus = async () => {
     const result = (await monthlyCoreStatus(center_id,month)).data;
     if (generation !== monthlyGeneration) return;
     monthlyState.value = result; monthlyNotice.value = "";
-    if (!["PENDING","RUNNING"].includes(result.status) && monthlyTimer) {clearInterval(monthlyTimer);monthlyTimer=undefined;}
+    if (["PENDING","RUNNING"].includes(result.status)) {if (!monthlyTimer) watchMonthlyProgress();}
+    else if (monthlyTimer) {clearInterval(monthlyTimer);monthlyTimer=undefined;}
   } catch {if (generation === monthlyGeneration) monthlyNotice.value = "状态读取未完成，点击导出可重新查看";}
   finally {monthlyReading=false;if(!monthlyDisposed && generation!==monthlyGeneration)void refreshMonthlyStatus();}
 };
