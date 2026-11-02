@@ -56,6 +56,15 @@ def test_machine_subject_never_defaults_to_administrator(monkeypatch):
     with pytest.raises(sync.SyncError,match='ACTOR_NOT_CONFIGURED'):sync.configured_actor()
 
 
+def test_packaged_class_manifest_pins_22_unique_formal_sources(monkeypatch):
+    monkeypatch.delenv('READING_SYNC_CLASS_MAP',raising=False)
+    monkeypatch.setenv('READING_SYNC_ACTOR_ID','1')
+    actor,classes=sync.configuration()
+    assert actor==1 and len(classes)==22
+    assert len({r['source_meeting_id'] for r in classes.values()})==22
+    assert all(not any(word in r['source_title'] for word in ('补课','补卡','塾友之家','工作人员')) for r in classes.values())
+
+
 def test_identity_exceptions_do_not_block_valid_rows_or_mark_whole_class_success(source_fixture,monkeypatch):
     f=source_fixture;configure(monkeypatch,f)
     a=sync.ingest(raw_report(f['name'],extra=True),f['class_id'],'synthetic-meeting','2026-10-05','2026-10-09')

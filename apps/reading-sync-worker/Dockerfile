@@ -8,6 +8,7 @@ COPY apps/reading-sync-worker/package.json apps/reading-sync-worker/package-lock
 RUN npm ci --omit=dev --ignore-scripts && chown -R pwuser:pwuser /worker
 COPY --chown=pwuser:pwuser apps/reading-sync-worker/*.mjs ./
 COPY --chown=pwuser:pwuser cloudfunctions/reading-sync-dispatch/periods.mjs ./periods.mjs
+COPY --chown=pwuser:pwuser apps/platform-api/app/services/reading_sync_classes.json ./classes.json
 USER pwuser
 EXPOSE 8000
 CMD ["node","server.mjs"]
