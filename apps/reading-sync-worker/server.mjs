@@ -25,7 +25,7 @@ http.createServer(async(req,res)=>{
   const material=['POST','/collect',stamp,createHash('sha256').update(raw).digest('hex')].join('\n');
   if(!equal(createHmac('sha256',key).update(material).digest('hex'),signature))return send(res,401,{error:'UNAUTHORIZED'});
   const input=JSON.parse(raw.toString());
-  const classes=JSON.parse(process.env.READING_SYNC_CLASS_MAP||'[]');
+  const classes=JSON.parse(process.env.READING_SYNC_CLASS_MAP||await readFile(new URL('./classes.json',import.meta.url),'utf8'));
   if(classes.length!==22)return send(res,503,{error:'CONFIGURATION_INCOMPLETE'});
   const target=classes.find(c=>c.class_id===input.class_id&&c.source_meeting_id===input.source_meeting_id);
   if(!target)return send(res,403,{error:'OUT_OF_SCOPE'});

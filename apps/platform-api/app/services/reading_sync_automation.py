@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 import hashlib
 import json
 import os
+from pathlib import Path
 from decimal import Decimal
 
 from app.db import connect, execute, transaction
@@ -81,7 +82,7 @@ def configuration():
     # No implicit administrator fallback. Deployment must explicitly bind the
     # accountable operator and all exact organization/source IDs.
     actor = int(os.getenv('READING_SYNC_ACTOR_ID', '0'))
-    raw = json.loads(os.getenv('READING_SYNC_CLASS_MAP', '[]'))
+    raw = json.loads(os.getenv('READING_SYNC_CLASS_MAP') or Path(__file__).with_name('reading_sync_classes.json').read_text(encoding='utf-8'))
     if actor <= 0 or not isinstance(raw, list) or len(raw) != 22:
         raise SyncError('SYNC_CONFIGURATION_INCOMPLETE')
     required = {'class_id', 'source_title', 'source_meeting_id'}

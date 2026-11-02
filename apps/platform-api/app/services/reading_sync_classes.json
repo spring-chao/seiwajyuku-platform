@@ -1,0 +1,178 @@
+[
+  {
+    "class_id": "64f886a5-3dbf-429b-9b26-495f1f5d68f5",
+    "class_name": "吴越一班",
+    "center_name": "吴江分中心",
+    "source_title": "吴江分中心吴越一班",
+    "search_term": "吴越一班",
+    "source_meeting_id": "0000000124176"
+  },
+  {
+    "class_id": "87d1ee14-eef7-4193-9cf3-cc4f055f1da0",
+    "class_name": "吴越二班",
+    "center_name": "吴江分中心",
+    "source_title": "吴江分中心吴越二班",
+    "search_term": "吴越二班",
+    "source_meeting_id": "20260227151916672a5415583377d5c32351"
+  },
+  {
+    "class_id": "3efcbf8d-c992-4f57-a09d-8b8cfa4cd134",
+    "class_name": "吴越三班",
+    "center_name": "吴江分中心",
+    "source_title": "吴江分中心吴越三班",
+    "search_term": "吴越三班",
+    "source_meeting_id": "20260410105046e76c85de9e5044299d83ad"
+  },
+  {
+    "class_id": "869b6969-8317-4a4e-a824-47b62dd15541",
+    "class_name": "圆融一班",
+    "center_name": "园区分中心",
+    "source_title": "园区圆融一班",
+    "search_term": "圆融一班",
+    "source_meeting_id": "202601031623435a2dc3ad528043eb9f8e36"
+  },
+  {
+    "class_id": "ea56a5de-4166-4d31-866c-e9c26ff7b350",
+    "class_name": "圆融三班",
+    "center_name": "园区分中心",
+    "source_title": "园区圆融三班",
+    "search_term": "圆融三班",
+    "source_meeting_id": "20250914064726bb0aa84854bf8adf3ad9bb"
+  },
+  {
+    "class_id": "462155c1-ab8d-4645-a009-c59407f07f12",
+    "class_name": "圆融四班",
+    "center_name": "园区分中心",
+    "source_title": "园区圆融四班",
+    "search_term": "圆融四班",
+    "source_meeting_id": "20260302101942e8b9f4c8fbbdc152e0a5a2"
+  },
+  {
+    "class_id": "41c208cd-94dc-46a4-8d99-02f223f710b8",
+    "class_name": "圆融五班",
+    "center_name": "园区分中心",
+    "source_title": "园区圆融五班",
+    "search_term": "圆融五班",
+    "source_meeting_id": "2026042915194401b5164730a9e7d171fa28"
+  },
+  {
+    "class_id": "8e32d63f-229b-4eef-afcb-8b13a969148a",
+    "class_name": "真干班",
+    "center_name": "姑苏相城分中心",
+    "source_title": "姑苏相城分中心真干班",
+    "search_term": "真干班",
+    "source_meeting_id": "2026102609123858eb1b1c42a0be4fa6b78e"
+  },
+  {
+    "class_id": "46e8bd59-7741-4ab6-8c49-920f2bdc1e28",
+    "class_name": "真干二班",
+    "center_name": "姑苏相城分中心",
+    "source_title": "姑苏相城真干二班",
+    "search_term": "真干二班",
+    "source_meeting_id": "202603021015083b7347d89b93d09ea1ccf0"
+  },
+  {
+    "class_id": "e560b7fb-28bf-453c-9ba7-68eb704c4c81",
+    "class_name": "真干三班",
+    "center_name": "姑苏相城分中心",
+    "source_title": "姑苏相城真干三班",
+    "search_term": "真干三班",
+    "source_meeting_id": "202603271516158187f4ce89f161ce15acb3"
+  },
+  {
+    "class_id": "3c4316c9-26f7-49f4-9e01-fcad8b965fe0",
+    "class_name": "苏州不一班",
+    "center_name": "姑苏相城分中心",
+    "source_title": "姑苏相城分中心不一班",
+    "search_term": "苏州不一班",
+    "source_meeting_id": "202504291402454a451583645bf8fc72cb6b"
+  },
+  {
+    "class_id": "9c7f9d9b-fd29-46e9-9e9f-cd332eca7ed8",
+    "class_name": "振华一班",
+    "center_name": "张家港分中心",
+    "source_title": "张家港振华一班",
+    "search_term": "振华一班",
+    "source_meeting_id": "20250430125141edeeb424fa2e7a3abdf59b"
+  },
+  {
+    "class_id": "c335db0f-10ff-4a51-89df-b373653b07d8",
+    "class_name": "振华二班",
+    "center_name": "张家港分中心",
+    "source_title": "张家港振华二班",
+    "search_term": "振华二班",
+    "source_meeting_id": "202512141303072c3edf66f594eb6ad99c5f"
+  },
+  {
+    "class_id": "c2c12a8f-1506-4071-a1f4-f9ce8328a6e3",
+    "class_name": "新吴一班",
+    "center_name": "新吴分中心",
+    "source_title": "新吴一班",
+    "search_term": "新吴一班",
+    "source_meeting_id": "20251105191153e7141df54fad868f0a5b08"
+  },
+  {
+    "class_id": "e34afc8f-1f0a-40d0-96a2-06788fc98f78",
+    "class_name": "新吴二班",
+    "center_name": "新吴分中心",
+    "source_title": "新吴二班",
+    "search_term": "新吴二班",
+    "source_meeting_id": "202511101529253c04e1fb3b2f3164382389"
+  },
+  {
+    "class_id": "bb2fe686-d801-468d-ac6d-d77a2aa6bde4",
+    "class_name": "新吴三班",
+    "center_name": "新吴分中心",
+    "source_title": "新吴三班",
+    "search_term": "新吴三班",
+    "source_meeting_id": "202601160920315b78bbd645f481d90a621d"
+  },
+  {
+    "class_id": "f03fd28f-53f3-4e51-84bd-decb7bbb5c3b",
+    "class_name": "炎武一班",
+    "center_name": "昆山分中心",
+    "source_title": "昆山炎武一班",
+    "search_term": "炎武一班",
+    "source_meeting_id": "20250427093316de2c454b86f19b503dac7a"
+  },
+  {
+    "class_id": "cbac5025-93a8-4e4e-a14a-91af9c697f99",
+    "class_name": "炎武二班",
+    "center_name": "昆山分中心",
+    "source_title": "昆山炎武二班",
+    "search_term": "炎武二班",
+    "source_meeting_id": "202510281524529046588a6386021caca81e"
+  },
+  {
+    "class_id": "4fb7212b-6e7d-4f17-942f-5769cbdb7f26",
+    "class_name": "炎武三班",
+    "center_name": "昆山分中心",
+    "source_title": "昆山炎武三班",
+    "search_term": "炎武三班",
+    "source_meeting_id": "2026011411022161ecc4ff69eed760718993"
+  },
+  {
+    "class_id": "e2ed154e-2c53-4e14-b228-d036782b0265",
+    "class_name": "炎武四班",
+    "center_name": "昆山分中心",
+    "source_title": "昆山炎武四班",
+    "search_term": "炎武四班",
+    "source_meeting_id": "20260227152034a03e4173aeae4286b1e890"
+  },
+  {
+    "class_id": "23cc3421-8f25-45f5-948d-f9d15eeba092",
+    "class_name": "黄埔一班",
+    "center_name": "苏州塾",
+    "source_title": "黄埔一班",
+    "search_term": "黄埔一班",
+    "source_meeting_id": "202505061100396733b7cdb6e4d2fa7d202c"
+  },
+  {
+    "class_id": "d3ca5945-471e-4375-b985-b68bb1096afd",
+    "class_name": "黄埔二班",
+    "center_name": "苏州塾",
+    "source_title": "黄埔二班",
+    "search_term": "黄埔二班",
+    "source_meeting_id": "202505061119176544d494de9e254ad40b7c"
+  }
+]
