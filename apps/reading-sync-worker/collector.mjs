@@ -6,18 +6,24 @@ export const origin='https://study.daoshenghefu.com';
 const management=origin+'/admin/learnshs/readingmeeting/readingmeetingmanagement';
 const byName=(page,name)=>page.getByRole('button',{name,exact:true});
 
-export async function login(page,{username,password}) {
+export async function login(page,{username,password},report=()=>{}) {
   if(!username||!password)throw Error('CREDENTIALS_MISSING');
+  report('navigate');
   await page.goto(management,{waitUntil:'domcontentloaded',timeout:45000});
   await page.locator('input').first().waitFor({timeout:30000});
   if(new URL(page.url()).origin!==origin)throw Error('UNEXPECTED_ORIGIN');
   if(new URL(page.url()).pathname.includes('/login')){
+    report('account');
     await page.getByPlaceholder('请输入账号',{exact:true}).fill(username);
+    report('password');
     await page.getByPlaceholder('请输入密码',{exact:true}).fill(password);
+    report('submit');
     await byName(page,'登录').click();
+    report('session');
     await page.waitForURL(u=>u.origin===origin&&!u.pathname.includes('/login'),{timeout:30000});
     await page.goto(management,{waitUntil:'domcontentloaded',timeout:45000});
   }
+  report('ready');
   await page.getByRole('textbox',{name:'读书会名称：',exact:true}).waitFor({timeout:30000});
 }
 

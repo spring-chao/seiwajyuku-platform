@@ -13,7 +13,7 @@ const send=(res,status,value)=>{res.writeHead(status,{'Content-Type':'applicatio
 http.createServer(async(req,res)=>{
  if(req.method==='GET'&&req.url==='/health/live')return send(res,200,{status:'ok',commit:process.env.APP_GIT_SHA||'unknown'});
  if(req.method!=='POST'||req.url!=='/collect')return send(res,404,{error:'NOT_FOUND'});
- let browser,directory,ownsActive=false,phase='authorize';
+ let browser,page,directory,ownsActive=false,phase='authorize';
  try{
   const key=process.env.READING_WORKER_SIGNING_KEY||'';
   const stamp=req.headers['x-reading-sync-time']||'';
@@ -37,14 +37,14 @@ http.createServer(async(req,res)=>{
   phase='browser_launch';
   browser=await chromium.launch({headless:true});
   phase='browser_context';
-  const page=await(await browser.newContext({acceptDownloads:true})).newPage();
+  page=await(await browser.newContext({acceptDownloads:true,locale:'zh-CN',timezoneId:'Asia/Shanghai'})).newPage();
   // Bound one request below the documented CloudRun HTTP timeout. A timed-out
   // export is never reported as complete; the caller records and retries it.
   page.setDefaultTimeout(10000);
   const result=await Promise.race([
    (async()=>{
     phase='source_login';
-    await login(page,{username:process.env.READING_PLATFORM_USERNAME,password:process.env.READING_PLATFORM_PASSWORD});
+    await login(page,{username:process.env.READING_PLATFORM_USERNAME,password:process.env.READING_PLATFORM_PASSWORD},stage=>{if(['navigate','account','password','submit','session','ready'].includes(stage))phase='source_login_'+stage;});
     const result=await collect(page,{sourceTitle:target.source_title,searchTerm:target.search_term||target.source_title,interval:{start:input.start,end:input.end},directory,report:stage=>{if(['search','open','statistics','export','download'].includes(stage))phase='source_'+stage;}});
     if(result.sourceMeetingId!==target.source_meeting_id)throw Error('SOURCE_CHANGED');
     const raw=await readFile(result.file);
@@ -69,8 +69,22 @@ http.createServer(async(req,res)=>{
    else if(message.includes('SIGSEGV'))code='BROWSER_SIGSEGV';
    else if(message.includes('SIGBUS'))code='BROWSER_SIGBUS';
   }
-  console.warn(JSON.stringify({event:'READING_COLLECTION_FAILED',phase,code,error_type:errorType}));
-  if(!res.headersSent)send(res,503,{error:code,stage:phase,error_type:errorType});
+  let diagnostic;
+  if(page&&phase.startsWith('source_login')){
+   diagnostic=await Promise.race([
+    page.evaluate(()=>{
+     const visible=e=>Boolean(e&&e.getClientRects().length);
+     const inputs=[...document.querySelectorAll('input')];
+     const account=inputs.find(e=>e.placeholder==='请输入账号');
+     const password=inputs.find(e=>e.placeholder==='请输入密码');
+     const button=[...document.querySelectorAll('button')].find(e=>e.textContent.replace(/\s/g,'')==='登录');
+     return{login_path:location.pathname.includes('/login'),account_present:Boolean(account),account_visible:visible(account),password_present:Boolean(password),password_visible:visible(password),login_button_present:Boolean(button),login_button_visible:visible(button),login_button_enabled:Boolean(button&&!button.disabled),visible_dialogs:[...document.querySelectorAll('[role=dialog]')].filter(visible).length,captcha_visible:[...document.querySelectorAll('[class*=captcha],[id*=captcha],input[placeholder*=验证码]')].some(visible)};
+    }).catch(()=>undefined),
+    new Promise(resolve=>{const t=setTimeout(resolve,1500);t.unref();})
+   ]);
+  }
+  console.warn(JSON.stringify({event:'READING_COLLECTION_FAILED',phase,code,error_type:errorType,diagnostic}));
+  if(!res.headersSent)send(res,503,{error:code,stage:phase,error_type:errorType,diagnostic});
  }finally{
   if(browser)await browser.close().catch(()=>{});
   if(directory)await rm(directory,{recursive:true,force:true}).catch(()=>{});
