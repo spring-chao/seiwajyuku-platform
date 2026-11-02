@@ -22,6 +22,17 @@ test('untrusted cloud calls cannot forge timers or continuations',()=>{
  assert.deepEqual(dispatcher.verifyEvent(timer,runtime),{Type:'Timer',TriggerName:'readingSyncWeekly'});
  assert.throws(()=>dispatcher.verifyEvent({...timer,TriggerName:'readingSyncMonthly'},runtime));
 });
+
+test('signed clock verification cannot collect reports or write credits',async()=>{
+ const key='synthetic-clock-key-'+'d'.repeat(40),old=process.env.READING_DISPATCH_SIGNING_KEY;
+ process.env.READING_DISPATCH_SIGNING_KEY=key;
+ try{
+  const proof=createHmac('sha256',key).update('timer\nreadingSyncClockProbe').digest('hex');
+  const reply=await dispatcher.main({Type:'Timer',TriggerName:'readingSyncClockProbe',Message:JSON.stringify({timer_signature:proof})});
+  assert.equal(reply.status,'CLOCK_PROBE');assert.match(reply.business_date,/^\d{4}-\d{2}-\d{2}$/);
+  await assert.rejects(dispatcher.main({Type:'Timer',TriggerName:'readingSyncClockProbe'}),/NOT_VERIFIED/);
+ }finally{if(old===undefined)delete process.env.READING_DISPATCH_SIGNING_KEY;else process.env.READING_DISPATCH_SIGNING_KEY=old;}
+});
 test('month start Monday belongs exclusively to monthly trigger',async()=>{
  const result=await dispatcher.run({Type:'Timer',TriggerName:'readingSyncWeekly'},{env,periodModule,today:'2026-06-01',request:()=>assert.fail('must skip')});
  assert.equal(result.skipped,true);

@@ -17,7 +17,7 @@ function verifyEvent(event,env=process.env,now=Math.floor(Date.now()/1000)){
  const key=env.READING_DISPATCH_SIGNING_KEY;
  if(typeof key!=='string'||key.length<32)throw Error('EVENT_IDENTITY_NOT_CONFIGURED');
  if(event.Type==='Timer'){
-  if(!['readingSyncWeekly','readingSyncMonthly'].includes(event.TriggerName))throw Error('INVALID_TIMER_IDENTITY');
+  if(!['readingSyncWeekly','readingSyncMonthly','readingSyncClockProbe'].includes(event.TriggerName))throw Error('INVALID_TIMER_IDENTITY');
   const message=JSON.parse(event.Message||'{}');
   const expected=createHmac('sha256',key).update('timer\n'+event.TriggerName).digest('hex');
   if(!matches(message.timer_signature,expected))throw Error('INVALID_TIMER_IDENTITY');
@@ -116,7 +116,14 @@ async function run(event,{env=process.env,request=call,dispatch=enqueue,today,pe
 
 // Let SCF record a failed invocation and apply its retry policy. Do not turn a
 // dispatch/plan failure into a successful invocation containing a FAILED word.
-exports.main=async event=>{try{return await run(verifyEvent(event));}catch{throw Error('READING_SYNC_DISPATCH_NOT_VERIFIED');}};
+exports.main=async event=>{try{
+ const verified=verifyEvent(event);
+ if(verified.Type==='Timer'&&verified.TriggerName==='readingSyncClockProbe'){
+  const {shanghaiToday}=await import('./periods.mjs');
+  return{status:'CLOCK_PROBE',at:new Date().toISOString(),business_date:shanghaiToday()};
+ }
+ return await run(verified);
+}catch{throw Error('READING_SYNC_DISPATCH_NOT_VERIFIED');}};
 exports.run=run;
 exports.signed=signed;
 exports.workerUrl=workerUrl;
