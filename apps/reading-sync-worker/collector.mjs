@@ -71,6 +71,7 @@ export async function collect(page,{sourceTitle,searchTerm=sourceTitle,interval,
   if(await start.inputValue()!==interval.start||await end.inputValue()!==interval.end)throw Error('QUERY_RANGE_CHANGED');
   const sourceMeetingId=new URL(page.url()).searchParams.get('id');
   if(!sourceMeetingId)throw Error('MEETING_ID_MISSING');
+  report('export');
   const before=await downloadInventory(page);
   await before.dialog.getByRole('button',{name:'确定',exact:true}).click();
   await page.locator('button.export-btn').click();
@@ -82,6 +83,7 @@ export async function collect(page,{sourceTitle,searchTerm=sourceTitle,interval,
   const row=after.dialog.getByRole('row').filter({hasText:'读书会打卡统计列表'}).first();
   await row.getByText('下载',{exact:true}).waitFor({timeout:60000});
   const exportRecord=await row.innerText();
+  report('download');
   const received=page.waitForEvent('download',{timeout:60000}).then(d=>({download:d}),()=>({error:true}));
   await row.getByText('下载',{exact:true}).click();
   const result=await received;

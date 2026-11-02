@@ -13,7 +13,7 @@ const send=(res,status,value)=>{res.writeHead(status,{'Content-Type':'applicatio
 http.createServer(async(req,res)=>{
  if(req.method==='GET'&&req.url==='/health/live')return send(res,200,{status:'ok',commit:process.env.APP_GIT_SHA||'unknown'});
  if(req.method!=='POST'||req.url!=='/collect')return send(res,404,{error:'NOT_FOUND'});
- let browser,directory,ownsActive=false;
+ let browser,directory,ownsActive=false,phase='authorize';
  try{
   const key=process.env.READING_WORKER_SIGNING_KEY||'';
   const stamp=req.headers['x-reading-sync-time']||'';
@@ -25,6 +25,7 @@ http.createServer(async(req,res)=>{
   const material=['POST','/collect',stamp,createHash('sha256').update(raw).digest('hex')].join('\n');
   if(!equal(createHmac('sha256',key).update(material).digest('hex'),signature))return send(res,401,{error:'UNAUTHORIZED'});
   const input=JSON.parse(raw.toString());
+  phase='manifest';
   const classes=JSON.parse(process.env.READING_SYNC_CLASS_MAP||await readFile(new URL('./classes.json',import.meta.url),'utf8'));
   if(classes.length!==22)return send(res,503,{error:'CONFIGURATION_INCOMPLETE'});
   const target=classes.find(c=>c.class_id===input.class_id&&c.source_meeting_id===input.source_meeting_id);
@@ -33,15 +34,18 @@ http.createServer(async(req,res)=>{
   if(active)return send(res,409,{error:'WORKER_BUSY'});
   active=true;ownsActive=true;
   directory=await mkdtemp(join(tmpdir(),'reading-'));
+  phase='browser_launch';
   browser=await chromium.launch({headless:true});
+  phase='browser_context';
   const page=await(await browser.newContext({acceptDownloads:true})).newPage();
   // Bound one request below the documented CloudRun HTTP timeout. A timed-out
   // export is never reported as complete; the caller records and retries it.
   page.setDefaultTimeout(10000);
   const result=await Promise.race([
    (async()=>{
+    phase='source_login';
     await login(page,{username:process.env.READING_PLATFORM_USERNAME,password:process.env.READING_PLATFORM_PASSWORD});
-    const result=await collect(page,{sourceTitle:target.source_title,searchTerm:target.search_term||target.source_title,interval:{start:input.start,end:input.end},directory});
+    const result=await collect(page,{sourceTitle:target.source_title,searchTerm:target.search_term||target.source_title,interval:{start:input.start,end:input.end},directory,report:stage=>{if(['search','open','statistics','export','download'].includes(stage))phase='source_'+stage;}});
     if(result.sourceMeetingId!==target.source_meeting_id)throw Error('SOURCE_CHANGED');
     const raw=await readFile(result.file);
     return{class_id:target.class_id,source_meeting_id:result.sourceMeetingId,start:input.start,end:input.end,file_sha256:result.fileSha256,workbook_base64:raw.toString('base64')};
@@ -49,9 +53,24 @@ http.createServer(async(req,res)=>{
    new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('REQUEST_BUDGET')),50000);timer.unref();})
   ]);
   send(res,200,{success:true,data:result});
- }catch{
+ }catch(error){
   // Never log request bodies, browser errors, credentials or workbook data.
-  if(!res.headersSent)send(res,503,{error:'COLLECTION_NOT_VERIFIED'});
+  const known=['CREDENTIALS_MISSING','UNEXPECTED_ORIGIN','UNAPPROVED_MEETING','AMBIGUOUS_MEETING','QUERY_RANGE_UNCONFIRMED','QUERY_RANGE_CHANGED','MEETING_ID_MISSING','EXPORT_TASK_ASSOCIATION_UNCERTAIN','DOWNLOAD_TIMEOUT','INVALID_WORKBOOK','SOURCE_CHANGED','REQUEST_BUDGET'];
+  const errorType=['Error','TimeoutError','TypeError','SyntaxError','RangeError'].includes(error?.name)?error.name:'Error';
+  let code=known.includes(error?.message)?error.message:'COLLECTION_NOT_VERIFIED';
+  // Browser launch happens before credentials are used. Classify fixed engine
+  // failures without returning stderr, arguments, page text or request data.
+  if(phase==='browser_launch'){
+   const message=String(error?.message||'');
+   if(message.includes("Executable doesn't exist"))code='BROWSER_EXECUTABLE_MISSING';
+   else if(message.includes('Failed to move to new namespace'))code='BROWSER_NAMESPACE_DENIED';
+   else if(message.includes('error while loading shared libraries'))code='BROWSER_LIBRARY_MISSING';
+   else if(message.includes('SIGTRAP'))code='BROWSER_SIGTRAP';
+   else if(message.includes('SIGSEGV'))code='BROWSER_SIGSEGV';
+   else if(message.includes('SIGBUS'))code='BROWSER_SIGBUS';
+  }
+  console.warn(JSON.stringify({event:'READING_COLLECTION_FAILED',phase,code,error_type:errorType}));
+  if(!res.headersSent)send(res,503,{error:code,stage:phase,error_type:errorType});
  }finally{
   if(browser)await browser.close().catch(()=>{});
   if(directory)await rm(directory,{recursive:true,force:true}).catch(()=>{});
