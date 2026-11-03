@@ -124,6 +124,15 @@ class MemberCreatePayload(BaseModel):
     employee_count: int | None = Field(default=None, ge=0, le=10000000)
     company_size: str | None = Field(default=None, max_length=255)
     profit_margin: str | None = Field(default=None, max_length=64)
+    political_status: str | None = Field(default=None, max_length=32)
+    social_role: str | None = Field(default=None, max_length=255)
+    email: str | None = Field(default=None, max_length=255)
+    invoice_type: str | None = Field(default=None, max_length=64)
+    invoice_title: str | None = Field(default=None, max_length=500)
+    invoice_tax_id: str | None = Field(default=None, max_length=255)
+    goal_years: str | None = Field(default=None, max_length=64)
+    revenue_growth_target: str | None = Field(default=None, max_length=255)
+    profit_growth_target: str | None = Field(default=None, max_length=255)
     notes: str | None = Field(default=None, max_length=4000)
 
 
@@ -157,6 +166,15 @@ class MemberUpdatePayload(BaseModel):
     employee_count: int | None = Field(default=None, ge=0, le=10000000)
     company_size: str | None = Field(default=None, max_length=255)
     profit_margin: str | None = Field(default=None, max_length=64)
+    political_status: str | None = Field(default=None, max_length=32)
+    social_role: str | None = Field(default=None, max_length=255)
+    email: str | None = Field(default=None, max_length=255)
+    invoice_type: str | None = Field(default=None, max_length=64)
+    invoice_title: str | None = Field(default=None, max_length=500)
+    invoice_tax_id: str | None = Field(default=None, max_length=255)
+    goal_years: str | None = Field(default=None, max_length=64)
+    revenue_growth_target: str | None = Field(default=None, max_length=255)
+    profit_growth_target: str | None = Field(default=None, max_length=255)
     notes: str | None = Field(default=None, max_length=4000)
     org_unit_id: str | None = None
     development_org_unit_id: str | None = None

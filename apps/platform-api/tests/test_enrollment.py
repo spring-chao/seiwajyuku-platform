@@ -16,7 +16,7 @@ from app.core.settings import get_settings
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.main import app, read_only_request_allowed
 from app.services.iam import create_user
-from app.services.members import create_member
+from app.services.members import create_member, get_member_edit_profile
 
 
 def _phone() -> str:
@@ -770,6 +770,20 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertEqual(member["status"], "ACTIVE")
         self.assertEqual(member["org_unit_id"], "enrollment-test-center")
         self.assertEqual(member["phone_hash"], phone_hash(phone))
+        self.assertEqual(member["political_status"], "群众")
+        self.assertEqual(member["invoice_type"], "NORMAL")
+        self.assertEqual(member["invoice_title"], "申请测试企业")
+        self.assertEqual(member["goal_years"], "3")
+        self.assertEqual(member["revenue_growth_target"], "2")
+        profile = self.client.get(f"/api/v1/members/{member_id}/edit-profile", headers=self.headers)
+        self.assertEqual(profile.status_code, 200, profile.text)
+        self.assertEqual(profile.json()["data"]["enrollment_supplement"]["political_status"], "群众")
+        with patch("app.services.members.user_context", return_value={"permissions": ["members:manage"]}):
+            restricted = get_member_edit_profile(member_id, self.admin_id)
+        self.assertNotIn("invoice_tax_id", restricted)
+        self.assertNotIn("invoice_title", restricted["enrollment_supplement"])
+        self.assertNotIn("invoice_tax_id", restricted["enrollment_supplement"])
+        self.assertIsNone(restricted["annual_sales"])
         financial = json.loads(decrypt_text(member["enterprise_financial_ciphertext"]))
         self.assertEqual(financial["annual_sales"], "测试销售额区间")
         relation = fetch_one(
@@ -829,6 +843,7 @@ class EnrollmentApplicationTests(unittest.TestCase):
         member_id = create_member(self.admin_id, member_code=f"CONFIRM-{uuid4().hex[:8]}", name="合成原档案", org_unit_id="enrollment-test-center", development_org_unit_id=None, phone=phone, join_date="2020-01-01", notes="原有备注")
         original = fetch_one("SELECT member_code FROM members WHERE id=?", (member_id,))
         self._submit(token, phone, name="合成更新姓名", company_name="合成新企业")
+        self.assertIsNone(get_member_edit_profile(member_id, self.admin_id)["enrollment_supplement"])
         application_id = fetch_one("SELECT id FROM member_enrollment_applications WHERE phone_hash=?", (phone_hash(phone),))["id"]
         url = f"/api/v1/enrollment-applications/{application_id}"
         before = self.client.post(url + "/enroll", headers=self.headers, json={"existing_member_id": member_id})
@@ -855,6 +870,9 @@ class EnrollmentApplicationTests(unittest.TestCase):
         updated = fetch_one("SELECT * FROM members WHERE id=?", (member_id,))
         self.assertEqual(updated["name"], "合成更新姓名")
         self.assertEqual(updated["company_name"], "合成新企业")
+        self.assertEqual(updated["political_status"], "群众")
+        self.assertEqual(updated["goal_years"], "3")
+        self.assertEqual(updated["invoice_title"], "申请测试企业")
         self.assertEqual(str(updated["join_date"])[:10], "2020-01-01")
         self.assertEqual(updated["member_code"], original["member_code"])
         self.assertEqual(fetch_one("SELECT COUNT(*) n FROM members WHERE phone_hash=?", (phone_hash(phone),))["n"], 1)

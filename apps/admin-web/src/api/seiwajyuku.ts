@@ -826,6 +826,7 @@ export type BirthdayGreetingDraft = {
 };
 
 export type MemberEditProfile = {
+  enrollment_supplement?: Record<string, string | number | null> | null;
   id: number;
   name: string;
   org_unit_id: string;
@@ -866,6 +867,15 @@ export type MemberEditProfile = {
   annual_sales?: string | null;
   employee_count?: number | null;
   profit_margin?: string | null;
+  political_status?: string | null;
+  social_role?: string | null;
+  email?: string | null;
+  invoice_type?: string | null;
+  invoice_title?: string | null;
+  invoice_tax_id?: string | null;
+  goal_years?: string | null;
+  revenue_growth_target?: string | null;
+  profit_growth_target?: string | null;
   renewal_month_overridden?: boolean;
   financial_fields_editable: boolean;
 };
@@ -1851,6 +1861,15 @@ export const createMember = (data: {
   employee_count?: number;
   company_size?: string;
   profit_margin?: string;
+  political_status?: string | null;
+  social_role?: string | null;
+  email?: string | null;
+  invoice_type?: string | null;
+  invoice_title?: string | null;
+  invoice_tax_id?: string | null;
+  goal_years?: string | null;
+  revenue_growth_target?: string | null;
+  profit_growth_target?: string | null;
   notes?: string;
 }) =>
   http.request<{ success: boolean; data: { id: number } }>(
@@ -2373,6 +2392,15 @@ export const updateMember = (
     employee_count?: number | null;
     company_size?: string | null;
     profit_margin?: string | null;
+    political_status?: string | null;
+    social_role?: string | null;
+    email?: string | null;
+    invoice_type?: string | null;
+    invoice_title?: string | null;
+    invoice_tax_id?: string | null;
+    goal_years?: string | null;
+    revenue_growth_target?: string | null;
+    profit_growth_target?: string | null;
     notes?: string | null;
     org_unit_id?: string;
     development_org_unit_id?: string | null;
