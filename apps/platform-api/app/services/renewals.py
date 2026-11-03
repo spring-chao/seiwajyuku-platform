@@ -1366,7 +1366,7 @@ def list_today_actions(
     }
 
 
-def list_cycle_coverage(
+def _cycle_coverage(
     user_id: int,
     year: int | None = None,
     *,
@@ -1383,8 +1383,6 @@ def list_cycle_coverage(
     separate, audited action.
     """
     year = year or business_today(datetime.now(UTC)).year
-    if not 1 <= limit <= 500:
-        raise ValueError("同步检查条数必须在1至500之间")
     conditions = ["1=1"]
     params: list[Any] = [year]
     if org_unit_id:
@@ -1483,7 +1481,7 @@ def list_cycle_coverage(
         "year": year,
         "summary": summary,
         "rows": visible[:limit],
-        "truncated": len(visible) > limit,
+        "truncated": limit is not None and len(visible) > limit,
     }
 
 
@@ -2045,7 +2043,7 @@ def list_stage_board(user_id, year=None, *, org_unit_id=None, member_name=None):
     by_member = {r['member_id']:r for r in rows}
     for target in (year,year+1):
         actual = {r['member_id']:r for r in list_cycles(user_id,target,renewal_status='ALL',include_past=True,**filters)}
-        coverage = list_cycle_coverage(user_id,target,include_synced=True,actionable_only=False,limit=1000000,**filters)
+        coverage = _cycle_coverage(user_id,target,include_synced=True,actionable_only=False,limit=None,**filters)
         if coverage['truncated']:raise ValueError('阶段盘数据不完整，请缩小组织范围')
         for item in coverage['rows']:
             if item['member_status']!='ACTIVE' or not item.get('due_month'):continue
@@ -2068,3 +2066,13 @@ def generate_care_draft(cycle_id,actor_user_id):
     if result.get('status')=='GENERATED':
         result['body']=card['member']['name']+'学长好，'+result['body']
     return result
+
+
+def list_cycle_coverage(user_id, year=None, *, org_unit_id=None, member_name=None,
+                        include_synced=False, actionable_only=True, limit=200):
+    # The interactive endpoint remains bounded; the stage board uses the same
+    # scoped resolver internally without truncating members from its totals.
+    if not 1 <= limit <= 500:
+        raise ValueError("同步检查条数必须在1至500之间")
+    return _cycle_coverage(user_id,year,org_unit_id=org_unit_id,member_name=member_name,
+                          include_synced=include_synced,actionable_only=actionable_only,limit=limit)
