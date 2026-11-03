@@ -1297,6 +1297,8 @@ export type RenewalImportSample = {
 };
 
 export type RenewalCycle = {
+  join_date?: string;
+  is_projection?: boolean;
   id: number;
   member_id: number;
   member_code: string;
@@ -3021,3 +3023,8 @@ export const createLearningPlanCourseCreditConfigVersion = (data: {
     "/api/v1/learning-plan-course-credit-config/versions",
     { data }
   );
+
+export const getRenewalStageBoard = (year:number, params:{org_unit_id?:string;member_name?:string}) =>
+  http.request<{success:boolean;data:RenewalCycle[]}>("get","/api/v1/renewals/stage-board",{params:{year,...params}});
+export const generateRenewalCareDraft = (id:number) =>
+  http.request<{success:boolean;data:{status:string;body?:string}}>("post",`/api/v1/renewals/cycles/${id}/care-draft`,{timeout:20000});

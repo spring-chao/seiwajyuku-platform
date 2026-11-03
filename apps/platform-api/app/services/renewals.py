@@ -1079,7 +1079,7 @@ def list_cycles(
         "m.org_unit_id AS member_org_unit_id, m.development_org_unit_id AS member_development_org_unit_id, "
         f"{MEMBER_CLASS_NAME_SQL} AS member_class_name, "
         f"{MEMBER_GROUP_NAME_SQL} AS member_group_name, "
-        "c.due_month, c.phase, c.status, c.result, "
+        "m.join_date, c.due_month, c.phase, c.status, c.result, "
         "c.assigned_user_id, u.display_name AS assigned_user_name, c.completed_at, c.updated_at "
         "FROM renewal_cycles c JOIN members m ON m.id=c.member_id "
         f"JOIN org_units o ON o.id={MEMBER_RENEWAL_ORG_SQL} "
@@ -1395,7 +1395,7 @@ def list_cycle_coverage(
         params.append(f"%{member_name.strip()}%")
     rows = fetch_all(
         "SELECT m.id AS member_id, m.member_code, m.name AS member_name, "
-        "m.status AS member_status, m.renewal_month, "
+        "m.status AS member_status, m.renewal_month, m.join_date, "
         f"{MEMBER_CLASS_NAME_SQL} AS member_class_name, "
         f"{MEMBER_GROUP_NAME_SQL} AS member_group_name, "
         f"{MEMBER_RENEWAL_ORG_SQL} AS org_unit_id, o.name AS org_name, "
@@ -2034,3 +2034,37 @@ def list_overview(user_id: int, year: int | None = None) -> dict[str, Any]:
     if allowed is not None:
         rows = [row for row in rows if row["org_unit_id"] in allowed]
     return {"year": year, "rows": rows}
+
+
+def list_stage_board(user_id, year=None, *, org_unit_id=None, member_name=None):
+    year = year or business_today(datetime.now(UTC)).year
+    filters = dict(org_unit_id=org_unit_id, member_name=member_name)
+    rows = list_cycles(user_id, year, renewal_status='ALL', include_past=True, **filters)
+    if year != business_today(datetime.now(UTC)).year:
+        return rows
+    by_member = {r['member_id']:r for r in rows}
+    for target in (year,year+1):
+        actual = {r['member_id']:r for r in list_cycles(user_id,target,renewal_status='ALL',include_past=True,**filters)}
+        coverage = list_cycle_coverage(user_id,target,include_synced=True,actionable_only=False,limit=1000000,**filters)
+        if coverage['truncated']:raise ValueError('阶段盘数据不完整，请缩小组织范围')
+        for item in coverage['rows']:
+            if item['member_status']!='ACTIVE' or not item.get('due_month'):continue
+            stage=determine_renewal_stage(target,item['due_month'],item.get('cycle_status') or 'PENDING_FIRST_CONTACT')
+            if stage['code'] not in TODAY_ACTION_STAGE_CODES:continue
+            prior=by_member.get(item['member_id'])
+            if prior and prior['stage']['code'] in TODAY_ACTION_STAGE_CODES:continue
+            row=actual.get(item['member_id'])
+            if not row and item.get('can_create_cycle'):
+                row={**item,'id':-item['member_id'],'renewal_year':target,'status':'PENDING_FIRST_CONTACT',
+                     'stage':stage,'is_projection':True,'support_status':'NONE','updated_at':None}
+            if row:by_member[item['member_id']]=row
+    return list(by_member.values())
+
+
+def generate_care_draft(cycle_id,actor_user_id):
+    from app.services.renewal_ai import generate_body
+    card=get_action_card(cycle_id,actor_user_id)
+    result=generate_body(years=card['member']['membership_years'],stage=card['stage']['code'],tone='warm')
+    if result.get('status')=='GENERATED':
+        result['body']=card['member']['name']+'学长好，'+result['body']
+    return result

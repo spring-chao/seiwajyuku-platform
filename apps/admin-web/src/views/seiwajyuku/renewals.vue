@@ -12,6 +12,8 @@ import {
   getRenewalAssignees,
   getRenewalCoverage,
   getRenewalCycles,
+  getRenewalStageBoard,
+  generateRenewalCareDraft,
   getRenewalFollowups,
   getRenewalOverview,
   getRenewalTodayActions,
@@ -282,10 +284,12 @@ const visibleLedgerCycles = computed(() =>
     ? cycles.value
     : stageCycles.value.filter(row => row.stage?.code === stageFilter.value)
 );
+const aiCareBody = ref("");
+const careGenerating = ref(false);
 const generatedScript = computed(() => {
   if (!scriptGenerated.value || !actionCard.value) return "";
   return generatedScriptChannel.value === "WECHAT"
-    ? actionCard.value.action.wechat_reference || ""
+    ? aiCareBody.value || actionCard.value.action.wechat_reference || ""
     : actionCard.value.action.phone_opening_reference || "";
 });
 
@@ -545,12 +549,7 @@ async function load() {
         actionable_only: true,
         limit: 200
       }),
-      getRenewalCycles(year.value, {
-        org_unit_id: filters.org_unit_id || undefined,
-        member_name: memberName || undefined,
-        renewal_status: "ALL",
-        include_past: true
-      })
+      getRenewalStageBoard(year.value, {org_unit_id: filters.org_unit_id || undefined,member_name: memberName || undefined})
     ]);
     rows.value = overviewResponse.data.rows;
     cycles.value = cycleResponse.data;
@@ -759,8 +758,20 @@ async function reloadActionCard() {
   }
 }
 
-function generateCareScript(channel: "WECHAT" | "PHONE") {
-  if (!actionCard.value) return;
+async function generateCareScript(channel: "WECHAT" | "PHONE") {
+  if (!actionCard.value || careGenerating.value) return;
+  if (channel === "WECHAT") {
+    const id = actionCard.value.cycle.id;
+    careGenerating.value = true;
+    aiCareBody.value = "";
+    try {
+      const result = (await generateRenewalCareDraft(id)).data;
+      if (actionCard.value?.cycle.id !== id) return;
+      if (result.status === "GENERATED") { aiCareBody.value = result.body || ""; ElMessage.success("AI关爱话术已生成，请确认后使用"); }
+      else ElMessage.warning("AI暂不可用，当前显示规则参考话术");
+    } catch { ElMessage.warning("AI生成未完成，当前显示规则参考话术"); }
+    finally { careGenerating.value = false; }
+  }
   generatedScriptChannel.value = channel;
   scriptGenerated.value = true;
 }
@@ -779,6 +790,12 @@ async function copyReference(
 }
 
 async function openCycleDetail(cycle: any) {
+  aiCareBody.value = "";
+  if (cycle.is_projection) {
+    year.value = cycle.renewal_year;
+    await createMissingCycle(cycle);
+    return;
+  }
   selectedCycle.value = cycle;
   Object.assign(cycleForm, {
     status: cycle.status,
@@ -1483,11 +1500,11 @@ onMounted(async () => {
             row.assigned_user_name || "待分配"
           }}</template>
         </el-table-column>
-        <el-table-column prop="updated_at" label="最近更新" min-width="180" />
+        <el-table-column prop="join_date" label="入塾日期" min-width="180" />
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openCycleDetail(row)">
-              去关爱
+              {{ row.is_projection ? "建立周期" : "去关爱" }}
             </el-button>
           </template>
         </el-table-column>
@@ -1798,7 +1815,7 @@ onMounted(async () => {
               <div>
                 <strong>一键生成本次关爱话术</strong>
                 <p>
-                  依据当前阶段、已核验经历和最近沟通生成；复制后请结合真实情况调整。
+                  微信话术由AI依据当前阶段和入塾年限生成；复制后请结合真实情况调整。
                 </p>
               </div>
               <div class="script-actions">
@@ -1806,7 +1823,7 @@ onMounted(async () => {
                   :type="
                     generatedScriptChannel === 'WECHAT' ? 'primary' : 'default'
                   "
-                  @click="generateCareScript('WECHAT')"
+                  :loading="careGenerating" @click="generateCareScript('WECHAT')"
                 >
                   生成微信话术
                 </el-button>

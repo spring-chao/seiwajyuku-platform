@@ -154,3 +154,19 @@ def test_template_credit_bands_and_net_credits_are_typed_and_missing_history_sta
     assert ws['P2'].value == '班级学习日（上午＋下午＋空巴）'
     assert ws['AB2'].value == '小组学习会'
     assert book['学习数据']['A1'].fill.fgColor == load_workbook(__import__('app.services.monthly_core_layout',fromlist=['ASSET']).ASSET)['学习数据']['A1'].fill.fgColor
+
+
+@pytest.mark.parametrize('group_name,excluded',[('C7测试班精进组',True),('精进组',False)])
+def test_abnormal_respects_explicit_class_prefixed_group(reading_fixture,group_name,excluded):
+    f=reading_fixture
+    save(f,[(f'2026-10-{d:02}','否') for d in range(5,10)])
+    original=weekly._roster
+    def roster(*args):
+        rows=original(*args)
+        for row in rows:
+            if row['id']==f['member_id']:row['group_name']=group_name
+        return rows
+    with patch.object(weekly,'_roster',side_effect=roster):
+        book=workbook(f)
+    present=any(c.value==f['name'] for r in book['学习异常人员'] for c in r)
+    assert present is not excluded
