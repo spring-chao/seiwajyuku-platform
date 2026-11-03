@@ -21,6 +21,8 @@ from app.services.renewals import (
     list_assignees,
     list_cycle_coverage,
     list_cycles,
+    list_stage_board,
+    generate_care_draft,
     list_followups,
     list_overview,
     list_today_actions,
@@ -397,3 +399,14 @@ def edit_cycle_support_request(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": data}
+
+
+@router.get('/stage-board')
+def stage_board(year:int|None=Query(None,ge=2020,le=2100),org_unit_id:str|None=None,member_name:str|None=None,user:dict=Depends(require_permission('renewals:read'))):
+    return {'success':True,'data':list_stage_board(user['id'],year,org_unit_id=org_unit_id,member_name=member_name)}
+
+@router.post('/cycles/{cycle_id}/care-draft')
+def care_draft(cycle_id:int,user:dict=Depends(require_permission('renewals:read'))):
+    try:return {'success':True,'data':generate_care_draft(cycle_id,user['id'])}
+    except PermissionError as exc:raise HTTPException(403,str(exc)) from exc
+    except ValueError as exc:raise HTTPException(400,str(exc)) from exc
