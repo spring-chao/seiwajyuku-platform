@@ -190,6 +190,12 @@ class PrivacyIsolationTests(unittest.TestCase):
                 "company_products": "测试产品",
                 "employee_count": 100,
                 "notes": "资料维护测试",
+                "political_status": "党员",
+                "social_role": "合成社会任职",
+                "email": "synthetic@example.test",
+                "goal_years": "3",
+                "revenue_growth_target": "2",
+                "profit_growth_target": "1.5",
             },
         )
         profile = get_member_edit_profile(self.member_id, self.regional_user_id)
@@ -199,6 +205,14 @@ class PrivacyIsolationTests(unittest.TestCase):
         self.assertTrue(profile["membership_years_inferred"])
         self.assertGreater(profile["membership_years"], 0)
         self.assertEqual(profile["employee_count"], 100)
+        self.assertEqual(profile["political_status"], "党员")
+        self.assertEqual(profile["social_role"], "合成社会任职")
+        self.assertEqual(profile["email"], "synthetic@example.test")
+        self.assertEqual(profile["goal_years"], "3")
+        self.assertEqual(profile["revenue_growth_target"], "2")
+        self.assertNotIn("invoice_tax_id", profile)
+        with self.assertRaisesRegex(PermissionError, "开票资料"):
+            update_member(self.regional_user_id, self.member_id, {"invoice_tax_id": "SYNTHETIC"})
         self.assertEqual(profile["phone"], "13800138000")
         self.assertFalse(profile["financial_fields_editable"])
         self.assertIsNone(profile["annual_sales"])

@@ -23,7 +23,7 @@ from app.services.organization_policy import (
     SUZHOU_ROOT_ORG_UNIT_ID,
     is_valid_member_primary_org,
 )
-from app.services.members import create_member, update_member, resolve_member_scope
+from app.services.members import create_member, update_member, resolve_member_scope, PROFILE_APPLICATION_FIELDS
 from app.services.enrollment_rules import joining_rules_document
 from app.services.shuku_business_config import (
     ANNUAL_MEMBER_SERVICE_FEE_APPLIES_TO,
@@ -2102,12 +2102,15 @@ def enroll_application(actor_user_id: int, application_id: int, *, existing_memb
             raise ValueError("；".join(missing))
         if existing_member_id is not None:
             member_id = existing_member_id
-            fields = ("name", "company_name", "gender", "district", "company_address", "birthday", "position", "referrer", "industry_category", "industry", "company_products", "employee_count", "notes")
+            fields = ("name", "company_name", "gender", "district", "company_address", "birthday", "position", "referrer", "industry_category", "industry", "company_products", "employee_count", "notes", *PROFILE_APPLICATION_FIELDS)
             updates = {key: _json_safe(row[key]) for key in fields if row.get(key) not in (None, "")}
             updates.update(status="ACTIVE", org_unit_id=row["org_unit_id"])
             if not candidate["join_date"] and row.get("join_date"):
                 updates["join_date"] = _json_safe(row["join_date"])
+            invoice_updates = {k: updates.pop(k) for k in ("invoice_title", "invoice_tax_id") if k in updates}
             update_member(actor_user_id, member_id, updates)
+            if invoice_updates:
+                execute(connection, "UPDATE members SET "+", ".join(k+"=?" for k in invoice_updates)+" WHERE id=?", (*invoice_updates.values(), member_id))
             if row.get("enterprise_financial_ciphertext"):
                 financial = _financial_values(candidate["enterprise_financial_ciphertext"]) if candidate["enterprise_financial_ciphertext"] else {}
                 financial.update({key: value for key,value in _financial_values(row["enterprise_financial_ciphertext"]).items() if value})
@@ -2122,6 +2125,7 @@ def enroll_application(actor_user_id: int, application_id: int, *, existing_memb
                 org_unit_id=row["org_unit_id"],
                 development_org_unit_id=None,
                 phone=None,
+                **{key: row.get(key) for key in PROFILE_APPLICATION_FIELDS},
                 company_name=row.get("company_name"),
                 gender=row.get("gender"),
                 district=row.get("district"),
@@ -2147,6 +2151,9 @@ def enroll_application(actor_user_id: int, application_id: int, *, existing_memb
                 },
                 enterprise_financial_ciphertext=row.get("enterprise_financial_ciphertext"),
             )
+        center = execute(connection, "SELECT o.name FROM enrollment_application_referrer_centers r JOIN org_units o ON o.id=r.referrer_org_unit_id WHERE r.application_id=?", (application_id,)).fetchone()
+        if center:
+            execute(connection, "UPDATE members SET referrer_center=? WHERE id=?", (center["name"], member_id))
         now = _now()
         execute(
             connection,

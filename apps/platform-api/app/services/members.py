@@ -41,6 +41,10 @@ from app.services.study_membership import (
 )
 
 
+PROFILE_APPLICATION_FIELDS = ('political_status', 'social_role', 'email', 'invoice_type', 'invoice_title', 'invoice_tax_id', 'goal_years', 'revenue_growth_target', 'profit_growth_target')
+INVOICE_PROFILE_FIELDS = {"invoice_title", "invoice_tax_id"}
+
+
 def _as_utc(value: str | datetime) -> datetime:
     # SQLite returns timestamps as strings, while PyMySQL returns DATETIME
     # columns as datetime objects. Contact access must support both drivers.
@@ -168,6 +172,15 @@ def create_member(
     employee_count: int | None = None,
     company_size: str | None = None,
     profit_margin: str | None = None,
+    political_status: str | None = None,
+    social_role: str | None = None,
+    email: str | None = None,
+    invoice_type: str | None = None,
+    invoice_title: str | None = None,
+    invoice_tax_id: str | None = None,
+    goal_years: str | None = None,
+    revenue_growth_target: str | None = None,
+    profit_growth_target: str | None = None,
     notes: str | None = None,
     connection: Any | None = None,
     source_type: str = "MEMBER_CREATE",
@@ -177,6 +190,9 @@ def create_member(
 ) -> int:
     if source_type not in {"MEMBER_CREATE", "ENROLLMENT_APPLICATION"}:
         raise ValueError("不支持的学员创建来源")
+    if source_type != "ENROLLMENT_APPLICATION" and (invoice_title or invoice_tax_id):
+        if "members:enterprise_view" not in (user_context(actor_user_id) or {}).get("permissions", []):
+            raise PermissionError("当前角色不能维护开票资料")
 
     def select_one(statement: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
         if connection is None:
@@ -365,6 +381,9 @@ def create_member(
             ),
         )
         member_id = cursor.lastrowid
+        profile_values = {"political_status": political_status, "social_role": social_role, "email": email, "invoice_type": invoice_type, "invoice_title": invoice_title, "invoice_tax_id": invoice_tax_id, "goal_years": goal_years, "revenue_growth_target": revenue_growth_target, "profit_growth_target": profit_growth_target}
+        if any(profile_values.values()):
+            execute(connection, "UPDATE members SET "+", ".join(key+"=?" for key in profile_values)+" WHERE id=?", (*profile_values.values(),member_id))
         relations: list[tuple[str, str, bool]] = [
             ("PRIMARY_REGION", org_unit_id, True)
         ]
@@ -434,7 +453,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         "company_name, gender, district, company_address, class_committee_name, birthday, join_date, "
         "study_start_date, membership_years, membership_years_overridden, renewal_month, renewal_month_overridden, position, referrer, "
         "referrer_center, industry_category, industry, company_products, employee_count, company_size, "
-        "notes, class_name, group_name, enterprise_financial_ciphertext "
+        "notes, class_name, group_name, political_status, social_role, email, invoice_type, invoice_title, invoice_tax_id, goal_years, revenue_growth_target, profit_growth_target, enterprise_financial_ciphertext "
         "FROM members WHERE id=?",
         (member_id,),
     )
@@ -451,6 +470,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         "org_unit_id", "development_org_unit_id", "class_org_unit_id",
         "group_org_unit_id",
         "current_volunteer_position_key",
+        *PROFILE_APPLICATION_FIELDS,
     }
     unknown = set(updates) - allowed_fields
     if unknown:
@@ -460,6 +480,8 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         resolve_member_scope(member_id, current["org_unit_id"], allowed)
     except PermissionError as exc:
         raise PermissionError("学员不在组织授权范围内") from exc
+    if INVOICE_PROFILE_FIELDS.intersection(updates) and "members:enterprise_view" not in (user_context(actor_user_id) or {}).get("permissions", []):
+        raise PermissionError("当前角色不能维护开票资料")
     financial_update_requested = bool(
         {"annual_sales", "profit_margin"}.intersection(updates)
     )
@@ -635,6 +657,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
             "notes", "class_name", "group_name",
         )
     }
+    before.update({key: current.get(key) for key in PROFILE_APPLICATION_FIELDS if key not in INVOICE_PROFILE_FIELDS})
     now = datetime.now(UTC).isoformat()
     column_values: dict[str, Any] = {}
     for key in (
@@ -643,6 +666,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         "membership_years", "membership_years_overridden", "renewal_month", "renewal_month_overridden", "position", "referrer",
         "referrer_center", "industry_category", "industry", "company_products",
         "employee_count", "company_size", "notes",
+        *PROFILE_APPLICATION_FIELDS,
     ):
         if key in updates:
             value = updates[key]
@@ -753,6 +777,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
                 connection, actor_user_id, member_id
             )
         protected_columns = {
+            *INVOICE_PROFILE_FIELDS,
             "phone_ciphertext", "phone_hash", "phone_last4",
             "enterprise_financial_ciphertext",
         }
@@ -1633,7 +1658,7 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
         "phone_ciphertext, company_name, gender, district, company_address, class_committee_name, "
         "birthday, join_date, study_start_date, membership_years, membership_years_overridden, renewal_month, renewal_month_overridden, "
         "position, referrer, referrer_center, industry_category, industry, "
-        "company_products, employee_count, company_size, notes, enterprise_financial_ciphertext "
+        "company_products, employee_count, company_size, notes, political_status, social_role, email, invoice_type, invoice_title, invoice_tax_id, goal_years, revenue_growth_target, profit_growth_target, enterprise_financial_ciphertext "
         "FROM members WHERE id=?",
         (member_id,),
     )
@@ -1723,6 +1748,21 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
         else legacy_employee_count(member["company_size"])
     )
     profile["company_size"] = None
+    if not financial_fields_editable:
+        for key in INVOICE_PROFILE_FIELDS:
+            profile.pop(key, None)
+    # Preserve historical application-only data without a bulk production rewrite.
+    # Only an explicitly converted, enrolled application may be attached.
+    source = fetch_one("SELECT id, application_no, political_status, social_role, email, "
+        "industry_other, goal_years, revenue_growth_target, profit_growth_target, "
+        "books_read, enrollment_reason_philosophy, enrollment_reason_change, enrollment_reason_other, "
+        "invoice_type, invoice_title, invoice_tax_id, invoice_registered_address, invoice_phone, invoice_bank, invoice_account "
+        "FROM member_enrollment_applications WHERE converted_member_id=? AND application_status='ENROLLED' "
+        "ORDER BY converted_at DESC, id DESC LIMIT 1", (member_id,))
+    if source and not financial_fields_editable:
+        for key in ("invoice_title", "invoice_tax_id", "invoice_registered_address", "invoice_phone", "invoice_bank", "invoice_account"):
+            source.pop(key, None)
+    profile["enrollment_supplement"] = source
     return profile
 
 

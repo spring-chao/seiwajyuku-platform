@@ -389,6 +389,82 @@ const groupOptions = computed(() => {
 });
 const filteredRows = computed(() => rows.value);
 
+const profileFields = [
+  {
+    key: "political_status",
+    label: "政治面貌",
+    options: [
+      { value: "群众", label: "群众" },
+      { value: "党员", label: "党员" }
+    ]
+  },
+  { key: "social_role", label: "社会任职" },
+  { key: "email", label: "邮箱" },
+  {
+    key: "invoice_type",
+    label: "发票类型",
+    options: [
+      { value: "NORMAL", label: "普票" },
+      { value: "SPECIAL", label: "专票" },
+      { value: "NONE", label: "无需开票" }
+    ]
+  },
+  { key: "invoice_title", label: "发票抬头", sensitive: true },
+  { key: "invoice_tax_id", label: "发票税号", sensitive: true },
+  {
+    key: "goal_years",
+    label: "计划学习年限",
+    options: [1, 2, 3, 5].map(n => ({ value: String(n), label: n + "年" }))
+  },
+  ...["revenue_growth_target", "profit_growth_target"].map((key, i) => ({
+    key,
+    label: i ? "利润提升目标" : "业绩提升目标",
+    options: [
+      { value: "UNSET", label: "暂不设定" },
+      ...["1.5", "2", "3", "5"].map(value => ({ value, label: value + "倍" }))
+    ]
+  }))
+] as const;
+const profitMarginOptions = [
+  { value: "GE_10_PERCENT", label: "10%及以上" },
+  { value: "LT_10_PERCENT", label: "0%～10%以下" },
+  { value: "LOSS", label: "亏损" }
+];
+const enrollmentSupplement = ref<Record<string, string | number | null> | null>(
+  null
+);
+const supplementLabels: Record<string, string> = {
+  political_status: "政治面貌",
+  social_role: "社会任职",
+  email: "邮箱",
+  industry_other: "其他行业",
+  goal_years: "计划学习年限",
+  revenue_growth_target: "业绩提升目标",
+  profit_growth_target: "利润提升目标",
+  books_read: "已读书籍",
+  enrollment_reason_philosophy: "认同理念",
+  enrollment_reason_change: "期望改变",
+  enrollment_reason_other: "其他入塾原因",
+  invoice_type: "发票类型",
+  invoice_title: "发票抬头",
+  invoice_tax_id: "发票税号",
+  invoice_registered_address: "注册地址",
+  invoice_phone: "注册电话",
+  invoice_bank: "开户银行",
+  invoice_account: "银行账号"
+};
+const visibleSupplementLabels = computed(() =>
+  Object.entries(supplementLabels).filter(([key]) =>
+    enrollmentSupplement.value && key in enrollmentSupplement.value
+  )
+);
+function supplementValue(key: string, value: unknown) {
+  const field = profileFields.find(f => f.key === key);
+  const options = field && "options" in field ? field.options : [];
+  return (
+    options.find(o => o.value === String(value))?.label || value || "未填写"
+  );
+}
 const form = reactive({
   name: "",
   org_unit_id: "",
@@ -419,6 +495,16 @@ const form = reactive({
   annual_sales: "",
   employee_count: undefined as number | undefined,
   profit_margin: "",
+  political_status: "",
+  social_role: "",
+  email: "",
+  invoice_type: "",
+  invoice_title: "",
+  invoice_tax_id: "",
+  goal_years: "",
+  revenue_growth_target: "",
+  profit_growth_target: "",
+
   notes: "",
   current_volunteer_position_key: null as string | null,
   current_volunteer_position_name: "",
@@ -544,6 +630,16 @@ function openCreate() {
     annual_sales: "",
     employee_count: undefined,
     profit_margin: "",
+    political_status: "",
+    social_role: "",
+    email: "",
+    invoice_type: "",
+    invoice_title: "",
+    invoice_tax_id: "",
+    goal_years: "",
+    revenue_growth_target: "",
+    profit_growth_target: "",
+
     notes: "",
     current_volunteer_position_key: null,
     current_volunteer_position_name: "",
@@ -553,6 +649,7 @@ function openCreate() {
     current_volunteer_needs_manual_review: false,
     current_volunteer_review_message: ""
   });
+  enrollmentSupplement.value = null;
   dialogVisible.value = true;
 }
 
@@ -605,10 +702,21 @@ async function openEdit(row: any) {
     annual_sales: "",
     employee_count: undefined,
     profit_margin: "",
+    political_status: "",
+    social_role: "",
+    email: "",
+    invoice_type: "",
+    invoice_title: "",
+    invoice_tax_id: "",
+    goal_years: "",
+    revenue_growth_target: "",
+    profit_growth_target: "",
+
     notes: ""
   });
   originalClassOrgUnitId.value = "";
   originalGroupOrgUnitId.value = "";
+  enrollmentSupplement.value = null;
   dialogVisible.value = true;
   editProfileLoading.value = true;
   try {
@@ -661,8 +769,19 @@ async function openEdit(row: any) {
       annual_sales: normalizeAnnualSales(data.annual_sales),
       employee_count: data.employee_count ?? undefined,
       profit_margin: data.profit_margin || "",
+      political_status: data.political_status || "",
+      social_role: data.social_role || "",
+      email: data.email || "",
+      invoice_type: data.invoice_type || "",
+      invoice_title: data.invoice_title || "",
+      invoice_tax_id: data.invoice_tax_id || "",
+      goal_years: data.goal_years || "",
+      revenue_growth_target: data.revenue_growth_target || "",
+      profit_growth_target: data.profit_growth_target || "",
+
       notes: data.notes || ""
     });
+    enrollmentSupplement.value = data.enrollment_supplement || null;
     editClassOrgName.value = data.class_org_name || "";
     editGroupOrgName.value = data.group_org_name || "";
     originalClassOrgUnitId.value = data.class_org_unit_id || "";
@@ -1089,6 +1208,11 @@ async function submit() {
         industry: form.industry.trim() || null,
         company_products: form.company_products.trim() || null,
         employee_count: form.employee_count ?? null,
+        ...Object.fromEntries(
+          profileFields
+            .filter(f => !("sensitive" in f) || financialFieldsEditable.value)
+            .map(f => [f.key, form[f.key].trim() || null])
+        ),
         notes: form.notes.trim() || null,
         ...(financialFieldsEditable.value
           ? {
@@ -1134,6 +1258,11 @@ async function submit() {
         annual_sales: form.annual_sales.trim() || undefined,
         employee_count: form.employee_count,
         profit_margin: form.profit_margin.trim() || undefined,
+        ...Object.fromEntries(
+          profileFields
+            .filter(f => !("sensitive" in f) || financialFieldsEditable.value)
+            .map(f => [f.key, form[f.key].trim() || undefined])
+        ),
         notes: form.notes.trim() || undefined
       });
       ElMessage.success("学员已创建，手机号已加密保存");
@@ -2360,13 +2489,70 @@ onMounted(async () => {
             <el-input v-model="form.referrer_center" />
           </el-form-item>
           <el-form-item label="利润率">
-            <el-input
+            <el-select
               v-model="form.profit_margin"
+              filterable
+              allow-create
+              default-first-option
+              clearable
               :disabled="!financialFieldsEditable"
-              :placeholder="
-                financialFieldsEditable ? '例如 12%' : '需企业敏感资料权限'
-              "
+              placeholder="请选择利润率"
+            >
+              <el-option
+                v-for="option in profitMarginOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item
+            v-for="field in profileFields"
+            :key="field.key"
+            :label="field.label"
+          >
+            <el-select
+              v-if="'options' in field"
+              v-model="form[field.key]"
+              clearable
+              filterable
+              allow-create
+            >
+              <el-option
+                v-for="option in field.options"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+            <el-input
+              v-else
+              v-model="form[field.key]"
+              :disabled="'sensitive' in field && !financialFieldsEditable"
             />
+          </el-form-item>
+          <el-form-item
+            v-if="enrollmentSupplement"
+            class="full"
+            label="入塾申请原始资料"
+          >
+            <div>
+              <p>
+                申请编号：{{
+                  enrollmentSupplement.application_no
+                }}。以下保留申请时填写的补充资料，当前档案以各编辑项为准。
+              </p>
+              <el-descriptions :column="2" border>
+                <el-descriptions-item
+                  v-for="[key, label] in visibleSupplementLabels"
+                  :key="key"
+                  :label="label"
+                  >{{
+                    supplementValue(String(key), enrollmentSupplement[key])
+                  }}</el-descriptions-item
+                >
+              </el-descriptions>
+            </div>
           </el-form-item>
           <el-form-item class="full" label="备注">
             <el-input v-model="form.notes" type="textarea" :rows="3" />
