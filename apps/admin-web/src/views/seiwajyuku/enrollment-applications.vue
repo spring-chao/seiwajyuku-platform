@@ -642,10 +642,14 @@ async function completeEnrollment() {
         ? "该申请已完成入塾，未重复建档"
         : existing ? "现有档案已更新，申请已标记为已入塾" : `正式学长档案已建立（ID ${response.data.member_id}）`
     );
-    const refreshed = await getEnrollmentApplication(detail.value.id);
-    detail.value = refreshed.data;
-    syncEditForm(refreshed.data);
-    await loadRows();
+    try {
+      const refreshed = await getEnrollmentApplication(detail.value.id);
+      detail.value = refreshed.data;
+      syncEditForm(refreshed.data);
+      await loadRows();
+    } catch {
+      ElMessage.warning("入塾已成功，但页面刷新失败，请刷新查看最新状态；无需重复提交");
+    }
   } catch (error: any) {
     if (error !== "cancel" && error !== "close") {
       ElMessage.error(errorText(error, "正式入塾失败"));

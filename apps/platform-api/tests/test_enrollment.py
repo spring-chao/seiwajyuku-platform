@@ -878,6 +878,19 @@ class EnrollmentApplicationTests(unittest.TestCase):
         self.assertEqual(fetch_one("SELECT COUNT(*) n FROM members WHERE phone_hash=?", (phone_hash(phone),))["n"], 1)
         self.assertEqual(self.client.get(url, headers=self.headers).json()["data"]["computed_status"], "ENROLLED")
         self.assertTrue(self.client.post(url + "/enroll", headers=self.headers, json={"existing_member_id": member_id}).json()["data"]["idempotent"])
+        # A later approved application may update the same member; the older
+        # confirmed application and both links must remain intact.
+        submitted = self._submit(token, phone, name="合成再次更新")
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        next_id = fetch_one("SELECT MAX(id) id FROM member_enrollment_applications WHERE phone_hash=?", (phone_hash(phone),))["id"]
+        self.assertNotEqual(next_id, application_id)
+        next_url = f"/api/v1/enrollment-applications/{next_id}"
+        self.assertEqual(self.client.patch(next_url+"/review",headers=self.headers,json={"decision":"APPROVE","org_unit_id":"enrollment-test-center","join_date":"2026-11-04"}).status_code,200)
+        self.assertEqual(self.client.post(next_url+"/payment-confirmation",headers=self.headers,json={"payment_status":"PAID","amount":"50.00"}).status_code,200)
+        again=self.client.post(next_url+"/enroll",headers=self.headers,json={"existing_member_id":member_id})
+        self.assertEqual(again.status_code,200,again.text)
+        self.assertEqual(fetch_one("SELECT COUNT(*) n FROM member_enrollment_applications WHERE converted_member_id=? AND application_status='ENROLLED'",(member_id,))["n"],2)
+        self.assertTrue(self.client.post(next_url+"/enroll",headers=self.headers,json={"existing_member_id":member_id}).json()["data"]["idempotent"])
 
     def test_scoped_reviewer_cannot_see_unassigned_and_finance_stays_hidden(self) -> None:
         _, token = self._create_link()

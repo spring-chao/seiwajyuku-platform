@@ -446,7 +446,7 @@ jobs:
           docker exec "$container" mysql -uroot -pci-root-password "$db" -e "INSERT INTO schema_migrations(version,applied_at) VALUES('0068_signin_management.sql',UTC_TIMESTAMP()); DELETE FROM attendance_entry_tokens WHERE event_id='CI-0068-GUARD';"
           docker exec -i "$container" mysql -uroot -pci-root-password "$db" < migrations/mysql/0068_signin_management.sql
       - name: Validate enrollment referral migration in disposable MySQL schemas
-        run: python -m pytest apps/platform-api/tests/test_enrollment_referrer_migration.py -q
+        run: python -m pytest apps/platform-api/tests/test_enrollment_referrer_migration.py apps/platform-api/tests/test_enrollment_member_history_migration.py -q
         env:
           ENROLLMENT_MIGRATION_ISOLATED_MYSQL: "1"
           ENROLLMENT_MIGRATION_ROOT_PASSWORD: ci-root-password
