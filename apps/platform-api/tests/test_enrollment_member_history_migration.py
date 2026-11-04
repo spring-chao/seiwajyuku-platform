@@ -6,6 +6,24 @@ import pytest
 from app.migrations import MIGRATION_ROOT, _split_mysql
 
 
+def test_sqlite_history_rebuild_preserves_schema_and_identifier_sequence():
+    import sqlite3
+    db=sqlite3.connect(':memory:')
+    for p in sorted((MIGRATION_ROOT/'sqlite').glob('*.sql')):
+        if p.name.startswith('0075'):break
+        db.executescript(p.read_text(encoding='utf-8'))
+    columns=list(db.execute('PRAGMA table_info(member_enrollment_applications)'))
+    foreign_key_findings=list(db.execute('PRAGMA foreign_key_check'))
+    db.execute("INSERT INTO sqlite_sequence(name,seq) VALUES('member_enrollment_applications',1000)")
+    db.commit()
+    db.executescript((MIGRATION_ROOT/'sqlite/0075_enrollment_member_history.sql').read_text(encoding='utf-8'))
+    assert list(db.execute('PRAGMA table_info(member_enrollment_applications)'))==columns
+    assert db.execute("SELECT seq FROM sqlite_sequence WHERE name='member_enrollment_applications'").fetchone()[0]==1000
+    assert list(db.execute('PRAGMA foreign_key_check'))==foreign_key_findings
+    assert db.execute('PRAGMA foreign_keys').fetchone()[0]==1
+    db.close()
+
+
 def test_mysql_member_history_constraint_and_safe_recovery():
     if os.environ.get('ENROLLMENT_MIGRATION_ISOLATED_MYSQL') != '1':
         pytest.skip('Explicit disposable MySQL CI only')
