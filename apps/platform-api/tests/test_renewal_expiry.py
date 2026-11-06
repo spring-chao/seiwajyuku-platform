@@ -22,7 +22,10 @@ def test_lapse_is_audited_idempotent_and_explicit_renewal_reactivates():
     with transaction() as c:
         execute(c,"UPDATE members SET renewal_month='2026-10' WHERE id=?",(member,))
         execute(c,"UPDATE renewal_cycles SET renewal_year=2026,due_month=10 WHERE id=?",(cycle,))
-    with patch.object(expiry,'get_settings',return_value=SimpleNamespace(deployment_read_only=False,allow_production_mutations=True)),patch.object(expiry,'business_today',return_value=date(2026,11,1)):
+    read=expiry.fetch_all
+    # Keep the SQL and transactions real, but restrict this sweep to its own
+    # disposable member instead of mutating fixtures belonging to other tests.
+    with patch.object(expiry,'fetch_all',side_effect=lambda q,p:[r for r in read(q,p) if r['member_id']==member]),patch.object(expiry,'get_settings',return_value=SimpleNamespace(deployment_read_only=False,allow_production_mutations=True)),patch.object(expiry,'business_today',return_value=date(2026,11,1)):
         assert expiry.sync_expired_members(dry_run=True)['updated']==0
         expiry.sync_expired_members()
         assert fetch_one('SELECT status FROM members WHERE id=?',(member,))['status']=='INACTIVE'
