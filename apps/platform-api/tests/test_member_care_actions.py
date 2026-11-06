@@ -55,7 +55,7 @@ def _care_fixture() -> dict[str, int | str]:
             execute(
                 connection,
                 "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, status, created_at, updated_at) "
-                "VALUES (?, 2099, ?, 11, 'IN_COMMUNICATION', ?, ?)",
+                "VALUES (?, 2099, ?, 10, 'IN_COMMUNICATION', ?, ?)",
                 (member_ids["all"], center_id, now, now),
             ).lastrowid
         )
@@ -63,7 +63,7 @@ def _care_fixture() -> dict[str, int | str]:
             execute(
                 connection,
                 "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, status, created_at, updated_at) "
-                "VALUES (?, 2099, ?, 11, 'IN_COMMUNICATION', ?, ?)",
+                "VALUES (?, 2099, ?, 10, 'IN_COMMUNICATION', ?, ?)",
                 (member_ids["other"], other_center_id, now, now),
             ).lastrowid
         )
