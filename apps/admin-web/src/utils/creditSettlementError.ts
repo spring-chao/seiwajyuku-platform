@@ -8,6 +8,8 @@ export function creditSettlementErrorMessage(error: unknown, action: string, rea
   const status = failure?.response?.status;
   const detail = failure?.response?.data?.detail;
   const inputMessages = new Set([
+    "每次请选择同一自然周内最多7天的日期",
+    "跨月的一周请按自然月分段导出",
     "请选择分中心和统计月份",
     "学员 ID 必须为正整数",
     "请选择班级和完整的每周统计日期；跨月周分段导出",

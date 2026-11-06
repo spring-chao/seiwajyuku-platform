@@ -38,7 +38,9 @@ def test_monthly_scheduler_finishes_sweep_before_responding_and_hides_errors(mon
     report = {"enabled": True, "scanned": 19, "updated": 0, "failed": failed, "repair_required": 0, "review_required": 0}
     with patch("app.api.learning_cycle_monthly.monthly.refresh_sweep", return_value=report) as sweep, TestClient(app) as client:
         response = client.post(URL, json={}, headers={"X-Study-Evidence-Cleanup-Token": TOKEN})
-    assert response.json() == {"success": failed == 0, "data": report}
+    assert response.json()['success'] == (failed == 0)
+    assert response.json()['data'] == report
+    assert response.json()['renewal_status_sync']['failed'] == 0
     sweep.assert_called_once_with()
     with patch("app.api.learning_cycle_monthly.monthly.refresh_sweep", side_effect=RuntimeError("secret upstream details")), TestClient(app) as client:
         response = client.post(URL, json={}, headers={"X-Study-Evidence-Cleanup-Token": TOKEN})

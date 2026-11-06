@@ -82,13 +82,16 @@ def _choose(relations, day):
 
 def _roster(c, class_ids, start, end):
     # Resolve formal relations at the requested date, not legacy text fields.
+    expiry_date = "json_extract(h.after_json,'$.effective_on')" if isinstance(c,sqlite3.Connection) else "JSON_UNQUOTE(JSON_EXTRACT(h.after_json,'$.effective_on'))"
     rows = [dict(r) for r in execute(c,
         "SELECT m.id,m.member_code,m.name,m.status,r.org_unit_id,r.relation_type,r.is_primary,r.valid_from,r.valid_until,"
         "o.name AS org_name,o.parent_id FROM members m JOIN member_org_relations r ON r.member_id=m.id "
-        "JOIN org_units o ON o.id=r.org_unit_id WHERE m.status IN ('ACTIVE','SUSPENDED') "
+        "JOIN org_units o ON o.id=r.org_unit_id WHERE (m.status IN ('ACTIVE','SUSPENDED') "
+        "OR (m.status='INACTIVE' AND EXISTS (SELECT 1 FROM member_change_history h WHERE h.member_id=m.id "
+        "AND h.change_type='RENEWAL_EXPIRY' AND "+expiry_date+">?))) "
         "AND r.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT','STUDY_GROUP') AND o.is_active=1 "
         "AND m.id IN (SELECT member_id FROM member_org_relations WHERE org_unit_id IN (" + ','.join('?' for _ in class_ids) + "))",
-        tuple(sorted(class_ids))).fetchall()]
+        (end.isoformat(),*sorted(class_ids))).fetchall()]
     by_member = defaultdict(list)
     for row in rows:
         by_member[int(row['id'])].append(row)
@@ -201,7 +204,9 @@ def export_weekly(actor, class_id, occurred_from, occurred_to, pauses=()):
                     values.append('免要求'); continue
                 required += 1
                 states = records.get((member['id'], day.isoformat()), set())
-                value = '√' if states == {'是'} else '×' if states == {'否'} else '待核对' if states else '待同步'
+                # Completion is evidence of a finished task, even if an older
+                # import still contains the pre-completion "未提交" snapshot.
+                value = '√' if '是' in states else '×'
                 values.append(value)
                 completed += value == '√'
                 pending |= value in ('待同步','待核对')
@@ -278,7 +283,12 @@ def build_workbook(data):
         names=[_safe_text(r['name']) for r in data.get('staff',[]) if r['appointment_key']==key]
         if names:
             cell(row,1,label,'D6DCE4'); cell(row,2,'、'.join(names))
-            merged(row,3,row,group_col,'师资信息（不额外计入学员统计）')
+            learner_ids = {m['id'] for g in data['groups'] for m in g['members']}
+            own = [_safe_text(r['name']) for r in data.get('staff',[]) if r['appointment_key']==key and r['id'] in learner_ids]
+            external = [_safe_text(r['name']) for r in data.get('staff',[]) if r['appointment_key']==key and r['id'] not in learner_ids]
+            note = ('本班学员，按所属小组计入统计：'+'、'.join(own)) if own else ''
+            if external: note += ('；' if note else '')+'非本班学籍，仅展示师资：'+'、'.join(external)
+            merged(row,3,row,group_col,note)
             ws.row_dimensions[row].height=24; row+=1
     for index, group in enumerate(data['groups']):
         first=row
@@ -305,9 +315,9 @@ def build_workbook(data):
     value='待核对' if data['pending'] else data['total_completed']/data['total_required'] if data['total_required'] else '—'
     cell(row,group_col,value,'E2EFDA',True).number_format='0%'
     notes = [f"{data['center_name']}　统计区间：{data['start']}至{data['end']}。汇总数量为已完成打卡人天。",
-        '√＝已完成录音；×＝来源明确未完成；待同步＝尚无来源；待核对＝记录冲突或资料待核对。完成率＝已完成人天÷应打卡人天。',
+        '√＝已有完成录音记录（含过期完成）；×＝当前已保存来源中未见完成记录。同日历史未提交不覆盖完成记录。完成率＝已完成人天÷应打卡人天。',
         '小组完成率＝小组√总数÷（小组在册人数×应打卡天数）；临时暂停、停学、免要求及不在本班日期扣除对应人天。按工作日日历（含调休）统计，分组按区间内最后有效本班归属；临时暂停只用于本次导出。']
-    if data['ignored']: notes.append(f"来源另有{data['ignored']}条未通过身份或内容检查的记录，仍待核对；仅本组缺失或冲突的打卡影响本组完成率，已齐全的小组正常计算。")
+    if data['ignored']: notes.append(f"来源另有{data['ignored']}条未通过身份或内容检查的记录，未强行匹配到学员。本表按已匹配来源统计；请核对异常来源，补齐后重新导出。")
     notes.append('保存来源：'+'；'.join(f"#{key} {value}" for key,value in data['sources'].items()))
     for offset,note in enumerate(notes,2):
         ws.merge_cells(start_row=row+offset,start_column=1,end_row=row+offset,end_column=group_col)

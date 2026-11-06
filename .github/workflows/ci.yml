@@ -209,6 +209,7 @@ jobs:
           apps/platform-api/tests/test_credit_year_setup_mysql.py
           apps/platform-api/tests/test_credit_source_excel.py
           apps/platform-api/tests/test_reading_weekly_export.py
+          apps/platform-api/tests/test_renewal_expiry.py
           apps/platform-api/tests/test_credit_posting_jobs.py
           apps/platform-api/tests/test_reading_sync_automation.py
           apps/platform-api/tests/test_credit_source_setup_mysql.py
