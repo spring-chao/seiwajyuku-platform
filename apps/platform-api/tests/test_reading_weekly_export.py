@@ -127,9 +127,13 @@ def test_november_lapse_keeps_october_reading_roster(reading_fixture):
     with transaction() as c:
         execute(c,"UPDATE members SET status='INACTIVE' WHERE id=?",(f['member_id'],))
         execute(c,"INSERT INTO member_change_history(member_id,change_type,before_json,after_json,changed_by,changed_at) VALUES(?,'RENEWAL_EXPIRY','{}',?,NULL,'2026-11-01')",(f['member_id'],json.dumps({'effective_on':'2026-11-01'})))
+    # The month-end synchronizer may receive October data after the lapse.
+    save(f,[('2026-10-06','是')],'historical-backfill.xlsx')
     ws=export(f,[pause(f['paused_id'])]).active
     person=next(r for r in ws.iter_rows() if r[1].value==f['name'])
-    assert person[2].value=='√'
+    assert person[2].value=='√' and person[3].value=='√'
+    with pytest.raises(AssertionError):
+        save(f,[('2026-11-02','是')],'after-lapse.xlsx')
 
 
 def test_adjusted_workday_is_included_and_no_fake_weekend_target(reading_fixture):

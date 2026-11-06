@@ -112,8 +112,11 @@ def _write_scope(actor,class_id,kind):
     if not _has_scope(actor,class_id,required):raise PermissionError('班级不在这项来源操作的授权范围')
 
 
-def _members(c,class_id):
-    return {r['member_code']:dict(r) for r in execute(c,"SELECT DISTINCT m.id,m.member_code,m.name,m.phone_last4,m.phone_masked FROM members m JOIN member_org_relations r ON r.member_id=m.id AND r.org_unit_id=? AND r.relation_type='STUDY_CLASS' WHERE m.status='ACTIVE' ORDER BY m.id",(class_id,)).fetchall()}
+def _members(c,class_id,historical_reading=False):
+    expiry="json_extract(h.after_json,'$.effective_on')" if isinstance(c,sqlite3.Connection) else "JSON_UNQUOTE(JSON_EXTRACT(h.after_json,'$.effective_on'))"
+    cutoff="(SELECT MAX("+expiry+") FROM member_change_history h WHERE h.member_id=m.id AND h.change_type='RENEWAL_EXPIRY')"
+    allowed="m.status='ACTIVE'"+(" OR (m.status='INACTIVE' AND "+cutoff+" IS NOT NULL)" if historical_reading else "")
+    return {r['member_code']:dict(r) for r in execute(c,"SELECT DISTINCT m.id,m.member_code,m.name,m.phone_last4,m.phone_masked,CASE WHEN m.status='INACTIVE' THEN "+cutoff+" ELSE NULL END AS expired_on FROM members m JOIN member_org_relations r ON r.member_id=m.id AND r.org_unit_id=? AND r.relation_type='STUDY_CLASS' WHERE ("+allowed+") ORDER BY m.id",(class_id,)).fetchall()}
 
 
 def _date(value):
@@ -224,7 +227,7 @@ def _checked(c,actor,content,kind,class_id,options_text,note):
     note=str(note or '').strip()
     if len(note)>1000:raise credits.LearningCreditError('来源备注不能超过1000字')
     binding=_class(c,actor,class_id);options=_options(kind,options_text);rows=_parse(content,kind)
-    roster=_members(c,class_id);seen=set();facts=[];cycle=None;event_id=None
+    roster=_members(c,class_id,historical_reading=kind=='DAILY_READING');seen=set();facts=[];cycle=None;event_id=None
     # This snapshot lives only for this validation and is never reused when
     # confirming ledger entries. Bulk-load shared class/roster context once.
     context={('bindings',class_id):activity._binding_rows(c,class_id)}
@@ -253,6 +256,8 @@ def _checked(c,actor,content,kind,class_id,options_text,note):
         r['member_id']=int(m['id']);r['member_name']=m['name']
         try:
             day=_date(datetime.fromisoformat(options['actual_start']).date() if kind=='CLASS_MEETING' else r['raw'][HEADERS[kind][2]])
+            if m.get('expired_on') and day.isoformat()>=str(m['expired_on'])[:10]:
+                raise credits.LearningCreditError('该日期已在学员流失生效之后，不能作为此前在班期间的读书来源')
             r['occurred_on']=day.isoformat();_cutoff(c,m['id'],day,_cutoffs=cutoffs)
             reason=activity._member_relation_reason(c,m['id'],class_id,day,_rows=context[('relations',m['id'],class_id)])
             if reason:raise credits.LearningCreditError('学长在这一天没有唯一有效的本班学习关系')
