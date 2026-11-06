@@ -16,6 +16,7 @@ from typing import Any, Iterable
 from app.core.settings import get_settings
 from app.core.business_time import business_today
 from app.db import atomic_transaction, execute
+from app.services.activity_display import activity_base_title
 from app.services.audit import write_audit
 from app.services.followups import add_followup_record, create_task, list_tasks
 from app.services.iam import mobile_iam_context, resolve_employee_mobile_principal
@@ -521,7 +522,11 @@ def _latest_event(
         if str(event.get("event_type") or "") in event_types:
             return {
                 "occurred_at": event.get("occurred_at"),
-                "title": event.get("title"),
+                "title": (
+                    activity_base_title(event.get("title"))
+                    if event.get("event_type") in {"ATTENDANCE", "LEARNING_ACTIVITY"}
+                    else event.get("title")
+                ),
                 "status": event.get("status"),
                 "channel": event.get("channel"),
             }
