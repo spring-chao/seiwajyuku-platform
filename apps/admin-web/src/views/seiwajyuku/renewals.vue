@@ -2258,7 +2258,7 @@ onMounted(async () => {
 }
 .stage-board {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
 }
 .stage-tile {
