@@ -122,6 +122,16 @@ def test_teacher_with_formal_class_is_counted_once_and_external_teacher_is_not(r
     assert summary[7].value==1 and summary[8].value==0.2
 
 
+def test_november_lapse_keeps_october_reading_roster(reading_fixture):
+    f=reading_fixture;save(f,[('2026-10-05','是')])
+    with transaction() as c:
+        execute(c,"UPDATE members SET status='INACTIVE' WHERE id=?",(f['member_id'],))
+        execute(c,"INSERT INTO member_change_history(member_id,change_type,before_json,after_json,changed_by,changed_at) VALUES(?,'RENEWAL_EXPIRY','{}',?,NULL,'2026-11-01')",(f['member_id'],json.dumps({'effective_on':'2026-11-01'})))
+    ws=export(f,[pause(f['paused_id'])]).active
+    person=next(r for r in ws.iter_rows() if r[1].value==f['name'])
+    assert person[2].value=='√'
+
+
 def test_adjusted_workday_is_included_and_no_fake_weekend_target(reading_fixture):
     f=reading_fixture; save(f,[(f'2026-10-{d:02}','是') for d in range(5,11)])
     ws=export(f,[pause(f['paused_id'],end='2026-10-11')],end='2026-10-11').active

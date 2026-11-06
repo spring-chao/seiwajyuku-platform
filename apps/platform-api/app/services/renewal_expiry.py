@@ -1,6 +1,7 @@
 """Idempotent end-of-month lapse of explicitly unrenewed member cycles."""
 import json
 import sqlite3
+from datetime import date
 from datetime import UTC, datetime
 from app.core.business_time import business_today
 from app.core.settings import get_settings
@@ -44,7 +45,9 @@ def sync_expired_members(*, dry_run=False):
                 row=dict(locked)
                 changed=execute(c,"UPDATE members SET status='INACTIVE',updated_at=? WHERE id=? AND status='ACTIVE'",(now,row['member_id'])).rowcount
                 if not changed:continue
-                before={'status':'ACTIVE'};after={'status':'INACTIVE','source':'RENEWAL_MONTH_EXPIRED','renewal_cycle_id':row['cycle_id']}
+                year,month=int(row['renewal_year']),int(row['due_month'])
+                effective=date(year+1,1,1) if month==12 else date(year,month+1,1)
+                before={'status':'ACTIVE'};after={'status':'INACTIVE','source':'RENEWAL_MONTH_EXPIRED','renewal_cycle_id':row['cycle_id'],'effective_on':effective.isoformat()}
                 execute(c,"INSERT INTO member_change_history(member_id,change_type,before_json,after_json,changed_by,changed_at) VALUES(?,'RENEWAL_EXPIRY',?,?,NULL,?)",(row['member_id'],json.dumps(before),json.dumps(after),now))
                 write_audit(c,actor_user_id=None,action='members.status.expired_renewal',resource_type='member',resource_id=str(row['member_id']),org_unit_id=row['org_unit_id'],before=before,after=after)
             result['updated']+=1

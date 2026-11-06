@@ -82,13 +82,16 @@ def _choose(relations, day):
 
 def _roster(c, class_ids, start, end):
     # Resolve formal relations at the requested date, not legacy text fields.
+    expiry_date = "json_extract(h.after_json,'$.effective_on')" if isinstance(c,sqlite3.Connection) else "JSON_UNQUOTE(JSON_EXTRACT(h.after_json,'$.effective_on'))"
     rows = [dict(r) for r in execute(c,
         "SELECT m.id,m.member_code,m.name,m.status,r.org_unit_id,r.relation_type,r.is_primary,r.valid_from,r.valid_until,"
         "o.name AS org_name,o.parent_id FROM members m JOIN member_org_relations r ON r.member_id=m.id "
-        "JOIN org_units o ON o.id=r.org_unit_id WHERE m.status IN ('ACTIVE','SUSPENDED') "
+        "JOIN org_units o ON o.id=r.org_unit_id WHERE (m.status IN ('ACTIVE','SUSPENDED') "
+        "OR (m.status='INACTIVE' AND EXISTS (SELECT 1 FROM member_change_history h WHERE h.member_id=m.id "
+        "AND h.change_type='RENEWAL_EXPIRY' AND "+expiry_date+">?))) "
         "AND r.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT','STUDY_GROUP') AND o.is_active=1 "
         "AND m.id IN (SELECT member_id FROM member_org_relations WHERE org_unit_id IN (" + ','.join('?' for _ in class_ids) + "))",
-        tuple(sorted(class_ids))).fetchall()]
+        (end.isoformat(),*sorted(class_ids))).fetchall()]
     by_member = defaultdict(list)
     for row in rows:
         by_member[int(row['id'])].append(row)
