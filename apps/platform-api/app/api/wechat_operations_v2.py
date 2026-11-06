@@ -168,8 +168,9 @@ def evidence_preview(session_id: int, identity=Depends(session)):
 
 
 @router.get("/dashboard")
-def dashboard(year: int = Query(ge=2020, le=2100), month: int = Query(ge=1, le=12), identity=Depends(session)):
-    return response(service.dashboard, identity, year, month)
+def dashboard(year: int = Query(ge=2020, le=2100), month: int = Query(ge=1, le=12),
+              birthday_month: int | None = Query(default=None, ge=0, le=12), identity=Depends(session)):
+    return response(service.dashboard, identity, year, month, birthday_month)
 
 
 @router.get("/applications")

@@ -47,13 +47,8 @@ MOBILE_ENTRIES = (
         ),
         "match": "ANY",
     },
-    {
-        "key": "member_search",
-        "name": "学长查询",
-        "description": "按姓名或手机号后四位快速找到学长",
-        "permissions": frozenset({"members:read", "members:detail_view"}),
-        "match": "ALL",
-    },
+    {"key": "dashboard", "name": "运营驾驶舱", "description": "查看授权范围内的月度运营数据", "permissions": frozenset({"plans:read"}), "match": "ALL"},
+    {"key": "enrollment", "name": "待入塾申请", "description": "申请资料、审核、收款确认与正式入塾", "permissions": frozenset({"enrollment:read"}), "match": "ALL"},
     {
         "key": "renewal_watch",
         "name": "续费关注",
@@ -61,10 +56,15 @@ MOBILE_ENTRIES = (
         "permissions": frozenset({"renewals:read"}),
         "match": "ALL",
     },
-    {"key": "study_meetings", "name": "小组学习会", "description": "参会率、人员明细、核实与学分结算", "permissions": frozenset({"plans:read"}), "match": "ALL"},
     {"key": "activities", "name": "活动管理", "description": "创建活动、管理场次与现场临时参加人员", "permissions": frozenset({"attendance:view"}), "match": "ALL"},
-    {"key": "enrollment", "name": "待入塾申请", "description": "申请资料、审核、收款确认与正式入塾", "permissions": frozenset({"enrollment:read"}), "match": "ALL"},
-    {"key": "dashboard", "name": "运营驾驶舱", "description": "查看授权范围内的月度运营数据", "permissions": frozenset({"plans:read"}), "match": "ALL"},
+    {"key": "study_meetings", "name": "小组学习会", "description": "参会率、人员明细、核实与学分结算", "permissions": frozenset({"plans:read"}), "match": "ALL"},
+    {
+        "key": "member_search",
+        "name": "学长查询",
+        "description": "按姓名或手机号后四位快速找到学长",
+        "permissions": frozenset({"members:read", "members:detail_view"}),
+        "match": "ALL",
+    },
 )
 
 _CARE_SOURCE_PERMISSIONS = (
