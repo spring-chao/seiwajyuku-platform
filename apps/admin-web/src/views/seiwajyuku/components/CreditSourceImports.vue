@@ -152,6 +152,13 @@ watch(() => [weeklyForm.class_id, weeklyForm.occurred_from, weeklyForm.occurred_
 const checkWeeklySelection = () => {
   if (!weeklyForm.class_id || !weeklyForm.occurred_from || !weeklyForm.occurred_to)
     throw new Error("请选择班级和完整的每周统计日期；跨月周分段导出");
+  const first = new Date(weeklyForm.occurred_from + "T00:00:00");
+  const last = new Date(weeklyForm.occurred_to + "T00:00:00");
+  const monday = (d: Date) => { const x = new Date(d); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return x.getTime(); };
+  if (last < first || monday(first) !== monday(last))
+    throw new Error("每次请选择同一自然周内最多7天的日期");
+  if (weeklyForm.occurred_from.slice(0,7) !== weeklyForm.occurred_to.slice(0,7))
+    throw new Error("跨月的一周请按自然月分段导出");
 };
 const loadWeeklyRoster = () => perform(async () => {
   checkWeeklySelection();
@@ -163,8 +170,9 @@ const exportWeeklyReading = () => perform(async () => {
   checkWeeklySelection();
   if (weeklyPauses.value.some(p => !p.member_id || !p.occurred_from || !p.occurred_to))
     throw new Error("请补全临时暂停学员和日期，或移除空行");
-  download(await readingWeeklyExport({ ...weeklyForm, pauses: weeklyPauses.value }), `班级每周读书打卡统计_${weeklyForm.occurred_from}_${weeklyForm.occurred_to}.xlsx`);
-});
+  const request = { ...weeklyForm, pauses: weeklyPauses.value.map(p => ({...p})) };
+  download(await readingWeeklyExport(request), `班级每周读书打卡统计_${request.occurred_from}_${request.occurred_to}.xlsx`);
+}, true);
 const exportMembers = ref<Member[]>([]);
 const searchingMembers = ref(false);
 let memberSearch = 0;
@@ -305,8 +313,13 @@ const perform = async (action: () => Promise<void>, readOnly = false) => {
   try {
     await action();
   } catch (err) {
+    const failure = err as {response?: {status?: number; data?: unknown}};
+    let reported = err;
+    if (failure?.response?.data instanceof Blob && failure.response.data.size <= 65536) {
+      try { reported = {response: {...failure.response, data: JSON.parse(await failure.response.data.text())}}; } catch { /* retain safe generic message */ }
+    }
     error.value = creditSettlementErrorMessage(
-      err,
+      reported,
       readOnly ? "导出未完成" : "操作未完成，请刷新查看实际结果；保存来源可用同一检查结果重试，不会重复保存",
       readOnly
     );
@@ -349,7 +362,9 @@ const download = (blob: Blob, filename: string) => {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 const getTemplate = () =>

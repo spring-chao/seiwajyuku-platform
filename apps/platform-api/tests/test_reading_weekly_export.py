@@ -87,15 +87,39 @@ def test_missing_days_are_pending_explicit_incomplete_is_zero_and_overlap_dedupl
     f=reading_fixture; save(f,[('2026-10-05','是'),('2026-10-06','否')]); save(f,[('2026-10-05','是')],'overlap.xlsx')
     ws=export(f,[pause(f['paused_id'])]).active
     member=next(r for r in ws.iter_rows() if r[1].value==f['name'])
-    assert [c.value for c in member[2:7]]==['√','×','待同步','待同步','待同步']
+    assert [c.value for c in member[2:7]]==['√','×','×','×','×']
     assert member[3].fill.fgColor.rgb == '00FFFF00'
-    assert member[7].value=='待核对'
+    assert member[7].value==0.2
     summary=next(r for r in ws.iter_rows() if r[0].value=='汇总')
-    assert summary[7].value==1 and summary[8].value=='待核对'
+    assert summary[7].value==1 and summary[8].value==0.2
     ws=export(f,[pause(f['paused_id'],end='2026-10-06')],end='2026-10-06').active
     assert ws['H4'].value is None  # Only two daily columns, percentages move left.
     member=next(r for r in ws.iter_rows() if r[1].value==f['name'])
     assert member[4].value==0.5
+
+
+def test_late_completion_wins_over_older_unsubmitted_and_repeated_exports(reading_fixture):
+    f=reading_fixture
+    save(f,[('2026-10-05','否')],'before.xlsx')
+    save(f,[('2026-10-05','是')],'completed.xlsx')
+    for _ in range(5):
+        ws=export(f,[pause(f['paused_id'])]).active
+        row=next(r for r in ws.iter_rows() if r[1].value==f['name'])
+        assert [c.value for c in row[2:7]]==['√','×','×','×','×']
+        assert row[7].value==0.2
+
+
+def test_teacher_with_formal_class_is_counted_once_and_external_teacher_is_not(reading_fixture):
+    f=reading_fixture; save(f,[('2026-10-05','是')])
+    staff=[{'id':f['member_id'],'name':f['name'],'appointment_key':'volunteer_class_counselor'},
+           {'id':99999999,'name':'合成外班师资','appointment_key':'volunteer_deputy_class_teacher'}]
+    with patch.object(weekly,'_staff',return_value=staff):
+        ws=export(f,[pause(f['paused_id'])]).active
+    text='\n'.join(str(c.value or '') for row in ws for c in row)
+    assert '本班学员，按所属小组计入统计' in text
+    assert '非本班学籍，仅展示师资' in text
+    summary=next(r for r in ws.iter_rows() if r[0].value=='汇总')
+    assert summary[7].value==1 and summary[8].value==0.2
 
 
 def test_adjusted_workday_is_included_and_no_fake_weekend_target(reading_fixture):
