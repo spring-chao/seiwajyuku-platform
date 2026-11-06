@@ -26,9 +26,20 @@ def refresh_monthly_content(
 ) -> dict:
     require_maintenance_token(x_study_evidence_cleanup_token)
     try:
+        from app.services.renewal_expiry import sync_expired_members
+        renewal_report = sync_expired_members()
         report = monthly.refresh_sweep()
     except Exception as exc:
         # Do not put DB/SDK messages, records or server credentials in replies.
         logging.getLogger("uvicorn.error").error("MONTHLY_SCHEDULED_REFRESH_FAILED error_type=%s", type(exc).__name__)
         raise HTTPException(status_code=503, detail="班级月更暂不可用，请稍后重试") from None
-    return {"success": report["failed"] == 0, "data": report}
+    return {"success": report["failed"] == 0 and renewal_report['failed'] == 0, "data": report,
+            "renewal_status_sync": renewal_report}
+
+
+@router.post('/renewal-status-preview')
+def preview_renewal_expiry(payload: RefreshPayload,
+    x_study_evidence_cleanup_token: str | None = Header(default=None,alias='X-Study-Evidence-Cleanup-Token')):
+    require_maintenance_token(x_study_evidence_cleanup_token)
+    from app.services.renewal_expiry import sync_expired_members
+    return {'success':True,'data':sync_expired_members(dry_run=True)}
