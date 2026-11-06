@@ -23,6 +23,7 @@ def test_mobile_watch_starts_with_current_month_and_crosses_years(today):
     assert [g["key"] for g in groups] == ["FOLLOW_1", "RENEW_2", "OBSERVE_3"]
     assert [[item["cycle_id"] for item in g["items"]] for g in groups] == [[2], [3], [4]]
     assert groups[0]["items"][0]["status_label"] == "待首次联系"
+    assert [rows[index]['stage']['code'] for index in (1,2,3)] == [g['key'] for g in groups]
 
 
 @pytest.mark.parametrize("offset", [0, 1, 2])

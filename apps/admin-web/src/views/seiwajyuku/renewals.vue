@@ -180,10 +180,9 @@ const stageDefinitions: {
   note: string;
 }[] = [
   { code: "PREPARE", label: "日常维护", note: "保持连接" },
-  { code: "OBSERVE_3", label: "观3", note: "重新建立连接" },
-  { code: "RENEW_2", label: "续2", note: "回顾同行价值" },
-  { code: "FOLLOW_1", label: "追1", note: "明确意向与障碍" },
-  { code: "DUE_NOW", label: "到期冲刺", note: "确认结果" },
+  { code: "OBSERVE_3", label: "观3", note: "下下月到期 · 了解近况" },
+  { code: "RENEW_2", label: "续2", note: "下月到期 · 回顾同行价值" },
+  { code: "FOLLOW_1", label: "追1", note: "当月到期 · 明确意向与障碍" },
   { code: "RECOVERY", label: "挽回/复盘", note: "支持与复盘" },
   { code: "CLOSED", label: "已闭环", note: "保留结果" }
 ];
@@ -589,21 +588,7 @@ function setTodayActionFilter(
 function selectStage(stage: RenewalStageCode) {
   stageFilter.value = stage;
   todayActionFilter.value = "ALL";
-  const actionStages: RenewalStageCode[] = [
-    "OBSERVE_3",
-    "RENEW_2",
-    "FOLLOW_1",
-    "DUE_NOW",
-    "RECOVERY"
-  ];
-  secondaryView.value = actionStages.includes(stage) ? "WORKBENCH" : "LEDGER";
-  if (secondaryView.value === "WORKBENCH") {
-    window.requestAnimationFrame(() => {
-      document
-        .querySelector(".today-actions-card")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }
+  secondaryView.value = "LEDGER";
 }
 
 function selectMonth(month: number) {
@@ -1018,7 +1003,7 @@ onMounted(async () => {
       <div class="card-title">
         <div>
           <h2>观3 · 续2 · 追1 阶段盘</h2>
-          <p>阶段由续费月份规则计算；点击阶段即可进入对应工作区。</p>
+          <p>追1：当月到期；续2：下月到期；观3：下下月到期（跨年顺延）。点击阶段进入对应工作区。</p>
         </div>
         <span class="stage-board-asof">{{
           todayActions.as_of || "正在读取"

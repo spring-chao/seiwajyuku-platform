@@ -50,13 +50,15 @@ from app.services.renewal_reconciliation import list_member_status_reconciliatio
 @pytest.mark.parametrize(
     ("renewal_year", "due_month", "as_of", "status", "expected"),
     [
-        (2026, 12, date(2026, 8, 19), "PENDING_FIRST_CONTACT", "PREPARE"),
-        (2026, 11, date(2026, 8, 19), "PENDING_FIRST_CONTACT", "OBSERVE_3"),
-        (2026, 10, date(2026, 8, 19), "IN_COMMUNICATION", "RENEW_2"),
-        (2026, 9, date(2026, 8, 19), "IN_COMMUNICATION", "FOLLOW_1"),
-        (2026, 8, date(2026, 8, 19), "IN_COMMUNICATION", "DUE_NOW"),
+        (2026, 11, date(2026, 8, 19), "PENDING_FIRST_CONTACT", "PREPARE"),
+        (2026, 10, date(2026, 8, 19), "PENDING_FIRST_CONTACT", "OBSERVE_3"),
+        (2026, 9, date(2026, 8, 19), "IN_COMMUNICATION", "RENEW_2"),
+        (2026, 8, date(2026, 8, 19), "IN_COMMUNICATION", "FOLLOW_1"),
         (2026, 7, date(2026, 8, 19), "DEFERRED", "RECOVERY"),
-        (2027, 2, date(2026, 11, 30), "PENDING_FIRST_CONTACT", "OBSERVE_3"),
+        (2027, 1, date(2026, 11, 30), "PENDING_FIRST_CONTACT", "OBSERVE_3"),
+        (2026, 11, date(2026, 11, 6), "IN_COMMUNICATION", "FOLLOW_1"),
+        (2026, 12, date(2026, 11, 6), "IN_COMMUNICATION", "RENEW_2"),
+        (2027, 1, date(2026, 11, 6), "IN_COMMUNICATION", "OBSERVE_3"),
         (2026, 11, date(2026, 8, 19), "RENEWED", "CLOSED"),
         (2026, 11, date(2026, 8, 19), "NOT_RENEWING", "CLOSED"),
         (2026, 11, date(2026, 8, 19), "EXITED", "CLOSED"),
@@ -137,7 +139,7 @@ def _action_card_fixture(*, with_memory: bool = True) -> tuple[int, int, str, in
         cycle_id = execute(
             connection,
             "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, status, assigned_user_id, created_at, updated_at) "
-            "VALUES (?, 2099, ?, 11, 'IN_COMMUNICATION', ?, ?, ?)",
+            "VALUES (?, 2099, ?, 10, 'IN_COMMUNICATION', ?, ?, ?)",
             (member_id, center_id, admin["id"], now, now),
         ).lastrowid
         execute(
@@ -294,11 +296,11 @@ def _today_actions_fixture() -> tuple[int, str, int, str]:
                 (org_id, code, name, now, now),
             )
     member_specs = [
-        ("逾期协助学长", 11, "IN_COMMUNICATION"),
-        ("今日约定学长", 10, "IN_COMMUNICATION"),
-        ("观3未触达学长", 11, "PENDING_FIRST_CONTACT"),
-        ("续2下一步缺失学长", 10, "IN_COMMUNICATION"),
-        ("续2未触达学长", 10, "PENDING_FIRST_CONTACT"),
+        ("逾期协助学长", 10, "IN_COMMUNICATION"),
+        ("今日约定学长", 9, "IN_COMMUNICATION"),
+        ("观3未触达学长", 10, "PENDING_FIRST_CONTACT"),
+        ("续2下一步缺失学长", 9, "IN_COMMUNICATION"),
+        ("续2未触达学长", 9, "PENDING_FIRST_CONTACT"),
         ("已闭环学长", 10, "RENEWED"),
         ("准备期学长", 12, "PENDING_FIRST_CONTACT"),
         ("挽回未触达学长", 7, "DEFERRED"),

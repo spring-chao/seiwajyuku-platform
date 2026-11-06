@@ -197,16 +197,14 @@ def determine_calendar_stage(
         int(renewal_year) * 12 + int(due_month)
         - (current_date.year * 12 + current_date.month)
     )
-    if months_until_due > 3:
+    if months_until_due > 2:
         code = "PREPARE"
-    elif months_until_due == 3:
-        code = "OBSERVE_3"
     elif months_until_due == 2:
-        code = "RENEW_2"
+        code = "OBSERVE_3"
     elif months_until_due == 1:
-        code = "FOLLOW_1"
+        code = "RENEW_2"
     elif months_until_due == 0:
-        code = "DUE_NOW"
+        code = "FOLLOW_1"
     else:
         code = "RECOVERY"
     return {
@@ -370,14 +368,14 @@ def _renewal_action_strategy(
         "PREPARE": {
             "goal": "保持日常陪伴，不进入续费动作",
             "channel": "WECHAT",
-            "reason": "距离续费超过3个月，适合自然保持联系，不提前制造续费压力。",
+            "reason": "续费月份在下下个月之后，适合自然保持联系，不提前制造续费压力。",
             "questions": ["最近学习和生活状态怎么样？", "近期有没有我们可以提供支持的地方？"],
             "do_not": ["不以续费为本次联系主题。", "不发送付款信息。"],
         },
         "OBSERVE_3": {
             "goal": "重新建立连接、了解近况",
             "channel": "WECHAT",
-            "reason": "距离续费还有3个月，当前属于观3阶段，应先关爱和了解，不以完成续费为目标。",
+            "reason": "续费月份为下下个月，当前属于观3阶段，应先关爱和了解，不以完成续费为目标。",
             "questions": [
                 "最近企业和生活状态怎么样？",
                 "今年学习过程中，哪些内容对经营帮助比较大？",
@@ -388,7 +386,7 @@ def _renewal_action_strategy(
         "RENEW_2": {
             "goal": "回顾同行价值、自然确认续费意愿",
             "channel": "PHONE" if latest_followup else "WECHAT",
-            "reason": "距离续费还有2个月，适合先回顾真实获得，再自然了解后续同行意愿。",
+            "reason": "续费月份为下个月，当前属于续2阶段，适合先回顾真实获得，再自然了解后续同行意愿。",
             "questions": [
                 "今年哪些学习或同行经历对您最有帮助？",
                 "接下来的学习中，您最希望获得哪方面支持？",
@@ -399,7 +397,7 @@ def _renewal_action_strategy(
         "FOLLOW_1": {
             "goal": "明确意向、识别障碍并协助解决",
             "channel": "PHONE",
-            "reason": "距离续费还有1个月，需要基于既有沟通明确意向和实际障碍。",
+            "reason": "续费月份为当月，当前属于追1阶段，需要基于既有沟通明确意向和实际障碍。",
             "questions": [
                 "关于下一年度继续同行，您目前的考虑是什么？",
                 "现在最需要我们协助解决的障碍是什么？",

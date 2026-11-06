@@ -42,8 +42,8 @@ def test_database_completed_day_matches_beijing(stored, expected):
 def test_renewal_stage_rolls_over_at_beijing_month_boundary():
     before = determine_calendar_stage(2026, 10, as_of=datetime(2026, 9, 30, 15, 59, tzinfo=UTC))
     after = determine_calendar_stage(2026, 10, as_of=datetime(2026, 9, 30, 16, tzinfo=UTC))
-    assert before["code"] == "FOLLOW_1"
-    assert after["code"] == "DUE_NOW"
+    assert before["code"] == "RENEW_2"
+    assert after["code"] == "FOLLOW_1"
 
 
 def test_rhythm_today_rolls_over_at_beijing_midnight(monkeypatch):

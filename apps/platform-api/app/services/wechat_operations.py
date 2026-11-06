@@ -403,8 +403,7 @@ def renewal_watch(session: dict[str, Any]) -> dict[str, Any]:
     for row in rows:
         if str(row.get("status") or "").upper() == "RENEWED":
             continue
-        # Mobile watch tabs count the current month as month one. Preserve
-        # the shared renewal engine's stages for existing actions and reports.
+        # Same current/next/following month windows as the shared stage engine.
         offset = (row.get("stage") or {}).get("months_until_due")
         stage = {0: "FOLLOW_1", 1: "RENEW_2", 2: "OBSERVE_3"}.get(offset)
         if stage in by_stage:
