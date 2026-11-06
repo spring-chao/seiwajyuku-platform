@@ -68,6 +68,35 @@ test("contact confirmation after unload never starts a request", async () => {
   assert.equal(calls, 0);
 });
 
+test("AI regenerate makes fresh POST requests, ignores double taps and retains edited text on failure", async () => {
+  let finish; const calls = [];
+  const p = page("member-detail", (path, options) => { calls.push([path, options]); return new Promise(resolve => { finish = resolve; }); });
+  Object.assign(p.data, { loading: false, memberId: 7, renewalCycleId: 8, wechatCopy: "原文" });
+  const first = p.regenerateCopy(); await p.regenerateCopy();
+  assert.equal(calls.length, 1); assert.equal(calls[0][1].method, "POST");
+  assert.match(calls[0][0], /renewals\/8\/care-draft$/);
+  finish({ data: { status: "GENERATED", body: "新文案" } }); await first;
+  assert.equal(p.data.wechatCopy, "新文案");
+  const second = p.regenerateCopy();
+  p.editCopy({ detail: { value: "手动编辑" } });
+  finish({ data: { status: "GENERATED", body: "迟到文案" } }); await second;
+  assert.equal(p.data.wechatCopy, "手动编辑"); assert.match(p.data.copyError, /已编辑/);
+  const third = p.regenerateCopy(); finish({ data: { status: "PROVIDER_UNAVAILABLE" } }); await third;
+  assert.equal(p.data.wechatCopy, "手动编辑"); assert.equal(p.data.copyGenerating, false);
+});
+
+test("birthday regenerate uses AI endpoint and cannot restore text after leaving the page", async () => {
+  let finish; const paths = [];
+  const p = page("member-detail", (path) => { paths.push(path); return new Promise(resolve => { finish = resolve; }); });
+  Object.assign(p.data, { loading: false, memberId: 7, birthdayDueDate: "2026-11-06", wechatCopy: "原文" });
+  const first = p.regenerateCopy();
+  finish({ data: { generation_status: "GENERATED", draft: "生日新文案" } }); await first;
+  assert.equal(p.data.wechatCopy, "生日新文案"); assert.match(paths[0], /members\/7\/birthday-copy$/);
+  const second = p.regenerateCopy(); p.onHide();
+  finish({ data: { generation_status: "GENERATED", draft: "迟到文案" } }); await second;
+  assert.equal(p.data.wechatCopy, ""); assert.equal(p.data.copyGenerating, false);
+});
+
 test("member renewal entry selects the matching stage and filters to that member", async () => {
   const p = page("renewal-watch", async () => ({ data: { groups: [
     { key: "OBSERVE_3", items: [{ member_id: 8 }] },

@@ -48,6 +48,7 @@ export type SourceImport = {
   batches: SourceBatch[];
 };
 export type SourceWorkbench = {
+  pagination?: { total: number; page: number; page_size: number };
   posting_jobs_available?: boolean;
   posting_jobs_setup_allowed?: boolean;
   posting_jobs_migration_sha256?: string;
@@ -116,8 +117,9 @@ export const sourcePrepareCalendar = () =>
   http.request<Result<unknown>>("post", base + "/reading-calendar/setup", {
     timeout: 60000
   });
-export const sourceWorkbench = () =>
-  http.request<Result<SourceWorkbench>>("get", base, { timeout: 60000 });
+export type SourceFilters = { class_id?: string; kind?: string; status?: string; created_from?: string; created_to?: string; page?: number; page_size?: number };
+export const sourceWorkbench = (params?: SourceFilters) =>
+  http.request<Result<SourceWorkbench>>("get", base, { params, timeout: 60000 });
 export const sourceGet = (id: number) =>
   http.request<Result<SourceImport>>("get", `${base}/imports/${id}`, {
     timeout: 60000

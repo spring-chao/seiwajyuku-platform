@@ -197,8 +197,8 @@ const filters = reactive<{
   management_org_unit_id: "",
   class_org_unit_id: "",
   status: "",
-  meeting_date_from: "",
-  meeting_date_to: ""
+  meeting_date_from: chinaDate().slice(0, 7) + "-01",
+  meeting_date_to: new Date(Date.UTC(Number(chinaDate().slice(0, 4)), Number(chinaDate().slice(5, 7)), 0)).toISOString().slice(0, 10)
 });
 const filterOptions = ref<StudyMeetingFilters>({ regions: [], classes: [] });
 const filteredClasses = computed(() => filterOptions.value.classes.filter(item =>

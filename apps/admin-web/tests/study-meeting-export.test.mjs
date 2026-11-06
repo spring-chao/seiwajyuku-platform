@@ -32,6 +32,12 @@ function harness(request) {
 
 const workbook = () => new Blob([new Uint8Array([0x50, 0x4b, 3, 4, 0])]);
 
+test('meeting records default to the whole current Beijing month', () => {
+  const ui = harness(workbook);
+  assert.equal(ui.state.filters.meeting_date_from, '2026-10-01');
+  assert.equal(ui.state.filters.meeting_date_to, '2026-10-31');
+});
+
 test('filtered export prevents duplicate submits and keeps the requested filename while controls change', async () => {
   let resolve;
   const h = harness(() => new Promise(r => { resolve = r; }));

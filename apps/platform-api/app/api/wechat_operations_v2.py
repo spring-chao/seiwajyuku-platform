@@ -104,8 +104,14 @@ def application_visit_image(application_id: int, payload: ApplicationVisitImage,
 
 
 @router.get("/members/{member_id}/birthday-copy")
+@router.post("/members/{member_id}/birthday-copy")
 def birthday_copy(member_id: int, identity=Depends(session)):
     return response(service.birthday_copy, identity, member_id)
+
+
+@router.post("/renewals/{cycle_id}/care-draft")
+def renewal_copy(cycle_id: int, identity=Depends(session)):
+    return response(service.renewal_copy, identity, cycle_id)
 
 
 @router.get("/renewals/{cycle_id}")

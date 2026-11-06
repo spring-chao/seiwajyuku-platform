@@ -88,6 +88,31 @@ const exportForm = reactive({ class_id: "", from: "2026-10-01", to: "", member_i
 const weeklyForm = reactive({ class_id: "", occurred_from: "", occurred_to: "" });
 const exportCenters = ref<{ id: string; name: string }[]>([]);
 const reportToday = new Intl.DateTimeFormat("sv-SE", {timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+const recentStart = () => new Date(Date.parse(reportToday + "T00:00:00Z") - 6 * 86400000).toISOString().slice(0, 10);
+const importFilters = reactive({ class_id: "", kind: "", status: "", created_from: recentStart(), created_to: reportToday });
+const appliedImportFilters = ref({ ...importFilters });
+const importPage = ref(1);
+const importLoading = ref(false);
+let importRequest = 0;
+const importStatusOptions = { SAVED: "来源已保存", READY: "待确认入账", PENDING: "等待后台处理", RUNNING: "后台入账中", PAUSED: "已暂停", NEEDS_REVIEW: "待核对", SUCCEEDED: "后台任务完成", COMPLETE: "已入账", POSTING: "入账中", PARTIAL_FAILED: "部分失败", NO_CREDIT: "无新增学分" };
+const loadImports = async () => {
+  const version = ++importRequest;
+  importLoading.value = true;
+  try {
+    const response = await sourceWorkbench({ ...appliedImportFilters.value, page: importPage.value, page_size: 20 });
+    if (version === importRequest) state.value = response.data;
+  } finally { if (version === importRequest) importLoading.value = false; }
+};
+const queryImports = () => perform(async () => {
+  if (importFilters.created_from && importFilters.created_to && importFilters.created_from > importFilters.created_to) throw new Error("开始日期不能晚于结束日期");
+  appliedImportFilters.value = { ...importFilters }; importPage.value = 1;
+  await loadImports();
+}, true);
+const resetImports = () => {
+  Object.assign(importFilters, { class_id: "", kind: "", status: "", created_from: recentStart(), created_to: reportToday });
+  return queryImports();
+};
+const turnImportPage = (page: number) => perform(async () => { importPage.value = page; await loadImports(); }, true);
 const monthlyForm = reactive({ center_id: "", month: new Date(Date.UTC(Number(reportToday.slice(0,4)),Number(reportToday.slice(5,7))-1,0)).toISOString().slice(0,7) });
 const monthlyState = ref<MonthlyCoreStatus>();
 const monthlyNotice = ref("");
@@ -334,7 +359,7 @@ const reload = async () => {
     tasks.push({
       label: "来源记录读取失败",
       run: async () => {
-        state.value = (await sourceWorkbench()).data;
+        await loadImports();
       }
     });
   if (canExport.value)
@@ -836,10 +861,20 @@ onMounted(() => perform(reload));
       <p>
         保存来源 → 生成结算 → 核对每位学长的学分 → 确认入账。无效记录与已计分来源会跳过，只有确认入账才会增加正式学分。
       </p>
+      <h3>班级确认学分入账记录</h3>
+      <p>默认显示最近7天保存的来源；时间按北京时间的保存日期查询。</p>
+      <el-form inline @submit.prevent="queryImports">
+        <el-form-item label="班级"><el-select v-model="importFilters.class_id" clearable placeholder="全部班级" style="width: 220px"><el-option v-for="item in state?.classes || []" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item>
+        <el-form-item label="记录类型"><el-select v-model="importFilters.kind" clearable placeholder="全部类型" style="width: 170px"><el-option v-for="(label, key) in labels" :key="key" :label="label" :value="key" /></el-select></el-form-item>
+        <el-form-item label="状态"><el-select v-model="importFilters.status" clearable placeholder="全部状态" style="width: 180px"><el-option v-for="(label, key) in importStatusOptions" :key="key" :label="label" :value="key" /></el-select></el-form-item>
+        <el-form-item label="保存时间"><el-date-picker v-model="importFilters.created_from" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" /><span>至</span><el-date-picker v-model="importFilters.created_to" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" /></el-form-item>
+        <el-form-item><el-button type="primary" :loading="importLoading" @click="queryImports">查询</el-button><el-button :disabled="importLoading" @click="resetImports">重置</el-button></el-form-item>
+      </el-form>
       <el-table
+        v-loading="importLoading"
         :data="state?.imports || []"
         row-key="id"
-        empty-text="尚未上传学习记录"
+        empty-text="当前筛选条件下暂无记录"
         ><el-table-column
           prop="class_name"
           label="班级"
@@ -873,6 +908,7 @@ onMounted(() => perform(reload));
         ></el-table
       >
     </section>
+    <el-pagination v-if="state?.pagination" :current-page="importPage" :page-size="20" :total="state.pagination.total" :disabled="importLoading" layout="total, prev, pager, next" @current-change="turnImportPage" />
     <el-dialog
       :model-value="!!detail"
       title="学习记录与结算结果"

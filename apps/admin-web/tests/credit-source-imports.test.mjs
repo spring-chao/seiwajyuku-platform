@@ -11,9 +11,24 @@ const compiled = ts.transpileModule(script, { compilerOptions: { target: ts.Scri
 function harness(api = {}, permissions = ["members:read", "plans:credit_settlement_manage", "plans:credit_settlement_preview", "plans:credit_settlement_approve", "plans:credit_settlement_post", "exports:normal"]) {
   const storage = new Map();
   const context = vm.createContext({ computed, reactive, ref, watch, onMounted: () => {}, onBeforeUnmount: () => {}, setInterval: () => 1, clearInterval() {}, defineEmits: () => () => {}, useUserStoreHook: () => ({ permissions }), creditSettlementErrorMessage: e => e.message, ElMessage: { success() {}, error() {} }, ElMessageBox: { confirm: async () => {} }, localStorage: { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) }, URL: { createObjectURL: () => "blob:test", revokeObjectURL() {} }, document: { createElement: () => ({ click() {} }) }, setTimeout: () => {}, monthlyCoreOptions: async () => ({ data: { centers: [] } }), monthlyCoreStatus: async () => ({data:{status:"MISSING",cutoff:"2026-09-30"}}), ...api });
-  vm.runInContext(compiled + "\nglobalThis.result = {state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail,act,batchSummary,posting,refreshDetail,recover,pausePostingJob,busy,monthlyForm,exportCenters,exportMonthlyCore,monthlyState,monthlyStatusText,refreshMonthlyStatus,refreshMonthlyCore,monthlyGenerating};", context);
+  vm.runInContext(compiled + "\nglobalThis.result = {importFilters,queryImports,resetImports,turnImportPage,state,file,form,preview,check,register,canExport,canManage,exportFile,exportClasses,eligible,setup,error,reload,show,detail,act,batchSummary,posting,refreshDetail,recover,pausePostingJob,busy,monthlyForm,exportCenters,exportMonthlyCore,monthlyState,monthlyStatusText,refreshMonthlyStatus,refreshMonthlyCore,monthlyGenerating};", context);
   return context.result;
 }
+
+test("import queries preserve applied filters on page changes and reset to seven Beijing dates", async () => {
+  const calls = [];
+  const ui = harness({ sourceWorkbench: async params => { calls.push({...params}); return { data: { imports: [] } }; } });
+  // Exposed through the same setup harness as the existing action tests.
+  ui.importFilters.class_id = 'synthetic-class'; ui.importFilters.kind = 'DAILY_READING'; ui.importFilters.status = 'PAUSED';
+  await ui.queryImports();
+  assert.equal(calls[0].class_id, 'synthetic-class'); assert.equal(calls[0].status, 'PAUSED');
+  assert.equal((Date.parse(calls[0].created_to)-Date.parse(calls[0].created_from))/86400000, 6);
+  ui.importFilters.class_id = 'unsubmitted'; await ui.turnImportPage(2);
+  assert.equal(calls[1].class_id, 'synthetic-class'); assert.equal(calls[1].page, 2);
+  await ui.resetImports(); assert.equal(calls[2].class_id, ''); assert.equal(calls[2].page, 1);
+  ui.importFilters.created_from='2026-11-10'; ui.importFilters.created_to='2026-11-01';
+  await ui.queryImports(); assert.equal(calls.length, 3); assert.match(ui.error.value, /开始日期/);
+});
 
 test("changing source information while a check is running discards the old preview", async () => {
   let finish;

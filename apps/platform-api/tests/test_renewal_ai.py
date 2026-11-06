@@ -8,7 +8,7 @@ def enabled(monkeypatch):
     monkeypatch.setenv("BIRTHDAY_AI_ENABLED", "true")
     monkeypatch.setenv("CLOUDBASE_AI_ENV_ID", "synthetic-test-env")
     monkeypatch.setenv("CLOUDBASE_AI_API_KEY", "synthetic-key")
-    monkeypatch.setenv("BIRTHDAY_AI_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("BIRTHDAY_AI_MODEL", "deepseek-v4.1-flash")
 
 
 def test_disabled_makes_no_call(monkeypatch):

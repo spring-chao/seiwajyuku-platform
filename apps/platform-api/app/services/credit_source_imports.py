@@ -703,7 +703,44 @@ def reconcile(import_id,actor):
     return get_import(import_id,actor)
 
 
-def workbench(actor):
+def _import_query(c, scope, class_id, kind, status, created_from, created_to):
+    from datetime import timedelta
+    from app.services import credit_posting_jobs as jobs
+    where=[];params=[]
+    if scope is not None:
+        if not scope:where.append('1=0')
+        else:
+            where.append('i.class_org_unit_id IN ('+','.join('?' for _ in scope)+')');params.extend(sorted(scope))
+    if class_id:
+        if scope is not None and class_id not in scope:raise PermissionError('班级不在当前授权范围')
+        where.append('i.class_org_unit_id=?');params.append(class_id)
+    if kind:
+        if kind not in SHEETS:raise ValueError('不支持的记录类型')
+        where.append('i.source_kind=?');params.append(kind)
+    for value in (created_from,created_to):
+        if value and not re.fullmatch(r'\d{4}-\d{2}-\d{2}',value):raise ValueError('请选择有效日期')
+        if value:date.fromisoformat(value)
+    if created_from and created_to and created_from>created_to:raise ValueError('开始日期不能晚于结束日期')
+    # Dates are inclusive Beijing dates; stored timestamps remain UTC.
+    for value,op,extra in ((created_from,'>=',0),(created_to,'<',1)):
+        if value:
+            boundary=datetime.combine(date.fromisoformat(value)+timedelta(days=extra),datetime.min.time(),tzinfo=ZoneInfo('Asia/Shanghai'))
+            where.append('i.created_at '+op+' ?');params.append(credits._db_timestamp(c,boundary))
+    batch="FROM learning_credit_source_batches l JOIN learning_credit_settlement_batches b ON b.id=l.batch_id WHERE l.import_id=i.id"
+    active=batch+' AND b.proposed_entry_count>0'
+    expression=("CASE WHEN NOT EXISTS(SELECT 1 "+batch+") THEN 'SAVED' "
+        "WHEN EXISTS(SELECT 1 "+active+" AND b.status='POSTING') THEN 'POSTING' "
+        "WHEN EXISTS(SELECT 1 "+active+" AND b.status='PARTIAL_FAILED') THEN 'PARTIAL_FAILED' "
+        "WHEN NOT EXISTS(SELECT 1 "+active+") THEN 'NO_CREDIT' "
+        "WHEN NOT EXISTS(SELECT 1 "+active+" AND b.status NOT IN ('POSTED','CLOSED')) THEN 'COMPLETE' ELSE 'READY' END")
+    if jobs.available(c):expression="COALESCE((SELECT j.status FROM learning_credit_posting_jobs j WHERE j.import_id=i.id),"+expression+")"
+    if status:
+        if status not in {'SAVED','NO_CREDIT','READY','POSTING','PARTIAL_FAILED','COMPLETE','PENDING','RUNNING','PAUSED','SUCCEEDED','NEEDS_REVIEW'}:raise ValueError('不支持的结算状态')
+        where.append('('+expression+')=?');params.append(status)
+    return (' WHERE '+' AND '.join(where) if where else ''),params
+
+
+def workbench(actor, *, class_id=None, kind=None, status=None, created_from=None, created_to=None, page=1, page_size=20):
     from app.services import credit_posting_jobs as jobs
     user=_principal(actor);c=connect()
     try:
@@ -713,9 +750,13 @@ def workbench(actor):
         ids={r['id'] for r in classes}
         cycles=[dict(r) for r in execute(c,"SELECT c.id,c.class_org_unit_id,c.learning_cycle_index,c.cycle_status,c.class_meeting_status,c.actual_class_meeting_at,c.planned_class_meeting_at FROM class_learning_cycles c JOIN class_learning_bindings b ON b.id=c.binding_id WHERE b.status='ACTIVE' AND c.cycle_status IN ('OPEN','CLOSED') ORDER BY c.id DESC").fetchall() if r['class_org_unit_id'] in ids]
         ready=available(c);imports=[]
+        if page<1 or not 1<=page_size<=100:raise ValueError('分页参数无效')
+        total=0
         if ready:
-            for r in execute(c,'SELECT id,class_org_unit_id FROM learning_credit_source_imports ORDER BY id DESC LIMIT 100').fetchall():
-                if scope is None or r['class_org_unit_id'] in scope:imports.append(_receipt(c,actor,r['id'],allowed_scope=scope,summary=True))
+            where,params=_import_query(c,scope,class_id,kind,status,created_from,created_to)
+            total=int(execute(c,'SELECT COUNT(*) AS n FROM learning_credit_source_imports i'+where,params).fetchone()['n'])
+            for r in execute(c,'SELECT i.id FROM learning_credit_source_imports i'+where+' ORDER BY i.id DESC LIMIT ? OFFSET ?',(*params,page_size,(page-1)*page_size)).fetchall():
+                imports.append(_receipt(c,actor,r['id'],allowed_scope=scope,summary=True))
         grouped={}
         for receipt in imports:
             key=(receipt['source_identity'],tuple(b['id'] for b in receipt['batches']))
@@ -725,8 +766,9 @@ def workbench(actor):
                 receipt['duplicate_upload_count']=1
                 grouped[key]=receipt
         imports=list(grouped.values())
+        pagination={'total':total,'page':page,'page_size':page_size}
         tables=present_tables(c);reserved=execute(c,"SELECT id FROM audit_logs WHERE action='production.credit_source.setup' LIMIT 1").fetchone();marker=execute(c,'SELECT version FROM schema_migrations WHERE version=?',(MIGRATION,)).fetchone()
-        return {'classes':classes,'cycles':cycles,'imports':imports,'posting_jobs_available':jobs.available(c),'posting_jobs_setup_allowed':ready and not jobs.available(c) and 'system_admin' in user.get('roles',[]) and 'plans:production_rule_reconciliation_apply' in user['permissions'] and get_settings().credit_opening_setup_enabled,'posting_jobs_migration_sha256':jobs.HASHES['sqlite' if isinstance(c,sqlite3.Connection) else 'mysql'],'storage_available':ready,'release_commit':get_build_info()['commit_sha'],'migration_sha256':HASHES['sqlite' if isinstance(c,sqlite3.Connection) else 'mysql'],
+        return {'classes':classes,'cycles':cycles,'imports':imports,'pagination':pagination,'posting_jobs_available':jobs.available(c),'posting_jobs_setup_allowed':ready and not jobs.available(c) and 'system_admin' in user.get('roles',[]) and 'plans:production_rule_reconciliation_apply' in user['permissions'] and get_settings().credit_opening_setup_enabled,'posting_jobs_migration_sha256':jobs.HASHES['sqlite' if isinstance(c,sqlite3.Connection) else 'mysql'],'storage_available':ready,'release_commit':get_build_info()['commit_sha'],'migration_sha256':HASHES['sqlite' if isinstance(c,sqlite3.Connection) else 'mysql'],
                 'setup_allowed':'system_admin' in user.get('roles',[]) and 'plans:production_rule_reconciliation_apply' in user['permissions'] and get_settings().credit_opening_setup_enabled and not tables and not reserved and not marker,
                 'setup_incomplete':not ready and bool(tables or reserved or marker),'can_import_activity':'plans:credit_activity_fact_manage' in user['permissions'],'can_import_attendance':{'attendance:adjudicate','plans:period_write'}<=set(user['permissions']), 'reading_calendar':reading_calendar(c)}
     finally:c.close()

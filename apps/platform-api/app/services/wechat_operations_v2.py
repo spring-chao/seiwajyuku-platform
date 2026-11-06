@@ -31,6 +31,12 @@ def birthday_copy(session, member_id):
                 member_id, int(principal["user_id"]), selected_memory_ids=[], tone="warm")
 
 
+def renewal_copy(session, cycle_id):
+    principal = _principal(session)
+    return call(principal, "renewals:read", renewals.generate_care_draft,
+                cycle_id, int(principal["user_id"]))
+
+
 def renewal_detail(session, cycle_id):
     principal = _principal(session)
     card = call(principal, "renewals:read", renewals.get_action_card, cycle_id, int(principal["user_id"]))
