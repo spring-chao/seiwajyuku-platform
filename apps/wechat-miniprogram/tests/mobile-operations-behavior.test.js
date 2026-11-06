@@ -108,3 +108,52 @@ test("member renewal entry selects the matching stage and filters to that member
   p.showAll();
   assert.equal(p.data.items.length, 2);
 });
+
+
+test("dashboard birthdays filter by class and month without changing the overview month", async () => {
+  const paths = []; let navigation;
+  const p = page("dashboard", async url => {
+    paths.push(url);
+    const month = Number(url.split("birthday_month=")[1]);
+    return { data: { summary: { birthday_member_count: 7 }, classes: [
+      { class_org_unit_id: "a", class_name: "合成甲班" }, { class_org_unit_id: "b", class_name: "合成乙班" }
+    ], birthday_members: month === 2 ? [] : [
+      { member_id: 1, name: "合成甲", class_org_unit_id: "a", birthday: "01-15" },
+      { member_id: 2, name: "合成乙", class_org_unit_id: "b", birthday: "01-20" }
+    ] } };
+  }, { navigateTo: options => { navigation = options.url; } });
+  p.data.month = "2026-11"; p.data.birthdayMonth = 1;
+  await p.load();
+  assert.equal(p.data.birthdayMembers.length, 2);
+  p.chooseBirthdayClass({ detail: { value: "1" } });
+  assert.equal(p.data.birthdayMembers.length, 1);
+  assert.equal(p.data.birthdayMembers[0].member_id, 1);
+  await p.chooseBirthdayMonth({ detail: { value: "2" } });
+  assert.match(paths.at(-1), /year=2026&month=11&birthday_month=2$/);
+  assert.equal(p.data.birthdayMembers.length, 0);
+  assert.equal(p.data.birthdayClassId, "a");
+  assert.equal(p.data.metrics.find(m => m.key === "birthday_member_count").value, 7);
+  await p.chooseBirthdayMonth({ detail: { value: "0" } });
+  assert.match(paths.at(-1), /birthday_month=0$/);
+  assert.equal(p.data.birthdayMembers.length, 1);
+  p.openBirthday({ currentTarget: { dataset: { item: p.data.birthdayMembers[0] } } });
+  assert.match(navigation, /birthday_due_date=2026-01-15$/);
+  p.onHide();
+  assert.equal(p.data.birthdayMembers.length, 0);
+  assert.equal(p.data.birthdayClasses.length, 1);
+});
+
+test("dashboard ignores outdated month results and clears the list after a failed request", async () => {
+  const pending = [];
+  const p = page("dashboard", () => new Promise((resolve, reject) => pending.push({ resolve, reject })));
+  p.data.month = "2026-11";
+  const first = p.load(); const second = p.chooseBirthdayMonth({ detail: { value: "2" } });
+  pending[1].resolve({ data: { summary: {}, birthday_members: [{ member_id: 2, birthday: "02-01" }] } });
+  await second;
+  pending[0].resolve({ data: { summary: {}, birthday_members: [{ member_id: 1, birthday: "01-01" }] } });
+  await first;
+  assert.equal(p.data.birthdayMembers[0].member_id, 2);
+  const third = p.load(); pending[2].reject(new Error("合成失败")); await third;
+  assert.equal(p.data.birthdayMembers.length, 0);
+  assert.equal(p.data.errorMessage, "合成失败");
+});

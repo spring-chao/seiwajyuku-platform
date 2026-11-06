@@ -161,9 +161,9 @@ def verify_meeting(session, session_id, expected_revision):
     return {"review_status": result["review_status"], "credit_settlement": result["credit_settlement"]}
 
 
-def dashboard(session, year, month):
+def dashboard(session, year, month, birthday_month=None):
     principal = _principal(session)
-    snapshot = call(principal, "plans:read", operations_snapshot, user_id=int(principal["user_id"]), year=year, month=month)
+    snapshot = call(principal, "plans:read", operations_snapshot, user_id=int(principal["user_id"]), year=year, month=month, birthday_month=birthday_month)
     # Renewal read must have its own organization scope, never the plans grant scope.
     if "renewals:read" in principal["permissions"]:
         renewal_snapshot = call(principal, "renewals:read", operations_snapshot, user_id=int(principal["user_id"]), year=year, month=month)

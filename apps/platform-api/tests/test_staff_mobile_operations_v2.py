@@ -392,3 +392,31 @@ def test_mobile_actions_keep_fact_permissions_event_scope_and_revision(mobile, m
     for suffix in ("row-action", "sync-roster"):
         assert client.post(url+"/"+suffix, headers=headers, json=action() if suffix == "row-action" else {}).status_code == 403
     assert client.post(url+"/entry-code", headers=headers).status_code == 403
+
+
+def test_mobile_dashboard_birthday_month_scope_and_entry_order(mobile):
+    f, client, headers = mobile
+    with transaction() as connection:
+        execute(connection, "UPDATE members SET birthday='1980-01-15' WHERE id IN (?,?)",
+                (f["focal_member_id"], f["outside_member_id"]))
+    url = f"{PREFIX}/dashboard?year=2026&month=11"
+    current = client.get(url, headers=headers)
+    assert current.status_code == 200, current.text
+    assert f["focal_member_id"] not in {r["member_id"] for r in current.json()["data"]["birthday_members"]}
+    january = client.get(url + "&birthday_month=1", headers=headers)
+    assert january.status_code == 200, january.text
+    rows = january.json()["data"]["birthday_members"]
+    assert f["focal_member_id"] in {r["member_id"] for r in rows}
+    assert f["outside_member_id"] not in {r["member_id"] for r in rows}
+    assert all(r["birthday"].startswith("01-") for r in rows)
+    assert next(r for r in rows if r["member_id"] == f["focal_member_id"])["class_org_unit_id"]
+    assert january.json()["data"]["summary"] == current.json()["data"]["summary"]
+    whole_year = client.get(url + "&birthday_month=0", headers=headers)
+    assert whole_year.status_code == 200
+    assert f["focal_member_id"] in {r["member_id"] for r in whole_year.json()["data"]["birthday_members"]}
+    assert f["outside_member_id"] not in {r["member_id"] for r in whole_year.json()["data"]["birthday_members"]}
+    for invalid in (-1, 13):
+        assert client.get(url + f"&birthday_month={invalid}", headers=headers).status_code == 422
+    workbench = client.get(f"{PREFIX}/workbench", headers=headers)
+    assert [r["key"] for r in workbench.json()["data"]["entries"]] == [
+        "today_actions", "dashboard", "enrollment", "renewal_watch", "activities", "study_meetings", "member_search"]
