@@ -234,10 +234,10 @@ def get_annual_renewal_analytics(
                 )
                 stage = calendar_stage["code"]
                 timing_counts[stage] += 1
-                if stage in {"PREPARE", "OBSERVE_3", "RENEW_2", "FOLLOW_1"}:
+                if calendar_stage['months_until_due'] > 0:
                     before_due_count += 1
                     org["before_due_count"] += 1
-                elif stage == "DUE_NOW":
+                elif calendar_stage['months_until_due'] == 0:
                     due_month_count += 1
                     org["due_month_count"] += 1
                 else:

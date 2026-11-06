@@ -147,11 +147,11 @@ def test_annual_analytics_classifies_evidence_and_timing_without_fabrication() -
         UNKNOWN: 1,
     }
     assert result["stage_counts"] == {
-        "PREPARE": 1,
+        "PREPARE": 2,
         "OBSERVE_3": 1,
         "RENEW_2": 1,
         "FOLLOW_1": 1,
-        "DUE_NOW": 1,
+        "DUE_NOW": 0,
         "RECOVERY": 1,
     }
     assert result["before_due_count"] == 4

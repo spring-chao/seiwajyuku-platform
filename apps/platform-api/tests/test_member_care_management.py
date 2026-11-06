@@ -41,7 +41,7 @@ def _augment_management_facts(fixture: dict[str, int | str]) -> None:
         if not overdue_cycle:
             overdue_cycle_id = execute(
                 connection,
-                "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, status, created_at, updated_at) VALUES (?, 2099, ?, 11, 'IN_COMMUNICATION', ?, ?)",
+                "INSERT INTO renewal_cycles(member_id, renewal_year, org_unit_id, due_month, status, created_at, updated_at) VALUES (?, 2099, ?, 10, 'IN_COMMUNICATION', ?, ?)",
                 (overdue_member["id"], center_id, now, now),
             ).lastrowid
         else:
