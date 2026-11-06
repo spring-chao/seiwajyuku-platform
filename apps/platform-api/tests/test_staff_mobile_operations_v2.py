@@ -60,6 +60,25 @@ def mobile(monkeypatch, tmp_path):
         yield f, client, headers
 
 
+def test_mobile_regeneration_delegates_scoped_ai_without_status_mutation(mobile):
+    f,client,headers=mobile
+    cycle_id=f['renewal_cycles']['FOLLOW_1']
+    from app.services import renewal_ai,birthday_ai
+    body='愿这份因学习结下的缘分，带来温暖与力量。祝您身体安康、心有所悦，在工作之外也能享受生活的从容与欢喜。'
+    with patch.object(renewal_ai,'generate_body',return_value={'status':'GENERATED','body':body,'model':'deepseek-v4.1-flash'}) as generate:
+        for _ in range(2):
+            response=client.post(f'{PREFIX}/renewals/{cycle_id}/care-draft',headers=headers)
+            assert response.status_code==200,response.text
+            assert response.json()['data']['status']=='GENERATED'
+        assert generate.call_count==2
+        assert client.post(f'{PREFIX}/renewals/{cycle_id}/care-draft').status_code in (401,403)
+    member_id=client.get(f'{PREFIX}/renewals/{cycle_id}',headers=headers).json()['data']['member']['id']
+    with patch.object(birthday_ai,'generate_body',return_value={'status':'GENERATED','body':body,'model':'deepseek-v4.1-flash'}):
+        response=client.post(f'{PREFIX}/members/{member_id}/birthday-copy',headers=headers)
+        assert response.status_code==200,response.text
+        assert response.json()['data']['generation_status']=='GENERATED'
+
+
 def test_renewal_copy_status_conflict_scope_and_birthday(mobile):
     f, client, headers = mobile
     cycle_id = f["renewal_cycles"]["FOLLOW_1"]

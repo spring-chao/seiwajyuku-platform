@@ -17,8 +17,12 @@ def _xlsx(raw,name):
     return Response(raw,media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':"attachment; filename*=UTF-8''"+quote(name)})
 
 @router.get('')
-def workbench(user=Depends(require_permission('plans:credit_settlement_manage'))):
-    return _call(service.workbench,user['id'])
+def workbench(class_id:str|None=None,kind:str|None=None,status:str|None=None,
+              created_from:str|None=None,created_to:str|None=None,
+              page:int=Query(1,ge=1),page_size:int=Query(20,ge=1,le=100),
+              user=Depends(require_permission('plans:credit_settlement_manage'))):
+    return _call(lambda: service.workbench(user['id'],class_id=class_id,kind=kind,status=status,
+                 created_from=created_from,created_to=created_to,page=page,page_size=page_size))
 
 @router.get('/template')
 def template(kind:str,class_id:str,user=Depends(require_permission('plans:credit_settlement_manage'))):

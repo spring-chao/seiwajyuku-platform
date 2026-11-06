@@ -15,7 +15,7 @@ def generate_body(*, years: int | None, stage: str, tone: str) -> dict:
     model = os.getenv("BIRTHDAY_AI_MODEL", "hy3")
     if not enabled:
         return {"status": "DISABLED"}
-    if not re.fullmatch(r"[a-z0-9-]{3,100}", env_id) or not key or model not in {"deepseek-v4-flash", "hy3"}:
+    if not re.fullmatch(r"[a-z0-9-]{3,100}", env_id) or not key or model not in {"deepseek-v4.1-flash", "deepseek-v4-flash", "hy3"}:
         return {"status": "CONFIGURATION_REQUIRED"}
     # Neither names, identifiers, exact dates, raw memories nor care notes leave
     # the platform. The caller supplies only an allowlisted participation theme.

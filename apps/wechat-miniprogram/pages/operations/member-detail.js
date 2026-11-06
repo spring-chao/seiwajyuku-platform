@@ -20,6 +20,7 @@ Page({
     operationItemId: null,
     wechatCopy: "",
     copyError: "",
+    copyGenerating: false,
     copyTitle: "",
     errorMessage: ""
   },
@@ -42,7 +43,7 @@ Page({
     this._visible = false;
     this._loadVersion = (this._loadVersion || 0) + 1;
     this.clearContact();
-    hidePrivatePage(this, { detail: null, contactPhone: "", wechatCopy: "", copyTitle: "", copyError: "", loading: false, errorMessage: "" });
+    hidePrivatePage(this, { detail: null, contactPhone: "", wechatCopy: "", copyTitle: "", copyError: "", copyGenerating: false, loading: false, errorMessage: "" });
   },
   clearContact() {
     this._contactVersion = (this._contactVersion || 0) + 1;
@@ -91,6 +92,27 @@ Page({
     if (this.data.wechatCopy) wx.setClipboardData({ data: this.data.wechatCopy });
   },
   retryCopy() { this.loadCopy(); },
+  async regenerateCopy() {
+    if (this.data.copyGenerating || this.data.loading) return;
+    const birthday = this.data.birthdayDueDate;
+    if (!birthday && !this.data.renewalCycleId) return;
+    const current = beginPrivateRequest(this, "copy");
+    const previous = this.data.wechatCopy;
+    this.setData({ copyGenerating: true, copyError: "" });
+    try {
+      const path = birthday
+        ? `/api/v1/wechat/operations/members/${this.data.memberId}/birthday-copy`
+        : `/api/v1/wechat/operations/renewals/${this.data.renewalCycleId}/care-draft`;
+      const response = await request(path, { method: "POST", auth: true });
+      if (!current()) return;
+      const result = response.data || {};
+      if ((result.generation_status || result.status) !== "GENERATED") throw new Error("AI暂时无法生成，原文已保留，请稍后重试");
+      if (this.data.wechatCopy !== previous) throw new Error("生成期间文案已编辑，已保留您的修改，可再次点击重新生成");
+      this.setData({ wechatCopy: birthday ? result.draft : result.body });
+      wx.showToast({ title: "文案已重新生成", icon: "success" });
+    } catch (error) { if (current()) this.setData({ copyError: error.message || "生成失败，原文已保留" }); }
+    finally { if (current()) this.setData({ copyGenerating: false }); }
+  },
   recordCare() {
     const detail = this.data.detail || {};
     const actions = detail.actions || {};

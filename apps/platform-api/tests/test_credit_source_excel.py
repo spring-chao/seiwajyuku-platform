@@ -405,6 +405,42 @@ def test_changed_workbook_with_overlapping_days_posts_only_new_member_day(source
     assert fetch_one("SELECT COUNT(*) AS n FROM learning_credit_entries WHERE idempotency_key=?",(f"DAILY_READING:{f['member_id']}:{DAY}",))['n']==1
 
 
+def test_workbench_filters_before_pagination_and_uses_beijing_boundaries(source_fixture):
+    from datetime import datetime, UTC
+    from app.api.auth import current_user
+    f=source_fixture;iid,_,_=registered(f,'DAILY_READING')
+    with transaction() as c:
+        execute(c,'UPDATE learning_credit_source_imports SET created_at=? WHERE id=?',
+                (credits._db_timestamp(c,datetime(2026,10,31,16,tzinfo=UTC)),iid))
+        original=dict(execute(c,'SELECT * FROM learning_credit_source_imports WHERE id=?',(iid,)).fetchone())
+        columns=[key for key in original if key!='id']
+        for index in range(105):
+            clone={**original,'fingerprint':sources._hash(['filter',index]),'source_kind':'EXCELLENT_SHARE',
+                   'source_snapshot_json':sources._json({**json.loads(original['source_snapshot_json']),'synthetic_index':index})}
+            execute(c,'INSERT INTO learning_credit_source_imports('+','.join(columns)+') VALUES ('+','.join('?' for _ in columns)+')',tuple(clone[key] for key in columns))
+    result=sources.workbench(f['actor'],class_id=f['class_id'],kind='DAILY_READING',status='SAVED',created_from='2026-11-01',created_to='2026-11-01')
+    assert result['pagination']['total']==1 and result['imports'][0]['id']==iid
+    assert not sources.workbench(f['actor'],class_id=f['class_id'],created_to='2026-10-31')['imports']
+    assert sources.workbench(f['actor'],class_id=f['class_id'],page=6)['pagination']['total']==106
+    assert any(row['id']==iid for row in sources.workbench(f['actor'],class_id=f['class_id'],page=6)['imports'])
+    with patch.object(sources,'effective_scope',return_value=set()):
+        assert sources.workbench(f['actor'])['pagination']['total']==0
+        with pytest.raises(PermissionError):sources.workbench(f['actor'],class_id=f['class_id'])
+    sources.create_batches(iid,f['actor'])
+    assert not sources.workbench(f['actor'],class_id=f['class_id'],kind='DAILY_READING',status='SAVED')['imports']
+    assert sources.workbench(f['actor'],class_id=f['class_id'],kind='DAILY_READING',status='READY')['imports'][0]['id']==iid
+    app.dependency_overrides[current_user]=lambda:{'id':f['actor'],'permissions':credits.user_context(f['actor'])['permissions']}
+    try:
+        with TestClient(app) as client:
+            url='/api/v1/learning-credits/excel'
+            response=client.get(url,params={'class_id':f['class_id'],'kind':'DAILY_READING','created_from':'2026-11-01','created_to':'2026-11-01'})
+            assert response.status_code==200 and response.json()['data']['pagination']['total']==1
+            assert client.get(url,params={'created_from':'2026-11-02','created_to':'2026-11-01'}).status_code==400
+            assert client.get(url,params={'status':'UNKNOWN'}).status_code==400
+            assert client.get(url,params={'page_size':101}).status_code==422
+    finally:app.dependency_overrides.pop(current_user,None)
+
+
 def test_legacy_identical_receipts_share_one_list_row_but_keep_audit_records(source_fixture):
     f=source_fixture;iid,_,_=registered(f,'DAILY_READING');sources.create_batches(iid,f['actor'])
     with transaction() as c:
