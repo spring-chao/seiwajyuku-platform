@@ -315,7 +315,7 @@ const perform = async (action: () => Promise<void>, readOnly = false) => {
   } catch (err) {
     const failure = err as {response?: {status?: number; data?: unknown}};
     let reported = err;
-    if (failure?.response?.data instanceof Blob && failure.response.data.size <= 65536) {
+    if (typeof Blob !== "undefined" && failure?.response?.data instanceof Blob && failure.response.data.size <= 65536) {
       try { reported = {response: {...failure.response, data: JSON.parse(await failure.response.data.text())}}; } catch { /* retain safe generic message */ }
     }
     error.value = creditSettlementErrorMessage(
