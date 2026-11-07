@@ -575,6 +575,8 @@ jobs:
           test "$legacy_tables" = "6"
           test "$renewal_columns" = "0"
           test "$phone_index" = "0"
+      - name: Verify birthday calendar on the migrated MySQL schema
+        run: python -m pytest apps/platform-api/tests/test_member_care_actions.py -k lunar_birthday_profile -q
 
   build-provenance:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

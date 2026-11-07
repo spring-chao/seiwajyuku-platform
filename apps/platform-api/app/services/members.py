@@ -14,6 +14,7 @@ from app.core.settings import get_settings
 from app.core.business_time import business_today
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
+from app.services.birthday_calendar import normalize_lunar_birthday
 from app.services.iam import accessible_org_ids, user_context
 from app.services.organization_policy import (
     is_valid_member_class_parent,
@@ -156,6 +157,7 @@ def create_member(
     class_org_unit_id: str | None = None,
     group_org_unit_id: str | None = None,
     birthday: str | None = None,
+    birthday_lunar: str | None = None,
     join_date: str | None = None,
     study_start_date: str | None = None,
     membership_years: float | None = None,
@@ -381,6 +383,9 @@ def create_member(
             ),
         )
         member_id = cursor.lastrowid
+        if birthday_lunar is not None:
+            execute(connection, "UPDATE members SET birthday_lunar=? WHERE id=?",
+                    (normalize_lunar_birthday(birthday_lunar), member_id))
         profile_values = {"political_status": political_status, "social_role": social_role, "email": email, "invoice_type": invoice_type, "invoice_title": invoice_title, "invoice_tax_id": invoice_tax_id, "goal_years": goal_years, "revenue_growth_target": revenue_growth_target, "profit_growth_target": profit_growth_target}
         if any(profile_values.values()):
             execute(connection, "UPDATE members SET "+", ".join(key+"=?" for key in profile_values)+" WHERE id=?", (*profile_values.values(),member_id))
@@ -450,7 +455,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     """Update a member profile and its formal organization relations atomically."""
     current = fetch_one(
         "SELECT id, name, org_unit_id, development_org_unit_id, status, phone_masked, "
-        "company_name, gender, district, company_address, class_committee_name, birthday, join_date, "
+        "company_name, gender, district, company_address, class_committee_name, birthday, birthday_lunar, join_date, "
         "study_start_date, membership_years, membership_years_overridden, renewal_month, renewal_month_overridden, position, referrer, "
         "referrer_center, industry_category, industry, company_products, employee_count, company_size, "
         "notes, class_name, group_name, political_status, social_role, email, invoice_type, invoice_title, invoice_tax_id, goal_years, revenue_growth_target, profit_growth_target, enterprise_financial_ciphertext "
@@ -463,7 +468,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         raise ValueError("至少提供一项需要修改的字段")
     allowed_fields = {
         "name", "status", "phone", "company_name", "notes",
-        "gender", "district", "company_address", "birthday", "join_date",
+        "gender", "district", "company_address", "birthday", "birthday_lunar", "join_date",
         "study_start_date", "membership_years", "renewal_month", "renewal_month_overridden", "position",
         "referrer", "referrer_center", "industry_category", "industry",
         "company_products", "annual_sales", "employee_count", "company_size", "profit_margin",
@@ -650,7 +655,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         for key in (
             "name", "org_unit_id", "development_org_unit_id", "status",
             "phone_masked", "company_name", "gender", "district", "company_address", "class_committee_name",
-            "birthday", "join_date", "study_start_date", "membership_years",
+            "birthday", "birthday_lunar", "join_date", "study_start_date", "membership_years",
             "membership_years_overridden",
             "renewal_month", "renewal_month_overridden", "position", "referrer", "referrer_center",
             "industry_category", "industry", "company_products", "employee_count", "company_size",
@@ -662,7 +667,7 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
     column_values: dict[str, Any] = {}
     for key in (
         "name", "status", "company_name", "gender", "district",
-        "company_address", "class_committee_name", "birthday", "join_date", "study_start_date",
+        "company_address", "class_committee_name", "birthday", "birthday_lunar", "join_date", "study_start_date",
         "membership_years", "membership_years_overridden", "renewal_month", "renewal_month_overridden", "position", "referrer",
         "referrer_center", "industry_category", "industry", "company_products",
         "employee_count", "company_size", "notes",
@@ -671,6 +676,8 @@ def update_member(actor_user_id: int, member_id: int, updates: dict[str, Any]) -
         if key in updates:
             value = updates[key]
             column_values[key] = None if value == "" else value
+    if "birthday_lunar" in updates:
+        column_values["birthday_lunar"] = normalize_lunar_birthday(updates["birthday_lunar"])
     if "annual_sales" in updates and legacy_annual_sales(current["company_size"]):
         # Once an authorized editor confirms the separated sales value, remove
         # the legacy mixed plaintext instead of keeping two conflicting sources.
@@ -1656,7 +1663,7 @@ def get_member_edit_profile(member_id: int, actor_user_id: int) -> dict[str, Any
     member = fetch_one(
         "SELECT id, name, org_unit_id, development_org_unit_id, status, "
         "phone_ciphertext, company_name, gender, district, company_address, class_committee_name, "
-        "birthday, join_date, study_start_date, membership_years, membership_years_overridden, renewal_month, renewal_month_overridden, "
+        "birthday, birthday_lunar, join_date, study_start_date, membership_years, membership_years_overridden, renewal_month, renewal_month_overridden, "
         "position, referrer, referrer_center, industry_category, industry, "
         "company_products, employee_count, company_size, notes, political_status, social_role, email, invoice_type, invoice_title, invoice_tax_id, goal_years, revenue_growth_target, profit_growth_target, enterprise_financial_ciphertext "
         "FROM members WHERE id=?",

@@ -442,6 +442,55 @@ def test_master_birthday_completion_without_rhythm_is_audited_and_idempotent() -
     )
 
 
+def test_lunar_birthday_profile_drives_reminders_and_completion_across_years() -> None:
+    from app.services.birthday_calendar import birthday_occurrences, lunar_month_options
+    from app.services.members import get_member_edit_profile, update_member
+    from app.services.plans import operations_snapshot
+
+    fixture = _care_fixture()
+    user_id = int(fixture["user_id"])
+    member_id = _add_master_birthday_member(
+        fixture, name="农历生日测试学长", birthday="1988-02-18"
+    )
+    assert [row for row in lunar_month_options(2020) if abs(row["month"]) == 4] == [
+        {"month": 4, "days": 30}, {"month": -4, "days": 29}
+    ]
+    assert birthday_occurrences({"birthday_lunar": "2020-04-02L"}, 2025) == (date(2025, 4, 29),)
+    with pytest.raises(ValueError, match="没有所选"):
+        update_member(user_id, member_id, {"birthday_lunar": "2020-04-30L"})
+    update_member(user_id, member_id, {"birthday_lunar": "1988-12-01"})
+    profile = get_member_edit_profile(member_id, user_id)
+    assert str(profile["birthday"]) == "1988-02-18"
+    assert profile["birthday_lunar"] == "1988-12-01"
+
+    for due in (date(2027, 1, 8), date(2027, 12, 28)):
+        snapshot = operations_snapshot(user_id=user_id, year=due.year, month=due.month)
+        matching = [row for row in snapshot["birthday_members"] if row["member_id"] == member_id]
+        assert [row["due_date"] for row in matching] == [due.isoformat()]
+        assert matching[0]["birthday_lunar_label"] == "农历12月1日"
+
+        actions = build_member_care_actions(user_id, as_of=due)
+        person = next(person for person in actions["people"] if person["member_id"] == member_id)
+        assert any(action["due_date"] == due.isoformat() for action in person["actions"])
+        completion = complete_birthday_care(
+            member_id, user_id, birthday_year=due.year, due_date=due.isoformat(),
+            channel="WECHAT", now=due,
+        )
+        assert completion["created"] is True
+        replay = complete_birthday_care(
+            member_id, user_id, birthday_year=due.year, due_date=due.isoformat(),
+            channel="WECHAT", now=due,
+        )
+        assert replay["id"] == completion["id"]
+        assert replay["created"] is False
+
+    update_member(user_id, member_id, {"birthday_lunar": None})
+    snapshot = operations_snapshot(user_id=user_id, year=2028, month=2)
+    assert [row["due_date"] for row in snapshot["birthday_members"] if row["member_id"] == member_id] == [
+        "2028-02-18"
+    ]
+
+
 def test_existing_birthday_operation_item_completes_without_new_completion_fact() -> None:
     fixture = _care_fixture()
     member_id = int(fixture["birthday_member_id"])

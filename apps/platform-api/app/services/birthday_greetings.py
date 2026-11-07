@@ -6,6 +6,7 @@ from typing import Any, Literal
 from app.core.business_time import business_today
 from app.db import fetch_one, transaction
 from app.services.audit import write_audit
+from app.services.birthday_calendar import birthday_occurrences, lunar_birthday_label
 from app.services.care_copy import member_salutation
 from app.services.iam import accessible_org_ids, user_context
 from app.services.member_memories import verified_member_memories
@@ -74,7 +75,7 @@ def _completed_years(join_date: Any, stored: Any, overridden: Any) -> int | None
 
 def _member_context(member_id: int) -> dict[str, Any] | None:
     member = fetch_one(
-        "SELECT m.id, m.name, m.birthday, m.join_date, m.study_start_date, "
+        "SELECT m.id, m.name, m.birthday, m.birthday_lunar, m.join_date, m.study_start_date, "
         "m.membership_years, m.membership_years_overridden, m.org_unit_id, "
         "o.name AS org_name FROM members m JOIN org_units o ON o.id=m.org_unit_id "
         "WHERE m.id=?",
@@ -127,11 +128,19 @@ def get_birthday_greeting_context(member_id: int, actor_user_id: int) -> dict[st
         notes.append("入塾日期尚未完善，不影响生成生日祝福。")
     if not memories:
         notes.append("暂无可核验的学习或活动经历，祝福将以日常问候为主。")
-    birthday_month_day = _format_month_day(member.get("birthday"))
+    today = business_today()
+    next_due = next(
+        (due for year in range(today.year, today.year + 3)
+         for due in birthday_occurrences(member, year) if due >= today),
+        None,
+    )
+    lunar_label = lunar_birthday_label(member["birthday_lunar"])
     member_view = {
         "id": member["id"],
         "name": member["name"],
-        "birthday_month_day": birthday_month_day,
+        "birthday_month_day": next_due.strftime("%m-%d") if lunar_label and next_due else _format_month_day(member.get("birthday")),
+        "birthday_due_date": next_due.isoformat() if next_due else None,
+        "birthday_lunar_label": lunar_label,
         "org_unit_id": member["org_unit_id"],
         "org_name": member["org_name"],
         "class_org_unit_id": member["class_org_unit_id"],

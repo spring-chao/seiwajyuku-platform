@@ -941,7 +941,7 @@ async function openBirthdayGreeting(row: unknown) {
   birthdayGreeting.value = undefined;
   birthdayOperationItemId.value =
     Number(birthdayRow?.operation_item_id || 0) || undefined;
-  birthdayDueDate.value = dayjs(birthdayRow?.due_date).isValid()
+  birthdayDueDate.value = birthdayRow?.due_date && dayjs(birthdayRow.due_date).isValid()
     ? dayjs(birthdayRow?.due_date).format("YYYY-MM-DD")
     : "";
   birthdayCareMissed.value = birthdayRow?.missed === true;
@@ -952,7 +952,7 @@ async function openBirthdayGreeting(row: unknown) {
     birthdayGreeting.value = response.data;
     selectedBirthdayMemoryIds.value = [...response.data.selected_memory_ids];
     if (!birthdayDueDate.value) {
-      birthdayDueDate.value = nextBirthdayDueDate(
+      birthdayDueDate.value = response.data.member.birthday_due_date || nextBirthdayDueDate(
         response.data.member.birthday_month_day
       );
     }
@@ -2671,7 +2671,12 @@ function changePlan() {
           max-height="300"
           empty-text="本月暂无在册学长生日"
         >
-          <el-table-column prop="birthday" label="日期" width="86" />
+          <el-table-column label="日期" min-width="138">
+            <template #default="{ row }">
+              {{ row.birthday }}
+              <small v-if="row.birthday_lunar_label">（{{ row.birthday_lunar_label }}）</small>
+            </template>
+          </el-table-column>
           <el-table-column label="学长" min-width="100">
             <template #default="{ row }">
               <el-button link type="primary" @click="openBirthdayGreeting(row)">
@@ -2948,7 +2953,8 @@ function changePlan() {
           <section class="birthday-profile-card">
             <strong>{{ birthdayGreeting.member.name }}学长</strong>
             <span v-if="birthdayGreeting.member.birthday_month_day">
-              🎂 {{ birthdayGreeting.member.birthday_month_day }} 生日
+              🎂 {{ birthdayDueDate ? birthdayDueDate.slice(5) : birthdayGreeting.member.birthday_month_day }} 生日
+              <small v-if="birthdayGreeting.member.birthday_lunar_label">（{{ birthdayGreeting.member.birthday_lunar_label }}）</small>
             </span>
             <span>
               {{
