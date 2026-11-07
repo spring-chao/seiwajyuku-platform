@@ -825,7 +825,11 @@ def _latest_learning_plan_confirmation(
         return None
     if not isinstance(payload, dict):
         return None
-    binding_payload = payload.get("binding")
+    # Lifecycle transitions persist their resulting binding as "new_binding";
+    # initial binding and in-place correction use "binding".
+    binding_payload = payload.get("new_binding") if row["action"] in {
+        "learning.binding.resume", "learning.binding.restart", "learning.binding.plan_switch",
+    } else payload.get("binding")
     if not isinstance(binding_payload, dict):
         return None
     if str(binding_payload.get("id")) != str(binding_id):
