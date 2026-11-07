@@ -365,7 +365,9 @@ def test_normal_progression_keeps_the_same_plan_and_learning_round() -> None:
     assert progressed["current_cycle"]["learning_cycle_index"] == 13
 
 
-def test_resume_starts_at_requested_cycle_without_switching_natural_progression() -> None:
+def test_resume_starts_at_requested_cycle_without_switching_natural_progression(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     admin, class_id, _, _ = _fixture()
     new_plan_id = _insert_lifecycle_plan(
         plan_key=f"L1_RESUME_{uuid4().hex[:8]}",
@@ -390,6 +392,25 @@ def test_resume_starts_at_requested_cycle_without_switching_natural_progression(
     assert schedule["cycles"][0]["actual_status"] == "SKIPPED"
     assert schedule["cycles"][0]["planned_class_meeting_at"] is None
     assert schedule["cycles"][7]["planned_class_meeting_at"] == "2027-10-01T19:00:00+00:00"
+
+    class_name = fetch_one("SELECT name FROM org_units WHERE id=?", (class_id,))["name"]
+    monkeypatch.setattr(learning_cycles_service, "load_baseline", lambda: {
+        "classes": [{
+            "class_name": class_name,
+            "class_org_unit_id": class_id,
+            "expected_plan_version": "2027",
+            "expected_cohort_month": 4,
+            "expected_current_cycle": 7,
+            "migration_status": "READY_FOR_DRY_RUN",
+        }],
+    })
+    monkeypatch.setattr(learning_cycles_service, "_now", lambda: "2027-11-10T00:00:00+00:00")
+    scan = scan_class_learning_plan_health(user_id=admin, class_org_unit_id=class_id)
+    row = scan["classes"][0]
+    assert row["current_cycle"]["learning_cycle_index"] == 8
+    assert scan["summary"]["expected_cycle_mismatch"] == 0
+    assert row["business_expectation_resolution"]["mode"] == "EXPLICIT_CONFIRMATION"
+    assert row["business_expectation_resolution"]["action"] == "learning.binding.resume"
 
 
 def test_future_learning_round_is_not_started_before_formal_start() -> None:
