@@ -19,7 +19,10 @@ Page({
   },
   filterBirthdays() {
     const rows = (this.data.snapshot && this.data.snapshot.birthday_members) || [];
-    this.setData({ birthdayMembers: rows.filter(item => !this.data.birthdayClassId || item.class_org_unit_id === this.data.birthdayClassId) });
+    const birthdayMembers = rows
+      .filter(item => !this.data.birthdayClassId || item.class_org_unit_id === this.data.birthdayClassId)
+      .map(item => ({ ...item, birthdayKey: `${item.member_id}:${item.due_date || item.birthday}` }));
+    this.setData({ birthdayMembers });
   },
   async load() {
     const current = beginPrivateRequest(this);
@@ -45,7 +48,8 @@ Page({
   openBirthday(event) {
     const item = event.currentTarget.dataset.item;
     if (!item || !item.member_id || !item.birthday) return;
-    wx.navigateTo({ url: `/pages/operations/member-detail?member_id=${item.member_id}&birthday_due_date=${this.data.month.slice(0, 4)}-${item.birthday}` });
+    const dueDate = item.due_date || `${this.data.month.slice(0, 4)}-${item.birthday}`;
+    wx.navigateTo({ url: `/pages/operations/member-detail?member_id=${item.member_id}&birthday_due_date=${dueDate}` });
   },
   openMeetings() { wx.navigateTo({ url: "/pages/operations/study-meetings" }); },
   openActivities() { wx.navigateTo({ url: "/pages/operations/activities" }); }

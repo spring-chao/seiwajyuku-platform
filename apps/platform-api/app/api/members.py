@@ -7,6 +7,7 @@ from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app.api.auth import require_permission
+from app.services.birthday_calendar import LUNAR_BIRTHDAY_PATTERN, lunar_month_options
 from app.services.members import (
     create_member,
     create_sensitive_export,
@@ -108,6 +109,7 @@ class MemberCreatePayload(BaseModel):
     class_org_unit_id: str | None = None
     group_org_unit_id: str | None = None
     birthday: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    birthday_lunar: str | None = Field(default=None, pattern=LUNAR_BIRTHDAY_PATTERN)
     join_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     study_start_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     membership_years: float | None = Field(default=None, ge=0, le=100)
@@ -151,6 +153,7 @@ class MemberUpdatePayload(BaseModel):
     district: str | None = Field(default=None, max_length=255)
     company_address: str | None = Field(default=None, max_length=1000)
     birthday: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
+    birthday_lunar: str | None = Field(default=None, pattern=LUNAR_BIRTHDAY_PATTERN)
     join_date: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
     study_start_date: str | None = Field(default=None, pattern=r"^$|^\d{4}-\d{2}-\d{2}$")
     membership_years: float | None = Field(default=None, ge=0, le=100)
@@ -294,6 +297,14 @@ def member_org_catalog(
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
     return {"success": True, "data": data}
+
+
+@router.get("/members/birthday-calendar/lunar-months")
+def birthday_lunar_months(
+    year: int = Query(ge=1900, le=2100),
+    user: dict = Depends(require_permission("members:manage")),
+) -> dict:
+    return {"success": True, "data": lunar_month_options(year)}
 
 
 @router.get("/members")

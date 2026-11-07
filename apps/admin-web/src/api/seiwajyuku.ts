@@ -62,6 +62,8 @@ export type OperationsSnapshot = {
     class_org_unit_id?: string | null;
     class_name?: string | null;
     birthday: string;
+    due_date?: string;
+    birthday_lunar_label?: string | null;
   }[];
   classes: {
     class_org_unit_id: string;
@@ -791,6 +793,8 @@ export type BirthdayGreetingContext = {
     id: number;
     name: string;
     birthday_month_day?: string | null;
+    birthday_due_date?: string | null;
+    birthday_lunar_label?: string | null;
     org_unit_id: string;
     org_name: string;
     class_org_unit_id?: string | null;
@@ -839,6 +843,7 @@ export type MemberEditProfile = {
   company_address?: string | null;
   class_committee_name?: string | null;
   birthday?: string | null;
+  birthday_lunar?: string | null;
   join_date?: string | null;
   study_start_date?: string | null;
   membership_years?: number | null;
@@ -1770,6 +1775,11 @@ export const getMembers = (params?: MemberListParams) =>
     { params }
   );
 
+export const getLunarBirthdayMonths = (year: number) =>
+  http.request<{ success: boolean; data: { month: number; days: number }[] }>(
+    "get", "/api/v1/members/birthday-calendar/lunar-months", { params: { year } }
+  );
+
 export const getMemberOrgCatalog = () =>
   http.request<{ success: boolean; data: MemberOrgCatalog }>(
     "get",
@@ -1845,6 +1855,7 @@ export const createMember = (data: {
   class_org_unit_id?: string;
   group_org_unit_id?: string;
   birthday?: string;
+  birthday_lunar?: string | null;
   join_date?: string;
   study_start_date?: string;
   membership_years?: number;
@@ -2377,6 +2388,7 @@ export const updateMember = (
     district?: string | null;
     company_address?: string | null;
     birthday?: string | null;
+    birthday_lunar?: string | null;
     join_date?: string | null;
     study_start_date?: string | null;
     membership_years?: number | null;

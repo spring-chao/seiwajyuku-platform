@@ -8,6 +8,7 @@ from typing import Any
 from app.core.business_time import business_today
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
+from app.services.birthday_calendar import birthday_occurrences
 from app.services.iam import accessible_org_ids, user_context
 from app.services.organization_policy import is_suzhou_direct_class
 
@@ -312,20 +313,24 @@ def _visible_class_ids(user_id: int) -> list[str]:
 
 
 def _birthday_members(class_org_unit_id: str, year: int, month: int) -> list[dict[str, Any]]:
-    return fetch_all(
-        "SELECT DISTINCT m.id, m.name, m.birthday FROM members m "
+    members = fetch_all(
+        "SELECT DISTINCT m.id, m.name, m.birthday, m.birthday_lunar FROM members m "
         "JOIN member_org_relations r ON r.member_id=m.id "
         "WHERE m.status='ACTIVE' AND r.org_unit_id=? "
         "AND r.relation_type IN ('STUDY_CLASS','SPECIAL_COHORT') "
         "AND (r.valid_from IS NULL OR r.valid_from<=?) "
         "AND (r.valid_until IS NULL OR r.valid_until>=?) "
-        "AND substr(m.birthday, 6, 2)=? ORDER BY m.birthday, m.id",
+        "AND (m.birthday IS NOT NULL OR m.birthday_lunar IS NOT NULL) ORDER BY m.id",
         (
             class_org_unit_id,
             datetime.now(UTC).isoformat(),
             datetime.now(UTC).isoformat(),
-            f"{month:02d}",
         ),
+    )
+    return sorted(
+        ({**member, "birthday_due_date": due} for member in members
+         for due in birthday_occurrences(member, year) if due.month == month),
+        key=lambda member: member["birthday_due_date"],
     )
 
 
@@ -571,10 +576,7 @@ def _generate_cycle(
     for node in nodes:
         if node["rule_type"] == "BIRTHDAY_MONTH":
             for member in _birthday_members(class_org_unit_id, year, month):
-                birthday = _parse_date(member.get("birthday"))
-                if not birthday:
-                    continue
-                birthday_date = _clamped_date(year, month, birthday.day)
+                birthday_date = member["birthday_due_date"]
                 before = _item_exists(connection, cycle_id, f"BIRTHDAY_CARE:{member['id']}")
                 _insert_item(
                     connection,

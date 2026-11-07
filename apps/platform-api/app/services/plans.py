@@ -6,6 +6,7 @@ from typing import Any
 from app.core.business_time import business_date_sql
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
+from app.services.birthday_calendar import birthday_occurrences, lunar_birthday_label
 from app.services.iam import accessible_org_ids, user_context
 from app.services.organization_policy import (
     DIRECT_CLASS_NAMES,
@@ -260,14 +261,8 @@ def operations_snapshot(
     relation_as_of = datetime.now(UTC).isoformat()
     birthday_relation_params = (relation_as_of,) * 8
     birthday_month_value = month if birthday_month is None else birthday_month
-    birthday_month_clause = (
-        " AND substr(m.birthday, 6, 2)=?" if birthday_month_value else ""
-    )
-    birthday_month_params = (
-        (f"{birthday_month_value:02d}",) if birthday_month_value else ()
-    )
     birthdays = fetch_all(
-        "SELECT m.id, m.name, m.birthday, "
+        "SELECT m.id, m.name, m.birthday, m.birthday_lunar, "
         "COALESCE((SELECT rr.org_unit_id FROM member_org_relations rr "
         "WHERE rr.member_id=m.id AND rr.relation_type='PRIMARY_REGION' "
         "AND (rr.valid_from IS NULL OR rr.valid_from<=?) "
@@ -291,17 +286,15 @@ def operations_snapshot(
         "AND (cr.valid_until IS NULL OR cr.valid_until>=?) "
         "ORDER BY cr.is_primary DESC, cr.id LIMIT 1) AS class_name "
         "FROM members m JOIN org_units o ON o.id=m.org_unit_id "
-        "WHERE m.status='ACTIVE'"
-        + birthday_month_clause
+        "WHERE m.status='ACTIVE' AND (m.birthday IS NOT NULL OR m.birthday_lunar IS NOT NULL)"
         + member_scope
-        + " ORDER BY substr(m.birthday, 6, 5), org_name, class_name, m.name, m.id",
+        + " ORDER BY org_name, class_name, m.name, m.id",
         (
             *birthday_relation_params,
-            *birthday_month_params,
             *member_scope_params,
         ),
     )
-    birthday_members = [
+    birthday_occurrence_rows = [
         {
             "member_id": row["id"],
             "name": row["name"],
@@ -309,17 +302,22 @@ def operations_snapshot(
             "org_name": row["org_name"],
             "class_org_unit_id": row.get("class_org_unit_id"),
             "class_name": row.get("class_name"),
-            "birthday": str(row["birthday"])[5:10],
+            "birthday": due_date.strftime("%m-%d"),
+            "due_date": due_date.isoformat(),
+            "birthday_lunar_label": lunar_birthday_label(row["birthday_lunar"]),
         }
         for row in birthdays
+        for due_date in birthday_occurrences(row, year)
     ]
-    birthday_member_count = len(birthday_members)
-    if birthday_month_value != month:
-        birthday_member_count = fetch_one(
-            "SELECT COUNT(*) AS count FROM members m WHERE m.status='ACTIVE' "
-            "AND substr(m.birthday, 6, 2)=?" + member_scope,
-            (f"{month:02d}", *member_scope_params),
-        )["count"]
+    birthday_occurrence_rows.sort(key=lambda row: row["due_date"])
+    birthday_members = [
+        row for row in birthday_occurrence_rows
+        if not birthday_month_value or row["birthday"].startswith(f"{birthday_month_value:02d}-")
+    ]
+    birthday_member_count = len({
+        row["member_id"] for row in birthday_occurrence_rows
+        if row["birthday"].startswith(f"{month:02d}-")
+    })
 
     renewed_members = None
     if "renewals:read" in permissions:

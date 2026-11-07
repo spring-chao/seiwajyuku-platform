@@ -9,12 +9,12 @@ from app.services.followups import OPEN_STATES, list_tasks
 from app.services.iam import accessible_org_ids, user_context
 from app.services.member_care_actions import (
     _active_birthday_members,
-    _birthday_due_date,
     _birthday_workflow_states,
     _mark_source_unavailable,
     _source_coverage as action_source_coverage,
     build_member_care_actions,
 )
+from app.services.birthday_calendar import birthday_occurrences
 from app.services.renewals import (
     CLOSED_RENEWAL_STATUSES,
     MEMBER_RENEWAL_ORG_SQL,
@@ -193,19 +193,18 @@ def _birthday_missed_exceptions(
 ) -> None:
     candidates: list[dict[str, Any]] = []
     for member in _active_birthday_members(allowed_org_ids):
-        due_date = _birthday_due_date(member.get("birthday"), as_of.year)
-        if (
-            due_date
-            and due_date < as_of
-            and (not org_unit_id or member["org_unit_id"] == org_unit_id)
-        ):
-            candidates.append({**member, "due_date": due_date})
+        if not org_unit_id or member["org_unit_id"] == org_unit_id:
+            candidates.extend(
+                {**member, "due_date": due_date}
+                for due_date in birthday_occurrences(member, as_of.year)
+                if due_date < as_of
+            )
 
     states = _birthday_workflow_states(candidates)
     for candidate in candidates:
         member_id = int(candidate["member_id"])
         due_date = candidate["due_date"]
-        state = states[(member_id, due_date.year)]
+        state = states[(member_id, due_date)]
         completion = state["completion"]
         operation_item = state["operation_item"]
         completion_dates: list[date | None] = []

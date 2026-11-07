@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import calendar
 import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -8,6 +7,7 @@ from typing import Any
 from app.core.business_time import business_today, calendar_date, instant_date, business_date_sql
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
+from app.services.birthday_calendar import birthday_completion_year, birthday_occurrences
 from app.services.followups import OPEN_STATES, list_tasks
 from app.services.iam import accessible_org_ids, user_context
 from app.services.members import resolve_member_scope
@@ -140,14 +140,6 @@ def _member_contexts(
     return contexts
 
 
-def _birthday_due_date(value: Any, year: int) -> date | None:
-    """Return one safe birthday occurrence without exposing the birth year."""
-    birthday = _calendar_date(value)
-    if not birthday or not 1900 <= year <= 9999:
-        return None
-    return date(year, birthday.month, min(birthday.day, calendar.monthrange(year, birthday.month)[1]))
-
-
 def _active_birthday_members(
     allowed_org_ids: set[str] | None,
 ) -> list[dict[str, Any]]:
@@ -158,13 +150,14 @@ def _active_birthday_members(
     remain eligible for care.
     """
     rows = fetch_all(
-        "SELECT id, birthday FROM members WHERE status='ACTIVE' AND birthday IS NOT NULL "
+        "SELECT id, birthday, birthday_lunar FROM members WHERE status='ACTIVE' "
+        "AND (birthday IS NOT NULL OR birthday_lunar IS NOT NULL) "
         "ORDER BY id"
     )
     member_ids = {int(row["id"]) for row in rows}
     contexts = _member_contexts(member_ids, allowed_org_ids)
     return [
-        {**contexts[int(row["id"])], "birthday": row["birthday"]}
+        {**contexts[int(row["id"])], "birthday": row["birthday"], "birthday_lunar": row["birthday_lunar"]}
         for row in rows
         if int(row["id"]) in contexts
     ]
@@ -180,7 +173,7 @@ def _birthday_operation_matches_due_date(row: dict[str, Any], due_date: date) ->
 
 def _birthday_workflow_states(
     candidates: list[dict[str, Any]],
-) -> dict[tuple[int, int], dict[str, dict[str, Any] | None]]:
+) -> dict[tuple[int, date], dict[str, dict[str, Any] | None]]:
     """Return optional completion and rhythm state for master birthday dates.
 
     The result is read-only and intentionally treats legacy operation items as
@@ -191,6 +184,7 @@ def _birthday_workflow_states(
         return {}
     member_ids = sorted({int(item["member_id"]) for item in candidates})
     years = sorted({item["due_date"].year for item in candidates})
+    completion_years = [birthday_completion_year(item, item["due_date"]) for item in candidates]
     placeholders = ",".join("?" for _ in member_ids)
     try:
         completions = fetch_all(
@@ -198,7 +192,7 @@ def _birthday_workflow_states(
             "FROM birthday_care_completions WHERE member_id IN ("
             + placeholders
             + ") AND birthday_year>=? AND birthday_year<=?",
-            (*member_ids, years[0], years[-1]),
+            (*member_ids, min(completion_years), max(completion_years)),
         )
     except Exception as error:
         # Completion records are an enhancement to the legacy rhythm source.
@@ -228,7 +222,7 @@ def _birthday_workflow_states(
         except (TypeError, ValueError):
             continue
 
-    states: dict[tuple[int, int], dict[str, dict[str, Any] | None]] = {}
+    states: dict[tuple[int, date], dict[str, dict[str, Any] | None]] = {}
     for candidate in candidates:
         member_id = int(candidate["member_id"])
         due_date = candidate["due_date"]
@@ -244,8 +238,8 @@ def _birthday_workflow_states(
                 -int(row["id"]),
             )
         )
-        states[(member_id, due_date.year)] = {
-            "completion": completion_by_key.get((member_id, due_date.year)),
+        states[(member_id, due_date)] = {
+            "completion": completion_by_key.get((member_id, birthday_completion_year(candidate, due_date))),
             "operation_item": matching[0] if matching else None,
         }
     return states
@@ -256,23 +250,17 @@ def _birthday_items(user_id: int, today: date) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     window_end = today + timedelta(days=7)
     for member in _active_birthday_members(allowed):
-        current_year_due = _birthday_due_date(member.get("birthday"), today.year)
-        if not current_year_due:
-            continue
-        due_date = (
-            current_year_due
-            if current_year_due >= today
-            else _birthday_due_date(member.get("birthday"), today.year + 1)
-        )
-        if due_date and today <= due_date <= window_end:
-            candidates.append({**member, "due_date": due_date})
+        for year in range(today.year, window_end.year + 1):
+            for due_date in birthday_occurrences(member, year):
+                if today <= due_date <= window_end:
+                    candidates.append({**member, "due_date": due_date})
 
     states = _birthday_workflow_states(candidates)
     result = []
     for candidate in candidates:
         member_id = int(candidate["member_id"])
         due_date = candidate["due_date"]
-        state = states[(member_id, due_date.year)]
+        state = states[(member_id, due_date)]
         operation_item = state["operation_item"]
         if state["completion"] or (
             operation_item
@@ -360,15 +348,15 @@ def complete_birthday_care(
         raise ValueError("只能登记已经进入七天生日关怀窗口的事项")
 
     member = fetch_one(
-        "SELECT id, status, birthday, org_unit_id FROM members WHERE id=?", (member_id,)
+        "SELECT id, status, birthday, birthday_lunar, org_unit_id FROM members WHERE id=?", (member_id,)
     )
     if not member:
         raise ValueError("学长不存在")
     if str(member.get("status") or "").upper() != "ACTIVE":
         raise ValueError("只有在册学长可以登记生日关怀完成")
-    expected_due_date = _birthday_due_date(member.get("birthday"), birthday_year)
-    if expected_due_date != requested_due_date:
+    if requested_due_date not in birthday_occurrences(member, birthday_year):
         raise ValueError("生日关怀日期与学员主档生日不一致")
+    completion_year = birthday_completion_year(member, requested_due_date)
     allowed = accessible_org_ids(actor_user_id)
     scoped_org_id = resolve_member_scope(member_id, member["org_unit_id"], allowed)
     now_text = completed_at.isoformat()
@@ -454,7 +442,7 @@ def complete_birthday_care(
             connection,
             "SELECT id, due_date, channel, completed_at FROM birthday_care_completions "
             "WHERE member_id=? AND birthday_year=?",
-            (member_id, birthday_year),
+            (member_id, completion_year),
         ).fetchone()
         if existing:
             existing = dict(existing)
@@ -473,7 +461,7 @@ def complete_birthday_care(
                 "completed_at, completed_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     member_id,
-                    birthday_year,
+                    completion_year,
                     requested_due_date.isoformat(),
                     normalized_channel,
                     now_text,
@@ -490,7 +478,7 @@ def complete_birthday_care(
                 connection,
                 "SELECT id, due_date, channel, completed_at FROM birthday_care_completions "
                 "WHERE member_id=? AND birthday_year=?",
-                (member_id, birthday_year),
+                (member_id, completion_year),
             ).fetchone()
             if not existing:
                 raise
@@ -667,7 +655,7 @@ def _completed_birthday_actions(user_id: int, today: date) -> list[dict[str, Any
     # The operation-item completion path is the authoritative row when the
     # item exists.  A member-level completion is preferred when both are
     # present, which prevents one real action from appearing twice.
-    candidates: dict[tuple[int, int], dict[str, Any]] = {}
+    candidates: dict[tuple[int, str | None], dict[str, Any]] = {}
     for row in operation_rows:
         try:
             member_id = int(row.get("business_id"))
@@ -675,8 +663,8 @@ def _completed_birthday_actions(user_id: int, today: date) -> list[dict[str, Any
             continue
         due_date = _calendar_date(row.get("due_date"))
         completed_at = row.get("actual_at")
-        year = due_date.year if due_date else today.year
-        candidates[(member_id, year)] = {
+        due_text = due_date.isoformat() if due_date else None
+        candidates[(member_id, due_text)] = {
             "member_id": member_id,
             "source_id": int(row["id"]),
             "action_type": "BIRTHDAY",
@@ -684,7 +672,7 @@ def _completed_birthday_actions(user_id: int, today: date) -> list[dict[str, Any
             "reason": "已完成生日关怀",
             "completed_at": completed_at,
             "channel": None,
-            "due_date": due_date.isoformat() if due_date else None,
+            "due_date": due_text,
             "navigation_type": "BIRTHDAY",
             "navigation_id": member_id,
             "operation_item_id": int(row["id"]),
@@ -693,10 +681,10 @@ def _completed_birthday_actions(user_id: int, today: date) -> list[dict[str, Any
     for row in completion_rows:
         try:
             member_id = int(row["member_id"])
-            year = int(row["birthday_year"])
         except (TypeError, ValueError):
             continue
-        candidates[(member_id, year)] = {
+        due_text = _date_text(row.get("due_date"))
+        candidates[(member_id, due_text)] = {
             "member_id": member_id,
             "source_id": int(row["id"]),
             "action_type": "BIRTHDAY",
@@ -704,7 +692,7 @@ def _completed_birthday_actions(user_id: int, today: date) -> list[dict[str, Any
             "reason": "已完成生日关怀",
             "completed_at": row.get("completed_at"),
             "channel": row.get("channel"),
-            "due_date": _date_text(row.get("due_date")),
+            "due_date": due_text,
             "navigation_type": "BIRTHDAY",
             "navigation_id": member_id,
             "operation_item_id": None,

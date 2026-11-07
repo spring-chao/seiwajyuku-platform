@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   ElMessage,
@@ -17,6 +17,7 @@ import { applyWithRosterReceipt, rosterFieldLabel, rosterReceiptMessage, rosterI
 import { chinaTime, chinaTimestampDate } from "@/utils/business-date";
 import {
   createMember,
+  getLunarBirthdayMonths,
   getMemberEditProfile,
   getMembers,
   getOrgUnits,
@@ -479,6 +480,10 @@ const form = reactive({
   class_org_unit_id: "",
   group_org_unit_id: "",
   birthday: "",
+  birthday_calendar: "GREGORIAN",
+  birthday_lunar_year: undefined as number | undefined,
+  birthday_lunar_month: undefined as number | undefined,
+  birthday_lunar_day: undefined as number | undefined,
   join_date: "",
   study_start_date: "",
   membership_years: undefined as number | undefined,
@@ -514,6 +519,32 @@ const form = reactive({
   current_volunteer_needs_manual_review: false,
   current_volunteer_review_message: ""
 });
+const lunarMonths = ref<{ month: number; days: number }[]>([]);
+const lunarMonthsLoading = ref(false);
+const lunarMonthsError = ref("");
+const lunarDays = computed(() =>
+  lunarMonths.value.find(option => option.month === form.birthday_lunar_month)?.days || 0
+);
+watch(
+  [() => form.birthday_calendar, () => form.birthday_lunar_year, dialogVisible],
+  async ([calendar, year, visible], _previous, onCleanup) => {
+    lunarMonths.value = [];
+    lunarMonthsError.value = "";
+    lunarMonthsLoading.value = false;
+    if (!visible || calendar !== "LUNAR" || !year || year < 1900 || year > 2100) return;
+    let active = true;
+    onCleanup(() => { active = false; });
+    lunarMonthsLoading.value = true;
+    try {
+      const response = await getLunarBirthdayMonths(year);
+      if (active) lunarMonths.value = response.data;
+    } catch {
+      if (active) lunarMonthsError.value = "农历月份加载失败，请重新选择年份";
+    } finally {
+      if (active) lunarMonthsLoading.value = false;
+    }
+  }
+);
 const selectedGender = computed({
   get: () => ["MALE", "FEMALE"].includes(form.gender) ? form.gender : "",
   set: (value: string) => { form.gender = value; }
@@ -614,6 +645,10 @@ function openCreate() {
     class_org_unit_id: "",
     group_org_unit_id: "",
     birthday: "",
+    birthday_calendar: "GREGORIAN",
+    birthday_lunar_year: undefined,
+    birthday_lunar_month: undefined,
+    birthday_lunar_day: undefined,
     join_date: "",
     study_start_date: "",
     membership_years: undefined,
@@ -686,6 +721,10 @@ async function openEdit(row: any) {
     current_volunteer_needs_manual_review: false,
     current_volunteer_review_message: "",
     birthday: "",
+    birthday_calendar: "GREGORIAN",
+    birthday_lunar_year: undefined,
+    birthday_lunar_month: undefined,
+    birthday_lunar_day: undefined,
     join_date: "",
     study_start_date: "",
     membership_years: undefined,
@@ -749,6 +788,12 @@ async function openEdit(row: any) {
       current_volunteer_review_message:
         data.current_volunteer_review_message || "",
       birthday: data.birthday || "",
+      birthday_calendar: data.birthday_lunar ? "LUNAR" : "GREGORIAN",
+      birthday_lunar_year: data.birthday_lunar ? Number(data.birthday_lunar.slice(0, 4)) : undefined,
+      birthday_lunar_month: data.birthday_lunar
+        ? Number(data.birthday_lunar.slice(5, 7)) * (data.birthday_lunar.endsWith("L") ? -1 : 1)
+        : undefined,
+      birthday_lunar_day: data.birthday_lunar ? Number(data.birthday_lunar.slice(8, 10)) : undefined,
       join_date: data.join_date || "",
       study_start_date: data.study_start_date || "",
       membership_years: data.membership_years ?? undefined,
@@ -1181,6 +1226,18 @@ async function submit() {
     return;
   }
   if (!(await formRef.value?.validate())) return;
+  let birthdayLunar: string | null = null;
+  if (form.birthday_calendar === "LUNAR") {
+    const year = form.birthday_lunar_year;
+    const month = form.birthday_lunar_month;
+    const day = form.birthday_lunar_day;
+    if (!year || !month || !day || day > lunarDays.value) {
+      ElMessage.warning("请填写有效的农历出生年、月、日");
+      return;
+    }
+    const monthDay = [Math.abs(month), day].map(value => String(value).padStart(2, "0")).join("-");
+    birthdayLunar = `${year}-${monthDay}${month < 0 ? "L" : ""}`;
+  }
   saving.value = true;
   try {
     if (editingMemberId.value) {
@@ -1194,6 +1251,7 @@ async function submit() {
         district: form.district.trim() || null,
         company_address: form.company_address.trim() || null,
         birthday: form.birthday || null,
+        birthday_lunar: birthdayLunar,
         join_date: form.join_date || null,
         study_start_date: form.study_start_date || null,
         membership_years: form.membership_years_inferred
@@ -1241,6 +1299,7 @@ async function submit() {
         class_org_unit_id: form.class_org_unit_id || undefined,
         group_org_unit_id: form.group_org_unit_id || undefined,
         birthday: form.birthday || undefined,
+        birthday_lunar: birthdayLunar,
         join_date: form.join_date || undefined,
         study_start_date: form.study_start_date || undefined,
         membership_years: form.membership_years_inferred
@@ -2353,7 +2412,38 @@ onMounted(async () => {
           <el-form-item label="行业分类">
             <el-input v-model="form.industry_category" />
           </el-form-item>
-          <el-form-item label="生日">
+          <el-form-item label="生日历法">
+            <el-select v-model="form.birthday_calendar">
+              <el-option label="公历" value="GREGORIAN" />
+              <el-option label="农历" value="LUNAR" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="form.birthday_calendar === 'LUNAR'" label="农历生日">
+            <el-space wrap>
+              <el-input-number
+                v-model="form.birthday_lunar_year"
+                :min="1900"
+                :max="2100"
+                :precision="0"
+                :controls="false"
+                placeholder="出生年"
+                aria-label="农历出生年"
+                style="width: 92px"
+                @change="form.birthday_lunar_month = form.birthday_lunar_day = undefined"
+              />
+              <el-select v-model="form.birthday_lunar_month" :loading="lunarMonthsLoading"
+                :disabled="!lunarMonths.length" placeholder="农历月" style="width: 100px"
+                @change="form.birthday_lunar_day = undefined">
+                <el-option v-for="option in lunarMonths" :key="option.month"
+                  :label="`${option.month < 0 ? '闰' : ''}${Math.abs(option.month)}月`" :value="option.month" />
+              </el-select>
+              <el-select v-model="form.birthday_lunar_day" :disabled="!lunarDays" placeholder="农历日" style="width: 95px">
+                <el-option v-for="day in lunarDays" :key="day" :label="`${day}日`" :value="day" />
+              </el-select>
+            </el-space>
+            <div v-if="lunarMonthsError" class="el-form-item__error">{{ lunarMonthsError }}</div>
+          </el-form-item>
+          <el-form-item v-else label="公历出生日期">
             <el-date-picker
               v-model="form.birthday"
               type="date"
