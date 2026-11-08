@@ -54,6 +54,10 @@ def _normalized(event):
             "participant_count": event.get("total", 0)}
 
 
+def _is_konpa(event):
+    return event.get("activity_type") == "class_meeting" and event.get("session_code") == "KONPA"
+
+
 def list_activities(session, month, page=1):
     principal = _principal(session)
     start = date.fromisoformat(month + "-01")
@@ -92,7 +96,7 @@ def detail(session, event_id):
             raise
         statistics_error = "统计暂不可用，请刷新；活动与人员明细仍可查看。"
     capabilities["can_edit_times"] = capabilities["can_update"] and not any(row.get("checked") or row.get("checked_at") for row in data.get("rows", []))
-    if event.get("session_code") == "KONPA":
+    if _is_konpa(event):
         capabilities["can_code"] = False
     return {"group": _normalized(event), "attendees": data.get("rows", []), **capabilities,
             "sessions": [_normalized(row) for row in data.get("sessions", [event])], "statistics": statistics,
@@ -153,7 +157,7 @@ def save(session, values, event_id=None):
         if str(current["group"]["event_date"])[:10] != values["event_date"]:
             payload["event_date"] = values["event_date"]
         from datetime import datetime, timezone
-        checkin_clocks = () if current["group"].get("session_code") == "KONPA" else (
+        checkin_clocks = () if _is_konpa(current["group"]) else (
             ("checkin_start_at", values["checkin_start"]), ("checkin_end_at", values["checkin_end"])
         )
         for field, clock in checkin_clocks:
@@ -228,7 +232,7 @@ def checkin_state(session, event_id, opened, expected_revision):
     principal = _principal(session)
     writable()
     current = detail(session, event_id)
-    if current["group"].get("session_code") == "KONPA":
+    if _is_konpa(current["group"]):
         raise ValueError("空巴不设签到，请通过空巴出席确认处理")
     if current["revision"] != expected_revision:
         raise ValueError("场次状态已变化，请刷新后重试")
