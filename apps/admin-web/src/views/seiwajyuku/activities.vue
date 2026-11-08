@@ -17,12 +17,10 @@ import {
   getAttendanceEventGroupDetail,
   getAttendanceRecords,
   downloadAttendanceRecords,
-  getAttendanceSyncStatus,
   type AttendanceActivityRow,
   type AttendanceEventGroupDetail,
   type AttendanceClassParticipation,
-  type AttendanceRecord,
-  type AttendanceSyncStatus
+  type AttendanceRecord
 } from "@/api/seiwajyuku";
 
 defineOptions({ name: "ActivityAdmin" });
@@ -84,7 +82,6 @@ const classes = computed(() => {
 });
 watch(() => filters.center_id, () => { filters.class_id = ""; });
 const activityTypes = computed(() => [...new Set(rows.value.map(row => row.activity_type))].sort());
-const syncStatus = ref<AttendanceSyncStatus | null>(null);
 const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detailSessionId = ref(0);
@@ -237,43 +234,6 @@ function resetFilters() {
   dateRange.value = [dayjs().startOf("month").format("YYYY-MM-DD"), dayjs().endOf("month").format("YYYY-MM-DD")];
   void load();
 }
-const syncAlert = computed(() => {
-  const status = syncStatus.value;
-  if (!status || status.state === "NO_RUNS") {
-    return { type: "info" as const, title: "签到自动同步尚无运行记录" };
-  }
-  if (status.state === "STALE") {
-    const finishedAt = status.last_run?.finished_at
-      ? dayjs(status.last_run.finished_at).format("YYYY-MM-DD HH:mm")
-      : "未知时间";
-    return {
-      type: "error" as const,
-      title: `签到自动同步已中断，最近完成于 ${finishedAt}，请技术管理员检查`
-    };
-  }
-  if (status.state === "CRITICAL") {
-    return {
-      type: "error" as const,
-      title: `签到自动同步已连续异常 ${status.consecutive_failure_count} 次，请技术管理员检查`
-    };
-  }
-  if (status.state === "WARNING") {
-    return {
-      type: "warning" as const,
-      title: `最近一次签到自动同步异常（连续 ${status.consecutive_failure_count} 次）`
-    };
-  }
-  if (status.state === "RUNNING") {
-    return { type: "info" as const, title: "签到数据正在同步" };
-  }
-  const finishedAt = status.last_run?.finished_at
-    ? dayjs(status.last_run.finished_at).format("YYYY-MM-DD HH:mm")
-    : "最近";
-  return {
-    type: "success" as const,
-    title: `签到自动同步正常，最近完成于 ${finishedAt}`
-  };
-});
 const activityStatusLabels: Record<string, string> = {
   ACTIVE: "正常",
   INACTIVE: "已停用",
@@ -341,13 +301,12 @@ async function load() {
   const request = ++loadRequest;
   loading.value = true;
   try {
-    const [eventResponse, syncResponse, catalogResponse] = await Promise.all([
+    const [eventResponse, catalogResponse] = await Promise.all([
       getAttendanceActivityRows({ date_from: dateRange.value?.[0], date_to: dateRange.value?.[1] }),
-      getAttendanceSyncStatus(), getMemberOrgCatalog()
+      getMemberOrgCatalog()
     ]);
     if (request !== loadRequest) return;
     rows.value = eventResponse.data;
-    syncStatus.value = syncResponse.data;
     catalog.value = catalogResponse.data;
   } catch {
     if (request === loadRequest) { rows.value = []; ElMessage.error("活动加载失败，请重试查询"); }
@@ -419,7 +378,7 @@ async function downloadDetailRecords() {
       <div>
         <p>管理视图</p>
         <h1>活动与签到记录</h1>
-        <span>展示已从签到系统同步的活动、场次和真实签到记录。</span>
+        <span>查看活动、场次及签到记录。</span>
       </div>
       <div class="head-filters">
         <router-link v-if="hasPerms('attendance:view')" to="/operations/checkin-management">
@@ -444,13 +403,6 @@ async function downloadDetailRecords() {
         <el-button @click="resetFilters">重置</el-button>
       </div>
     </el-card>
-
-    <el-alert
-      :title="syncAlert.title"
-      :type="syncAlert.type"
-      :closable="false"
-      show-icon
-    />
 
     <section class="summary">
       <el-statistic title="活动数" :value="visibleRows.length" />

@@ -295,9 +295,11 @@ def _verify_signin_service_key(x_api_key: str | None) -> None:
         raise HTTPException(403, "API Key 无效")
 
 
-def _run_sync(cursor: str | None, actor_user_id: int | None, action: str) -> dict:
+def _run_sync(
+    cursor: str | None, actor_user_id: int | None, action: str, *, platform_events_only: bool = False
+) -> dict:
     try:
-        result = sync_from_signin(cursor)
+        result = sync_from_signin(cursor, platform_events_only=platform_events_only)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
@@ -336,7 +338,7 @@ def scheduled_sync(
     """Run the weekday timer pull using the signin service credential."""
     _verify_signin_service_key(x_api_key)
     try:
-        result = _run_sync(cursor, None, "attendance.sync.scheduled")
+        result = _run_sync(cursor, None, "attendance.sync.scheduled", platform_events_only=True)
     except HTTPException:
         _write_failure_alert_if_threshold_reached()
         raise
