@@ -71,7 +71,9 @@ def generate_common_entry(*, user: dict, env_version: str = "develop") -> dict:
 def generate_entry(event_id: str, *, user: dict, env_version: str = "develop") -> dict:
     enabled(write=True)
     event = event_detail(event_id, user=user, permission="attendance:code")
-    # Route tokens last through the activity date, including evening sessions.
+    if event.get("activity_type") == "class_meeting" and event.get("session_code") == "KONPA":
+        raise SigninEngineError("空巴使用出席确认，不提供签到码", 409)
+    # Route tokens last through the activity date.
     event_date = str(event.get("event_date") or "")[:10]
     try:
         from zoneinfo import ZoneInfo

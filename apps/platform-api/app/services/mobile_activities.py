@@ -92,6 +92,8 @@ def detail(session, event_id):
             raise
         statistics_error = "统计暂不可用，请刷新；活动与人员明细仍可查看。"
     capabilities["can_edit_times"] = capabilities["can_update"] and not any(row.get("checked") or row.get("checked_at") for row in data.get("rows", []))
+    if event.get("session_code") == "KONPA":
+        capabilities["can_code"] = False
     return {"group": _normalized(event), "attendees": data.get("rows", []), **capabilities,
             "sessions": [_normalized(row) for row in data.get("sessions", [event])], "statistics": statistics,
             "statistics_error": statistics_error,
@@ -151,7 +153,10 @@ def save(session, values, event_id=None):
         if str(current["group"]["event_date"])[:10] != values["event_date"]:
             payload["event_date"] = values["event_date"]
         from datetime import datetime, timezone
-        for field, clock in (("checkin_start_at", values["checkin_start"]), ("checkin_end_at", values["checkin_end"])):
+        checkin_clocks = () if current["group"].get("session_code") == "KONPA" else (
+            ("checkin_start_at", values["checkin_start"]), ("checkin_end_at", values["checkin_end"])
+        )
+        for field, clock in checkin_clocks:
             original = current["group"].get(field)
             if original:
                 value = datetime.fromisoformat(values["event_date"] + "T" + clock + ":00+08:00")
@@ -178,7 +183,7 @@ def save(session, values, event_id=None):
                 raise ValueError("当前班级没有有效在册名单，请先核对班级与小组管理资料")
         clocks = values["class_times"]
         for prefix in ("morning", "afternoon", "konpa"):
-            if clocks[prefix + "_checkin_start"] >= clocks[prefix + "_checkin_end"] or clocks[prefix + "_scheduled_start"] >= clocks[prefix + "_scheduled_end"]:
+            if (prefix != "konpa" and clocks[prefix + "_checkin_start"] >= clocks[prefix + "_checkin_end"]) or clocks[prefix + "_scheduled_start"] >= clocks[prefix + "_scheduled_end"]:
                 raise ValueError("每个场次的开始时间必须早于结束时间")
         payload = {"event_name": title, "event_date": values["event_date"], "org_unit_id": class_id,
             "class_org_unit_id": class_id, "class_name": org["name"], "group_field": "class_name",
@@ -223,6 +228,8 @@ def checkin_state(session, event_id, opened, expected_revision):
     principal = _principal(session)
     writable()
     current = detail(session, event_id)
+    if current["group"].get("session_code") == "KONPA":
+        raise ValueError("空巴不设签到，请通过空巴出席确认处理")
     if current["revision"] != expected_revision:
         raise ValueError("场次状态已变化，请刷新后重试")
     _event(principal, event_id, "attendance:manage")
