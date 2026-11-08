@@ -11,9 +11,8 @@ const activitySource = readFileSync(
   "utf8"
 );
 
-test("stale attendance sync is a red interruption alert, never a green success", () => {
+test("activity records no longer depend on legacy sync health", () => {
   assert.match(apiSource, /\| "STALE"/);
-  assert.match(activitySource, /status\.state === "STALE"/);
-  assert.match(activitySource, /type: "error" as const/);
-  assert.match(activitySource, /签到自动同步已中断/);
+  assert.doesNotMatch(activitySource, /getAttendanceSyncStatus|syncAlert|签到自动同步/);
+  assert.match(activitySource, /查看活动、场次及签到记录/);
 });

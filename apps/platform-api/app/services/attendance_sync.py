@@ -373,7 +373,8 @@ def _upsert_record(
 
 
 def sync_from_signin(cursor: str | None = None, *, event_id: str | None = None,
-                     registration_id: str | None = None) -> dict[str, Any]:
+                     registration_id: str | None = None,
+                     platform_events_only: bool = False) -> dict[str, Any]:
     """Pull attendance data from the signin system.
 
     Returns sync summary with next cursor.
@@ -408,19 +409,29 @@ def sync_from_signin(cursor: str | None = None, *, event_id: str | None = None,
         next_cursor = None
 
         with httpx.Client(timeout=30.0) as client:
-            # Pull sessions
-            resp = client.get(sessions_url, params=params, headers=headers)
-            resp.raise_for_status()
-            sessions_data = resp.json()
-
-            session_items = sessions_data.get("items", [])
-            next_cursor = sessions_data.get("next_cursor")
+            def session_items():
+                nonlocal next_cursor
+                seen_cursors = {cursor}
+                while True:
+                    resp = client.get(sessions_url, params=params, headers=headers)
+                    resp.raise_for_status()
+                    sessions_data = resp.json()
+                    next_cursor = sessions_data.get("next_cursor")
+                    for item in sessions_data.get("items", []):
+                        if not platform_events_only or item.get("source_system") == "PLATFORM_MANAGEMENT":
+                            yield item
+                    if not platform_events_only or not next_cursor:
+                        return
+                    if next_cursor in seen_cursors:
+                        raise ValueError("签到场次分页游标重复")
+                    seen_cursors.add(next_cursor)
+                    params["cursor"] = next_cursor
 
             # Pull records for each session
             records_url = f"{base_url}/ops/v1/attendance/records"
             now = _now()
 
-            for session_item in session_items:
+            for session_item in session_items():
                 received_sessions += 1
                 try:
                     with transaction() as connection:

@@ -311,7 +311,7 @@ class AttendanceScoringTests(unittest.TestCase):
         self.assertEqual(record["score_eligible"], 1)
         self.assertIsNone(score)
 
-    def test_sync_consumes_all_record_pages(self) -> None:
+    def test_scheduled_sync_skips_legacy_sessions_and_consumes_all_pages(self) -> None:
         class FakeResponse:
             def __init__(self, payload: dict) -> None:
                 self.payload = payload
@@ -339,11 +339,17 @@ class AttendanceScoringTests(unittest.TestCase):
             ) -> FakeResponse:
                 self.assert_headers(headers)
                 if url.endswith("/sessions"):
+                    if not params.get("cursor"):
+                        return FakeResponse({
+                            "items": [{"session_id": "legacy-session", "source_system": "MANUAL_ADMIN"}],
+                            "next_cursor": "next-sessions",
+                        })
                     return FakeResponse(
                         {
                             "items": [
                                 {
                                     "session_id": "paged-session-001",
+                                    "source_system": "PLATFORM_MANAGEMENT",
                                     "external_session_id": "paged-session-001",
                                     "session_code": "MORNING",
                                     "session_name": "上午",
@@ -361,6 +367,8 @@ class AttendanceScoringTests(unittest.TestCase):
                             "next_cursor": None,
                         }
                     )
+                if params["session_id"] != "paged-session-001":
+                    raise AssertionError("legacy records must not be requested")
                 FakeClient.record_calls += 1
                 page = 2 if params.get("cursor") else 1
                 return FakeResponse(
@@ -397,7 +405,8 @@ class AttendanceScoringTests(unittest.TestCase):
                 FakeClient,
             ),
         ):
-            result = sync_from_signin()
+            result = sync_from_signin(platform_events_only=True)
+        self.assertEqual(result["received_sessions"], 1)
         self.assertEqual(result["received_records"], 2)
         self.assertEqual(result["status"], "SUCCESS")
         self.assertEqual(FakeClient.record_calls, 2)
