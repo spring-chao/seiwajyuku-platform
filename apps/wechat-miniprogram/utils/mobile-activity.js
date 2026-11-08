@@ -22,7 +22,7 @@ function rowActions(detail, row) {
   const event = detail.group || {};
   if (!row.registration_id || row.checked || row.checked_at || event.status === "CANCELLED" || !["upcoming", "open"].includes(event.checkin_status)) return [];
   const actions = [];
-  if (detail.can_manage && event.status === "CONFIRMED" && event.checkin_status === "open" && !row.is_team && !["EVENT_TEAM_MEMBER", "COURSE_TEAM_MEMBER"].includes(row.attendance_role)) actions.push({ label: "人工签到", value: "manual_checkin" });
+  if (detail.can_manage && event.session_code !== "KONPA" && event.status === "CONFIRMED" && event.checkin_status === "open" && !row.is_team && !["EVENT_TEAM_MEMBER", "COURSE_TEAM_MEMBER"].includes(row.attendance_role)) actions.push({ label: "人工签到", value: "manual_checkin" });
   if (detail.can_status) {
     if (String(event.session_code).toUpperCase() !== "KONPA") actions.push({ label: "标记预计迟到", value: "late" });
     actions.push({ label: "标记请假", value: "leave" }, { label: "恢复待签到", value: "pending" });

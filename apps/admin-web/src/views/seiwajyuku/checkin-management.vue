@@ -354,10 +354,11 @@ function setDateDefaults() {
   if (!editor.event_date) return;
   editor.checkin_start_at = `${editor.event_date}T00:00`;
   editor.checkin_end_at = `${editor.event_date}T23:59`;
+  sessionTimes.konpa_scheduled_start = `${editor.event_date}T18:00`;
+  sessionTimes.konpa_scheduled_end = `${editor.event_date}T20:30`;
   const defaults = {
     morning: ["07:30", "09:00", "10:30", "12:00"],
-    afternoon: ["12:10", "13:30", "15:00", "17:00"],
-    konpa: ["17:10", "18:00", "20:30", "20:30"]
+    afternoon: ["12:10", "13:30", "15:00", "17:00"]
   };
   for (const [prefix, times] of Object.entries(defaults)) {
     [
@@ -457,6 +458,12 @@ function organizationFields() {
 }
 function editorMetadata() {
   if (!editor.event_name.trim()) throw new Error("请填写活动名称");
+  if (editingId.value && currentEvent.value?.session_code === "KONPA") {
+    const { checkin_start_at, checkin_end_at, ...fields } = editor;
+    if (!fields.scheduled_start_at || fields.scheduled_start_at >= fields.scheduled_end_at)
+      throw new Error("空巴正式结束必须晚于正式开始");
+    return { ...fields, ...organizationFields() };
+  }
   if (!editor.event_date || !editor.checkin_start_at || !editor.checkin_end_at)
     throw new Error("请填写活动日期和签到时间");
   if (editor.checkin_start_at >= editor.checkin_end_at)
@@ -1148,11 +1155,14 @@ onUnmounted(() => {
               @click="switchSession(session.event_id)"
               >{{ sessionName(session) }}
               ·
-              {{ checkinLabels[session.checkin_status] || "待核对" }}</el-button
+              {{ session.session_code === "KONPA" ? "出席确认" : checkinLabels[session.checkin_status] || "待核对" }}</el-button
             >
           </div>
-          <p class="muted">
-            每个场次独立签到。签到时间：{{
+          <p v-if="currentEvent?.session_code === 'KONPA'" class="muted">
+            空巴出席由下午意向和后续核实确认。
+          </p>
+          <p v-else class="muted">
+            签到时间：{{
               timeLabel(currentEvent?.checkin_start_at)
             }}
             至 {{ timeLabel(currentEvent?.checkin_end_at) }}
@@ -1186,6 +1196,7 @@ onUnmounted(() => {
             <el-button
               v-if="
                 permission('manage') &&
+                currentEvent?.session_code !== 'KONPA' &&
                 currentEvent?.lifecycle_status !== 'CANCELLED'
               "
               :disabled="busy"
@@ -1208,7 +1219,7 @@ onUnmounted(() => {
               >取消活动</el-button
             >
             <el-button
-              v-if="permission('code')"
+              v-if="permission('code') && currentEvent?.session_code !== 'KONPA'"
               :disabled="busy || currentEvent?.lifecycle_status === 'CANCELLED'"
               @click="openCode()"
               >生成当前场次小程序码</el-button
@@ -1562,12 +1573,15 @@ onUnmounted(() => {
           <h3>{{ session.label }}</h3>
           <el-form inline label-position="top"
             ><el-form-item
-              v-for="[key, label] in [
+              v-for="[key, label] in (session.code === 'KONPA' ? [
+                ['scheduled_start', '正式开始'],
+                ['scheduled_end', '正式结束']
+              ] : [
                 ['checkin_start', '签到开放'],
                 ['scheduled_start', '正式开始'],
                 ['checkin_end', '签到截止'],
                 ['scheduled_end', '正式结束']
-              ]"
+              ])"
               :key="key"
               :label="label"
               ><el-date-picker
@@ -1579,12 +1593,12 @@ onUnmounted(() => {
         </div>
       </template>
       <el-form v-else label-position="top" class="editor-grid"
-        ><el-form-item label="签到开放"
+        ><el-form-item v-if="currentEvent?.session_code !== 'KONPA'" label="签到开放"
           ><el-date-picker
             v-model="editor.checkin_start_at"
             type="datetime"
             value-format="YYYY-MM-DDTHH:mm" /></el-form-item
-        ><el-form-item label="签到截止"
+        ><el-form-item v-if="currentEvent?.session_code !== 'KONPA'" label="签到截止"
           ><el-date-picker
             v-model="editor.checkin_end_at"
             type="datetime"
