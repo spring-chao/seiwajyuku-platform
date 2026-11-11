@@ -858,6 +858,10 @@ test("manual attendance explains team slots and event restrictions and never wri
     /已结束/
   );
   assert.match(management.manualCheckinReason(event, {}, true), /稍候/);
+  const end = Date.parse("2026-10-31T18:00:00+08:00");
+  const ended = { ...event, checkin_status: "ended", checkin_end_at: new Date(end).toISOString() };
+  assert.equal(management.manualCheckinReason(ended, {}, false, end + 30 * 86400000), "");
+  assert.match(management.manualCheckinReason(ended, {}, false, end + 30 * 86400000 + 1), /超过/);
   const h = harness();
   h.state.selected.value = { ...event, event_id: "event-a" };
   h.state.activeEventId.value = "event-a";

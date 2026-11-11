@@ -111,7 +111,7 @@ export function scopedRosterOptions(options, organizations, regionId) {
   });
 }
 
-export function manualCheckinReason(event, row, busy = false) {
+export function manualCheckinReason(event, row, busy = false, now = Date.now()) {
   if (busy) return "正在处理操作，请稍候";
   if (row?.checked === true || row?.checked_at)
     return "已签到，保留原有签到记录";
@@ -121,9 +121,16 @@ export function manualCheckinReason(event, row, busy = false) {
   if (event.lifecycle_status === "CANCELLED") return "活动已取消，无法人工签到";
   if (event.lifecycle_status !== "CONFIRMED")
     return "请先确认活动，再进行人工签到";
-  if (event.checkin_status !== "open")
-    return `当前场次${checkinLabels[event.checkin_status] || "未开放"}，仅签到开放期间支持人工签到`;
-  return "";
+  if (event.activity_type === "class_meeting" && event.session_code === "KONPA")
+    return "请通过空巴名单核实出席";
+  const cutoff = Date.parse(event.checkin_end_at || "");
+  const scheduledEnd = Date.parse(event.scheduled_end_at || "");
+  const end = Number.isFinite(scheduledEnd) ? Math.max(cutoff, scheduledEnd) : cutoff;
+  if (now > cutoff) {
+    return now <= end + 30 * 86400000 ? "" : "已超过场次结束后30天的人工签到期限";
+  }
+  if (event.checkin_status === "open") return "";
+  return `当前场次${checkinLabels[event.checkin_status] || "未开放"}，无法人工签到`;
 }
 
 export function filterAttendanceRows(rows, filter, keyword = "") {
