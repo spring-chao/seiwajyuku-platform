@@ -524,7 +524,7 @@ def test_sources_use_existing_rules_post_once_and_trace_file_rows(source_fixture
     assert entries[0]['import_sources'][0]['excel_row']==2
     if kind=='CLASS_MEETING':
         cycle=fetch_one('SELECT class_meeting_status,source_event_group_id FROM class_learning_cycles WHERE id=?',(f['cycle_id'],))
-        assert cycle['class_meeting_status']=='HELD' and cycle['source_event_group_id']==posted['event_group_id']
+        assert cycle['class_meeting_status']=='PLANNED' and cycle['source_event_group_id']==posted['event_group_id']
         c=connect();records=execute(c,'SELECT r.* FROM attendance_records r JOIN attendance_sessions s ON s.id=r.attendance_session_id WHERE s.event_group_id=?',(posted['event_group_id'],)).fetchall();c.close()
         assert all(r['checked_at'] is None for r in records)
         attendance_scoring.recalculate_event_group(posted['event_group_id'])
@@ -616,7 +616,7 @@ def test_export_can_target_one_member_without_other_roster_or_ledger(source_fixt
         assert client.get('/api/v1/learning-credits/excel/export', params={'member_id': f['member_id']}).status_code == 401
 
 
-def test_offline_cycle_advances_only_after_successful_settlement(source_fixture,monkeypatch):
+def test_offline_settlement_posts_without_advancing_cycle(source_fixture,monkeypatch):
     f=source_fixture
     monkeypatch.setenv('LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED','true')
     iid,_,_=registered(f,'CLASS_MEETING')
@@ -628,13 +628,13 @@ def test_offline_cycle_advances_only_after_successful_settlement(source_fixture,
     assert current()['id']==before['id'] and current()['actual_class_meeting_at'] is None
     sources.process(iid,f['actor'],'submit');sources.process(iid,f['reviewer'],'approve')
     assert current()['id']==before['id']
-    # The normal batch API must have the same side effect as the Excel UI.
+    # Posting and cycle progression are independent.
     assert batches.post_class_meeting_batch(actor_user_id=f['actor'],batch_id=batch['id'])['status']=='POSTED'
     after=current()
-    assert after['learning_cycle_index']==2
-    assert parse_utc_datetime(after['opened_at']).isoformat().startswith('2026-10-09T01:00:00')
+    assert after['learning_cycle_index']==1
+    assert after['actual_class_meeting_at'] is None
     old=fetch_one('SELECT * FROM class_learning_cycles WHERE id=?',(before['id'],))
-    assert old['cycle_status']=='CLOSED' and old['class_meeting_status']=='HELD'
+    assert old['cycle_status']=='OPEN' and old['class_meeting_status']=='PLANNED'
     assert old['source_event_group_id']==sources.get_import(iid,f['actor'])['event_group_id']
     entry=fetch_one("SELECT learning_cycle_id FROM learning_credit_entries WHERE member_id=? AND credit_type='CLASS_MEETING_SCORE'",(f['member_id'],))
     assert entry['learning_cycle_id']==before['id']
@@ -642,7 +642,7 @@ def test_offline_cycle_advances_only_after_successful_settlement(source_fixture,
     assert current()==after
 
 
-def test_failed_settlement_preserves_cycle_then_explicit_retry_advances_once(source_fixture):
+def test_failed_settlement_and_successful_retry_preserve_cycle(source_fixture):
     f=source_fixture;iid,_,_=registered(f,'CLASS_MEETING')
     batch=sources.create_batches(iid,f['actor'])['batches'][0]
     sources.process(iid,f['actor'],'submit');sources.process(iid,f['reviewer'],'approve')
@@ -653,35 +653,47 @@ def test_failed_settlement_preserves_cycle_then_explicit_retry_advances_once(sou
     assert old['cycle_status']=='OPEN' and old['actual_class_meeting_at'] is None
     result=batches.post_class_meeting_batch(actor_user_id=f['actor'],batch_id=batch['id'],resume_partial_failure=True)
     assert result['status']=='POSTED'
-    assert fetch_one("SELECT learning_cycle_index FROM class_learning_cycles WHERE binding_id=? AND cycle_status='OPEN'",(f['binding_id'],))['learning_cycle_index']==2
+    assert fetch_one("SELECT learning_cycle_index FROM class_learning_cycles WHERE binding_id=? AND cycle_status='OPEN'",(f['binding_id'],))['learning_cycle_index']==1
 
 
-def test_last_cycle_settlement_completes_round_without_cycle_37(source_fixture):
+def test_last_cycle_settlement_preserves_round(source_fixture):
     f=source_fixture
     with transaction() as c:
         plan=execute(c,'SELECT id FROM learning_plan_cycles WHERE plan_version_id=? AND cycle_index=36',(f['plan_id'],)).fetchone()
         execute(c,'UPDATE class_learning_cycles SET learning_cycle_index=36,plan_cycle_id=? WHERE id=?',(plan['id'],f['cycle_id']))
     iid,_,_=registered(f,'CLASS_MEETING');sources.create_batches(iid,f['actor'])
     sources.process(iid,f['actor'],'submit');sources.process(iid,f['reviewer'],'approve');sources.process(iid,f['actor'],'post')
-    assert fetch_one('SELECT status FROM class_learning_bindings WHERE id=?',(f['binding_id'],))['status']=='COMPLETED'
-    assert not fetch_one("SELECT id FROM class_learning_cycles WHERE binding_id=? AND cycle_status='OPEN'",(f['binding_id'],))
+    assert fetch_one('SELECT status FROM class_learning_bindings WHERE id=?',(f['binding_id'],))['status']=='ACTIVE'
+    assert fetch_one("SELECT id FROM class_learning_cycles WHERE binding_id=? AND cycle_status='OPEN'",(f['binding_id'],))
 
 
-def test_cycle_failure_rolls_back_batch_terminal_state_and_can_reconcile(source_fixture):
-    from datetime import UTC,datetime,timedelta
-    from app.services import learning_cycles
-    f=source_fixture;iid,_,_=registered(f,'CLASS_MEETING')
-    batch=sources.create_batches(iid,f['actor'])['batches'][0]
-    sources.process(iid,f['actor'],'submit');sources.process(iid,f['reviewer'],'approve')
-    with patch.object(learning_cycles,'_plan_cycle_for_track',return_value=None),pytest.raises(credits.LearningCreditError,match='缺少'):
-        batches.post_class_meeting_batch(actor_user_id=f['actor'],batch_id=batch['id'])
-    assert fetch_one('SELECT status FROM learning_credit_settlement_batches WHERE id=?',(batch['id'],))['status']=='POSTING'
-    assert fetch_one('SELECT cycle_status,actual_class_meeting_at FROM class_learning_cycles WHERE id=?',(f['cycle_id'],))=={'cycle_status':'OPEN','actual_class_meeting_at':None}
-    with transaction() as c:
-        execute(c,'UPDATE learning_credit_settlement_batches SET updated_at=? WHERE id=?',(credits._db_timestamp(c,datetime.now(UTC)-timedelta(minutes=31)),batch['id']))
-    result=batches.reconcile_stale_posting_batch(actor_user_id=f['actor'],batch_id=batch['id'])
-    assert result['status']=='POSTED'
-    assert fetch_one("SELECT learning_cycle_index FROM class_learning_cycles WHERE binding_id=? AND cycle_status='OPEN'",(f['binding_id'],))['learning_cycle_index']==2
+def test_confirmed_platform_meeting_opens_next_cycle_at_china_midnight_once(source_fixture):
+    from app.services import class_meeting_next_day as job
+
+    f = source_fixture
+    group_id = "scheduled-" + f["suffix"]
+    group = {"external_group_id": group_id, "org_unit_id": f["class_id"],
+             "study_org_unit_id": f["class_id"], "event_date": DAY,
+             "activity_type": "CLASS_MEETING", "title": "合成班会"}
+    rows = [
+        {"event_group": group, "source_system": "PLATFORM_MANAGEMENT",
+         "lifecycle_status": "CONFIRMED", "session_code": code,
+         "scheduled_start_at": f"{DAY}T{start}:00+08:00",
+         "scheduled_end_at": f"{DAY}T{end}:00+08:00"}
+        for code, start, end in [("MORNING", "09:00", "12:00"), ("AFTERNOON", "13:00", "17:00"),
+                                 ("KONPA", "18:00", "20:30")]
+    ]
+    assert job._due_group(rows, date(2026, 10, 9)) is None
+    assert job._due_group([{**rows[0], "lifecycle_status": "CANCELLED"}, *rows[1:]], date(2026, 10, 10)) is None
+    candidate = job._due_group(rows, date(2026, 10, 10))
+    assert candidate is not None
+    boundary = parse_utc_datetime("2026-10-10T00:00:00+08:00")
+    assert job._advance(group_id, *candidate, boundary)
+    assert not job._advance(group_id, *candidate, boundary)
+    next_cycle = fetch_one("SELECT * FROM class_learning_cycles WHERE binding_id=? AND cycle_status='OPEN'",
+                           (f["binding_id"],))
+    assert next_cycle["learning_cycle_index"] == 2
+    assert parse_utc_datetime(next_cycle["opened_at"]) == boundary
 
 
 def test_reading_weekend_incomplete_and_invalid_rows_have_actionable_results(source_fixture):
@@ -779,7 +791,7 @@ def test_closed_month_class_confirmation_preserves_current_month(source_fixture,
     assert fetch_one('SELECT class_meeting_status FROM class_learning_cycles WHERE id=?',(f['cycle_id'],))['class_meeting_status']=='PLANNED'
     sources.process(iid,f['actor'],'submit');sources.process(iid,f['reviewer'],'approve');sources.process(iid,f['actor'],'post')
     cycle=fetch_one('SELECT cycle_status,closed_at,class_meeting_status FROM class_learning_cycles WHERE id=?',(f['cycle_id'],))
-    assert cycle['cycle_status']=='CLOSED' and str(cycle['closed_at'])[:10]=='2026-10-10' and cycle['class_meeting_status']=='HELD'
+    assert cycle['cycle_status']=='CLOSED' and str(cycle['closed_at'])[:10]=='2026-10-10' and cycle['class_meeting_status']=='PLANNED'
 
 
 def test_offline_early_leave_cancellation_keeps_source_and_updates_proposal(source_fixture):
