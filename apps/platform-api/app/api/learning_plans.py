@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 from app.api.auth import require_permission
 from app.services.learning_cycles import (
     bind_class_learning_plan,
-    confirm_class_meeting,
     clear_learning_cycle_schedule_override,
     correct_class_learning_plan,
     get_class_learning_schedule,
@@ -704,15 +703,4 @@ def confirm_learning_cycle_class_meeting(
     payload: ConfirmClassMeetingPayload,
     user: dict = Depends(require_permission("plans:period_write")),
 ) -> dict:
-    try:
-        data = confirm_class_meeting(
-            actor_user_id=user["id"], class_org_unit_id=class_org_unit_id,
-            actual_class_meeting_at=payload.actual_class_meeting_at,
-            source_event_group_id=payload.source_event_group_id,
-            confirmation_reason=payload.confirmation_reason,
-        )
-    except PermissionError as exc:
-        raise HTTPException(403, str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    return {"success": True, "data": data}
+    raise HTTPException(409, "学习周期在已确认的班会活动结束次日推进，需调整请使用当前设置修正")

@@ -1580,10 +1580,21 @@ def scan_class_learning_plan_health(
         if class_org_unit_id or allowed is None or allowed:
             rows = execute(connection, query + " ORDER BY name, id", tuple(params)).fetchall()
         class_rows = [dict(row) for row in rows]
-        parent_by_id = {
-            str(row["id"]): row["parent_id"]
-            for row in execute(connection, "SELECT id, parent_id FROM org_units").fetchall()
+        organizations = {
+            str(row["id"]): dict(row)
+            for row in execute(connection, "SELECT id, parent_id, name, unit_type FROM org_units").fetchall()
         }
+        parent_by_id = {key: row["parent_id"] for key, row in organizations.items()}
+
+        def center_for(class_id):
+            seen = set()
+            while class_id in organizations and class_id not in seen:
+                seen.add(class_id)
+                unit = organizations[class_id]
+                if unit["unit_type"] in {"REGIONAL_CENTER", "GUIDANCE_GROUP"}:
+                    return unit["id"], unit["name"]
+                class_id = unit["parent_id"]
+            return None, None
         appointments = [
             dict(row)
             for row in execute(
@@ -1977,6 +1988,8 @@ def scan_class_learning_plan_health(
                 "class_org_unit_id": class_row["id"],
                 "unit_code": class_row["unit_code"],
                 "class_name": class_row["name"],
+                "center_id": center_for(class_row["id"])[0],
+                "center_name": center_for(class_row["id"])[1],
                 "binding": _binding_payload(binding) if binding else None,
                 "plan_status": _public_plan_status(binding.get("plan_status")) if binding else None,
                 "current_cycle": (
@@ -2381,13 +2394,15 @@ def _resolve_actual_class_meeting_at(
 
 
 def confirm_class_meeting(
-    *, actor_user_id: int, class_org_unit_id: str, actual_class_meeting_at: str | None,
+    *, actor_user_id: int | None, class_org_unit_id: str, actual_class_meeting_at: str | None,
     source_event_group_id: int | None = None, confirmation_reason: str | None = None,
     learning_cycle_id: int | None = None,
     _connection=None,
     _settlement: bool = False,
+    _scheduled_boundary: str | None = None,
 ) -> dict[str, Any]:
-    _visible_class(class_org_unit_id, actor_user_id)
+    if _scheduled_boundary is None:
+        _visible_class(class_org_unit_id, actor_user_id)
     now = _now()
     with (nullcontext(_connection) if _connection is not None else transaction()) as connection:
         _lock_class_for_update(connection, class_org_unit_id)
@@ -2413,6 +2428,11 @@ def confirm_class_meeting(
         )
         if parse_utc_datetime(actual) <= parse_utc_datetime(cycle["opened_at"]):
             raise ValueError("实际班会时间必须晚于当前学习周期开始时间")
+        boundary = _scheduled_boundary or actual
+        if _scheduled_boundary is not None and not (
+            parse_utc_datetime(actual) < parse_utc_datetime(boundary) <= parse_utc_datetime(now)
+        ):
+            raise ValueError("班会次日推进时间无效")
         if _settlement and parse_utc_datetime(actual) > parse_utc_datetime(now):
             raise ValueError("实际班会时间不能晚于当前时间")
         if cycle.get("actual_class_meeting_at") and parse_utc_datetime(cycle["actual_class_meeting_at"]) != parse_utc_datetime(actual):
@@ -2420,13 +2440,14 @@ def confirm_class_meeting(
         if historical_month and (not cycle.get('closed_at') or parse_utc_datetime(actual)>=parse_utc_datetime(cycle['closed_at'])):
             raise ValueError('实际班会日期不属于所选历史月份')
         stored_actual = _storage_datetime(connection, actual)
+        stored_boundary = _storage_datetime(connection, boundary)
         stored_now = _storage_datetime(connection, now)
         before = dict(cycle)
         execute(
             connection,
             "UPDATE class_learning_cycles SET actual_class_meeting_at=?, class_meeting_status='HELD', "
             "cycle_status=?, closed_at=?, source_event_group_id=?, updated_at=? WHERE id=?",
-            (stored_actual, cycle['cycle_status'] if historical_month else "CLOSED", cycle.get('closed_at') if historical_month else stored_actual, source_id, stored_now, cycle["id"]),
+            (stored_actual, cycle['cycle_status'] if historical_month else "CLOSED", cycle.get('closed_at') if historical_month else stored_boundary, source_id, stored_now, cycle["id"]),
         )
         plan_task = _group_plan_task(connection, int(cycle["plan_cycle_id"]))
         policy = str(cycle["group_meeting_policy"])
@@ -2503,7 +2524,7 @@ def confirm_class_meeting(
                 execute(connection,
                     "UPDATE class_learning_cycles SET opened_at=?, planned_class_meeting_at=?, adjustment_reason=?, "
                     "class_meeting_status=?, cycle_status='OPEN', closed_at=NULL, updated_at=? WHERE id=?",
-                    (_storage_datetime(connection, actual), stored_next_planned, next_reason, next_status,
+                    (stored_boundary, stored_next_planned, next_reason, next_status,
                      _storage_datetime(connection, now), existing_next["id"]),
                 )
             else:
@@ -2514,7 +2535,7 @@ def confirm_class_meeting(
                     "class_meeting_status, group_meeting_policy, cycle_status, created_at, updated_at) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'REQUIRED', 'OPEN', ?, ?)",
                     (binding["id"], class_org_unit_id, next_index, next_plan_cycle["id"],
-                     stored_actual, stored_next_planned, next_reason, next_status, stored_now, stored_now),
+                     stored_boundary, stored_next_planned, next_reason, next_status, stored_now, stored_now),
                 )
             binding_status = "ACTIVE"
         else:
@@ -2539,7 +2560,7 @@ def confirm_class_meeting(
                 "source_event_group_id": source_id,
                 "final_group_counts": final_counts,
                 "binding_status": binding_status,
-                "progression_mode": "SETTLEMENT" if _settlement else "CLASS_MEETING",
+                "progression_mode": "CLASS_MEETING_NEXT_DAY" if _scheduled_boundary else "SETTLEMENT" if _settlement else "CLASS_MEETING",
             },
         )
-        return _progress_from_connection(connection, class_org_unit_id, at=now if historical_month else actual)
+        return _progress_from_connection(connection, class_org_unit_id, at=now if historical_month else boundary)
