@@ -431,41 +431,6 @@ const profitMarginOptions = [
   { value: "LT_10_PERCENT", label: "0%～10%以下" },
   { value: "LOSS", label: "亏损" }
 ];
-const enrollmentSupplement = ref<Record<string, string | number | null> | null>(
-  null
-);
-const supplementLabels: Record<string, string> = {
-  political_status: "政治面貌",
-  social_role: "社会任职",
-  email: "邮箱",
-  industry_other: "其他行业",
-  goal_years: "计划学习年限",
-  revenue_growth_target: "业绩提升目标",
-  profit_growth_target: "利润提升目标",
-  books_read: "已读书籍",
-  enrollment_reason_philosophy: "认同理念",
-  enrollment_reason_change: "期望改变",
-  enrollment_reason_other: "其他入塾原因",
-  invoice_type: "发票类型",
-  invoice_title: "发票抬头",
-  invoice_tax_id: "发票税号",
-  invoice_registered_address: "注册地址",
-  invoice_phone: "注册电话",
-  invoice_bank: "开户银行",
-  invoice_account: "银行账号"
-};
-const visibleSupplementLabels = computed(() =>
-  Object.entries(supplementLabels).filter(([key]) =>
-    enrollmentSupplement.value && key in enrollmentSupplement.value
-  )
-);
-function supplementValue(key: string, value: unknown) {
-  const field = profileFields.find(f => f.key === key);
-  const options = field && "options" in field ? field.options : [];
-  return (
-    options.find(o => o.value === String(value))?.label || value || "未填写"
-  );
-}
 const form = reactive({
   name: "",
   org_unit_id: "",
@@ -684,7 +649,6 @@ function openCreate() {
     current_volunteer_needs_manual_review: false,
     current_volunteer_review_message: ""
   });
-  enrollmentSupplement.value = null;
   dialogVisible.value = true;
 }
 
@@ -755,7 +719,6 @@ async function openEdit(row: any) {
   });
   originalClassOrgUnitId.value = "";
   originalGroupOrgUnitId.value = "";
-  enrollmentSupplement.value = null;
   dialogVisible.value = true;
   editProfileLoading.value = true;
   try {
@@ -826,7 +789,6 @@ async function openEdit(row: any) {
 
       notes: data.notes || ""
     });
-    enrollmentSupplement.value = data.enrollment_supplement || null;
     editClassOrgName.value = data.class_org_name || "";
     editGroupOrgName.value = data.group_org_name || "";
     originalClassOrgUnitId.value = data.class_org_unit_id || "";
@@ -2620,29 +2582,6 @@ onMounted(async () => {
               v-model="form[field.key]"
               :disabled="'sensitive' in field && !financialFieldsEditable"
             />
-          </el-form-item>
-          <el-form-item
-            v-if="enrollmentSupplement"
-            class="full"
-            label="入塾申请原始资料"
-          >
-            <div>
-              <p>
-                申请编号：{{
-                  enrollmentSupplement.application_no
-                }}。以下保留申请时填写的补充资料，当前档案以各编辑项为准。
-              </p>
-              <el-descriptions :column="2" border>
-                <el-descriptions-item
-                  v-for="[key, label] in visibleSupplementLabels"
-                  :key="key"
-                  :label="label"
-                  >{{
-                    supplementValue(String(key), enrollmentSupplement[key])
-                  }}</el-descriptions-item
-                >
-              </el-descriptions>
-            </div>
           </el-form-item>
           <el-form-item class="full" label="备注">
             <el-input v-model="form.notes" type="textarea" :rows="3" />
