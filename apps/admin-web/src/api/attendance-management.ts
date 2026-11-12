@@ -1,6 +1,8 @@
 import { http } from "@/utils/http";
 
 export type AttendanceManagementOperation =
+  | "konpa_list"
+  | "konpa_attendance"
   | "admin_events"
   | "stats"
   | "ops_roster_options"

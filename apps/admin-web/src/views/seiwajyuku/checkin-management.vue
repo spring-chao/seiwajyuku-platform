@@ -33,6 +33,8 @@ import {
   canMaintainRegistration,
   scopedRosterOptions,
   manualCheckinReason,
+  attendanceEventEnded,
+  compareAttendanceGroups,
   filterAttendanceRows
 } from "@/utils/attendanceManagement.mjs";
 
@@ -61,6 +63,8 @@ const refreshedAt = ref("");
 const personFilter = ref("all");
 const personKeyword = ref("");
 const autoRefresh = ref(true);
+const konpaReviews = ref<Record<string, any>>({});
+const refreshClock = ref(Date.now());
 const sessions = computed(() =>
   selected.value?.sessions?.length
     ? selected.value.sessions
@@ -72,8 +76,15 @@ const currentEvent = computed(
   () =>
     sessions.value.find(item => item.event_id === activeEventId.value) || null
 );
+const eventEnded = computed(() => attendanceEventEnded(sessions.value, refreshClock.value));
+const isKonpa = computed(() => currentEvent.value?.session_code === "KONPA");
+watch(eventEnded, ended => { if (ended) autoRefresh.value = false; });
 const visiblePeople = computed(() =>
   filterAttendanceRows(people.value, personFilter.value, personKeyword.value)
+    .sort((left, right) => compareAttendanceGroups(
+      attendanceGroupLabel(left, currentEvent.value?.activity_type),
+      attendanceGroupLabel(right, currentEvent.value?.activity_type)
+    ))
 );
 const groupRows = computed(() =>
   Object.entries(stats.value?.groups || {}).map(
@@ -272,6 +283,8 @@ async function loadEvents(reset = false) {
 }
 async function selectEvent(item: any) {
   selected.value = item;
+  refreshClock.value = Date.now();
+  autoRefresh.value = !eventEnded.value;
   workspaceVisible.value = true;
   personFilter.value = "all";
   personKeyword.value = "";
@@ -293,13 +306,19 @@ async function refreshDetail(quiet = false) {
   const sequence = ++detailSequence;
   detailLoading.value = true;
   try {
-    const [summary, detail] = await Promise.all([
+    const [summary, detail, review] = await Promise.all([
       manageAttendance("stats", { event_id: eventId }),
-      manageAttendance("event_detail", { event_id: eventId })
+      manageAttendance("event_detail", { event_id: eventId }),
+      isKonpa.value && currentEvent.value?.lifecycle_status === "CONFIRMED"
+        ? manageAttendance("konpa_list", { event_id: eventId })
+        : null
     ]);
     if (eventId !== activeEventId.value || sequence !== detailSequence) return;
     stats.value = summary;
     people.value = detail.rows || [];
+    konpaReviews.value = Object.fromEntries(
+      (review?.rows || []).map(row => [row.registration_id, row])
+    );
     if (detail.event && selected.value) {
       if (selected.value.sessions?.length) {
         selected.value = {
@@ -324,9 +343,30 @@ async function switchSession(eventId: string) {
   activeEventId.value = eventId;
   stats.value = null;
   people.value = [];
+  konpaReviews.value = {};
   // Finish the previous read before starting the next; stale results are discarded.
   detailLoading.value = false;
   await refreshDetail();
+}
+
+async function recordKonpaAttendance(row: any, choice: boolean) {
+  const review = konpaReviews.value[row.registration_id];
+  if (busy.value || !isKonpa.value || !review) return;
+  busy.value = true;
+  try {
+    await manageAttendance("konpa_attendance", {
+      event_id: activeEventId.value,
+      registration_id: row.registration_id,
+      expected_revision: review.revision,
+      choice
+    });
+    ElMessage.success(choice ? "已确认参加" : "已确认未参加");
+  } catch (e) {
+    ElMessage.error(messageOf(e));
+  } finally {
+    await refreshDetail();
+    busy.value = false;
+  }
 }
 async function reloadAfterMutation() {
   await loadEvents();
@@ -925,8 +965,10 @@ watch(codeVersion, () => {
 onMounted(async () => {
   await loadEvents();
   timer = setInterval(() => {
+    refreshClock.value = Date.now();
     if (
       autoRefresh.value &&
+      !eventEnded.value &&
       workspaceVisible.value &&
       activeEventId.value &&
       !busy.value &&
@@ -1124,7 +1166,7 @@ onUnmounted(() => {
                 </p>
               </div>
               <div class="actions">
-                <el-switch v-model="autoRefresh" active-text="自动刷新" /><span
+                <el-switch v-model="autoRefresh" :disabled="eventEnded" active-text="自动刷新" /><span
                   class="muted"
                   >{{ refreshedAt ? `更新于 ${refreshedAt}` : "" }}</span
                 ><el-button @click="refreshDetail()">刷新</el-button>
@@ -1381,7 +1423,12 @@ onUnmounted(() => {
                         ? 'info'
                         : 'warning'
                   "
-                  >{{ rowStatus(row) }}</el-tag
+                  >{{ isKonpa && konpaReviews[row.registration_id]
+                    ? (konpaReviews[row.registration_id].status === "CONFIRMED" ? "参加"
+                      : konpaReviews[row.registration_id].status === "ABSENT" ? "未参加"
+                      : konpaReviews[row.registration_id].choice === true ? "参加（待确认）"
+                      : konpaReviews[row.registration_id].choice === false ? "未参加（待确认）" : "未选择")
+                    : rowStatus(row) }}</el-tag
                 ></template
               ></el-table-column
             >
@@ -1396,7 +1443,18 @@ onUnmounted(() => {
               min-width="260"
               fixed="right"
               ><template #default="{ row }"
-                ><template v-if="!checked(row)">
+                ><template v-if="isKonpa">
+                  <template v-if="permission('manage') && konpaReviews[row.registration_id]">
+                    <el-button size="small" type="success"
+                      :plain="konpaReviews[row.registration_id].choice !== true"
+                      :disabled="busy || detailLoading"
+                      @click="recordKonpaAttendance(row, true)">参加</el-button>
+                    <el-button size="small"
+                      :type="konpaReviews[row.registration_id].choice === false ? 'primary' : 'default'"
+                      :disabled="busy || detailLoading"
+                      @click="recordKonpaAttendance(row, false)">未参加</el-button>
+                  </template>
+                </template><template v-else-if="!checked(row)">
                   <el-button
                     v-if="permission('status')"
                     size="small"

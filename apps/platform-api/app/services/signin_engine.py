@@ -19,6 +19,8 @@ from app.services.attendance_registration_identity import enrich_registration_pa
 OPERATIONS = {
     "admin_events": "attendance:view",
     "event_detail": "attendance:view",
+    "konpa_list": "attendance:view",
+    "konpa_attendance": "attendance:manage",
     "create_event": "attendance:create",
     "import_preview": "attendance:import",
     "import_apply": "attendance:import",
@@ -39,6 +41,7 @@ OPERATIONS = {
     "export": "attendance:export",
 }
 READ_OPERATIONS = frozenset({
+    "konpa_list",
     "admin_events", "event_detail", "stats", "class_roster_reconciliation",
     "ops_roster_options", "ops_roster_members", "upload_preview", "import_preview", "export",
 })
