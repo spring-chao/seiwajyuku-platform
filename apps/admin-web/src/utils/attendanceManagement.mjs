@@ -133,6 +133,31 @@ export function manualCheckinReason(event, row, busy = false, now = Date.now()) 
   return `当前场次${checkinLabels[event.checkin_status] || "未开放"}，无法人工签到`;
 }
 
+export function attendanceEventEnded(sessions, now = Date.now()) {
+  return sessions.length > 0 && sessions.every(session => {
+    if (session.lifecycle_status === "CANCELLED") return true;
+    const end = Date.parse(session.scheduled_end_at || session.checkin_end_at || "");
+    return Number.isFinite(end) ? now >= end : session.checkin_status === "ended";
+  });
+}
+
+export function compareAttendanceGroups(left, right) {
+  const collator = attendanceGroupCollator;
+  const order = name => {
+    const label = String(name || "").trim();
+    const match = label.match(/^(?:第\s*)?(\d+|[一二三四五六七八九十两]+)\s*(?:小组|组)/);
+    if (!match) return !label || ["—", "未分组", "待分组"].includes(label)
+      ? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER - 1;
+    if (/^\d+$/.test(match[1])) return Number(match[1]);
+    const digit = value => value ? "一二三四五六七八九".indexOf(value.replace("两", "二")) + 1 : 0;
+    const [tens, units] = match[1].split("十");
+    return units === undefined ? digit(tens) : (digit(tens) || 1) * 10 + digit(units);
+  };
+  return order(left) - order(right) || collator.compare(left || "", right || "");
+}
+
+const attendanceGroupCollator = new Intl.Collator("zh-CN", { numeric: true });
+
 export function filterAttendanceRows(rows, filter, keyword = "") {
   const text = keyword.trim().toLowerCase();
   return (rows || []).filter(row => {
