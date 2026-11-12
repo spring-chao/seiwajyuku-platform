@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { planTransitionLabel, planBindingStatusLabel } from "@/utils/business-labels.mjs";
 import { chinaDate } from "@/utils/business-date";
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   bindLearningPlan,
@@ -27,6 +27,30 @@ const error = ref("");
 const health = ref<LearningPlanHealth>();
 const plans = ref<LearningPlan[]>([]);
 const selectedClassId = ref("");
+const scanCenter = ref("");
+const scanClass = ref("");
+const scanCycle = ref<number>();
+const scanPage = ref(1);
+const scanClasses = computed(() => health.value?.classes || []);
+const scanCenters = computed(() => [...new Map(scanClasses.value
+  .filter(row => row.center_id)
+  .map(row => [row.center_id!, row.center_name || row.center_id!])).entries()]);
+const centerClasses = computed(() => scanClasses.value.filter(row =>
+  !scanCenter.value || row.center_id === scanCenter.value
+));
+const cycleOptions = computed(() => [...new Set(centerClasses.value
+  .map(row => row.current_cycle?.learning_cycle_index)
+  .filter((value): value is number => value != null))].sort((a, b) => a - b));
+const filteredScan = computed(() => centerClasses.value.filter(row =>
+  (!scanClass.value || row.class_org_unit_id === scanClass.value) &&
+  (scanCycle.value == null || scanCycle.value === row.current_cycle?.learning_cycle_index)
+));
+const visibleScan = computed(() => filteredScan.value.slice((scanPage.value - 1) * 10, scanPage.value * 10));
+watch(scanCenter, () => { scanClass.value = ""; scanCycle.value = undefined; });
+watch([scanCenter, scanClass, scanCycle], () => { scanPage.value = 1; });
+watch(() => filteredScan.value.length, count => {
+  scanPage.value = Math.min(scanPage.value, Math.max(1, Math.ceil(count / 10)));
+});
 const history = ref<LearningPlanHistory>();
 const activeTab = ref("settings");
 
@@ -404,7 +428,7 @@ onMounted(load);
       <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
       <el-alert
         v-if="health"
-        title="班会线下签到学分正式结算成功后，本班自动进入下一学习周期。上传、生成预览和待复核时保留本期；历史周期补登保留当前进度。"
+        title="已确认的班会活动结束后，系统在次日开启下一学习周期。需要调整期数时可使用当前设置修正。"
         type="info"
         show-icon
         :closable="false"
@@ -444,9 +468,21 @@ onMounted(load);
           </el-select>
         </div>
       </template>
+      <div class="scan-filters">
+        <el-select v-model="scanCenter" filterable clearable placeholder="全部分中心">
+          <el-option v-for="[id, name] in scanCenters" :key="id" :label="name" :value="id" />
+        </el-select>
+        <el-select v-model="scanClass" filterable clearable placeholder="全部班级">
+          <el-option v-for="row in centerClasses" :key="row.class_org_unit_id"
+            :label="[row.center_name, row.class_name].filter(Boolean).join(' · ')" :value="row.class_org_unit_id" />
+        </el-select>
+        <el-select v-model="scanCycle" filterable clearable placeholder="全部期数">
+          <el-option v-for="cycle in cycleOptions" :key="cycle" :label="`第${cycle}期`" :value="cycle" />
+        </el-select>
+      </div>
       <el-table
         v-loading="loading"
-        :data="health?.classes || []"
+        :data="visibleScan"
         row-key="class_org_unit_id"
         highlight-current-row
         @row-click="selectClass"
@@ -482,6 +518,8 @@ onMounted(load);
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination v-model:current-page="scanPage" :page-size="10" :total="filteredScan.length"
+        layout="total, prev, pager, next" />
     </el-card>
 
     <el-card v-if="selectedClass" shadow="never" class="management-card">
@@ -609,6 +647,8 @@ onMounted(load);
 .code { margin-left: 12px; font-family: monospace; }
 .current-summary { margin-bottom: 18px; }
 .health-issues-alert { margin-bottom: 18px; }
+.scan-filters { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.scan-filters .el-select { width: 220px; }
 .management-tabs { margin-top: 18px; }
 .operation-form { max-width: 760px; padding: 18px 4px 0; }
 .initial-confirmation-alert { margin-bottom: 18px; }

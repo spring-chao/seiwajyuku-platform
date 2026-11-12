@@ -47,6 +47,8 @@ export type LearningPlanHealthIssue = {
 };
 
 export type LearningPlanHealthClass = {
+  center_id?: string | null;
+  center_name?: string | null;
   class_org_unit_id: string;
   unit_code: string;
   class_name: string;
