@@ -107,6 +107,15 @@ let detailSequence = 0;
 
 const editorVisible = ref(false);
 const editingId = ref("");
+const meetingSessions = ref<ManagedEvent[]>([]);
+const meetingTimeFields = [
+  ["checkin_start_at", "签到开放"],
+  ["scheduled_start_at", "正式开始"],
+  ["checkin_end_at", "签到截止"],
+  ["scheduled_end_at", "正式结束"]
+] as const;
+const meetingTimes = ref<Record<string, Record<string, string>>>({});
+let meetingDate = "";
 const editorActivityTypes = computed(() =>
   activityTypes.filter(
     ([value]) => value !== "group_meeting" || Boolean(editingId.value)
@@ -390,6 +399,20 @@ async function loadRosterOptions() {
   orgOptions.value = result.centers || result.org_units || [];
   organizations.value = result.org_units || orgOptions.value;
 }
+function changeEditorDate() {
+  if (!meetingSessions.value.length) {
+    if (!editingId.value) setDateDefaults();
+    return;
+  }
+  if (!editor.event_date) return;
+  const offset = dayjs(editor.event_date).diff(dayjs(meetingDate), "day");
+  for (const times of Object.values(meetingTimes.value)) {
+    for (const [key, value] of Object.entries(times)) {
+      if (value) times[key] = dayjs(value).add(offset, "day").format("YYYY-MM-DDTHH:mm");
+    }
+  }
+  meetingDate = editor.event_date;
+}
 function setDateDefaults() {
   if (!editor.event_date) return;
   editor.checkin_start_at = `${editor.event_date}T00:00`;
@@ -434,6 +457,20 @@ async function openEditor(item?: ManagedEvent) {
     scheduled_start_at: chinaLocalDateTime(item?.scheduled_start_at),
     scheduled_end_at: chinaLocalDateTime(item?.scheduled_end_at)
   });
+  meetingSessions.value = item?.activity_type === "class_meeting" && item.event_group_id
+    ? selected.value?.sessions || []
+    : [];
+  if (item?.activity_type === "class_meeting" && item.event_group_id && !meetingSessions.value.length) {
+    ElMessage.error("班会场次尚未加载，请刷新后再编辑");
+    return;
+  }
+  meetingDate = editor.event_date;
+  meetingTimes.value = Object.fromEntries(meetingSessions.value.map(session => [
+    session.event_id,
+    Object.fromEntries(meetingTimeFields.map(([field]) => [
+      field, chinaLocalDateTime(session[field])
+    ]))
+  ]));
   if (!item) setDateDefaults();
   editorVisible.value = true;
   await perform(async () => {
@@ -533,7 +570,14 @@ async function saveEditor() {
       throw new Error("小组学习会请由辅导员在学习会入口安排");
     let operation: AttendanceManagementOperation;
     let payload: Record<string, any>;
-    if (!editingId.value && editor.activity_type === "class_meeting") {
+    if (meetingSessions.value.length) {
+      operation = "event_update";
+      payload = {
+        event_id: editingId.value,
+        event_date: editor.event_date,
+        meeting_times: meetingTimes.value
+      };
+    } else if (!editingId.value && editor.activity_type === "class_meeting") {
       if (rosterSource.value !== "ops_roster" || !rosterMembers.value.length)
         throw new Error("请先读取当前班级的可信组织名单");
       if (!buildRosterQuality(rosterMembers.value).passed)
@@ -1214,7 +1258,8 @@ onUnmounted(() => {
               v-if="permission('update')"
               :disabled="busy"
               @click="openEditor(currentEvent)"
-              >编辑当前场次</el-button
+              >{{ currentEvent?.activity_type === 'class_meeting' && currentEvent?.event_group_id
+                ? '编辑整场班会时间' : '编辑当前场次' }}</el-button
             >
             <el-button
               v-if="
@@ -1533,7 +1578,7 @@ onUnmounted(() => {
 
     <el-dialog
       v-model="editorVisible"
-      :title="editingId ? '编辑当前签到场次' : '创建活动'"
+      :title="meetingSessions.length ? '编辑整场班会时间' : editingId ? '编辑当前签到场次' : '创建活动'"
       width="min(920px, 96vw)"
       top="5vh"
       body-class="attendance-activity-editor-body"
@@ -1541,6 +1586,7 @@ onUnmounted(() => {
     >
       <el-form label-position="top" class="editor-grid">
         <el-form-item
+          v-if="!meetingSessions.length"
           :label="
             automaticClassName ? '活动名称（自动生成）' : '活动名称（必填）'
           "
@@ -1558,9 +1604,9 @@ onUnmounted(() => {
           ><el-date-picker
             v-model="editor.event_date"
             value-format="YYYY-MM-DD"
-            @change="setDateDefaults"
+            @change="changeEditorDate"
         /></el-form-item>
-        <el-form-item label="活动类型"
+        <el-form-item v-if="!meetingSessions.length" label="活动类型"
           ><el-select
             v-model="editor.activity_type"
             :disabled="
@@ -1573,7 +1619,7 @@ onUnmounted(() => {
               :value="value"
               :label="label" /></el-select
         ></el-form-item>
-        <el-form-item label="所属组织 / 分中心（必填）"
+        <el-form-item v-if="!meetingSessions.length" label="所属组织 / 分中心（必填）"
           ><el-select v-model="regionId" filterable clearable :disabled="busy"
             ><el-option
               v-for="item in orgOptions"
@@ -1582,6 +1628,7 @@ onUnmounted(() => {
               :label="item.path || item.name" /></el-select
         ></el-form-item>
         <el-form-item
+          v-if="!meetingSessions.length"
           :label="
             editor.activity_type === 'group_meeting'
               ? '所属小组'
@@ -1610,7 +1657,27 @@ onUnmounted(() => {
               " /></el-select
         ></el-form-item>
       </el-form>
-      <template v-if="!editingId && editor.activity_type === 'class_meeting'">
+      <template v-if="meetingSessions.length">
+        <div v-for="session in meetingSessions" :key="session.event_id" class="session-editor">
+          <h3>{{ session.session_name || session.name }}</h3>
+          <el-form inline label-position="top">
+            <el-form-item
+              v-for="[field, label] in meetingTimeFields.filter(([key]) =>
+                session.session_code !== 'KONPA' || key.startsWith('scheduled_')
+              )"
+              :key="field"
+              :label="label"
+            >
+              <el-date-picker
+                v-model="meetingTimes[session.event_id][field]"
+                type="datetime"
+                value-format="YYYY-MM-DDTHH:mm"
+              />
+            </el-form-item>
+          </el-form>
+        </div>
+      </template>
+      <template v-else-if="!editingId && editor.activity_type === 'class_meeting'">
         <el-alert
           title="统一创建一场班级学习会，关联上午、下午签到与空巴出席记录。空巴时段用于出席统计、计分及确认截止时间；名单从所选班级读取。"
           type="info"
