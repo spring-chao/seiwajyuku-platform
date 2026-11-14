@@ -1413,6 +1413,8 @@ onUnmounted(() => {
                 attendanceGroupLabel(row, currentEvent?.activity_type)
               }}</template></el-table-column
             >
+            <el-table-column prop="company" label="公司" min-width="130" />
+            <el-table-column prop="dinner_table_num" label="餐桌号" width="90" />
             <el-table-column label="状态" width="100"
               ><template #default="{ row }"
                 ><el-tag
