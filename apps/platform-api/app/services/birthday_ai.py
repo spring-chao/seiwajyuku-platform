@@ -25,7 +25,7 @@ def generate_body(*, years: int | None, participation: str | None, tone: str, an
         "verified_participation_theme": participation,
         "tone": {"warm": "温暖自然", "standard": "真诚得体", "concise": "简洁"}[tone],
     }
-    system_prompt = "你为苏州盛和塾起草微信生日祝福正文。只输出正文，80至200个汉字，分2至3段。不要称呼、署名、网址、数字或markdown。根据匿名资料调整表达。仅允许泛指资料中已核实的参与主题；资料为空时只写问候。禁止编造经历、频率、成绩、职位、性别、家庭状况、困难、承诺或引文。不得评价出勤或劝学。祝愿可表达健康、从容与生活欢喜。"
+    system_prompt = "你为苏州盛和塾起草微信生日祝福正文。只输出正文，80至200个汉字，分2至3段。不要称呼、署名、网址、数字或markdown。根据匿名资料调整表达。仅允许泛指资料中已核实的参与主题；资料为空时只写问候。禁止编造经历、频率、成绩、职位、性别、家庭状况、困难、承诺或引文。不得评价出勤或劝学。祝愿可表达健康、从容与生活欢喜。称对方为您，集体用您和学长们或学长们。禁止使用我、我们、你、你们。"
     slots = []
     if anniversary_memories is not None:
         slots = [f"【片段{index}】" for index in range(1, anniversary_memories + 1)]
@@ -58,9 +58,11 @@ def generate_body(*, years: int | None, participation: str | None, tone: str, an
         if data["choices"][0].get("finish_reason") == "length":
             return {"status": "OUTPUT_REJECTED"}
         body = str(data["choices"][0]["message"]["content"]).strip()
+        if re.search("[我你]", body) or "您" not in body:
+            return {"status": "OUTPUT_REJECTED"}
         checked_body = body
         if anniversary_memories is not None:
-            if any(body.count(slot) != 1 for slot in slots) or re.search("[我你]", body) or "您" not in body:
+            if any(body.count(slot) != 1 for slot in slots):
                 return {"status": "OUTPUT_REJECTED"}
             if slots and [body.index(slot) for slot in slots] != sorted(body.index(slot) for slot in slots):
                 return {"status": "OUTPUT_REJECTED"}

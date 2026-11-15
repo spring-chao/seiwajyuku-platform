@@ -84,7 +84,7 @@ def generate_anniversary_draft(member_id: int, actor: dict) -> dict:
             title = memory["title"]
             if re.search("[我你]", title):
                 title = _participation_phrase([memory])
-            body = body.replace(f"【片段{index}】", f"{memory['occurred_on']}的{title}")
+            body = body.replace(f"【片段{index}】", title)
         draft = f"{member_salutation(member['name'])}，入塾{years}周年快乐！\n\n{body}\n\n——苏州盛和塾"
     with transaction() as connection:
         write_audit(
