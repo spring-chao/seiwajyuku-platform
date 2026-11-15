@@ -47,7 +47,7 @@ def test_anniversary_draft_inserts_verified_memories_locally(monkeypatch):
     })
     monkeypatch.setattr(anniversary_care, "accessible_org_ids", lambda _: {"org-1"})
     monkeypatch.setattr(anniversary_care, "verified_member_memories", lambda *_, **__: [
-        {"id": "1", "occurred_on": "2025-04-03", "title": "春季学习会", "activity_type": "CLASS_MEETING"},
+        {"id": "1", "occurred_on": "2026-04-03", "title": "春季学习会", "activity_type": "CLASS_MEETING"},
         {"id": "2", "occurred_on": "2022-04-03", "title": "入塾前活动", "activity_type": "COURSE"},
     ])
     monkeypatch.setattr(anniversary_care, "transaction", lambda: nullcontext(None))
@@ -61,9 +61,29 @@ def test_anniversary_draft_inserts_verified_memories_locally(monkeypatch):
     actor = {"id": 1, "permissions": ["members:detail_view", "members:read"]}
     result = anniversary_care.generate_anniversary_draft(42, actor)
     assert "入塾3周年" in result["draft"]
-    assert "2025-04-03的春季学习会" in result["draft"]
+    assert "2026-04-03的春季学习会" in result["draft"]
     assert "入塾前活动" not in result["draft"]
+    assert result["memories"][0]["period"] == "中期"
 
     monkeypatch.setattr(anniversary_care, "accessible_org_ids", lambda _: set())
     with pytest.raises(PermissionError):
         anniversary_care.generate_anniversary_draft(42, actor)
+
+
+def test_review_chooses_one_event_per_period(monkeypatch):
+    def memories(_member, *, limit, since, as_of):
+        assert limit is None and since == date(2025, 11, 15) and as_of == date(2026, 11, 14)
+        return [
+            {"occurred_on": "2026-11-10"},
+            {"occurred_on": "2026-11-09"},
+            {"occurred_on": "2026-11-08"},
+            {"occurred_on": "2026-05-02"},
+            {"occurred_on": "2026-02-01"},
+            {"occurred_on": "2025-10-10"},
+        ]
+
+    monkeypatch.setattr(anniversary_care, "verified_member_memories", memories)
+    selected = anniversary_care._memories_by_period(42, date(2023, 11, 15), date(2026, 11, 15))
+    assert [(item["period"], item["occurred_on"]) for item in selected] == [
+        ("上期", "2026-02-01"), ("中期", "2026-05-02"), ("下期", "2026-11-10")
+    ]

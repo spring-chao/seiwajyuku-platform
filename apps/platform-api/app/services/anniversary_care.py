@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from calendar import monthrange
+from datetime import date, timedelta
 
 from app.core.business_time import business_today, calendar_date
 from app.db import fetch_all, fetch_one, transaction
@@ -15,12 +16,31 @@ from app.services.member_memories import verified_member_memories
 from app.services.members import resolve_member_scope
 
 
-def _anniversary(joined, today):
+def _anniversary_date(joined: date, year: int) -> date:
+    day = min(joined.day, monthrange(year, joined.month)[1])
+    return joined.replace(year=year, day=day)
+
+
+def _anniversary(joined: date | None, today: date) -> int | None:
     if not joined or joined.year >= today.year:
         return None
-    day = min(joined.day, monthrange(today.year, joined.month)[1])
-    due = joined.replace(year=today.year, day=day)
-    return today.year - joined.year if due == today else None
+    return today.year - joined.year if _anniversary_date(joined, today.year) == today else None
+
+
+def _memories_by_period(member_id: int, joined: date, today: date) -> list[dict]:
+    start = _anniversary_date(joined, today.year - 1)
+    days = (today - start).days
+    boundaries = [start + timedelta(days=days * step // 3) for step in range(4)]
+    eligible = verified_member_memories(member_id, limit=None, since=start, as_of=today - timedelta(days=1))
+    selected = []
+    for label, lower, upper in zip(("上期", "中期", "下期"), boundaries, boundaries[1:]):
+        memory = next(
+            (entry for entry in eligible if lower.isoformat() <= entry["occurred_on"] < upper.isoformat()),
+            None,
+        )
+        if memory:
+            selected.append({**memory, "period": label})
+    return selected
 
 
 def list_anniversary_care(actor_user_id: int) -> dict:
@@ -50,12 +70,7 @@ def generate_anniversary_draft(member_id: int, actor: dict) -> dict:
     years = _anniversary(joined, today)
     if not years:
         raise ValueError("今日没有该学长的入塾周年关怀")
-    memories = verified_member_memories(member_id, as_of=today) if "members:read" in actor["permissions"] else []
-    memories = sorted(
-        (entry for entry in memories if entry["occurred_on"] >= joined.isoformat()),
-        key=lambda entry: entry["occurred_on"],
-        reverse=True,
-    )[:3]
+    memories = _memories_by_period(member_id, joined, today) if "members:read" in actor["permissions"] else []
     ai = generate_body(
         years=years,
         participation=_participation_phrase(memories) if memories else None,

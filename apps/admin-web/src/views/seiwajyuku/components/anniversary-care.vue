@@ -13,7 +13,7 @@ type Anniversary = {
 
 type Draft = {
   draft: string;
-  memories: { id: string; title: string; occurred_on: string }[];
+  memories: { id: string; title: string; occurred_on: string; period: string }[];
   generation_status: string;
 };
 
@@ -123,7 +123,7 @@ onMounted(load);
           <h3>过往点滴</h3>
           <ul v-if="result.memories.length">
             <li v-for="memory in result.memories" :key="memory.id">
-              {{ memory.occurred_on }} · {{ memory.title }}
+              {{ memory.period }} · {{ memory.occurred_on }} · {{ memory.title }}
             </li>
           </ul>
           <p v-else>暂无可用于回顾的已核实参与记录。</p>

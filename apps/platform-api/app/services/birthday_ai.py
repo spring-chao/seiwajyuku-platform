@@ -33,7 +33,7 @@ def generate_body(*, years: int | None, participation: str | None, tone: str, an
         system_prompt = (
             "为苏州盛和塾写入塾周年关怀微信正文，温暖自然，分两至三段。"
             "回顾与学长们同行的点滴，并自然衔接祝愿。每个片段占位符代表一次真实参与，"
-            "须原样各使用一次，接在回望或曾参与等能够容纳活动名称的表达后。"
+            "须按编号顺序原样各使用一次，接在回望或曾参与等能够容纳活动名称的表达后。"
             "没有片段时，只写入塾同行与祝愿。禁止补写具体经过、人物、场景、频率、感受或成绩。"
             "称对方为您，集体用您和学长们或学长们。禁止使用我、我们、你、你们。"
             "只输出正文，无称呼、署名、网址或 Markdown，除占位符外不写数字。"
@@ -61,6 +61,8 @@ def generate_body(*, years: int | None, participation: str | None, tone: str, an
         checked_body = body
         if anniversary_memories is not None:
             if any(body.count(slot) != 1 for slot in slots) or re.search("[我你]", body) or "您" not in body:
+                return {"status": "OUTPUT_REJECTED"}
+            if slots and [body.index(slot) for slot in slots] != sorted(body.index(slot) for slot in slots):
                 return {"status": "OUTPUT_REJECTED"}
             if not slots and (
                 not body.startswith(("愿您", "祝您"))

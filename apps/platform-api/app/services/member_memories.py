@@ -106,8 +106,9 @@ def _memory_candidate(
 def verified_member_memories(
     member_id: int,
     *,
-    limit: int = 20,
+    limit: int | None = 20,
     as_of: date | None = None,
+    since: date | None = None,
 ) -> list[dict[str, Any]]:
     """Return deduplicated positive participation facts from verifiable sources."""
     current_date = as_of or business_today(datetime.now(UTC))
@@ -133,7 +134,7 @@ def verified_member_memories(
             evidence_status="PRESENT",
             as_of=current_date,
         )
-        if candidate:
+        if candidate and (since is None or candidate['occurred_on'] >= since.isoformat()):
             candidates.append(candidate)
 
     legacy_rows = fetch_all(
@@ -153,7 +154,7 @@ def verified_member_memories(
             evidence_status=str(row["participation_status"]),
             as_of=current_date,
         )
-        if candidate:
+        if candidate and (since is None or candidate['occurred_on'] >= since.isoformat()):
             candidates.append(candidate)
 
     candidates.sort(
