@@ -38,6 +38,12 @@ def generate_body(*, years: int | None, participation: str | None, tone: str, an
             "称对方为您，集体用您和学长们或学长们。禁止使用我、我们、你、你们。"
             "只输出正文，无称呼、署名、网址或 Markdown，除占位符外不写数字。"
         )
+        if not slots:
+            system_prompt = (
+                "为苏州盛和塾写入塾周年的祝愿正文。没有核实的经历，全文只用以愿您、"
+                "祝您或愿您和学长们开头的祝愿句，写健康、工作或生活方面的祝福。"
+                "不用称呼、署名、网址、数字、我、我们、你、你们，也不要回顾任何活动。"
+            )
     try:
         response = httpx.post(
             f"https://{env_id}.api.tcloudbasegateway.com/v1/ai/cloudbase/chat/completions",
@@ -55,6 +61,11 @@ def generate_body(*, years: int | None, participation: str | None, tone: str, an
         checked_body = body
         if anniversary_memories is not None:
             if any(body.count(slot) != 1 for slot in slots) or re.search("[我你]", body) or "您" not in body:
+                return {"status": "OUTPUT_REJECTED"}
+            if not slots and (
+                not body.startswith(("愿您", "祝您"))
+                or re.search("曾|过去|回顾|回望|每次|每一次|活动|共修|参访|学习会", body)
+            ):
                 return {"status": "OUTPUT_REJECTED"}
             for slot in slots:
                 checked_body = checked_body.replace(slot, "")
