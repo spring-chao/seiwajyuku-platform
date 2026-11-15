@@ -8,7 +8,7 @@ import re
 import httpx
 
 
-def generate_body(*, years: int | None, participation: str | None, tone: str) -> dict:
+def generate_body(*, years: int | None, participation: str | None, tone: str, anniversary_memories: int | None = None) -> dict:
     enabled = os.getenv("BIRTHDAY_AI_ENABLED", "false").lower() == "true"
     env_id = os.getenv("CLOUDBASE_AI_ENV_ID", "")
     key = os.getenv("CLOUDBASE_AI_API_KEY", "")
@@ -25,12 +25,31 @@ def generate_body(*, years: int | None, participation: str | None, tone: str) ->
         "verified_participation_theme": participation,
         "tone": {"warm": "温暖自然", "standard": "真诚得体", "concise": "简洁"}[tone],
     }
+    system_prompt = "你为苏州盛和塾起草微信生日祝福正文。只输出正文，80至200个汉字，分2至3段。不要称呼、署名、网址、数字或markdown。根据匿名资料调整表达。仅允许泛指资料中已核实的参与主题；资料为空时只写问候。禁止编造经历、频率、成绩、职位、性别、家庭状况、困难、承诺或引文。不得评价出勤或劝学。祝愿可表达健康、从容与生活欢喜。"
+    slots = []
+    if anniversary_memories is not None:
+        slots = [f"【片段{index}】" for index in range(1, anniversary_memories + 1)]
+        prompt = {"anniversary_year": years, "verified_participation_theme": participation, "memory_slots": slots}
+        system_prompt = (
+            "为苏州盛和塾写入塾周年关怀微信正文，温暖自然，分两至三段。"
+            "回顾与学长们同行的点滴，并自然衔接祝愿。每个片段占位符代表一次真实参与，"
+            "须按编号顺序原样各使用一次，接在回望或曾参与等能够容纳活动名称的表达后。"
+            "没有片段时，只写入塾同行与祝愿。禁止补写具体经过、人物、场景、频率、感受或成绩。"
+            "称对方为您，集体用您和学长们或学长们。禁止使用我、我们、你、你们。"
+            "只输出正文，无称呼、署名、网址或 Markdown，除占位符外不写数字。"
+        )
+        if not slots:
+            system_prompt = (
+                "为苏州盛和塾写入塾周年的祝愿正文。没有核实的经历，全文只用以愿您、"
+                "祝您或愿您和学长们开头的祝愿句，写健康、工作或生活方面的祝福。"
+                "不用称呼、署名、网址、数字、我、我们、你、你们，也不要回顾任何活动。"
+            )
     try:
         response = httpx.post(
             f"https://{env_id}.api.tcloudbasegateway.com/v1/ai/cloudbase/chat/completions",
             headers={"Authorization": f"Bearer {key}"},
             json={"model": model, "max_tokens": 480, "thinking": {"type": "disabled"}, "messages": [
-                {"role": "system", "content": "你为苏州盛和塾起草微信生日祝福正文。只输出正文，80至200个汉字，分2至3段。不要称呼、署名、网址、数字或markdown。根据匿名资料调整表达。仅允许泛指资料中已核实的参与主题；资料为空时只写问候。禁止编造经历、频率、成绩、职位、性别、家庭状况、困难、承诺或引文。不得评价出勤或劝学。祝愿可表达健康、从容与生活欢喜。"},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
             ]}, timeout=httpx.Timeout(12.0, connect=4.0), follow_redirects=False,
         )
@@ -39,7 +58,20 @@ def generate_body(*, years: int | None, participation: str | None, tone: str) ->
         if data["choices"][0].get("finish_reason") == "length":
             return {"status": "OUTPUT_REJECTED"}
         body = str(data["choices"][0]["message"]["content"]).strip()
-        if not 30 <= len(body) <= 500 or re.search(r"[0-9]|https?://|<|>|```|——", body):
+        checked_body = body
+        if anniversary_memories is not None:
+            if any(body.count(slot) != 1 for slot in slots) or re.search("[我你]", body) or "您" not in body:
+                return {"status": "OUTPUT_REJECTED"}
+            if slots and [body.index(slot) for slot in slots] != sorted(body.index(slot) for slot in slots):
+                return {"status": "OUTPUT_REJECTED"}
+            if not slots and (
+                not body.startswith(("愿您", "祝您"))
+                or re.search("曾|过去|回顾|回望|每次|每一次|活动|共修|参访|学习会", body)
+            ):
+                return {"status": "OUTPUT_REJECTED"}
+            for slot in slots:
+                checked_body = checked_body.replace(slot, "")
+        if not 30 <= len(body) <= 500 or re.search(r"[0-9]|https?://|<|>|```|——", checked_body):
             return {"status": "OUTPUT_REJECTED"}
         usage = data.get("usage") or {}
         return {"status": "GENERATED", "body": body, "model": model,

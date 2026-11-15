@@ -8,6 +8,7 @@ import {
   ref
 } from "vue";
 import dayjs from "dayjs";
+import AnniversaryCare from "./components/anniversary-care.vue";
 import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
 import {
@@ -70,6 +71,7 @@ type ManagementExceptionFilter =
 const props = withDefaults(defineProps<{ mode?: "actions" | "data" }>(), {
   mode: "actions"
 });
+const canViewAnniversary = computed(() => useUserStoreHook().permissions.includes("members:detail_view"));
 const isDataView = computed(() => props.mode === "data");
 const dataSection = ref("overview");
 const dataSections = [
@@ -1673,6 +1675,7 @@ function changePlan() {
       </template>
     </section>
 
+    <AnniversaryCare v-if="!isDataView && canViewAnniversary" class="content-card" />
     <nav v-if="isDataView" class="data-navigation" aria-label="数据概览分区">
       <button
         v-for="section in dataSections"
