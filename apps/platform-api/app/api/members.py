@@ -7,6 +7,7 @@ from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app.api.auth import require_permission
+from app.services.anniversary_care import generate_anniversary_draft, list_anniversary_care
 from app.services.birthday_calendar import LUNAR_BIRTHDAY_PATTERN, lunar_month_options
 from app.services.members import (
     create_member,
@@ -511,6 +512,24 @@ def member_timeline(
 ) -> dict:
     try:
         data = get_member_timeline(member_id, user["id"], limit=limit)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/members/anniversary-care/today")
+def anniversary_care_today(user: dict = Depends(require_permission("members:detail_view"))) -> dict:
+    return {"success": True, "data": list_anniversary_care(user["id"])}
+
+
+@router.post("/members/{member_id}/anniversary-greeting-draft")
+def anniversary_greeting_draft(
+    member_id: int, user: dict = Depends(require_permission("members:detail_view"))
+) -> dict:
+    try:
+        data = generate_anniversary_draft(member_id, user)
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:
