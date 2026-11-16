@@ -1,1 +1,67 @@
-.section-card button { margin-top: 16rpx; }
+.konpa-page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 28rpx 28rpx calc(44rpx + env(safe-area-inset-bottom));
+  background: #f7f4f3;
+  color: #282222;
+  font-size: 28rpx;
+  line-height: 1.5;
+}
+.konpa-intro { margin: 8rpx 4rpx 24rpx; }
+.konpa-heading { font-size: 34rpx; font-weight: 700; }
+.konpa-muted { color: #6c6060; font-size: 25rpx; }
+.konpa-event, .konpa-person, .konpa-notice {
+  padding: 24rpx;
+  margin-bottom: 18rpx;
+  border: 1rpx solid #e9dfdf;
+  border-radius: 22rpx;
+  background: #fff;
+}
+.konpa-event, .konpa-toolbar, .konpa-person-head, .konpa-summary-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+.konpa-event-active { background: #f6e7e9; }
+.konpa-event-info { min-width: 0; }
+.konpa-date { font-size: 24rpx; font-weight: 600; color: #8b2b3b; }
+.konpa-event-name { margin-top: 6rpx; font-size: 30rpx; font-weight: 600; }
+.konpa-arrow { flex: none; color: #8b2b3b; font-size: 42rpx; }
+.konpa-summary {
+  margin-bottom: 20rpx;
+  padding: 28rpx 30rpx;
+  border-radius: 26rpx;
+  background: linear-gradient(135deg, #761c2e, #4e1725);
+  color: #fff;
+}
+.konpa-summary-label { font-size: 30rpx; font-weight: 600; }
+.konpa-metric { display: flex; align-items: baseline; gap: 10rpx; margin: 6rpx 0 24rpx; }
+.konpa-number { font-size: 100rpx; font-weight: 750; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.konpa-unit { font-size: 32rpx; }
+.konpa-summary-meta { border-top: 1rpx solid rgba(255,255,255,.25); padding: 13rpx 0 5rpx; flex-wrap: wrap; font-size: 24rpx; }
+.konpa-toolbar { margin: 20rpx 2rpx 12rpx; }
+.konpa-context { display: flex; flex-direction: column; gap: 12rpx; margin-bottom: 20rpx; }
+.konpa-roster-title { font-size: 30rpx; font-weight: 650; overflow-wrap: anywhere; }
+.konpa-group { font-size: 24rpx; font-weight: 400; color: #6c6060; }
+.konpa-status { flex: none; padding: 3rpx 13rpx; border-radius: 30rpx; background: #f5eeea; color: #694640; font-size: 22rpx; }
+.konpa-confirmed { background: #e7f3ea; color: #1d643a; }
+.konpa-choices { display: flex; flex-wrap: wrap; gap: 12rpx 28rpx; margin-top: 14rpx; color: #6c6060; font-size: 25rpx; }
+.konpa-choices text { margin-left: 5rpx; color: #282222; font-weight: 600; }
+.konpa-actions { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 18rpx; }
+.konpa-actions .konpa-button { flex: 1 1 230rpx; }
+.konpa-actions .konpa-final { flex-basis: 100%; }
+.konpa-button {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 9rpx 18rpx;
+  min-height: 66rpx;
+  border-radius: 13rpx;
+  font-size: 25rpx;
+  font-weight: 600;
+  line-height: 44rpx;
+}
+.konpa-button::after { border: none; }
+.konpa-outline { border: 1rpx solid #dfc9cd; background: #fff; color: #7b2638; }
+.konpa-primary { background: #761c2e; color: #fff; }
+.konpa-error { color: #9e2337; }
