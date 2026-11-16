@@ -13,7 +13,7 @@
     <view class="section-title">我的入口</view>
     <view wx:if="{{member || isEmployee}}" class="identity-card">
       <view class="identity-name">{{member ? member.name_masked : (identities.operations.display_name || '工作人员')}}</view>
-      <view wx:if="{{displayRole}}" class="identity-role">{{displayRole}}</view>
+      <view class="identity-role">{{member && isEmployee ? "学长 · 工作人员" : member ? "学长" : "工作人员"}}<text wx:if="{{displayRole}}"> · {{displayRole}}</text></view>
       <view class="identity-copy">{{displayScope || '暂未关联班级 · 暂未关联小组'}}</view>
       <view wx:if="{{canManageStudyMeeting}}" class="identity-copy">可从“志工服务”进入小组学习会登记。</view>
       <view wx:elif="{{isVolunteer}}" class="identity-copy">{{serviceMessage}}</view>

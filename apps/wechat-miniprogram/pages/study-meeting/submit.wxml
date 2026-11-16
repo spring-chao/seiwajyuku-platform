@@ -8,6 +8,12 @@
       <view class="hero-copy">第 {{assignment.current_cycle.learning_cycle_index}} 学习周期 · 参加 {{totalCount}} 人</view>
     </view>
     <view class="section-card">
+      <view class="section-title">召开日期</view>
+      <picker mode="date" value="{{meetingDate}}" end="{{today}}" disabled="{{submitting || assignment.previous_submission}}" bindchange="changeMeetingDate">
+        <view class="section-hint">{{meetingDate}}{{assignment.previous_submission ? "" : " · 选择日期 ›"}}</view>
+      </picker>
+    </view>
+    <view class="section-card">
       <view class="section-title">本期小组学习会</view>
       <view class="section-hint">第 {{assignment.current_cycle.learning_cycle_index}} 学习周期 · 空巴为本次流程最后一个环节。</view>
       <view wx:for="{{meetingSteps}}" wx:key="stepNo" class="flow-row">

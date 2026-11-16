@@ -66,7 +66,7 @@ Page({
 
   onUnload() { this.onHide(); },
 
-  async loadHome() {
+  async loadHome(allowResume = true) {
     const version = this._homeLoadVersion = (this._homeLoadVersion || 0) + 1;
     let token = app.globalData.personSessionToken || app.globalData.memberSessionToken || "";
     const current = () => this._homeLoadVersion === version &&
@@ -78,6 +78,26 @@ Page({
       serviceMessage: "", displayRole: "", displayScope: "",
       bindingActionLabel: this.data.bindingActionLabel || "绑定我的身份"
     };
+    if (!token && allowResume && typeof wx.login === "function") {
+      try {
+        const login = await new Promise((resolve, reject) => wx.login({ success: resolve, fail: reject }));
+        if (!current()) return;
+        if (login.code) {
+          const resumed = await request("/api/v1/wechat/member-bindings/resume", {
+            method: "POST", data: { wx_login_code: login.code }
+          });
+          if (!current()) return;
+          if (resumed.data?.bound && resumed.data.session_token) {
+            app.setPersonSession(resumed.data.session_token);
+            return this.loadHome(false);
+          }
+        }
+      } catch {
+        if (!current()) return;
+        this.setData({ loading: false, identityState: "unknown", errorMessage: "暂时无法恢复微信登录，请重试。" });
+        return;
+      }
+    }
     if (token) {
       try {
         const me = await request("/api/v1/wechat/me", { auth: true });
@@ -107,12 +127,8 @@ Page({
           }
         } catch (error) {
           if (!current()) return;
-          if (error.statusCode === 401) {
-            clearLocalSession();
-            token = "";
-            next.identityState = "unbound";
-            next.member = null;
-          } else if (error.statusCode !== 403 && error.statusCode !== 404) {
+          if (error.statusCode === 401) throw error;
+          if (error.statusCode !== 403 && error.statusCode !== 404) {
             next.errorMessage = "志工服务暂时无法加载，请重试。";
           }
         }
@@ -123,13 +139,8 @@ Page({
             next.operationEntries = (workbench.data && workbench.data.entries) || [];
           } catch (error) {
             if (!current()) return;
-            if (error.statusCode === 401) {
-              clearLocalSession();
-              token = "";
-              next.identityState = "unbound";
-              next.member = null;
-              next.isEmployee = false;
-            } else if (error.statusCode !== 403 && error.statusCode !== 404) {
+            if (error.statusCode === 401) throw error;
+          if (error.statusCode !== 403 && error.statusCode !== 404) {
               next.errorMessage = "工作人员入口暂时无法加载，请重试。";
             }
           }
@@ -139,6 +150,7 @@ Page({
         if (error.statusCode === 401) {
           clearLocalSession();
           token = "";
+          if (allowResume) return this.loadHome();
           next.identityState = "unbound";
           next.member = null;
         } else {

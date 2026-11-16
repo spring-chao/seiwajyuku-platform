@@ -927,6 +927,13 @@ def revoke_member_binding(token: str) -> dict[str, Any]:
     return {"revoked": True}
 
 
+def resume_binding_by_wechat_code(code: str) -> dict[str, Any]:
+    """Issue a fresh session to the WeChat account that owns a verified binding."""
+    _require_binding_enabled()
+    token = resume_wechat_binding(exchange_wechat_code(code))
+    return {"bound": True, "session_token": token} if token else {"bound": False}
+
+
 def revoke_binding_by_wechat_code(code: str) -> dict[str, Any]:
     """Recover self-service unbinding when the cached app token is gone.
 
