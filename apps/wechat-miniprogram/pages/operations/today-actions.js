@@ -13,6 +13,7 @@ Page({
   data: {
     loading: true,
     pending: [],
+    anniversaries: [],
     completed: [],
     items: [],
     activeTab: "pending",
@@ -20,7 +21,7 @@ Page({
     errorMessage: ""
   },
   onShow() { showPrivatePage(this); this.load(); },
-  onHide() { hidePrivatePage(this, { loading: false, pending: [], completed: [], items: [], summary: {}, errorMessage: "" }); },
+  onHide() { hidePrivatePage(this, { loading: false, pending: [], anniversaries: [], completed: [], items: [], summary: {}, errorMessage: "" }); },
   onUnload() { this.onHide(); },
 
   showTab(event) {
@@ -40,6 +41,7 @@ Page({
       const completed = data.completed || [];
       this.setData({
         pending,
+        anniversaries: data.anniversaries || [],
         completed,
         items: this.data.activeTab === "completed" ? completed : pending,
         summary: data.summary || { pending_action_count: 0, completed_action_count: 0 }

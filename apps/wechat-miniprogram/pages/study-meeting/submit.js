@@ -10,12 +10,12 @@ const {
 } = require("../../utils/study-meeting");
 
 function localDateString() {
-  const now = new Date();
-  return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 Page({
   data: {
+    meetingDate: "", today: "",
     loading: true, submitting: false, choosingPhoto: false, assignment: null,
     meetingPlanReady: false, meetingPlanError: "", meetingSteps: [],
     learningContentResults: [], requiredContentCount: 0, completedRequiredCount: 0,
@@ -63,7 +63,9 @@ Page({
       const requiredContentCount = learningContentResults.filter(item => item.required).length;
       const completedRequiredCount = learningContentResults.filter(item => item.required && item.completed).length;
       const allRequiredContentConfirmed = requiredLearningContentConfirmed(learningContentResults);
-      this.setData({ assignment,
+      const today = localDateString();
+      this.setData({ assignment, today,
+        meetingDate: draft.meeting_date || assignment.previous_submission?.meeting_date || today,
         meetingPlanReady: Boolean(meetingPlan && hasCurrentCycle),
         meetingPlanError, meetingSteps: meetingPlan ? meetingPlan.steps : [],
         learningContentResults, requiredContentCount, completedRequiredCount,
@@ -76,6 +78,14 @@ Page({
     } catch (error) {
       if (current()) this.setData({ loading: false, errorMessage: error.message || "学习会信息加载失败" });
     }
+  },
+
+  changeMeetingDate(event) {
+    const meetingDate = event.detail.value;
+    const draft = app.globalData.studyMeetingDraft;
+    if (!draft || this.data.submitting) return;
+    draft.meeting_date = meetingDate;
+    this.setData({ meetingDate });
   },
 
   setLearningContentCompletion(event) {
@@ -201,7 +211,7 @@ Page({
     const draft = app.globalData.studyMeetingDraft || {};
     const payload = {
       group_org_unit_id: draft.group_org_unit_id,
-      meeting_date: this.data.assignment.previous_submission?.meeting_date || localDateString(),
+      meeting_date: this.data.meetingDate || localDateString(),
       member_ids: draft.member_ids || [], cross_group_member_ids: draft.cross_group_member_ids || [],
       learning_cycle_id: cycle.id,
       learning_content_results: serializeLearningContentResults(this.data.learningContentResults)

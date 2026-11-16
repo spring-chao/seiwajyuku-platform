@@ -15,6 +15,7 @@ from app.services.wechat_identity import (
     resolve_member_session,
     revoke_member_binding,
     revoke_binding_by_wechat_code,
+    resume_binding_by_wechat_code,
     verify_person_binding,
     verify_staff_binding,
     verify_member_binding,
@@ -349,6 +350,17 @@ def volunteer_class_attendance_detail(
 ):
     from app.services import volunteer_class_attendance as service
     return {"success": True, "data": _operation_call(service.snapshot, _volunteer_attendance_member(credentials), event_id)}
+
+
+@router.post("/member-bindings/resume")
+def resume_binding(payload: BindingRevokePayload) -> dict:
+    try:
+        data = resume_binding_by_wechat_code(payload.wx_login_code)
+    except WeChatProviderError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except WeChatIdentityError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    return {"success": True, "data": data}
 
 
 @router.post("/member-bindings/revoke")

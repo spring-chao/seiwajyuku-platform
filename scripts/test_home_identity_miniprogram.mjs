@@ -23,12 +23,15 @@ const assignment = position_name => ({
   capabilities: ['STUDY_MEETING_MANAGE']
 });
 
-function harness({ bound = false, assignments = [], meError, serviceError, meResponse, serviceResponse } = {}) {
+function harness({ bound = false, resumed = false, assignments = [], meError, serviceError, meResponse, serviceResponse } = {}) {
   const calls = [];
   const app = {
     globalData: {
       personSessionToken: bound ? 'synthetic-session' : '',
       memberSessionToken: bound ? 'synthetic-session' : ''
+    },
+    setPersonSession(token) {
+      this.globalData.personSessionToken = this.globalData.memberSessionToken = token;
     },
     clearPersonSession() {
       this.globalData.personSessionToken = '';
@@ -47,6 +50,7 @@ function harness({ bound = false, assignments = [], meError, serviceError, meRes
         ? serviceResponse()
         : { data: { is_volunteer: assignments.length > 0, roles: assignments } };
     }
+    if (path.endsWith('/resume')) return { data: resumed ? { bound: true, session_token: 'renewed-session' } : { bound: false } };
     if (path.endsWith('/revoke')) return { success: true, data: { revoked: true } };
     throw new Error(`unexpected request: ${path}`);
   };
@@ -75,10 +79,10 @@ test('unbound home exposes binding without loading or opening an enrollment entr
   assert.equal(bindingVisible(page.data), true);
   assert.equal(visible(studyCondition, page.data), false);
   assert.equal(page.data.errorMessage, '');
-  assert.deepEqual(calls, []);
+  assert.deepEqual(calls, ['/api/v1/wechat/member-bindings/resume']);
   assert.doesNotMatch(template, /enrollment-card|openEnrollment|新学长入塾申请|填写申请/);
   page.openBinding();
-  assert.deepEqual(calls, ['/pages/identity/bind']);
+  assert.deepEqual(calls, ['/api/v1/wechat/member-bindings/resume', '/pages/identity/bind']);
 });
 
 for (const label of ['组长', '辅导员']) {
@@ -162,4 +166,12 @@ test('request helper carries HTTP status without leaking headers', async () => {
   });
   exported = module.exports;
   await assert.rejects(exported.request('/api/v1/wechat/me'), error => error.statusCode === 401 && error.message === '需要重新绑定');
+});
+
+test('existing WeChat binding restores the home session without re-entering identity', async () => {
+  const { page, calls, app } = harness({ resumed: true });
+  await page.loadHome();
+  assert.equal(page.data.identityState, 'bound');
+  assert.equal(app.globalData.personSessionToken, 'renewed-session');
+  assert.equal(calls.filter(path => path.endsWith('/resume')).length, 1);
 });

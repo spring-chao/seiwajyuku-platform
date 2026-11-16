@@ -334,7 +334,16 @@ def operation_workbench(session: dict[str, Any]) -> dict[str, Any]:
 
 
 def today_actions(session: dict[str, Any]) -> dict[str, Any]:
-    return _today_actions_for_principal(_principal(session))
+    principal = _principal(session)
+    result = _today_actions_for_principal(principal)
+    permission = "members:detail_view"
+    if permission in principal["permissions"]:
+        from app.services.anniversary_care import list_anniversary_care
+
+        scoped = _source_principal(principal, permission)
+        with mobile_iam_context(scoped, permission):
+            result["anniversaries"] = list_anniversary_care(int(principal["user_id"]))["items"]
+    return result
 
 
 def _renewal_rows_for_principal(
