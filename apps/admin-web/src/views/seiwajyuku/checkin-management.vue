@@ -64,6 +64,22 @@ const personFilter = ref("all");
 const personKeyword = ref("");
 const autoRefresh = ref(true);
 const konpaReviews = ref<Record<string, any>>({});
+const konpaSummary = ref<EngineResult | null>(null);
+const konpaLoadError = ref("");
+const konpaChoiceFields = [
+  { key: "morning_choice", label: "上午意向" },
+  { key: "afternoon_choice", label: "下午意向" }
+] as const;
+const konpaIntentRows = computed(() => Object.values(konpaReviews.value));
+const konpaIntentCounts = computed(() => konpaChoiceFields.map(({ key, label }) => ({
+  label,
+  attending: konpaIntentRows.value.filter(row => row[key] === true).length,
+  absent: konpaIntentRows.value.filter(row => row[key] === false).length,
+  unanswered: konpaIntentRows.value.filter(row => typeof row[key] !== "boolean").length
+})));
+function konpaChoiceLabel(choice: unknown) {
+  return choice === true ? "参加" : choice === false ? "不参加" : "未选择";
+}
 const refreshClock = ref(Date.now());
 const sessions = computed(() =>
   selected.value?.sessions?.length
@@ -76,6 +92,9 @@ const currentEvent = computed(
   () =>
     sessions.value.find(item => item.event_id === activeEventId.value) || null
 );
+const konpaSession = computed(() => sessions.value.find(
+  session => session.session_code === "KONPA" && session.lifecycle_status === "CONFIRMED"
+));
 const eventEnded = computed(() => attendanceEventEnded(sessions.value, refreshClock.value));
 const isKonpa = computed(() => currentEvent.value?.session_code === "KONPA");
 watch(eventEnded, ended => { if (ended) autoRefresh.value = false; });
@@ -315,18 +334,23 @@ async function refreshDetail(quiet = false) {
   const sequence = ++detailSequence;
   detailLoading.value = true;
   try {
+    const konpaEventId = konpaSession.value?.event_id;
     const [summary, detail, review] = await Promise.all([
       manageAttendance("stats", { event_id: eventId }),
       manageAttendance("event_detail", { event_id: eventId }),
-      isKonpa.value && currentEvent.value?.lifecycle_status === "CONFIRMED"
-        ? manageAttendance("konpa_list", { event_id: eventId })
+      konpaEventId
+        ? manageAttendance("konpa_list", { event_id: konpaEventId })
+            .then(data => ({ data, error: "" }))
+            .catch(error => ({ data: null, error: messageOf(error) }))
         : null
     ]);
     if (eventId !== activeEventId.value || sequence !== detailSequence) return;
     stats.value = summary;
     people.value = detail.rows || [];
+    konpaSummary.value = review?.data ?? null;
+    konpaLoadError.value = review?.error ?? "";
     konpaReviews.value = Object.fromEntries(
-      (review?.rows || []).map(row => [row.registration_id, row])
+      (review?.data?.rows || []).map(row => [row.registration_id, row])
     );
     if (detail.event && selected.value) {
       if (selected.value.sessions?.length) {
@@ -353,6 +377,8 @@ async function switchSession(eventId: string) {
   stats.value = null;
   people.value = [];
   konpaReviews.value = {};
+  konpaSummary.value = null;
+  konpaLoadError.value = "";
   // Finish the previous read before starting the next; stale results are discarded.
   detailLoading.value = false;
   await refreshDetail();
@@ -1345,6 +1371,36 @@ onUnmounted(() => {
               suffix="%"
             />
           </div>
+          <el-card v-if="konpaSession && (konpaSummary || konpaLoadError)" shadow="never" class="notice">
+            <template #header><strong>空巴参加意向</strong></template>
+            <el-alert
+              v-if="konpaLoadError"
+              title="暂时无法读取空巴意向，请刷新重试"
+              type="warning"
+              :closable="false"
+            />
+            <template v-else-if="konpaSummary">
+              <div class="summary">
+                <el-statistic title="最新预计参加" :value="konpaSummary.estimated_count" suffix="人" />
+                <el-statistic title="已确认参加" :value="konpaSummary.confirmed_count" suffix="人" />
+                <div v-for="counts in konpaIntentCounts" :key="counts.label">
+                  <el-statistic :title="counts.label + ' · 选择参加'" :value="counts.attending" suffix="人" />
+                  <div class="muted">不参加 {{ counts.absent }} 人 · 未选择 {{ counts.unanswered }} 人</div>
+                </div>
+              </div>
+              <el-collapse class="notice">
+                <el-collapse-item title="查看逐人上午、下午选择" name="konpa-intent">
+                  <el-table :data="konpaIntentRows" row-key="registration_id" max-height="420" empty-text="暂无空巴名单">
+                    <el-table-column prop="name" label="学长" min-width="110" />
+                    <el-table-column prop="group_name" label="小组" min-width="110" />
+                    <el-table-column v-for="field in konpaChoiceFields" :key="field.key" :label="field.label" min-width="110">
+                      <template #default="{ row }">{{ konpaChoiceLabel(row[field.key]) }}</template>
+                    </el-table-column>
+                  </el-table>
+                </el-collapse-item>
+              </el-collapse>
+            </template>
+          </el-card>
           <AttendanceParticipationSummary
             v-if="
               String(currentEvent?.activity_type || '').toLowerCase() ===

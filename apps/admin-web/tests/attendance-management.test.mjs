@@ -403,7 +403,7 @@ function harness(api = async () => ({ ok: true }), xlsx = XLSXModule) {
   });
   vm.runInContext(
     output +
-      "\nglobalThis.state = { selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, groupOptions, orgOptions, organizations, rosterOptions, rosterMembers, rosterSource, rosterVersion, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { eventName, sessionName, selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation, openEditor, confirmPerson, exportExcel };",
+      "\nglobalThis.state = { konpaSummary, konpaIntentCounts, konpaLoadError, selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, groupOptions, orgOptions, organizations, rosterOptions, rosterMembers, rosterSource, rosterVersion, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { eventName, sessionName, selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation, openEditor, confirmPerson, exportExcel };",
     context
   );
   return { state: context.state, actions: context.actions, calls, downloaded };
@@ -969,4 +969,34 @@ test("formal host-class teachers reconcile 26 students with 28 overall without i
   assert.equal(sheet.C4.v, 2);
   assert.equal(sheet.C5.v, 28);
   assert.equal(sheet.D5.v, 0.8);
+});
+
+test("morning signup management loads the evening roster and separates both Konpa choices", async () => {
+  const meeting = { event_id: "meeting", sessions: [
+    { event_id: "morning", session_code: "MORNING" },
+    { event_id: "evening", session_code: "KONPA", lifecycle_status: "CONFIRMED" }
+  ] };
+  const h = harness(async (operation) => {
+    if (operation === "konpa_list") return { estimated_count: 2, rows: [
+      { registration_id: "a", morning_choice: true, afternoon_choice: false },
+      { registration_id: "b", morning_choice: null, afternoon_choice: true },
+      { registration_id: "c", morning_choice: true, afternoon_choice: null }
+    ] };
+    return { rows: [] };
+  });
+  await h.actions.selectEvent(meeting);
+  assert.equal(h.calls.find(call => call.operation === "konpa_list").payload.event_id, "evening");
+  assert.equal(h.state.activeEventId.value, "morning");
+  assert.equal(h.state.konpaSummary.value.estimated_count, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.state.konpaIntentCounts.value)), [
+    { label: "上午意向", attending: 2, absent: 0, unanswered: 1 },
+    { label: "下午意向", attending: 1, absent: 1, unanswered: 1 }
+  ]);
+  const unavailable = harness(async operation => {
+    if (operation === "konpa_list") throw new Error("暂不可用");
+    return { rows: [{ registration_id: "morning-row" }] };
+  });
+  await unavailable.actions.selectEvent(meeting);
+  assert.equal(unavailable.state.people.value[0].registration_id, "morning-row");
+  assert.equal(unavailable.state.konpaLoadError.value, "暂不可用");
 });
