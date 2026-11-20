@@ -122,6 +122,15 @@ jobs:
             --build-arg APP_BUILD_ID="$GITHUB_RUN_ID" \
             --build-arg APP_IMAGE_DIGEST="unknown" \
             -t seiwajyuku-platform-api:ci .
+      - name: Verify packaged learning resources
+        run: |
+          docker run --rm seiwajyuku-platform-api:ci python -c '
+          from app.services.learning_resources import month_resources, resource_catalog
+          years = resource_catalog()["years"]
+          assert [len(year["months"]) for year in years] == [12, 12, 12]
+          assert sum(month["qrCount"] for year in years for month in year["months"]) == 68
+          assert month_resources(1, 1)["classQrs"][0]["qrData"].startswith("data:image/")
+          '
       - name: Verify OCI labels and runtime build info
         run: |
           set -euo pipefail

@@ -31,3 +31,8 @@ tests
 !data/learning-plans/group-meeting-source-inventory-2026.json
 !data/learning-plans/standard-3y-2026.1.review.json
 !data/learning-plans/class-learning-plan-migration-baseline-2026-09.json
+
+# Include the curated learning resource catalog for the admin and mini-program APIs.
+!apps/platform-api/app/data/
+apps/platform-api/app/data/**
+!apps/platform-api/app/data/learning_resources.json
