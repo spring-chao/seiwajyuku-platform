@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_permission
@@ -336,6 +336,21 @@ def retire_learning_plan_version(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": data}
+
+
+@router.get("/learning-resources")
+def admin_learning_resources(
+    response: Response,
+    year: int | None = Query(default=None, ge=1, le=3),
+    month: int | None = Query(default=None, ge=1, le=12),
+    user: dict = Depends(require_permission("plans:read")),
+) -> dict:
+    from app.services.learning_resources import month_resources, resource_catalog
+
+    if (year is None) != (month is None):
+        raise HTTPException(422, "请同时选择学习年度和月份")
+    response.headers["Cache-Control"] = "private, no-store"
+    return {"success": True, "data": month_resources(year, month) if year is not None else resource_catalog()}
 
 
 @router.get("/learning-plan-review")
