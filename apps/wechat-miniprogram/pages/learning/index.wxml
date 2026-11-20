@@ -78,5 +78,6 @@
     </view>
   </block>
 
+  <button wx:if="{{member}}" class="plain-button" bindtap="openResources">学习资源中心</button>
   <button class="plain-button home-button" bindtap="backHome">返回首页</button>
 </view>
