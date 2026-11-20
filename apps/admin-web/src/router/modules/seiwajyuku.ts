@@ -89,6 +89,16 @@ export default [
     },
     children: [
       {
+        path: "/operations/learning-resources",
+        name: "LearningResources",
+        component: () => import("@/views/seiwajyuku/learning-resources.vue"),
+        meta: {
+          title: "盛和塾学习资源中心",
+          icon: "ep/reading",
+          auths: ["plans:read"]
+        }
+      },
+      {
         path: "/operations/learning-plan-review",
         name: "LearningPlanReview",
         component: () => import("@/views/seiwajyuku/learning-plan-review.vue"),
