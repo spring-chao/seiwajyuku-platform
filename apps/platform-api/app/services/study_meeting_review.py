@@ -37,6 +37,44 @@ def _fingerprints(connection, ids: tuple[int, ...]) -> dict[int, str]:
             for sid, value in snapshots.items()}
 
 
+def _latest_reviews(connection, ids: tuple[int, ...]) -> dict[int, dict]:
+    placeholders = ",".join("?" for _ in ids)
+    audits = execute(connection,
+        "SELECT a.resource_id, a.actor_user_id, a.created_at, a.after_json, u.display_name AS reviewer_name "
+        "FROM audit_logs a LEFT JOIN app_users u ON u.id=a.actor_user_id "
+        "WHERE a.action='study_meeting.review_confirm' AND a.resource_type='study_meeting_session' "
+        f"AND a.result='SUCCESS' AND a.resource_id IN ({placeholders}) ORDER BY a.id DESC",
+        tuple(str(sid) for sid in ids)).fetchall()
+    latest = {}
+    for audit in audits:
+        latest.setdefault(int(audit["resource_id"]), dict(audit))
+    return latest
+
+
+def _is_confirmed(record, fingerprint, audit) -> bool:
+    return bool(audit and record["status"] == "SUBMITTED" and
+                json.loads(audit["after_json"] or "{}").get("fingerprint") == fingerprint)
+
+
+def prioritize_records_by_review(connection, rows, review_status=None):
+    pending, confirmed = [], []
+    for offset in range(0, len(rows), 200):
+        batch = rows[offset:offset + 200]
+        ids = tuple(int(row["id"]) for row in batch)
+        audits = _latest_reviews(connection, ids)
+        # Never-reviewed rows cannot be confirmed, so only fingerprint reviewed rows.
+        fingerprints = _fingerprints(connection, tuple(audits)) if audits else {}
+        for row in batch:
+            sid = int(row["id"])
+            target = confirmed if _is_confirmed(row, fingerprints.get(sid), audits.get(sid)) else pending
+            target.append(row)
+    if review_status == "CONFIRMED":
+        return confirmed
+    if review_status == "UNCONFIRMED":
+        return pending
+    return pending + confirmed
+
+
 def add_operation_metadata(connection, records: list[dict]) -> None:
     """Batch counts and verification reads; do not expose the underlying roster."""
     if not records:
@@ -53,16 +91,7 @@ def add_operation_metadata(connection, records: list[dict]) -> None:
         f"WHERE r.org_unit_id IN ({placeholders}) AND r.relation_type='STUDY_GROUP' "
         f"AND {effective_relation_sql('r')} "
         f"AND r.org_unit_id={CURRENT_GROUP_ID_SQL} GROUP BY r.org_unit_id", groups).fetchall()}
-    placeholders = ",".join("?" for _ in ids)
-    audits = execute(connection,
-        "SELECT a.resource_id, a.actor_user_id, a.created_at, a.after_json, u.display_name AS reviewer_name "
-        "FROM audit_logs a LEFT JOIN app_users u ON u.id=a.actor_user_id "
-        "WHERE a.action='study_meeting.review_confirm' AND a.resource_type='study_meeting_session' "
-        f"AND a.result='SUCCESS' AND a.resource_id IN ({placeholders}) ORDER BY a.id DESC",
-        tuple(str(sid) for sid in ids)).fetchall()
-    latest = {}
-    for audit in audits:
-        latest.setdefault(int(audit["resource_id"]), dict(audit))
+    latest = _latest_reviews(connection, ids)
     for record in records:
         sid = int(record["id"])
         home_count = int(record.get("home_count", len(record.get("home_attendees", []))) or 0)
@@ -74,8 +103,7 @@ def add_operation_metadata(connection, records: list[dict]) -> None:
         record["home_group_attendance_rate"] = round(home_count * 100 / count, 1) if count and home_count <= count else None
         record["review_fingerprint"] = fingerprints[sid]
         audit = latest.get(sid)
-        confirmed = bool(audit and record["status"] == "SUBMITTED" and
-            json.loads(audit["after_json"] or "{}").get("fingerprint") == fingerprints[sid])
+        confirmed = _is_confirmed(record, fingerprints[sid], audit)
         record["review_status"] = "CONFIRMED" if confirmed else "UNCONFIRMED"
         record["reviewed_at"] = _serialize(audit["created_at"]) if confirmed else None
         record["reviewer_name"] = audit["reviewer_name"] if confirmed else None

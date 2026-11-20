@@ -22,7 +22,7 @@ function harness(name, request, uploadPhoto = async () => {}) {
     Page: value => { page = value; }, getApp: () => app,
     require: name => name.endsWith("identity-session") ? identity.exports : name.endsWith("page-session") ? guard.exports : name.endsWith("study-meeting")
       ? require("../utils/study-meeting") : name.endsWith("scan") ? require("../utils/scan") : ({ request, uploadPhoto }),
-    wx: { login: options => options.success({ code: "synthetic-login" }), showModal: value => calls.push(value),
+    wx: { login: options => options.success({ code: "synthetic-login" }), showModal: value => { calls.push(value); value.success?.({ confirm: true }); },
       showToast: value => calls.push(value), redirectTo: value => calls.push(value), navigateBack: () => calls.push("back") }
   });
   page.setData = value => Object.assign(page.data, value);
@@ -84,6 +84,7 @@ for (const boundary of ["create", "upload"]) {
     let finish;
     const sent = [];
     const { page, app } = harness("study-meeting/submit", async (url) => {
+      if (url.includes("/context?")) return { data: { assignment: { current_cycle: { id: 104 } } } };
       sent.push(url);
       if (boundary === "create") return new Promise(yes => { finish = yes; });
       return { data: { id: 42 } };

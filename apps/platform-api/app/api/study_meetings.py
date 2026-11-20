@@ -168,6 +168,9 @@ def record_filter_options(user: dict = Depends(require_permission("plans:read"))
 
 @router.get("/records")
 def operations_records(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    review_status: str | None = Query(default=None, pattern="^(UNCONFIRMED|CONFIRMED)$"),
     management_org_unit_id: str | None = Query(default=None, max_length=128),
     class_org_unit_id: str | None = Query(default=None, max_length=128),
     status: str | None = Query(default=None, max_length=16),
@@ -181,16 +184,21 @@ def operations_records(
             management_org_unit_id=management_org_unit_id,
             class_org_unit_id=class_org_unit_id,
             status=status,
+            review_status=review_status,
+            prioritize_review=True,
+            limit=page_size + 1,
+            offset=(page - 1) * page_size,
             meeting_date_from=meeting_date_from,
             meeting_date_to=meeting_date_to,
         )
     except (StudyMeetingError, StudyMeetingPermissionError) as exc:
         raise _business_error(exc) from exc
-    return {"success": True, "data": {"records": data}}
+    return {"success": True, "data": {"records": data[:page_size], "has_more": len(data) > page_size}}
 
 
 @router.get("/records-export")
 def export_records(
+    review_status: str | None = Query(default=None, pattern="^(UNCONFIRMED|CONFIRMED)$"),
     management_org_unit_id: str | None = Query(default=None, max_length=128),
     class_org_unit_id: str | None = Query(default=None, max_length=128),
     session_id: int | None = Query(default=None, gt=0),
@@ -206,7 +214,8 @@ def export_records(
         content = export_meeting_workbook(actor_user_id=user["id"], session_id=session_id, layout=layout,
             report_month=report_month, report_as_of=report_as_of,
             management_org_unit_id=management_org_unit_id, class_org_unit_id=class_org_unit_id,
-            status=status, meeting_date_from=meeting_date_from, meeting_date_to=meeting_date_to)
+            status=status, meeting_date_from=meeting_date_from, meeting_date_to=meeting_date_to,
+            **({"review_status": review_status} if review_status and layout != "sharing" else {}))
         return Response(content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={
             "Content-Disposition": 'attachment; filename="study-meetings.xlsx"', "Cache-Control": "private, no-store"})
     except (StudyMeetingError, LearningCreditError, PermissionError) as exc:
@@ -357,14 +366,20 @@ async def save_evidence_json(session_id: int, request: Request,
         raise _business_error(exc) from exc
 
 
+class StudyMeetingSubmitPayload(BaseModel):
+    confirmed_previous_submission_id: StrictInt | None = Field(default=None, gt=0)
+
+
 @router.post("/{session_id}/submit")
 def submit_meeting(
     session_id: int,
+    payload: StudyMeetingSubmitPayload | None = None,
     session: dict = Depends(_member_session),
 ) -> dict:
     try:
         data = submit_study_meeting(
-            member_id=session["member_id"], session_id=session_id
+            member_id=session["member_id"], session_id=session_id,
+            confirmed_previous_submission_id=(payload.confirmed_previous_submission_id if payload else None),
         )
     except (StudyMeetingError, StudyMeetingPermissionError) as exc:
         raise _business_error(exc) from exc

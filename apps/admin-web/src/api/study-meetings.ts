@@ -106,13 +106,16 @@ export const correctStudyMeetingCourses = (
 );
 
 export const getStudyMeetingRecords = (params?: {
+  page?: number;
+  page_size?: number;
+  review_status?: StudyMeetingRecord["review_status"];
   management_org_unit_id?: string;
   class_org_unit_id?: string;
   status?: StudyMeetingRecord["status"];
   meeting_date_from?: string;
   meeting_date_to?: string;
 }) =>
-  http.request<{ success: boolean; data: { records: StudyMeetingRecord[] } }>(
+  http.request<{ success: boolean; data: { records: StudyMeetingRecord[]; has_more: boolean } }>(
     "get",
     "/api/v1/study-meetings/records",
     { params }
@@ -142,6 +145,7 @@ export const confirmMeetingCourseCompletion = (sessionId: number, data: {
   course_key: string; member_id: number; completion_status: string; expected_completion_status: string; note?: string;
 }) => http.request<{ success: boolean; data: StudyMeetingRecordDetail }>("post", `/api/v1/study-meetings/records/${sessionId}/course-completions`, { data });
 export const exportMeetingRecords = (params: {
+  review_status?: StudyMeetingRecord["review_status"];
   management_org_unit_id?: string;
   class_org_unit_id?: string;
   layout?: "group" | "member" | "sharing";

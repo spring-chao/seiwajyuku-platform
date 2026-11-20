@@ -89,6 +89,16 @@ export default [
     },
     children: [
       {
+        path: "/operations/learning-plan-review",
+        name: "LearningPlanReview",
+        component: () => import("@/views/seiwajyuku/learning-plan-review.vue"),
+        meta: {
+          title: "三年学习计划审核",
+          icon: "ep/list-check",
+          auths: ["plans:credit_rules_manage"]
+        }
+      },
+      {
         path: "/operations/checkin-management",
         name: "CheckinManagement",
         component: () => import("@/views/seiwajyuku/checkin-management.vue"),
@@ -196,16 +206,6 @@ export default [
           title: "班级学习计划",
           icon: "ep/setting",
           auths: ["plans:period_write"]
-        }
-      },
-      {
-        path: "/operations/learning-plan-review",
-        name: "LearningPlanReview",
-        component: () => import("@/views/seiwajyuku/learning-plan-review.vue"),
-        meta: {
-          title: "学习计划审核",
-          icon: "ep/list-check",
-          auths: ["plans:credit_rules_manage"]
         }
       },
       {

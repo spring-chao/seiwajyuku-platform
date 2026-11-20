@@ -22,7 +22,11 @@ function harness() {
       steps: [{ step_no: 1, content: "空巴。", is_terminal: true }], learning_contents: [] }
   } } };
   const request = async (url, options = {}) => {
-    if (url.includes("/context?")) return context;
+    if (url.includes("/context?")) {
+      context.data.assignment.previous_submission = state.session?.status === "SUBMITTED"
+        ? { id: state.session.id, meeting_date: "2026-11-20" } : null;
+      return context;
+    }
     if (url === "/api/v1/study-meetings") {
       state.createCount++;
       if (state.createError) throw new Error(state.createError);
@@ -60,6 +64,7 @@ function harness() {
       getFileSystemManager: () => ({ getFileInfo: options => options.success({ size: state.size }) }),
       previewImage: options => state.previews.push(options),
       showToast: options => state.toasts.push(options),
+      showModal: options => { state.confirmation = options; options.success({ confirm: !state.cancelConfirmation }); },
       redirectTo: options => state.redirects.push(options)
     }
   });
@@ -98,6 +103,21 @@ for (const change of ['photo','attendees']) {
     assert.equal(state.redirects.length,2);
   });
 }
+
+test("canceling same-period replacement does not write or upload", async () => {
+  const {page,state,pick}=harness();
+  await page.loadContext();
+  const choosing=page.choosePhoto(); pick(); await choosing;
+  state.session = { id: 21, status: "SUBMITTED" };
+  state.cancelConfirmation = true;
+  await page.submit();
+  assert.equal(state.confirmation.title, "本期已提交");
+  assert.match(state.confirmation.content, /第 4 期.*专职人员/);
+  assert.equal(state.createCount, 0);
+  assert.equal(state.uploadCount, 0);
+  assert.equal(state.submitCount, 0);
+  assert.equal(page.data.submitting, false);
+});
 
 test("creation rejection stays visible with its reason and preserves the chosen photo", async () => {
   const {page,state,pick,app}=harness();
