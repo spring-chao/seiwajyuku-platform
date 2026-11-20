@@ -154,6 +154,10 @@ Page({
     wx.navigateTo({ url: "/pages/identity/bind" });
   },
 
+  openResources() {
+    wx.navigateTo({ url: "/pages/resources/index" });
+  },
+
   backHome() {
     wx.reLaunch({ url: "/pages/home/index" });
   }

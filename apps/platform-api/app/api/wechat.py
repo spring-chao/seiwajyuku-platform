@@ -579,3 +579,25 @@ def operations_study_meetings(
             _operation_session(credentials),
         ),
     }
+
+
+@router.get("/learning-resources")
+def learning_resources(
+    year: int | None = Query(default=None, ge=1, le=3),
+    month: int | None = Query(default=None, ge=1, le=12),
+    committee: bool = False,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    from app.services.learning_resources import resource_catalog, month_resources, committee_resources
+    token = _session_token(credentials)
+    try:
+        session = resolve_member_session(token)
+    except (WeChatIdentityError, ValueError) as exc:
+        raise HTTPException(401, str(exc)) from exc
+    if committee:
+        services = get_member_volunteer_services(session["member_id"])
+        return {"success": True, "data": committee_resources(services)}
+    if (year is None) != (month is None):
+        raise HTTPException(422, "请同时选择学习年度和月份")
+    data = month_resources(year, month) if year is not None else resource_catalog()
+    return {"success": True, "data": data}

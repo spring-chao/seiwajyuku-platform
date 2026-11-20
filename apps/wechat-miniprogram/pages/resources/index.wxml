@@ -1,0 +1,41 @@
+<view class="page">
+  <view class="hero"><view class="title">学习资源中心</view><view class="subtitle">提高心性、拓展经营</view></view>
+  <view class="body">
+    <view wx:if="{{view !== 'home'}}" class="back" bindtap="home">‹ 返回资料入口</view>
+    <view wx:if="{{loading}}" class="note">正在加载…</view>
+    <view wx:if="{{error}}" class="note error">{{error}}</view>
+    <button wx:if="{{error && !years.length}}" bindtap="loadCatalog">重新加载</button>
+    <block wx:if="{{view === 'home'}}">
+      <view class="entry" bindtap="years"><view class="heading">三年学习视频</view><view class="muted">班会、小组学习会，按年度与学习次数查找</view></view>
+      <view class="entry" bindtap="committee"><view class="heading">班组委运营资料</view><view class="muted">百度网盘总库、其他班级运营培训视频</view></view>
+      <view class="heading">最近查看</view>
+      <view wx:for="{{recent}}" wx:key="label" class="entry" data-year="{{item.year}}" data-month="{{item.month}}" bindtap="openMonth">{{item.label}}</view>
+      <view wx:if="{{!recent.length}}" class="note">查看课程后，可在本次使用期间快速返回。</view>
+    </block>
+    <block wx:if="{{view === 'years'}}">
+      <view class="tabs"><button wx:for="{{years}}" wx:key="year" class="{{year === item.year ? 'selected' : ''}}" data-year="{{item.year}}" bindtap="selectYear">{{item.title}}</button></view>
+      <view class="months"><view wx:for="{{months}}" wx:key="number" class="month" data-month="{{item.number}}" bindtap="openMonth">{{item.label}}<view class="muted">{{item.qrCount ? item.qrCount + '个二维码' : '查看学习内容'}}</view></view></view>
+      <view class="note">第一个月至第十二个月表示学习顺序，不代表公历月份。</view>
+    </block>
+    <block wx:if="{{view === 'month' && !loading}}">
+      <view class="back" bindtap="years">‹ 返回学习次数</view><view class="heading">{{monthLabel}}</view>
+      <view wx:if="{{note}}" class="note">{{note}}</view>
+      <view wx:for="{{blocks}}" wx:key="title" wx:for-item="block" class="block">
+        <view class="heading">{{block.title}}</view><view wx:if="{{block.topic}}" class="topic">{{block.topic}}</view>
+        <view wx:if="{{!block.qrs.length}}" class="note">本栏目无独立学习视频二维码。</view>
+        <view class="qr-grid"><view wx:for="{{block.qrs}}" wx:key="image" class="card">
+          <image src="{{item.image}}" mode="aspectFit" data-image="{{item.image}}" bindtap="preview"/><view>{{item.title}}</view>
+          <button data-url="{{item.url}}" bindtap="copy">复制链接</button><button data-image="{{item.image}}" bindtap="save">保存二维码</button>
+        </view></view>
+      </view>
+    </block>
+    <block wx:if="{{view === 'committee' && baidu}}">
+      <view class="heading">百度网盘资料总入口</view><image class="baidu" src="{{baidu.image}}" mode="aspectFit" data-image="{{baidu.image}}" bindtap="preview"/>
+      <button data-url="{{baidu.url}}" bindtap="copy">复制网盘分享链接</button>
+      <view class="heading">其他班级运营视频</view><view class="note">以下9个二维码属于其他班级运营和志愿者培训，不属于三年班会或小组学习会，不映射任何学习月份。</view>
+      <image class="original" src="{{original}}" mode="widthFix" data-image="{{original}}" bindtap="preview"/><view class="muted">原始九码汇总图，点击放大</view>
+      <view class="qr-grid"><view wx:for="{{videos}}" wx:key="image" class="card"><image src="{{item.image}}" mode="aspectFit" data-image="{{item.image}}" bindtap="preview"/><view>{{item.title}}</view><button data-url="{{item.url}}" bindtap="copy">复制链接</button><button data-image="{{item.image}}" bindtap="save">保存二维码</button></view></view>
+    </block>
+    <view class="note">二维码沿用原始资料。点击放大，或保存原图后使用微信识别；复制链接后可在浏览器打开。</view>
+  </view>
+</view>
