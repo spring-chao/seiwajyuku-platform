@@ -105,6 +105,10 @@ test("study meeting submits one complete fact without legacy course selection", 
     };
     global.wx = {
       showToast() {},
+      showModal({ content, success }) {
+        assert.match(content, /第 1 期小组学习会/);
+        success({ confirm: true });
+      },
       redirectTo({ url }) {
         calls.push({ kind: "redirect", url });
       }
@@ -127,6 +131,7 @@ test("study meeting submits one complete fact without legacy course selection", 
     assert.deepEqual(
       calls.map(item => `${item.kind}:${item.method || ""}:${item.url}`),
       [
+        "request:GET:/api/v1/study-meetings/context?group_org_unit_id=group-1",
         "request:GET:/api/v1/study-meetings/context?group_org_unit_id=group-1",
         "request:POST:/api/v1/study-meetings",
         "upload::/api/v1/study-meetings/99/evidence",

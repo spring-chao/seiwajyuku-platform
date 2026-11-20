@@ -35,6 +35,7 @@ function harness() {
     module: guardModule, getApp: () => app
   });
   const wx = {
+    showModal: options => options.success({ confirm: true }),
     showToast: payload => calls.push({ toast: payload.title }),
     redirectTo: payload => calls.push({ navigation: payload.url }),
     chooseMedia: options => { assert.equal(options.count, 1); options.success({ tempFiles: [{ tempFilePath: "/tmp/source.jpg" }] }); },

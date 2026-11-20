@@ -126,7 +126,7 @@ const downloadRecords = async (sessionId?: number) => {
       management_org_unit_id: filters.management_org_unit_id || undefined,
       class_org_unit_id: filters.class_org_unit_id || undefined,
       ...(layout === "sharing" ? { report_month: reportRequest.month, report_as_of: reportRequest.asOf } : {
-        status: filters.status || undefined, meeting_date_from: filters.meeting_date_from || undefined,
+        status: submissionFilter(), review_status: reviewFilter(), meeting_date_from: filters.meeting_date_from || undefined,
         meeting_date_to: filters.meeting_date_to || undefined }) });
     await validateStudyMeetingWorkbook(blob);
     const url = URL.createObjectURL(blob);
@@ -190,7 +190,7 @@ onBeforeUnmount(releasePhoto);
 const filters = reactive<{
   management_org_unit_id: string;
   class_org_unit_id: string;
-  status: "" | StudyMeetingRecord["status"];
+  status: "" | StudyMeetingRecord["status"] | "UNCONFIRMED" | "CONFIRMED";
   meeting_date_from: string;
   meeting_date_to: string;
 }>({
@@ -236,6 +236,13 @@ const courseLabel = (record: any) => {
   return `${record.course_name_snapshot || "已选课程"}${record.course_credit_snapshot == null ? "" : ` · ${record.course_credit_snapshot} 分`}`;
 };
 
+const page = ref(1);
+const hasMore = ref(false);
+const reviewFilter = () => filters.status === "UNCONFIRMED" || filters.status === "CONFIRMED"
+  ? filters.status : undefined;
+const submissionFilter = () => filters.status === "SUBMITTED" || filters.status === "CANCELLED"
+  ? filters.status : undefined;
+
 let recordsRequest = 0;
 const loadRecords = async () => {
   const request = ++recordsRequest;
@@ -245,20 +252,38 @@ const loadRecords = async () => {
     const response = await getStudyMeetingRecords({
       management_org_unit_id: filters.management_org_unit_id || undefined,
       class_org_unit_id: filters.class_org_unit_id || undefined,
-      status: filters.status || undefined,
+      status: submissionFilter(),
+      review_status: reviewFilter(),
+      page: page.value,
+      page_size: 20,
       meeting_date_from: filters.meeting_date_from || undefined,
       meeting_date_to: filters.meeting_date_to || undefined
     });
-    if (request === recordsRequest) records.value = response.data.records || [];
+    if (request === recordsRequest) {
+      if (page.value > 1 && !response.data.records.length) {
+        page.value -= 1;
+        await loadRecords();
+        return;
+      }
+      records.value = response.data.records || [];
+      hasMore.value = response.data.has_more;
+    }
   } catch (requestError) {
     if (request !== recordsRequest) return;
     records.value = [];
+    hasMore.value = false;
     error.value = studyMeetingErrorMessage(requestError);
     ElMessage.error(error.value);
   } finally {
     if (request === recordsRequest) loading.value = false;
   }
 };
+
+const changePage = (target: number) => {
+  page.value = target;
+  void loadRecords();
+};
+watch(filters, () => changePage(1));
 
 const openDetail = async (record: any) => {
   releasePhoto();
@@ -406,6 +431,8 @@ onMounted(async () => {
           <el-option v-for="item in filteredClasses" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
         <el-select v-model="filters.status" clearable placeholder="全部状态" class="status-select">
+          <el-option label="待核实" value="UNCONFIRMED" />
+          <el-option label="已核实" value="CONFIRMED" />
           <el-option label="已提交" value="SUBMITTED" />
           <el-option label="已取消" value="CANCELLED" />
         </el-select>
@@ -424,7 +451,7 @@ onMounted(async () => {
           placeholder="结束日期"
           clearable
         />
-        <el-button type="primary" :loading="loading" @click="loadRecords">查询</el-button>
+        <el-button type="primary" :loading="loading" @click="changePage(1)">查询</el-button>
         <el-select v-if="canExport" v-model="exportLayout" :disabled="exporting" aria-label="学习会导出格式" style="width: 200px">
           <el-option label="群分享周报（月度累计）" value="sharing" />
           <el-option label="小组汇总（一组一行）" value="group" />
@@ -490,6 +517,11 @@ onMounted(async () => {
           <el-empty description="暂无学习会记录" />
         </template>
       </el-table>
+      <div class="records-filters">
+        <el-button :disabled="page === 1 || loading" @click="changePage(page - 1)">上一页</el-button>
+        <span>第 {{ page }} 页 · 每页 20 条</span>
+        <el-button :disabled="!hasMore || loading" @click="changePage(page + 1)">下一页</el-button>
+      </div>
     </el-card>
 
     <el-drawer v-model="detailVisible" title="小组学习会详情" size="min(960px, 100vw)">

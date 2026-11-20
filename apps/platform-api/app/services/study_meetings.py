@@ -929,7 +929,8 @@ def _validate_session_before_submit(connection, row) -> None:
         raise StudyMeetingError("请先上传一张学习合影")
 
 
-def submit_study_meeting(*, member_id: int, session_id: int) -> dict[str, Any]:
+def submit_study_meeting(*, member_id: int, session_id: int,
+                         confirmed_previous_submission_id: int | None = None) -> dict[str, Any]:
     _require_enabled()
     _require_write()
     session = fetch_one("SELECT class_org_unit_id, study_group_org_unit_id, status FROM study_meeting_sessions WHERE id=?", (session_id,))
@@ -966,6 +967,9 @@ def submit_study_meeting(*, member_id: int, session_id: int) -> dict[str, Any]:
         replaced=execute(connection,"SELECT id FROM study_meeting_sessions WHERE study_group_org_unit_id=? "
             "AND learning_cycle_id=? AND status='SUBMITTED' AND id<?",
             (row['study_group_org_unit_id'],row['learning_cycle_id'],session_id)).fetchall()
+        previous_id = int(replaced[0]['id']) if replaced else None
+        if len(replaced) > 1 or confirmed_previous_submission_id != previous_id:
+            raise StudyMeetingError("本期提交记录已变化，请重新进入登记并核对期次；如需协助，请联系专职人员。")
         for old in replaced:
             execute(connection,"UPDATE study_meeting_sessions SET status='CANCELLED',updated_at=? WHERE id=?",
                     (_db_timestamp(connection),old['id']))
@@ -1060,6 +1064,9 @@ def list_study_meeting_records(
     management_org_unit_id: str | None = None,
     class_org_unit_id: str | None = None,
     limit: int = 500,
+    offset: int = 0,
+    review_status: str | None = None,
+    prioritize_review: bool = False,
     scope_permissions: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
     """Formal records only; retryable drafts are not completed registrations."""
@@ -1100,6 +1107,7 @@ def list_study_meeting_records(
         placeholders = ",".join("?" for _ in allowed)
         conditions.append(f"s.class_org_unit_id IN ({placeholders})")
         params.extend(sorted(allowed))
+    sort_by_review = prioritize_review or review_status is not None
     rows = fetch_all(
         "SELECT s.id, s.session_code, s.class_org_unit_id, c.name AS class_name, "
         "s.study_group_org_unit_id, g.name AS group_name, s.learning_cycle_id, "
@@ -1121,11 +1129,14 @@ def list_study_meeting_records(
         "s.learning_cycle_id, lc.learning_cycle_index, s.meeting_date, s.created_by_member_id, "
         "creator.name, s.has_course, s.course_key, s.course_name_snapshot, s.course_credit_snapshot, "
         "s.status, s.submitted_at, s.created_at, s.updated_at, s.course_details_initialized "
-        "ORDER BY s.meeting_date DESC, s.id DESC LIMIT ?",
-        (*params, limit),
+        "ORDER BY s.meeting_date DESC, s.id DESC" + ("" if sort_by_review else " LIMIT ? OFFSET ?"),
+        tuple(params) if sort_by_review else (*params, limit, offset),
     )
     connection = connect()
     try:
+        if sort_by_review:
+            from app.services.study_meeting_review import prioritize_records_by_review
+            rows = prioritize_records_by_review(connection, rows, review_status)[offset:offset + limit]
         grouped: dict[int, list[dict]] = {}
         if rows:
             ids = tuple(row["id"] for row in rows)

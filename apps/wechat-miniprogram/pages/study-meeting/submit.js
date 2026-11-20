@@ -216,9 +216,31 @@ Page({
       learning_cycle_id: cycle.id,
       learning_content_results: serializeLearningContentResults(this.data.learningContentResults)
     };
-    const fingerprint = JSON.stringify(payload);
     this.setData({ submitting: true, submitStage: "正在准备登记…", submitError: "", photoFeedback: "" });
     try {
+      const response = await request(
+        "/api/v1/study-meetings/context?group_org_unit_id=" + encodeURIComponent(draft.group_org_unit_id),
+        { auth: true }
+      );
+      if (!current()) return;
+      const assignment = response.data?.assignment;
+      if (assignment?.current_cycle?.id !== cycle.id) {
+        throw new Error("班级学习周期已更新，请返回重新登记并核对期次。");
+      }
+      const previous = assignment.previous_submission;
+      const period = `第 ${cycle.learning_cycle_index} 期小组学习会`;
+      const confirmation = await new Promise((resolve, reject) => wx.showModal({
+        title: previous ? "本期已提交" : "确认提交",
+        content: previous
+          ? `${period}已提交，原召开日期为 ${previous.meeting_date}。确认重提将更新本期有效记录并交后台重新核实。如是下一期或对期次有疑问，请取消并联系专职人员。`
+          : `本次登记为${period}，召开日期为 ${payload.meeting_date}。请确认提交。`,
+        confirmText: previous ? "确认重提" : "确认提交",
+        success: resolve,
+        fail: reject
+      }));
+      if (!current() || !confirmation.confirm) return;
+      if (previous) payload.meeting_date = previous.meeting_date;
+      const fingerprint = JSON.stringify(payload);
       // Retry the same draft after upload/submit failure; never silently submit twice.
       if (draft.sessionId && draft.payloadFingerprint !== fingerprint) {
         delete draft.sessionId; delete draft.uploadedPhotoPath;
@@ -249,7 +271,10 @@ Page({
         draft.uploadedPhotoPath = this.data.photoPath;
       }
       this.setData({ photoUploadState: "uploaded", submitStage: "正在提交登记…" });
-      const submitted = await request("/api/v1/study-meetings/" + draft.sessionId + "/submit", { method: "POST", auth: true });
+      const submitted = await request("/api/v1/study-meetings/" + draft.sessionId + "/submit", {
+        method: "POST", auth: true,
+        data: { confirmed_previous_submission_id: previous?.id || null }
+      });
       if (current()) this.complete(submitted.data);
     } catch (error) {
       if (current()) {

@@ -62,7 +62,8 @@ def _resubmit(f,monkeypatch,tmp_path,*,home=None,cross=None,courses=None):
         cross_group_member_ids=[f['other_member_id']] if cross is None else cross,
         has_course=bool(keys),course_keys=keys)
     upload_evidence(member_id=f['member_id'],session_id=draft['id'],content=photo(),content_type='image/jpeg')
-    return submit_study_meeting(member_id=f['member_id'],session_id=draft['id'])
+    return submit_study_meeting(member_id=f['member_id'],session_id=draft['id'],
+                                confirmed_previous_submission_id=draft['previous_submission_id'])
 
 
 def _review_post(session):
@@ -85,12 +86,41 @@ def test_resubmission_before_or_after_review_replaces_only_after_success(monkeyp
     with pytest.raises(StudyMeetingError,match='合影'):
         submit_study_meeting(member_id=f['member_id'],session_id=draft['id'])
     assert fetch_one('SELECT status FROM study_meeting_sessions WHERE id=?',(first['id'],))['status']=='SUBMITTED'
+    with pytest.raises(StudyMeetingError, match='请重新进入登记'):
+        from app.services.study_meeting_evidence import upload_evidence
+        from test_study_meeting_evidence import photo
+        monkeypatch.setenv('STUDY_MEETING_EVIDENCE_ENABLED','true')
+        monkeypatch.setenv('STUDY_EVIDENCE_STORAGE_BACKEND','local')
+        monkeypatch.setenv('STUDY_EVIDENCE_LOCAL_ROOT',str(tmp_path))
+        upload_evidence(member_id=f['member_id'],session_id=draft['id'],content=photo(),content_type='image/jpeg')
+        submit_study_meeting(member_id=f['member_id'],session_id=draft['id'])
+    assert fetch_one('SELECT status FROM study_meeting_sessions WHERE id=?',(first['id'],))['status']=='SUBMITTED'
     second=_resubmit(f,monkeypatch,tmp_path)
     assert second['id']==draft['id'] and second['meeting_date']==first['meeting_date']
     assert fetch_one('SELECT status FROM study_meeting_sessions WHERE id=?',(first['id'],))['status']=='CANCELLED'
     assert [r['id'] for r in list_study_meeting_records(actor_user_id=_admin_id(),class_org_unit_id=f['class_id'])]==[second['id']]
     assert get_study_meeting_record_for_operations(actor_user_id=_admin_id(),session_id=second['id'])['review_status']=='UNCONFIRMED'
     assert submit_study_meeting(member_id=f['member_id'],session_id=second['id'])['id']==second['id']
+
+
+def test_record_pages_prioritize_pending_and_filter_by_current_review():
+    _, pending = prepared()
+    _, reviewed = prepared()
+    actor = _admin_id()
+    ids = {pending["id"], reviewed["id"]}
+    detail = get_study_meeting_record_for_operations(actor_user_id=actor, session_id=reviewed["id"])
+    confirm_meeting_review(actor_user_id=actor, session_id=reviewed["id"],
+                           expected_fingerprint=detail["review_fingerprint"])
+
+    options = {"actor_user_id": actor, "prioritize_review": True}
+    records = list_study_meeting_records(**options)
+    positions = {row["id"]: index for index, row in enumerate(records) if row["id"] in ids}
+    assert positions[pending["id"]] < positions[reviewed["id"]]
+    page = list_study_meeting_records(**options, offset=positions[pending["id"]], limit=1)
+    assert [row["id"] for row in page] == [pending["id"]]
+    for status, expected in (("UNCONFIRMED", pending), ("CONFIRMED", reviewed)):
+        matches = list_study_meeting_records(**options, review_status=status)
+        assert {row["id"] for row in matches} & ids == {expected["id"]}
 
 
 def test_posted_resubmission_unchanged_does_not_duplicate_credit(monkeypatch,tmp_path):
