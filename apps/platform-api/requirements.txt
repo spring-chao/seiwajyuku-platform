@@ -17,3 +17,4 @@ cos-python-sdk-v5==1.9.44
 httpx==0.28.1
 mcp==1.29.0
 pytest==8.4.1
+tzdata==2026.6; sys_platform == "win32"
