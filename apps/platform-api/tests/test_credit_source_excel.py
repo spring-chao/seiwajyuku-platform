@@ -2,7 +2,7 @@
 import io
 import json
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import patch
 import pytest
 from openpyxl import Workbook,load_workbook
@@ -667,7 +667,10 @@ def test_last_cycle_settlement_preserves_round(source_fixture):
     assert fetch_one("SELECT id FROM class_learning_cycles WHERE binding_id=? AND cycle_status='OPEN'",(f['binding_id'],))
 
 
-def test_confirmed_platform_meeting_opens_next_cycle_at_china_midnight_once(source_fixture):
+@pytest.mark.parametrize("delay_days, has_later_meeting", [(0, False), (1, False), (2, False), (1, True)])
+def test_confirmed_platform_meeting_opens_next_cycle_at_china_midnight_once(
+    source_fixture, monkeypatch, delay_days, has_later_meeting
+):
     from app.services import class_meeting_next_day as job
 
     f = source_fixture
@@ -685,11 +688,40 @@ def test_confirmed_platform_meeting_opens_next_cycle_at_china_midnight_once(sour
     ]
     assert job._due_group(rows, date(2026, 10, 9)) is None
     assert job._due_group([{**rows[0], "lifecycle_status": "CANCELLED"}, *rows[1:]], date(2026, 10, 10)) is None
-    candidate = job._due_group(rows, date(2026, 10, 10))
-    assert candidate is not None
+    assert job._due_group(rows, date(2026, 10, 13)) is None
     boundary = parse_utc_datetime("2026-10-10T00:00:00+08:00")
-    assert job._advance(group_id, *candidate, boundary)
-    assert not job._advance(group_id, *candidate, boundary)
+    if has_later_meeting:
+        with transaction() as connection:
+            timestamp = credits._db_timestamp(connection)
+            study_group_id = "recovery-group-" + f["suffix"]
+            execute(
+                connection,
+                "INSERT INTO org_units(id,unit_code,name,unit_type,parent_id,is_active,created_at,updated_at) "
+                "VALUES (?,?,'合成学习小组','GROUP',?,1,?,?)",
+                (study_group_id, study_group_id, f["class_id"], timestamp, timestamp),
+            )
+            execute(
+                connection,
+                "INSERT INTO study_meeting_sessions(session_code,class_org_unit_id,study_group_org_unit_id,"
+                "learning_cycle_id,meeting_date,created_by_member_id,created_by_role,status,created_at,updated_at) "
+                "VALUES (?,?,?,?,'2026-10-10',?,'GROUP_LEADER','DRAFT',?,?)",
+                ("recovery-" + f["suffix"], f["class_id"], study_group_id, f["cycle_id"],
+                 f["member_id"], timestamp, timestamp),
+            )
+    monkeypatch.setenv("SIGNIN_API_BASE_URL", "https://synthetic-signin.invalid")
+    monkeypatch.setenv("SIGNIN_SERVICE_API_KEY", "synthetic")
+    now = datetime(2026, 10, 10 + delay_days, 2, tzinfo=job.CHINA)
+    with patch.object(job, "_load_groups", return_value={group_id: rows}), patch.object(job, "datetime", wraps=datetime) as clock:
+        clock.now.return_value = now
+        report = job.refresh_due_class_meetings()
+        retry = job.refresh_due_class_meetings()
+    if has_later_meeting:
+        assert report["review_required"] == retry["review_required"] == 1
+        assert report["updated"] == retry["updated"] == 0
+        assert fetch_one("SELECT cycle_status FROM class_learning_cycles WHERE id=?", (f["cycle_id"],))["cycle_status"] == "OPEN"
+        return
+    assert report["updated"] == 1 and report["review_required"] == 0
+    assert retry["updated"] == retry["review_required"] == 0
     next_cycle = fetch_one("SELECT * FROM class_learning_cycles WHERE binding_id=? AND cycle_status='OPEN'",
                            (f["binding_id"],))
     assert next_cycle["learning_cycle_index"] == 2

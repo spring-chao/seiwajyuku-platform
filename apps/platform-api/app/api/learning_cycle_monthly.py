@@ -25,16 +25,25 @@ def refresh_monthly_content(
     ),
 ) -> dict:
     require_maintenance_token(x_study_evidence_cleanup_token)
+    from app.services.renewal_expiry import sync_expired_members
+
+    logger = logging.getLogger("uvicorn.error")
     try:
-        from app.services.renewal_expiry import sync_expired_members
         renewal_report = sync_expired_members()
+    except Exception as exc:
+        logger.error("RENEWAL_EXPIRY_SYNC_FAILED error_type=%s", type(exc).__name__)
+        renewal_report = {"failed": 1}
+    try:
         report = refresh_due_class_meetings()
     except Exception as exc:
-        # Do not put DB/SDK messages, records or server credentials in replies.
-        logging.getLogger("uvicorn.error").error("MONTHLY_SCHEDULED_REFRESH_FAILED error_type=%s", type(exc).__name__)
+        logger.error("MONTHLY_SCHEDULED_REFRESH_FAILED error_type=%s", type(exc).__name__)
         raise HTTPException(status_code=503, detail="班级月更暂不可用，请稍后重试") from None
-    return {"success": report["failed"] == 0 and report["review_required"] == 0 and renewal_report['failed'] == 0, "data": report,
-            "renewal_status_sync": renewal_report}
+    return {
+        "success": all(report[key] == 0 for key in ("failed", "repair_required", "review_required"))
+        and renewal_report["failed"] == 0,
+        "data": report,
+        "renewal_status_sync": renewal_report,
+    }
 
 
 @router.post('/renewal-status-preview')

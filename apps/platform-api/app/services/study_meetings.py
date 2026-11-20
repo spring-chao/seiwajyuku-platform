@@ -26,7 +26,7 @@ from app.services.course_credit_rules import (
 )
 from app.services.credit_rule_mapping import bound_course_rule_version
 from app.services.learning_cycles import _active_binding, _cycle_at
-from app.services.learning_cycles import _plan_cycle_payload
+from app.services.learning_cycles import _lock_class_for_update, _plan_cycle_payload
 from app.services.group_meeting_plan import (
     GroupMeetingPlanConfigError,
     build_group_meeting_plan,
@@ -757,6 +757,8 @@ def create_study_meeting(
 
     _refresh_monthly_content(target["class_org_unit_id"])
     with transaction() as connection:
+        # Resolve the cycle under the same class lock as next-day progression.
+        _lock_class_for_update(connection, target["class_org_unit_id"])
         # Serialize creation on a stable parent row, including the first insert.
         # A child-only lock cannot prevent two concurrent first submissions.
         execute(connection, "UPDATE org_units SET id=id WHERE id=?", (target["group_org_unit_id"],))

@@ -48,6 +48,20 @@ def test_monthly_scheduler_finishes_sweep_before_responding_and_hides_errors(mon
     assert response.json() == {"detail": "班级月更暂不可用，请稍后重试"}
 
 
+def test_monthly_scheduler_still_advances_when_renewal_sync_raises(monkeypatch):
+    monkeypatch.setenv("STUDY_EVIDENCE_CLEANUP_TOKEN", TOKEN)
+    report = {"enabled": True, "scanned": 1, "updated": 1, "failed": 0, "repair_required": 0, "review_required": 0}
+    with (
+        patch("app.services.renewal_expiry.sync_expired_members", side_effect=RuntimeError("synthetic upstream details")),
+        patch("app.api.learning_cycle_monthly.refresh_due_class_meetings", return_value=report) as sweep,
+        TestClient(app) as client,
+    ):
+        response = client.post(URL, json={}, headers={"X-Study-Evidence-Cleanup-Token": TOKEN})
+    sweep.assert_called_once_with()
+    assert response.status_code == 200
+    assert response.json() == {"success": False, "data": report, "renewal_status_sync": {"failed": 1}}
+
+
 @pytest.mark.parametrize("gates", [
 
     {"LEARNING_CYCLE_MONTHLY_REFRESH_ENABLED": "true", "DEPLOYMENT_READ_ONLY": "true"},
