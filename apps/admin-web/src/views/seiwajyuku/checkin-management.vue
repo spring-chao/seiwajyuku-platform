@@ -1570,6 +1570,9 @@ onUnmounted(() => {
                 attendanceGroupLabel(row, currentEvent?.activity_type)
               }}</template></el-table-column
             >
+            <el-table-column prop="checkin_badge" label="签到标识" width="110">
+              <template #default="{ row }">{{ row.checkin_badge || "—" }}</template>
+            </el-table-column>
             <el-table-column v-if="hasDinnerTables" prop="dinner_table_num" label="餐桌号" width="90">
               <template #default="{ row }">{{ row.dinner_table_num ?? "—" }}</template>
             </el-table-column>
@@ -1857,6 +1860,9 @@ onUnmounted(() => {
               attendanceGroupLabel(row, editor.activity_type)
             }}</template></el-table-column
           >
+          <el-table-column v-if="(creationColumns?.checkin_badge ?? -1) >= 0" prop="checkin_badge" label="签到标识">
+            <template #default="{ row }">{{ row.checkin_badge || "—" }}</template>
+          </el-table-column>
           <el-table-column v-if="creationQuality?.valid_dinner_table_count" prop="dinner_table_num" label="餐桌号">
             <template #default="{ row }">{{ row.dinner_table_num ?? "—" }}</template>
           </el-table-column>
@@ -1965,6 +1971,9 @@ onUnmounted(() => {
             attendanceGroupLabel(row, currentEvent?.activity_type)
           }}</template></el-table-column
         >
+        <el-table-column v-if="(importColumns?.checkin_badge ?? -1) >= 0" prop="checkin_badge" label="签到标识">
+          <template #default="{ row }">{{ row.checkin_badge || "—" }}</template>
+        </el-table-column>
         <el-table-column v-if="importQuality?.valid_dinner_table_count" prop="dinner_table_num" label="餐桌号">
           <template #default="{ row }">{{ row.dinner_table_num ?? "—" }}</template>
         </el-table-column>

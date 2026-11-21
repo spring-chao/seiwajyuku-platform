@@ -1,4 +1,11 @@
 // Match public/index.html showSuccess; render plain text, never engine HTML.
+const badgeThemes = new Map([
+  ["熟生", "red"],
+  ["非熟生", "blue"],
+  ["特邀嘉宾", "purple"],
+  ["桌长", "amber"]
+]);
+
 function chinaDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -7,6 +14,8 @@ function chinaDateTime(value) {
 
 function successCard(result, fallback = {}) {
   const receipt = result.receipt || result.data;
+  const badge = receipt?.checkin_badge;
+  const theme = badgeThemes.get(badge) || "";
   const data = receipt && Object.keys(receipt).length ? receipt : fallback.registration || {};
   const event = data.event || fallback.event || {};
   const name = data.name || fallback.name || (fallback.member && (fallback.member.name || fallback.member.name_masked)) || "";
@@ -30,7 +39,7 @@ function successCard(result, fallback = {}) {
   if (data.company) lines.push(`公司：${data.company}`);
   if (data.multi_total > 1) lines.push(`多人报名：已签到 ${data.multi_checked}/${data.multi_total} 人${result.checked_count ? `（本次 ${result.checked_count} 人）` : ""}`);
   if (result.already === true || result.status === "ALREADY_CHECKED_IN") lines.push(`（已签到 · ${chinaDateTime(data.checked_at || result.checked_at)}）`);
-  return { welcome: `欢迎 ${name}学长！`, seats, lines: lines.length ? lines : ["签到成功"] };
+  return { welcome: `欢迎 ${name}学长！`, seats, lines: lines.length ? lines : ["签到成功"], badge: theme ? badge : "", theme };
 }
 
 module.exports = { successCard };

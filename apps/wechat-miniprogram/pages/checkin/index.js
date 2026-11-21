@@ -8,7 +8,7 @@ function empty() {
   return { event: null, member: null, registration: null, loading: false, confirming: false,
     konpaChoice: null, konpaRequired: false, canCheckin: false, alreadyChecked: false, bindingRequired: false, requiresFallback: false,
     fallbackAvailable: false, guestName: "", guestAllowed: false, nameCandidates: [], selectedCandidateIndexes: [], guestResults: [], historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null, successCard: null,
-    showTodayCheckin: false, availableSessions: [] };
+    showTodayCheckin: false, availableSessions: [], groupReceiptTheme: "" };
 }
 
 function unavailableNotice(event) {
@@ -177,9 +177,11 @@ Page({
       const cards = this._nameSelections.map((row, index) => row.result ? { key: String(index), card: successCard(row.result, { event: this.data.event, name }) } : null).filter(Boolean);
       const allSelectedCompleted = !failed && completed.length > 0;
       const lastResult = completed.length ? completed[completed.length - 1].result : null;
+      const firstTheme = cards[0]?.card.theme || "";
       this.setData({ guestResults: this._nameSelections.length > 1 ? cards : [],
         result: allSelectedCompleted ? lastResult : null,
         successCard: this._nameSelections.length === 1 && allSelectedCompleted ? cards[0].card : null,
+        groupReceiptTheme: allSelectedCompleted && cards.every(({ card }) => card.theme === firstTheme) ? firstTheme : "",
         alreadyChecked: allSelectedCompleted, guestAllowed: !allSelectedCompleted,
         errorMessage: failed ? (completed.length ? `已完成 ${completed.length} 条报名签到，其余未完成，请重试。` : "签到暂时未完成，请重试。") : "",
         notice: "" });

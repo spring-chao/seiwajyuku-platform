@@ -13,6 +13,7 @@ export function detectColumns(headers) {
     group_num: -1,
     onsite_seat: -1,
     dinner_table_num: -1,
+    checkin_badge: -1,
     is_student: -1
   };
   function normalizeHeader(h) {
@@ -46,6 +47,7 @@ export function detectColumns(headers) {
     if (/^(桌号|餐桌号|桌数|桌子|空巴桌号|晚宴桌号|dinner|table)$/i.test(h))
       return "dinner_table_num";
     if (/^(是否学员|学员|is_student)$/i.test(h)) return "is_student";
+    if (/^(签到标识|checkinbadge)$/.test(h)) return "checkin_badge";
     return null;
   }
   for (var i = 0; i < headers.length; i++) {
@@ -211,6 +213,7 @@ export function parseAttendanceRows(arr) {
   if (!header) throw new Error("前100行未找到包含“姓名”的表头，请检查列名");
   const dataStart = header.rowIndex + 1;
   const col = header.columns;
+  let invalidBadgeCount = 0;
   let attendees;
 
   attendees = [];
@@ -250,6 +253,9 @@ export function parseAttendanceRows(arr) {
     const dinnerCell = cellClean(col.dinner_table_num);
     const dinnerMatch = /^(?:第\s*)?([0-9]+)(?:\s*(?:号桌|桌|号))?$/.exec(dinnerCell);
     const dinnerNumber = attendanceGroupNumber(dinnerMatch?.[1]);
+    const badgeCell = String(row[col.checkin_badge] ?? "").trim();
+    const badge = normalizeCheckinBadge(badgeCell);
+    if (badgeCell && !badge) invalidBadgeCount++;
 
     attendees.push({
       name: n,
@@ -260,6 +266,7 @@ export function parseAttendanceRows(arr) {
       company: cellClean(col.company),
       group_num: groupNumber,
       ...(onsiteSeat ? { onsite_seat: onsiteSeat } : {}),
+      ...(badge ? { checkin_badge: badge } : {}),
       dinner_table_num: dinnerNumber
     });
   }
@@ -283,7 +290,14 @@ export function parseAttendanceRows(arr) {
             : "",
     quality: {
       ...buildCourseImportQuality(attendees),
+      invalid_checkin_badge_count: invalidBadgeCount,
       valid_dinner_table_count: attendees.filter(row => row.dinner_table_num !== null).length
     }
   };
+}
+
+function normalizeCheckinBadge(value) {
+  if (value === "塾生") return "熟生";
+  if (value === "非塾生") return "非熟生";
+  return ["熟生", "非熟生", "特邀嘉宾", "桌长"].includes(value) ? value : "";
 }

@@ -12,6 +12,7 @@ const props = defineProps<{
     invalid_phone_count: number;
     repeated_slots: number;
     valid_dinner_table_count: number;
+    invalid_checkin_badge_count: number;
   };
 }>();
 const fields = [
@@ -21,7 +22,8 @@ const fields = [
   { key: "center", label: "分中心" },
   { key: "class_name", label: "班级" },
   { key: "group", label: "现场分组" },
-  { key: "dinner_table_num", label: "餐桌号" }
+  { key: "dinner_table_num", label: "餐桌号" },
+  { key: "checkin_badge", label: "签到标识" }
 ];
 const displayedFields = computed(() =>
   fields.map(field => {
@@ -79,8 +81,12 @@ const displayedFields = computed(() =>
       <p v-if="quality.repeated_slots">
         重复报名名额 {{ quality.repeated_slots }} 个，分别保留为独立报名位。
       </p>
+      <p v-if="quality.invalid_checkin_badge_count">
+        签到标识有 {{ quality.invalid_checkin_badge_count }} 条无法识别，导入时按空白处理。
+      </p>
     </div>
     <p class="summary-hint">可选列留空可以正常导入。</p>
+    <p class="summary-hint">在 Excel 添加「签到标识」列，每人填写一项：熟生、非熟生、特邀嘉宾、桌长。</p>
   </section>
 </template>
 

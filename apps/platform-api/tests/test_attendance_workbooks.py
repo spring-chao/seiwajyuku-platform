@@ -30,6 +30,7 @@ def seeded_export():
         member=fetch_one('SELECT id,member_code,name FROM members WHERE id=?',(mid,))
         return {'registration_id':rid,'name':'=SYNTHETIC()' if mid==f['member_id'] else member['name'],'actual_attendee_name':'=SYNTHETIC()' if mid==f['member_id'] else member['name'],'registered_name':'合成原报名姓名','platform_member_id':str(mid),'member_code':member['member_code'],'checked':checked,'checked_at':'2026-10-25T01:00:00Z' if checked else None,'phone':f['phone'],'attendance_role':'HOME_CLASS_MEMBER','class_name':'合成班','group_name':''}
     facts={'MORNING':[row(f['member_id'],'one'),row(f['other_member_id'],'waived')],'AFTERNOON':[row(f['member_id'],'duplicate')],'KONPA':[row(f['other_member_id'],'night-only')]}
+    facts['MORNING'][0]['checkin_badge']='桌长'
     calls=[]
     def engine(path,envelope,**kwargs):
         operation=path.rsplit('/',1)[-1];source_id=envelope['payload']['event_id'];calls.append((operation,source_id,envelope['allowed_org_unit_ids']))
@@ -51,6 +52,7 @@ def test_all_session_activity_and_onsite_downloads_share_live_rows_and_requireme
         assert names.max_row==5 and book['场次汇总'].max_row==4
         assert names['C2'].value=='合成实时新姓名' and names['B2'].value=='=SYNTHETIC()' and names['B2'].data_type=='s'
         assert names['N2'].value=='2026-10-25 09:00:00'
+        assert names['P1'].value=='签到标识' and names['P2'].value=='桌长' and names['P3'].value is None
         values=str([list(ws.values) for ws in book]);assert f['phone'] not in values and '合成过时同步姓名' not in values
         assert '带班级前缀的精进组免学习要求' in values
         assert all(row[0].value!='合成班精进组' for row in book['小组参会统计'].iter_rows(min_row=2))

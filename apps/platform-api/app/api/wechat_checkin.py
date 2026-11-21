@@ -162,7 +162,7 @@ def _kind(event: dict) -> str:
 def _receipt(raw: dict | None) -> dict:
     """Preserve the original success display, with only attendee-facing fields."""
     raw = raw if isinstance(raw, dict) else {}
-    fields = ("name", "group_num", "dinner_table_num", "show_group", "show_dinner_table",
+    fields = ("name", "group_num", "dinner_table_num", "checkin_badge", "show_group", "show_dinner_table",
               "attendance_role", "home_class_name", "registered_name", "group_type", "group_value",
               "class_name", "center", "group_name", "company", "multi_total", "multi_checked", "checked_at")
     receipt = {key: raw[key] for key in fields if key in raw and isinstance(raw[key], (str, int, float, bool, type(None)))}

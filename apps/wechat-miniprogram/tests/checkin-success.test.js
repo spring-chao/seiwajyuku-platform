@@ -9,7 +9,7 @@ test("success retains legacy welcome, seating, activity and organisation display
     group_type: "班级", group_value: "合成一班", company: "合成企业" } });
   assert.deepEqual(card, { welcome: "欢迎 合成学员学长！",
     seats: ["大会现场：第 3 组", "空巴晚宴：第 8 桌"],
-    lines: ["活动：2026-10-10 · 班级学习会 · 合成学习会", "班级：合成一班", "公司：合成企业"] });
+    lines: ["活动：2026-10-10 · 班级学习会 · 合成学习会", "班级：合成一班", "公司：合成企业"], badge: "", theme: "" });
 });
 
 test("legacy hidden seating stays hidden and organisation priority remains unchanged", () => {
@@ -35,4 +35,14 @@ test("cross class, team and repeated checkin retain legacy disclosures and China
 test("duplicate guest uses saved attendee name, and older contexts retain verified identity", () => {
   assert.equal(successCard({ status: "ALREADY_CHECKED_IN", receipt: { name: "原签到姓名" } }, { name: "再次输入姓名" }).welcome, "欢迎 原签到姓名学长！");
   assert.equal(successCard({ receipt: {} }, { member: { name: "已绑定本人" }, registration: { group_num: 5 } }).seats[0], "大会现场：第 5 组");
+});
+
+test("checkin badge changes the theme only when a supported badge is on the receipt", () => {
+  for (const [badge, theme] of [["熟生", "red"], ["非熟生", "blue"], ["特邀嘉宾", "purple"], ["桌长", "amber"]]) {
+    const card = successCard({ receipt: { checkin_badge: badge } });
+    assert.equal(card.badge, badge);
+    assert.equal(card.theme, theme);
+  }
+  assert.equal(successCard({ data: { checkin_badge: "熟生、桌长" } }).theme, "");
+  assert.equal(successCard({ receipt: {} }, { registration: { checkin_badge: "桌长" } }).theme, "");
 });
