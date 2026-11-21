@@ -6,7 +6,8 @@ let definition;
 let response;
 let pending;
 const requests = [];
-const wx = { env: { USER_DATA_PATH: '/synthetic' }, getFileSystemManager: () => ({ writeFileSync() {} }) };
+const writtenImages = [];
+const wx = { env: { USER_DATA_PATH: '/synthetic' }, getFileSystemManager: () => ({ writeFileSync(file) { writtenImages.push(file); } }) };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../pages/resources/index.js'), 'utf8'), {
   Page(value) { definition = value; }, wx,
   require() { return { request(url, options) { requests.push({url, options}); return pending || Promise.resolve(response); } }; }
@@ -29,6 +30,22 @@ async function run() {
   await loading;
   assert.equal(page.data.view,'home');
   assert.equal(page.data.baidu,null);
+  pending = null;
+  const qrData = 'data:image/png;base64,AAAA';
+  response = { data: {
+    baidu: { url: 'https://example.test/library', qrData },
+    videos: Array.from({ length: 9 }, (_, index) => ({
+      qrNo: index + 1, imageIdx: 53, url: 'https://example.test/video', qrData, collageOriginalData: qrData
+    }))
+  } };
+  await page.committee();
+  assert.equal(page.data.videos.length, 9);
+  assert.equal(page.data.baidu.url, 'https://example.test/library');
+  assert.equal(writtenImages.length, 10);
+  assert.ok(writtenImages.every(file => !file.includes('original')));
+  const markup = fs.readFileSync(path.join(__dirname, '../pages/resources/index.wxml'), 'utf8');
+  assert.doesNotMatch(markup, /原始九码|\{\{original\}\}/);
+
   pending = Promise.reject(new Error('岗位无权限'));
   await page.committee();
   assert.equal(page.data.videos.length,0);

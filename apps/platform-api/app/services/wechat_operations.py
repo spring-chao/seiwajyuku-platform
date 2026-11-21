@@ -31,7 +31,8 @@ from app.services.members import (
     reveal_contact,
     search_members,
 )
-from app.services.renewals import add_followup as add_renewal_followup, list_cycles
+from app.services.renewals import CLOSED_RENEWAL_STATUSES, list_cycles
+from app.services.renewals import add_followup as add_renewal_followup
 from app.services.study_meetings import list_study_meeting_records
 from app.services.volunteer_positions import get_member_volunteer_services
 from app.services.wechat_identity import WeChatIdentityError
@@ -347,7 +348,7 @@ def today_actions(session: dict[str, Any]) -> dict[str, Any]:
 
 
 def _renewal_rows_for_principal(
-    principal: dict[str, Any], *, permission: str = "renewals:read"
+    principal: dict[str, Any], *, permission: str = "renewals:read", active_members_only: bool = False
 ) -> list[dict[str, Any]]:
     """Read the current and immediately upcoming renewal year in one scope.
 
@@ -369,6 +370,7 @@ def _renewal_rows_for_principal(
                 renewal_year,
                 renewal_status="ALL",
                 include_past=True,
+                active_members_only=active_members_only,
             ):
                 cycle_id = int(row["id"])
                 if cycle_id not in seen:
@@ -406,12 +408,12 @@ def _renewal_context_sort_key(item: dict[str, Any]) -> tuple[int, int, int]:
 
 def renewal_watch(session: dict[str, Any]) -> dict[str, Any]:
     principal = _principal(session)
-    rows = _renewal_rows_for_principal(principal)
+    rows = _renewal_rows_for_principal(principal, active_members_only=True)
     by_stage: dict[str, list[dict[str, Any]]] = {
         stage: [] for stage, _ in _RENEWAL_WATCH_STAGES
     }
     for row in rows:
-        if str(row.get("status") or "").upper() == "RENEWED":
+        if str(row.get("status") or "").upper() in CLOSED_RENEWAL_STATUSES:
             continue
         # Same current/next/following month windows as the shared stage engine.
         offset = (row.get("stage") or {}).get("months_until_due")

@@ -68,6 +68,22 @@ test('konpa group viewer cannot submit edits and hidden pages discard pending pa
  assert.equal(h.calls.length,before);
 });
 
+test("konpa displays the same selected participants as its estimated count and preserves the remaining order", async () => {
+  const rows = [
+    { registration_id: "unset", latest_choice: null, status: "UNCONFIRMED" },
+    { registration_id: "morning", morning_choice: true, latest_choice: true, status: "UNCONFIRMED" },
+    { registration_id: "declined", morning_choice: true, latest_choice: false, status: "ABSENT" },
+    { registration_id: "confirmed", latest_choice: true, status: "CONFIRMED" }
+  ];
+  const h = harness("services/konpa", async url => url.endsWith("/events")
+    ? { data: { events: [] } }
+    : { data: { rows, estimated_count: 2, confirmed_count: 1, auto_confirm_at: "2026-11-27T12:30:00Z" } });
+  await h.page.onShow();
+  await h.page.selectEvent({ currentTarget: { dataset: { id: "evening" } } });
+  assert.deepEqual(Array.from(h.page.data.rows, row => row.registration_id), ["morning", "confirmed", "unset", "declined"]);
+  assert.equal(h.page.data.rows.filter(row => row.attendingNow).length, h.page.data.estimatedCount);
+});
+
 test("activity scene and scanned route resolve opaque token; generic QR data and invalid IDs fail closed", () => {
   assert.deepEqual(checkin.checkinTarget({ scene: "short_token_1234567890" }), { token: "short_token_1234567890" });
   assert.deepEqual(checkin.checkinTarget({ scene: "ci_short_123456789012" }), { token: "short_123456789012" });

@@ -365,6 +365,22 @@ def test_staff_mobile_v1_high_frequency_closed_loop_and_live_iam2_scope() -> Non
             (fixture["renewal_cycles"]["FOLLOW_1"],),
         )["n"] == 1
 
+        # A former member can retain an open legacy cycle. A terminal cycle
+        # can also coexist with an active master record during reconciliation.
+        with transaction() as connection:
+            execute(connection, "UPDATE members SET status='INACTIVE' WHERE id=?", (fixture["focal_member_id"],))
+            execute(connection, "UPDATE renewal_cycles SET status='NOT_RENEWING' WHERE id=?", (fixture["renewal_cycles"]["RENEW_2"],))
+        updated_today = client.get("/api/v1/wechat/operations/today-actions", headers=headers)
+        assert updated_today.status_code == 200
+        assert all(item["source"] != "RENEWAL" or item["member_id"] != fixture["focal_member_id"]
+                   for item in updated_today.json()["data"]["pending"])
+        updated_watch = client.get("/api/v1/wechat/operations/renewal-watch", headers=headers)
+        assert updated_watch.status_code == 200
+        visible = {item["cycle_id"] for group in updated_watch.json()["data"]["groups"] for item in group["items"]}
+        assert fixture["renewal_cycles"]["FOLLOW_1"] not in visible
+        assert fixture["renewal_cycles"]["RENEW_2"] not in visible
+        assert fixture["renewal_cycles"]["OBSERVE_3"] in visible
+
         # OUT_OF_SCOPE_MEMBER_DENIED on every member-specific mobile path.
         assert client.get(
             f"/api/v1/wechat/operations/members/{fixture['outside_member_id']}", headers=headers
