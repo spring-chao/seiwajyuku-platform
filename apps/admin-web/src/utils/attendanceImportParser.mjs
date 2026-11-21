@@ -281,6 +281,9 @@ export function parseAttendanceRows(arr) {
           : col.group_name >= 0
             ? "group_name"
             : "",
-    quality: buildCourseImportQuality(attendees)
+    quality: {
+      ...buildCourseImportQuality(attendees),
+      valid_dinner_table_count: attendees.filter(row => row.dinner_table_num !== null).length
+    }
   };
 }

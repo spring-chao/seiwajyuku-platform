@@ -178,6 +178,7 @@ test("composite seating survives preview and a blank dinner table stays blank", 
     ["现场分组", "餐桌号", "姓名"], ["01桌02", "", "合成甲"], ["07桌03", "第6桌", "合成乙"]
   ]);
   assert.equal(parsed.columns.dinner_table_num, 1);
+  assert.equal(parsed.quality.valid_dinner_table_count, 1);
   assert.equal(parsed.columns.onsite_seat, 0);
   assert.deepEqual(parsed.attendees.map(({ group_num, onsite_seat, dinner_table_num }) =>
     [group_num, onsite_seat, dinner_table_num]), [[1, "01桌02", null], [7, "07桌03", 6]]);
@@ -186,6 +187,22 @@ test("composite seating survives preview and a blank dinner table stays blank", 
   ]);
   assert.equal(separate.attendees[0].group_num, 9);
   assert.equal(separate.attendees[0].onsite_seat, "01桌02");
+});
+
+test("dinner table recognition counts only valid tables from imported rows", () => {
+  const parsed = parser.parseAttendanceRows([
+    ["现场分组", "餐桌号", "姓名"],
+    ["01组", "", "合成甲"],
+    ["02组", " ", "合成乙"],
+    ["02组", "待定", "合成丙"],
+    ["02组", 0, "合成丁"],
+    ["02组", "第3桌", ""]
+  ]);
+  assert.equal(parsed.columns.dinner_table_num, 1);
+  assert.equal(parsed.quality.valid_dinner_table_count, 0);
+  assert.equal(parsed.quality.member_count, 4);
+  assert.deepEqual(parsed.attendees.map(row => row.group_num), [1, 2, 2, 2]);
+  assert.ok(parsed.attendees.every(row => row.dinner_table_num === null));
 });
 
 test("uploaded filename supplies the activity name while preserving manually edited names", () => {

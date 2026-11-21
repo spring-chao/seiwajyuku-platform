@@ -58,6 +58,9 @@ const filters = reactive({
 });
 const stats = ref<EngineResult | null>(null);
 const people = ref<any[]>([]);
+const hasDinnerTables = computed(() =>
+  people.value.some(row => String(row.dinner_table_num ?? "").trim() !== "")
+);
 const detailLoading = ref(false);
 const refreshedAt = ref("");
 const personFilter = ref("all");
@@ -1527,10 +1530,7 @@ onUnmounted(() => {
                 attendanceGroupLabel(row, currentEvent?.activity_type)
               }}</template></el-table-column
             >
-            <el-table-column prop="onsite_seat" label="会场座位" width="110">
-              <template #default="{ row }">{{ row.onsite_seat || "—" }}</template>
-            </el-table-column>
-            <el-table-column prop="dinner_table_num" label="餐桌号" width="90">
+            <el-table-column v-if="hasDinnerTables" prop="dinner_table_num" label="餐桌号" width="90">
               <template #default="{ row }">{{ row.dinner_table_num ?? "—" }}</template>
             </el-table-column>
             <el-table-column prop="company" label="公司" min-width="130" />
@@ -1859,10 +1859,7 @@ onUnmounted(() => {
               attendanceGroupLabel(row, editor.activity_type)
             }}</template></el-table-column
           >
-          <el-table-column prop="onsite_seat" label="会场座位">
-            <template #default="{ row }">{{ row.onsite_seat || "—" }}</template>
-          </el-table-column>
-          <el-table-column prop="dinner_table_num" label="餐桌号">
+          <el-table-column v-if="creationQuality?.valid_dinner_table_count" prop="dinner_table_num" label="餐桌号">
             <template #default="{ row }">{{ row.dinner_table_num ?? "—" }}</template>
           </el-table-column>
         </el-table>
@@ -1970,9 +1967,10 @@ onUnmounted(() => {
             attendanceGroupLabel(row, currentEvent?.activity_type)
           }}</template></el-table-column
         >
-        <el-table-column prop="onsite_seat" label="会场座位" />
-        <el-table-column prop="dinner_table_num" label="餐桌号"
-      /></el-table>
+        <el-table-column v-if="importQuality?.valid_dinner_table_count" prop="dinner_table_num" label="餐桌号">
+          <template #default="{ row }">{{ row.dinner_table_num ?? "—" }}</template>
+        </el-table-column>
+      </el-table>
       <el-alert
         v-if="preview"
         :title="`预览通过：将追加 ${preview.added ?? preview.added_count ?? importAttendees.length} 个报名名额，追加后共 ${preview.new_total ?? importAttendees.length} 个名额。已有签到事实保留。`"
