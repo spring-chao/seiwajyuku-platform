@@ -11,6 +11,7 @@ const props = defineProps<{
     missing_phone_count: number;
     invalid_phone_count: number;
     repeated_slots: number;
+    valid_dinner_table_count: number;
   };
 }>();
 const fields = [
@@ -20,7 +21,6 @@ const fields = [
   { key: "center", label: "分中心" },
   { key: "class_name", label: "班级" },
   { key: "group", label: "现场分组" },
-  { key: "onsite_seat", label: "会场座位" },
   { key: "dinner_table_num", label: "餐桌号" }
 ];
 const displayedFields = computed(() =>
@@ -32,16 +32,19 @@ const displayedFields = computed(() =>
         keys.map(key => props.columns[key]).filter(index => index >= 0)
       )
     ].sort((a, b) => a - b);
+    const emptyDinnerTable =
+      field.key === "dinner_table_num" && props.quality.valid_dinner_table_count === 0;
+    const recognized = positions.length > 0 && !emptyDinnerTable;
     return {
       ...field,
       label:
         field.key === "group" && props.activityType === "class_meeting"
           ? "小组"
           : field.label,
-      recognized: positions.length > 0,
-      position: positions.length
+      recognized,
+      position: recognized
         ? positions.map(index => `第 ${index + 1} 列`).join(" / ")
-        : "未识别"
+        : emptyDinnerTable ? "无餐桌号数据" : "未识别"
     };
   })
 );
@@ -76,7 +79,7 @@ const displayedFields = computed(() =>
         重复报名名额 {{ quality.repeated_slots }} 个，分别保留为独立报名位。
       </p>
     </div>
-    <p class="summary-hint">勾选表示已识别该列；可选列未识别不影响导入。</p>
+    <p class="summary-hint">餐桌号读取到有效值时才勾选。可选列留空可以正常导入。</p>
   </section>
 </template>
 
