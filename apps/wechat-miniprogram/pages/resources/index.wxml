@@ -1,3 +1,13 @@
+<template name="resource-card">
+  <view class="card">
+    <image class="qr-image" src="{{item.image}}" mode="aspectFit" data-image="{{item.image}}" bindtap="preview"/>
+    <view class="qr-title">{{item.title}}</view>
+    <view class="qr-actions">
+      <button class="qr-button" data-url="{{item.url}}" bindtap="copy">复制链接</button>
+      <button class="qr-button secondary" data-image="{{item.image}}" bindtap="save">保存二维码</button>
+    </view>
+  </view>
+</template>
 <view class="page">
   <view class="hero"><view class="title">学习资源中心</view><view class="subtitle">提高心性、拓展经营</view></view>
   <view class="body">
@@ -23,19 +33,23 @@
       <view wx:for="{{blocks}}" wx:key="title" wx:for-item="block" class="block">
         <view class="heading">{{block.title}}</view><view wx:if="{{block.topic}}" class="topic">{{block.topic}}</view>
         <view wx:if="{{!block.qrs.length}}" class="note">本栏目无独立学习视频二维码。</view>
-        <view class="qr-grid"><view wx:for="{{block.qrs}}" wx:key="image" class="card">
-          <image src="{{item.image}}" mode="aspectFit" data-image="{{item.image}}" bindtap="preview"/><view>{{item.title}}</view>
-          <button data-url="{{item.url}}" bindtap="copy">复制链接</button><button data-image="{{item.image}}" bindtap="save">保存二维码</button>
-        </view></view>
+        <view class="qr-grid {{block.qrs.length === 1 ? 'single' : ''}}">
+          <block wx:for="{{block.qrs}}" wx:key="image"><template is="resource-card" data="{{item: item}}"/></block>
+        </view>
       </view>
     </block>
     <block wx:if="{{view === 'committee' && baidu}}">
-      <view class="heading">百度网盘资料总入口</view><image class="baidu" src="{{baidu.image}}" mode="aspectFit" data-image="{{baidu.image}}" bindtap="preview"/>
-      <button data-url="{{baidu.url}}" bindtap="copy">复制网盘分享链接</button>
-      <view class="heading">其他班级运营视频</view><view class="note">以下9个二维码属于其他班级运营和志愿者培训，不属于三年班会或小组学习会，不映射任何学习月份。</view>
-      <image class="original" src="{{original}}" mode="widthFix" data-image="{{original}}" bindtap="preview"/><view class="muted">原始九码汇总图，点击放大</view>
-      <view class="qr-grid"><view wx:for="{{videos}}" wx:key="image" class="card"><image src="{{item.image}}" mode="aspectFit" data-image="{{item.image}}" bindtap="preview"/><view>{{item.title}}</view><button data-url="{{item.url}}" bindtap="copy">复制链接</button><button data-image="{{item.image}}" bindtap="save">保存二维码</button></view></view>
+      <view class="library-card">
+        <view class="heading">百度网盘资料总入口</view>
+        <image class="baidu" src="{{baidu.image}}" mode="aspectFit" data-image="{{baidu.image}}" bindtap="preview"/>
+        <button class="qr-button" data-url="{{baidu.url}}" bindtap="copy">复制网盘分享链接</button>
+      </view>
+      <view class="heading">其他班级运营视频</view>
+      <view class="muted section-description">班级运营与志愿者培训资料</view>
+      <view class="qr-grid">
+        <block wx:for="{{videos}}" wx:key="image"><template is="resource-card" data="{{item: item}}"/></block>
+      </view>
     </block>
-    <view class="note">二维码沿用原始资料。点击放大，或保存原图后使用微信识别；复制链接后可在浏览器打开。</view>
+    <view wx:if="{{(view === 'month' && blocks.length) || (view === 'committee' && baidu)}}" class="muted qr-help">点击二维码可放大。保存后可在微信中识别。</view>
   </view>
 </view>

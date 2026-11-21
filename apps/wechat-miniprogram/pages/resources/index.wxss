@@ -1,1 +1,34 @@
-page{background:#f7f4f1;color:#28242a;font-size:28rpx}.hero{background:#782632;color:white;padding:48rpx 36rpx;border-radius:0 0 36rpx 36rpx}.title{font-size:46rpx;font-weight:700}.subtitle{font-size:25rpx;margin-top:14rpx}.body{padding:30rpx}.entry,.card,.month{background:#fff;border:1rpx solid #e9dfd9;border-radius:22rpx;padding:26rpx;margin-bottom:22rpx}.heading{font-weight:700;font-size:31rpx;margin:18rpx 0}.muted{font-size:23rpx;color:#82777b;line-height:1.7}.note,.topic{font-size:25rpx;background:#fff;padding:24rpx;margin:18rpx 0;line-height:1.8;border-radius:16rpx;white-space:pre-line}.back{color:#782632;padding:12rpx 0 24rpx}.tabs,.months,.qr-grid{display:flex;flex-wrap:wrap;gap:14rpx}.tabs button{flex:1;font-size:27rpx}.selected{background:#782632;color:#fff}.month{box-sizing:border-box;width:31%;text-align:center;padding:26rpx 8rpx;font-size:25rpx}.qr-grid .card{box-sizing:border-box;width:48%;padding:18rpx;font-size:24rpx;line-height:1.6;word-break:break-all}.card image{width:100%;height:270rpx}.card button{font-size:23rpx;margin-top:12rpx;color:#782632}.baidu{display:block;width:440rpx;height:440rpx;margin:20rpx auto}.original{width:100%;margin-top:24rpx}.error{color:#a12132}.block{margin:30rpx 0}
+page { background: #f7f4f1; color: #28242a; font-size: 28rpx; }
+.hero { background: #782632; color: #fff; padding: 42rpx 32rpx; border-radius: 0 0 30rpx 30rpx; }
+.title { font-size: 44rpx; font-weight: 700; }
+.subtitle { font-size: 26rpx; margin-top: 10rpx; }
+.body { padding: 26rpx 28rpx calc(44rpx + env(safe-area-inset-bottom)); }
+.entry, .card, .month, .library-card { box-sizing: border-box; background: #fff; border: 1rpx solid #e9dfd9; border-radius: 22rpx; padding: 24rpx; }
+.entry, .month { margin-bottom: 14rpx; }
+.heading { font-weight: 700; font-size: 31rpx; margin: 16rpx 0; }
+.entry .heading, .library-card .heading { margin: 0 0 8rpx; }
+.muted { font-size: 24rpx; color: #706369; line-height: 1.6; }
+.note, .topic { font-size: 26rpx; background: #fff; padding: 22rpx; margin: 14rpx 0; line-height: 1.65; border-radius: 16rpx; white-space: pre-line; }
+.back { color: #782632; padding: 12rpx 0 18rpx; }
+.tabs, .months, .qr-grid { display: flex; flex-wrap: wrap; gap: 14rpx; }
+.tabs { margin-bottom: 18rpx; }
+.tabs button { flex: 1; width: auto; margin: 0; padding: 0 6rpx; font-size: 25rpx; }
+.selected { background: #782632; color: #fff; }
+.month { width: 31.8%; text-align: center; padding: 20rpx 6rpx; font-size: 25rpx; }
+.qr-grid .card { width: calc(50% - 7rpx); min-width: 0; padding: 16rpx; text-align: center; }
+.qr-grid.single .card { width: 100%; }
+.qr-image { display: block; width: 100%; height: 248rpx; margin: 0 auto; }
+.single .qr-image { height: 286rpx; }
+.qr-title { min-height: 44rpx; margin: 6rpx 0 12rpx; font-size: 25rpx; line-height: 1.45; overflow-wrap: anywhere; }
+.qr-actions { display: flex; flex-direction: column; gap: 8rpx; }
+.single .qr-actions { flex-direction: row; }
+.qr-button { display: block; width: 100%; min-width: 0; box-sizing: border-box; margin: 0; padding: 8rpx 10rpx; min-height: 60rpx; border-radius: 12rpx; background: #f7e9ec; color: #782632; font-size: 24rpx; line-height: 44rpx; }
+.qr-button::after { border: 0; }
+.qr-button.secondary { background: #f7f4f1; color: #58494e; }
+.single .qr-button { flex: 1; width: auto; }
+.library-card { text-align: center; margin-bottom: 28rpx; }
+.baidu { display: block; width: 100%; height: 310rpx; margin: 0 auto 14rpx; }
+.section-description { margin: -8rpx 0 16rpx; }
+.qr-help { margin: 24rpx 0 0; }
+.error { color: #a12132; }
+.block { margin: 26rpx 0; }

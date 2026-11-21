@@ -1,5 +1,21 @@
 const {request}=require('../../utils/request');
 const {beginPrivateRequest,hidePrivatePage,showPrivatePage}=require('../../utils/page-session');
+const STATUS_LABELS = {
+ PENDING: '待确认', UNCONFIRMED: '未登记', REVIEWED: '已调整待确认',
+ CONFIRMED: '已确认参加', ABSENT: '已确认未参加'
+};
+
+function participantRows(rows) {
+ const attending = [];
+ const other = [];
+ for (const row of rows) {
+  const attendingNow = row.latest_choice === true;
+  const item = { ...row, attendingNow, statusLabel: STATUS_LABELS[row.status] || row.status };
+  (attendingNow ? attending : other).push(item);
+ }
+ return [...attending, ...other];
+}
+
 const empty=()=>({events:[],rows:[],eventId:'',busy:false,error:'',canManage:false,estimatedCount:0,confirmedCount:0,deadline:'',dinnerLocked:false,dinnerCount:0,dinnerAdded:0,dinnerRemoved:0});
 Page({
  data:empty(),
@@ -18,7 +34,7 @@ Page({
   this.setData({busy:true,error:''});
   try{const result=await request('/api/v1/wechat/checkin/konpa/'+encodeURIComponent(eventId),{auth:true});
    if(current()&&eventId===this.data.eventId){const data=result.data;
-    this.setData({rows:(data.rows||[]).map(r=>({...r,statusLabel:({PENDING:'待确认',UNCONFIRMED:'未登记',REVIEWED:'已调整待确认',CONFIRMED:'已确认参加',ABSENT:'已确认未参加'})[r.status]||r.status})),canManage:data.can_manage===true,
+    this.setData({rows:participantRows(data.rows || []),canManage:data.can_manage===true,
      estimatedCount:data.estimated_count,confirmedCount:data.confirmed_count,
      dinnerLocked:Boolean(data.dinner_locked_at),dinnerCount:data.dinner_locked_count,dinnerAdded:data.dinner_added,dinnerRemoved:data.dinner_removed,
      deadline:new Date(Date.parse(data.auto_confirm_at)+8*60*60*1000).toISOString().slice(0,16).replace('T',' ')});}}

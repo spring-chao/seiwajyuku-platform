@@ -11,6 +11,7 @@ export function detectColumns(headers) {
     class_name: -1,
     group_name: -1,
     group_num: -1,
+    onsite_seat: -1,
     dinner_table_num: -1,
     is_student: -1
   };
@@ -40,8 +41,9 @@ export function detectColumns(headers) {
     if (/^(分中心|中心|center|分部|所属分中心)$/i.test(h)) return "center";
     if (/^(班级|班|class|班级名称)$/i.test(h)) return "class_name";
     if (/^(组号|大组|分组|现场分组)$/i.test(h)) return "group_num";
+    if (/^(座位号|现场座位|会场座位|会场座位号|现场座位号)$/i.test(h)) return "onsite_seat";
     if (/^(小组|小组名称|组名|组别)$/i.test(h)) return "group_name";
-    if (/^(桌号|桌数|桌子|空巴桌号|晚宴桌号|dinner|table)$/i.test(h))
+    if (/^(桌号|餐桌号|桌数|桌子|空巴桌号|晚宴桌号|dinner|table)$/i.test(h))
       return "dinner_table_num";
     if (/^(是否学员|学员|is_student)$/i.test(h)) return "is_student";
     return null;
@@ -236,13 +238,18 @@ export function parseAttendanceRows(arr) {
       return v && v !== "nan" && v !== "undefined" ? v : "";
     }
 
-    var gn =
-      attendanceGroupNumber(cellClean(col.group_num)) ??
+    const groupCell = cellClean(col.group_num);
+    const seatCell = cellClean(col.onsite_seat);
+    const seating = /^([0-9]+)\s*桌\s*([0-9]+)(?:\s*号)?$/;
+    const combined = seating.exec(seatCell) || seating.exec(groupCell);
+    const onsiteSeat = seatCell || (combined ? groupCell : "");
+    const groupNumber =
+      attendanceGroupNumber(groupCell) ??
+      attendanceGroupNumber(combined?.[1]) ??
       attendanceGroupNumber(cellClean(col.group_name));
-    var dn =
-      col.dinner_table_num >= 0 ? parseInt(cell(col.dinner_table_num)) : null;
-    if (isNaN(gn)) gn = null;
-    if (isNaN(dn)) dn = null;
+    const dinnerCell = cellClean(col.dinner_table_num);
+    const dinnerMatch = /^(?:第\s*)?([0-9]+)(?:\s*(?:号桌|桌|号))?$/.exec(dinnerCell);
+    const dinnerNumber = attendanceGroupNumber(dinnerMatch?.[1]);
 
     attendees.push({
       name: n,
@@ -251,15 +258,21 @@ export function parseAttendanceRows(arr) {
       class_name: cellClean(col.class_name),
       group_name: cellClean(col.group_name),
       company: cellClean(col.company),
-      group_num: gn,
-      dinner_table_num: dn
+      group_num: groupNumber,
+      ...(onsiteSeat ? { onsite_seat: onsiteSeat } : {}),
+      dinner_table_num: dinnerNumber
     });
   }
 
   return {
     attendees,
     headerRow: header.rowIndex + 1,
-    columns: col,
+    columns: {
+      ...col,
+      onsite_seat: col.onsite_seat >= 0 || !attendees.some(row => row.onsite_seat)
+        ? col.onsite_seat
+        : col.group_num
+    },
     groupField:
       col.center >= 0
         ? "center"

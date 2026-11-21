@@ -65,3 +65,10 @@
 .konpa-outline { border: 1rpx solid #dfc9cd; background: #fff; color: #7b2638; }
 .konpa-primary { background: #761c2e; color: #fff; }
 .konpa-error { color: #9e2337; }
+
+.konpa-person-attending { border-color: #e6c6cc; }
+.konpa-badges { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6rpx; }
+.konpa-intent { background: #f7e7eb; color: #761c2e; }
+.konpa-toolbar .konpa-button { flex: none; width: auto; }
+.konpa-context .konpa-button { width: 100%; }
+.konpa-actions .konpa-button { width: auto; min-width: 0; }

@@ -26,7 +26,7 @@
       <view class="konpa-muted">锁定后新增 {{dinnerAdded}} 人 · 减少 {{dinnerRemoved}} 人</view>
     </view>
     <view class="konpa-toolbar">
-      <view class="konpa-heading">参加名单</view>
+      <view><view class="konpa-heading">参加名单</view><view class="konpa-muted">已选择参加优先显示</view></view>
       <button class="konpa-button konpa-outline" bindtap="refresh" disabled="{{busy}}">刷新名单</button>
     </view>
     <view wx:if="{{deadline}}" class="konpa-context">
@@ -35,10 +35,13 @@
       <view wx:if="{{!canManage}}" class="konpa-muted">当前仅可查看本组名单。</view>
     </view>
     <view wx:if="{{deadline && !error && !rows.length}}" class="konpa-notice">暂无名单记录</view>
-    <view wx:for="{{rows}}" wx:key="registration_id" class="konpa-person">
+    <view wx:for="{{rows}}" wx:key="registration_id" class="konpa-person {{item.attendingNow ? 'konpa-person-attending' : ''}}">
       <view class="konpa-person-head">
         <view class="konpa-roster-title">{{item.name}}<text wx:if="{{item.group_name}}" class="konpa-group"> · {{item.group_name}}</text></view>
-        <text class="konpa-status {{item.status === 'CONFIRMED' ? 'konpa-confirmed' : ''}}">{{item.statusLabel}}</text>
+        <view class="konpa-badges">
+          <text wx:if="{{item.attendingNow && item.status !== 'CONFIRMED'}}" class="konpa-status konpa-intent">参加意向</text>
+          <text class="konpa-status {{item.status === 'CONFIRMED' ? 'konpa-confirmed' : ''}}">{{item.statusLabel}}</text>
+        </view>
       </view>
       <view class="konpa-choices">
         <view>上午 <text>{{item.morning_choice === null ? '未选择' : item.morning_choice ? '参加' : '不参加'}}</text></view>

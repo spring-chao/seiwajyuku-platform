@@ -1036,6 +1036,7 @@ def list_cycles(
     member_name: str | None = None,
     renewal_status: str = "UNRENEWED",
     include_past: bool = False,
+    active_members_only: bool = False,
 ) -> list[dict[str, Any]]:
     """List renewal cycles with scoped, privacy-safe operational filters.
 
@@ -1046,6 +1047,8 @@ def list_cycles(
     year = year or business_today(datetime.now(UTC)).year
     conditions = ["c.renewal_year=?"]
     params: list[Any] = [year]
+    if active_members_only:
+        conditions.append("m.status='ACTIVE'")
     if status:
         conditions.append("c.status=?")
         params.append(status)
@@ -1139,7 +1142,7 @@ def list_today_actions(
     if org_unit_id and allowed is not None and org_unit_id not in allowed:
         raise PermissionError("组织不在当前用户授权范围内")
 
-    conditions = ["c.renewal_year=?"]
+    conditions = ["c.renewal_year=?", "m.status='ACTIVE'"]
     params: list[Any] = [year]
     if org_unit_id:
         conditions.append(f"{MEMBER_RENEWAL_ORG_SQL}=?")

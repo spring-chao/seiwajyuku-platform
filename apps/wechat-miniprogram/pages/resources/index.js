@@ -10,7 +10,7 @@ function cacheImage(data, key) {
 }
 function prepare(q) {
   const image = cacheImage(q.qrData, `${q.imageIdx}-${q.qrNo}`);
-  return { url: q.url, image, title: q.label || `二维码 ${q.qrNo}`, original: cacheImage(q.collageOriginalData, `${q.imageIdx}-original`) };
+  return { url: q.url, image, title: q.label || `二维码 ${q.qrNo}` };
 }
 
 Page({
@@ -53,12 +53,12 @@ Page({
   },
   async committee() {
     const version = ++this._loadVersion;
-    this.setData({ view: "committee", loading: true, error: "", videos: [], baidu: null, original: "" });
+    this.setData({ view: "committee", loading: true, error: "", videos: [], baidu: null });
     try {
       const response = await request("/api/v1/wechat/learning-resources?committee=true", { auth: true });
       if (version !== this._loadVersion) return;
       const videos = response.data.videos.map(prepare);
-      this.setData({ videos, original: videos[0].original, baidu: { url: response.data.baidu.url, image: cacheImage(response.data.baidu.qrData, "baidu") } });
+      this.setData({ videos, baidu: { url: response.data.baidu.url, image: cacheImage(response.data.baidu.qrData, "baidu") } });
     } catch (error) { if (version === this._loadVersion) this.setData({ error: error.message }); }
     finally { if (version === this._loadVersion) this.setData({ loading: false }); }
   },
