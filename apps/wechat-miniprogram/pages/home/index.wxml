@@ -5,6 +5,9 @@
     <view class="hero-copy">{{identityState === 'bound' ? '学习服务从这里开始' : identityState === 'unbound' ? '绑定身份，开启您的学长服务' : '学长服务'}}</view>
   </view>
 
+  <button class="today-checkin" bindtap="openTodayCheckin">
+    <text>今日签到</text><text aria-hidden="true">›</text>
+  </button>
   <view wx:if="{{loading}}" class="state-card">正在加载，请稍候…</view>
   <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>
   <button wx:if="{{!loading && (errorMessage || (isVolunteer && serviceMessage))}}" class="plain-button" bindtap="loadHome">重新加载</button>
@@ -21,7 +24,6 @@
            entry now lives in the volunteer-service card below. -->
       <button wx:if="{{canManageStudyMeeting}}" class="primary-button" bindtap="openStudyMeeting" hidden="{{true}}">小组学习会登记</button>
       <view wx:if="{{isEmployee}}" class="identity-copy">工作人员移动运营能力会随账号启用、在职状态和后台组织授权实时变化。</view>
-      <button class="plain-button" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbind">解除当前微信绑定</button>
     </view>
     <view wx:else class="identity-card">
       <view class="identity-name">尚未绑定平台身份</view>
@@ -53,5 +55,8 @@
     </view>
   </view>
 
-  <view class="footer-copy">页面只显示与你当前身份相关的服务；暂未开放的功能会明确提示。</view>
+  <view wx:if="{{!loading && (member || isEmployee)}}" class="account-settings">
+    <button class="plain-button" bindtap="toggleAccountSettings">账号与绑定 {{accountSettingsOpen ? '−' : '+'}}</button>
+    <button wx:if="{{accountSettingsOpen}}" class="plain-button" loading="{{unbinding}}" disabled="{{unbinding}}" bindtap="unbind">解除当前微信绑定</button>
+  </view>
 </view>

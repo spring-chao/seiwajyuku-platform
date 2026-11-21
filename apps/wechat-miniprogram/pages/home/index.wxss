@@ -1,8 +1,11 @@
 .page-shell { min-height: 100vh; box-sizing: border-box; padding: 28rpx; background: #fbf7f3; color: #3d2a2a; }
-.hero-card { padding: 42rpx 34rpx; border-radius: 28rpx; background: linear-gradient(135deg, #741f2b, #a84c52); color: #fff; box-shadow: 0 16rpx 34rpx rgba(116, 31, 43, .18); }
+.hero-card { padding: 24rpx 28rpx; border-radius: 26rpx; background: linear-gradient(135deg, #741f2b, #933943); color: #fff; }
 .eyebrow { font-size: 24rpx; opacity: .82; letter-spacing: 2rpx; }
-.hero-title { margin-top: 16rpx; font-size: 50rpx; font-weight: 700; }
-.hero-copy { margin-top: 16rpx; line-height: 1.65; font-size: 27rpx; opacity: .92; }
+.hero-title { margin-top: 8rpx; font-size: 42rpx; font-weight: 700; }
+.hero-copy { margin-top: 6rpx; line-height: 1.5; font-size: 28rpx; }
+.today-checkin { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 100rpx; margin: 20rpx 0 0; padding: 0 28rpx; box-sizing: border-box; border: 1rpx solid #e7cbd0; border-radius: 22rpx; background: #fff; color: #741f2b; font-size: 34rpx; font-weight: 700; }
+.today-checkin::after { border: 0; }
+.account-settings { margin: 14rpx 0 32rpx; }
 .section-card, .state-card { margin-top: 24rpx; padding: 28rpx; border-radius: 24rpx; background: #fff; box-shadow: 0 8rpx 24rpx rgba(80, 35, 35, .06); }
 .section-title { font-size: 34rpx; font-weight: 700; }
 .identity-copy, .footer-copy { margin-top: 14rpx; color: #806f6f; line-height: 1.6; font-size: 25rpx; }
@@ -16,6 +19,6 @@
 .entry-card-wide { width: 100%; }
 .entry-icon { display: flex; align-items: center; justify-content: center; width: 58rpx; height: 58rpx; border-radius: 18rpx; background: #f7e7df; color: #741f2b; font-size: 30rpx; font-weight: 700; }
 .entry-title { margin-top: 18rpx; color: #4c3030; font-size: 31rpx; font-weight: 700; }
-.entry-copy { margin-top: 8rpx; color: #806f6f; font-size: 23rpx; line-height: 1.45; }
+.entry-copy { margin-top: 8rpx; color: #665656; font-size: 27rpx; line-height: 1.45; }
 .error { color: #b33b44; }
 .footer-copy { padding: 22rpx 8rpx 40rpx; text-align: center; }

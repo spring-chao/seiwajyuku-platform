@@ -420,6 +420,7 @@ def test_bound_member_cannot_claim_a_guest_or_overwrite_same_name_identity():
 
 def test_guest_success_retains_legacy_receipt_fields_without_private_engine_data():
     receipt = {"name": "已保存来宾", "group_num": 3, "dinner_table_num": 8, "show_group": "false",
+               "checkin_badge": "特邀嘉宾",
                "company": "合成企业", "checked_at": "2026-10-10T01:00:00Z",
                "phone": "PRIVATE_PHONE_SENTINEL", "guest_id": "PRIVATE_GUEST_SENTINEL",
                "event": {"event_id": "event-morning", "name": "合成学习会", "event_date": "2026-10-10",
@@ -430,6 +431,7 @@ def test_guest_success_retains_legacy_receipt_fields_without_private_engine_data
     data = response.json()["data"]
     assert data["status"] == "ALREADY_CHECKED_IN"
     assert data["receipt"]["name"] == "已保存来宾"
+    assert data["receipt"]["checkin_badge"] == "特邀嘉宾"
     assert data["receipt"]["group_num"] == 3 and data["receipt"]["dinner_table_num"] == 8
     assert data["receipt"]["show_group"] == "false"
     assert data["receipt"]["event"]["activity_type_name"] == "班级学习会"

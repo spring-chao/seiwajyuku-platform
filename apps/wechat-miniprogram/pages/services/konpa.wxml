@@ -35,7 +35,9 @@
       <view wx:if="{{!canManage}}" class="konpa-muted">当前仅可查看本组名单。</view>
     </view>
     <view wx:if="{{deadline && !error && !rows.length}}" class="konpa-notice">暂无名单记录</view>
-    <view wx:for="{{rows}}" wx:key="registration_id" class="konpa-person {{item.attendingNow ? 'konpa-person-attending' : ''}}">
+    <block wx:for="{{rows}}" wx:key="registration_id">
+    <view wx:if="{{index === 0 || item.section !== rows[index - 1].section}}" class="konpa-list-heading">{{item.section}}</view>
+    <view class="konpa-person {{item.attendingNow ? 'konpa-person-attending' : ''}}">
       <view class="konpa-person-head">
         <view class="konpa-roster-title">{{item.name}}<text wx:if="{{item.group_name}}" class="konpa-group"> · {{item.group_name}}</text></view>
         <view class="konpa-badges">
@@ -53,6 +55,7 @@
         <button wx:if="{{item.choice !== null}}" class="konpa-button konpa-primary konpa-final" disabled="{{busy}}" data-id="{{item.registration_id}}" data-action="confirm" bindtap="update">最终确认</button>
       </view>
     </view>
+    </block>
   </block>
   <view wx:if="{{busy}}" class="konpa-notice">正在处理…</view>
   <view wx:if="{{error}}" class="konpa-notice konpa-error">{{error}}</view>

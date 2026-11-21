@@ -12,6 +12,7 @@ const props = defineProps<{
     invalid_phone_count: number;
     repeated_slots: number;
     valid_dinner_table_count: number;
+    invalid_checkin_badge_count: number;
   };
 }>();
 const fields = [
@@ -21,7 +22,8 @@ const fields = [
   { key: "center", label: "分中心" },
   { key: "class_name", label: "班级" },
   { key: "group", label: "现场分组" },
-  { key: "dinner_table_num", label: "餐桌号" }
+  { key: "dinner_table_num", label: "餐桌号" },
+  { key: "checkin_badge", label: "签到标识" }
 ];
 const displayedFields = computed(() =>
   fields.map(field => {
@@ -42,9 +44,10 @@ const displayedFields = computed(() =>
           ? "小组"
           : field.label,
       recognized,
+      state: recognized ? "已识别" : emptyDinnerTable && positions.length > 0 ? "无有效数据" : field.key === "name" ? "缺少必填列" : "未提供",
       position: recognized
         ? positions.map(index => `第 ${index + 1} 列`).join(" / ")
-        : emptyDinnerTable ? "无餐桌号数据" : "未识别"
+        : ""
     };
   })
 );
@@ -54,16 +57,16 @@ const displayedFields = computed(() =>
   <section class="import-summary" aria-label="报名表识别结果">
     <p class="header-row">自动识别表头：第 {{ headerRow }} 行</p>
     <div class="column-status-list" aria-label="列识别">
-      <el-checkbox
+      <div
         v-for="field in displayedFields"
         :key="field.key"
         class="column-status"
-        :class="field.recognized ? 'recognized' : 'unrecognized'"
-        :model-value="field.recognized"
-        disabled
       >
-        {{ field.label }}：{{ field.position }}
-      </el-checkbox>
+        <span>{{ field.label }}</span>
+        <el-tag size="small" :type="field.recognized ? 'success' : field.key === 'name' ? 'danger' : field.state === '无有效数据' ? 'warning' : 'info'">
+          {{ field.recognized ? `已识别 · ${field.position}` : field.state }}
+        </el-tag>
+      </div>
     </div>
     <div class="read-status" role="status">
       <div class="read-title">✓ 活动名单已读取</div>
@@ -71,15 +74,19 @@ const displayedFields = computed(() =>
         报名名单共 {{ quality.member_count }} 条；姓名为必填，手机号正常
         {{ quality.valid_phone_count }} 条。
       </p>
-      <p v-if="quality.missing_phone_count || quality.invalid_phone_count">
+      <p v-if="quality.missing_phone_count || quality.invalid_phone_count" class="quality-warning">
         手机号缺失 {{ quality.missing_phone_count }} 条，格式异常
         {{ quality.invalid_phone_count }} 条；手机号问题不阻断导入。
       </p>
       <p v-if="quality.repeated_slots">
         重复报名名额 {{ quality.repeated_slots }} 个，分别保留为独立报名位。
       </p>
+      <p v-if="quality.invalid_checkin_badge_count">
+        签到标识有 {{ quality.invalid_checkin_badge_count }} 条无法识别，导入时按空白处理。
+      </p>
     </div>
-    <p class="summary-hint">餐桌号读取到有效值时才勾选。可选列留空可以正常导入。</p>
+    <p class="summary-hint">可选列留空可以正常导入。</p>
+    <p class="summary-hint">在 Excel 添加「签到标识」列，每人填写一项：熟生、非熟生、特邀嘉宾、桌长。</p>
   </section>
 </template>
 
@@ -102,34 +109,17 @@ const displayedFields = computed(() =>
   gap: 8px 16px;
 }
 .column-status {
-  height: auto;
-  margin-right: 0;
-  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-bg-color);
 }
-.column-status :deep(.el-checkbox__label) {
-  white-space: normal;
-  line-height: 1.5;
-}
-.column-status :deep(.el-checkbox__input) {
-  margin-top: 3px;
-}
-.column-status.recognized
-  :deep(.el-checkbox__input.is-disabled + .el-checkbox__label) {
-  color: var(--el-color-success-dark-2);
-}
-.recognized
-  :deep(.el-checkbox__input.is-disabled.is-checked .el-checkbox__inner) {
-  background: var(--el-color-success);
-  border-color: var(--el-color-success);
-}
-.recognized
-  :deep(.el-checkbox__input.is-disabled.is-checked .el-checkbox__inner::after) {
-  border-color: white;
-}
-.column-status.unrecognized
-  :deep(.el-checkbox__input.is-disabled + .el-checkbox__label) {
-  color: var(--el-color-warning-dark-2);
-}
+.quality-warning { color: #795217; }
 .read-status {
   margin-top: 18px;
   padding: 14px 16px;

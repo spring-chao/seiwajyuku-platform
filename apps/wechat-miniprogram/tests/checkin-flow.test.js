@@ -48,6 +48,13 @@ function context(eventId = 10, extra = {}) {
     can_checkin: true, already_checked_in: false, ...extra } };
 }
 
+test("home opens the common today check-in route without requiring a bound identity", () => {
+  const h = harness("home/index", undefined, "");
+  h.page.openTodayCheckin();
+  assert.deepEqual(h.navigations, ["/pages/checkin/events"]);
+  assert.equal(h.calls.length, 0);
+});
+
 test("an ended dedicated code offers open sessions without submitting or redirecting automatically", async () => {
   const source = context("morning", { member: null, guest_allowed: true });
   Object.assign(source.data.event, { checkin_status: "ended", checkin_available: false,
@@ -514,7 +521,8 @@ test("duplicate names require an explicit checkbox selection and can confirm onl
 
 test("multiple chosen registrations use fresh login codes and retain each original success receipt", async () => {
   const h=await duplicateGuest(async (_,options)=>guestReceipt({status:options.data.candidate_token==="selection-b"?"ALREADY_CHECKED_IN":"CHECKED_IN",
-    receipt:{name:"同名报名人",group_num:options.data.candidate_token==="selection-a"?"3":"4",dinner_table_num:"8"}}));
+    receipt:{name:"同名报名人",group_num:options.data.candidate_token==="selection-a"?"3":"4",dinner_table_num:"8",
+      checkin_badge:options.data.candidate_token==="selection-a"?"桌长":"非熟生"}}));
   let loginCount=0;h.wx.login=options=>options.success({code:`new-code-${++loginCount}`});
   h.page.selectGuestCandidates({detail:{value:["0","1"]}});await h.page.submitGuest();
   assert.equal(h.calls.length,4);
@@ -522,23 +530,27 @@ test("multiple chosen registrations use fresh login codes and retain each origin
   assert.equal(h.page.data.guestResults.length,2);
   assert.deepEqual(Array.from(h.page.data.guestResults[0].card.seats),["大会现场：第 3 组","空巴晚宴：第 8 桌"]);
   assert.match(h.page.data.guestResults[1].card.lines.join(" "),/已签到/);
+  assert.deepEqual(Array.from(h.page.data.guestResults, ({ card }) => card.theme), ["amber", "blue"]);
+  assert.equal(h.page.data.groupReceiptTheme, "");
 });
 
 test("partial failures retain confirmed receipts and retry only the failed chosen registration", async () => {
   let fail=true;
   const h=await duplicateGuest(async(_,options)=>{
     if(options.data.candidate_token==="selection-b"&&fail)throw new Error("合成临时故障");
-    return guestReceipt();
+    return guestReceipt({receipt:{name:"同名报名人",checkin_badge:"特邀嘉宾"}});
   });
   h.page.selectGuestCandidates({detail:{value:["0","1"]}});await h.page.submitGuest();
   assert.equal(h.page.data.result,null);assert.equal(h.page.data.alreadyChecked,false);
   assert.equal(h.page.data.guestResults.length,1);assert.equal(h.page.data.nameCandidates[0].completed,true);
+  assert.equal(h.page.data.groupReceiptTheme, "");
   assert.deepEqual(Array.from(h.page.data.selectedCandidateIndexes),["1"]);
   assert.match(h.page.data.errorMessage,/已完成 1 条/);
   h.page.inputGuestName({detail:{value:"改名"}});assert.equal(h.page.data.guestName,"同名报名人");
   fail=false;await h.page.submitGuest();
   assert.equal(h.calls.length,5);assert.equal(h.calls[4].options.data.candidate_token,"selection-b");
   assert.equal(h.page.data.guestResults.length,2);assert.equal(h.page.data.alreadyChecked,true);
+  assert.equal(h.page.data.groupReceiptTheme, "purple");
 });
 
 test("editing a name clears earlier candidate credentials and checkbox selection", async () => {

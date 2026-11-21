@@ -205,6 +205,26 @@ test("dinner table recognition counts only valid tables from imported rows", () 
   assert.ok(parsed.attendees.every(row => row.dinner_table_num === null));
 });
 
+test("optional checkin badge uses only the dedicated column and allows one supported value", () => {
+  const parsed = parser.parseAttendanceRows([
+    ["姓名", "标识3", "签到标识（选填）"],
+    ["合成甲", "", " 熟生 "],
+    ["合成乙", "", "非塾生"],
+    ["合成丙", "", "特邀嘉宾"],
+    ["合成丁", "", "桌长"],
+    ["合成戊", "", "熟生、桌长"],
+    ["合成己", "桌长", ""],
+    ["合成庚", "", 0]
+  ]);
+  assert.equal(parsed.columns.checkin_badge, 2);
+  assert.equal(parsed.quality.invalid_checkin_badge_count, 2);
+  assert.deepEqual(parsed.attendees.map(row => row.checkin_badge),
+    ["熟生", "非熟生", "特邀嘉宾", "桌长", undefined, undefined, undefined]);
+  const legacy = parser.parseAttendanceRows([["姓名", "标识3"], ["合成学员", "桌长"]]);
+  assert.equal(legacy.columns.checkin_badge, -1);
+  assert.ok(!("checkin_badge" in legacy.attendees[0]));
+});
+
 test("uploaded filename supplies the activity name while preserving manually edited names", () => {
   const first = parser.attendanceNameFromFile("示例报告会.XLS");
   assert.equal(first, "示例报告会");

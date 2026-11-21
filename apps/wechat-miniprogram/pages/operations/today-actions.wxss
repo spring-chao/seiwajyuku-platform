@@ -4,5 +4,8 @@
 .hero-title { margin-top: 0; font-size: 38rpx; }
 .action-head, .action-footer { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
 .action-head .type-tag { flex: none; margin-top: 0; }
-.action-footer { justify-content: flex-end; flex-wrap: wrap; margin-top: 16rpx; color: #706369; font-size: 24rpx; }
+.action-footer { justify-content: space-between; flex-wrap: wrap; margin-top: 16rpx; color: #665656; font-size: 27rpx; }
+.action-footer .action-link { margin-left: auto; }
+.action-card { padding: 22rpx 26rpx; }
+.action-card .section-title { min-width: 0; overflow-wrap: anywhere; }
 .action-link { color: #741f2b; font-weight: 600; }

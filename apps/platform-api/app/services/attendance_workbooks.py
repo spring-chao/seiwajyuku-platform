@@ -7,7 +7,7 @@ from openpyxl.styles import Alignment, Font
 from app.services import signin_engine as engine
 from app.services.attendance_export_context import _hydrate, participation_statistics, apply_session_requirements
 
-DETAIL_HEADERS = ['场次','实际到场姓名','原报名姓名','联系方式（脱敏）','公司','分中心','班级','小组','班会小组参会率','签到身份','原班级','桌号','签到状态','签到时间','统计范围说明']
+DETAIL_HEADERS = ['场次','实际到场姓名','原报名姓名','联系方式（脱敏）','公司','分中心','班级','小组','班会小组参会率','签到身份','原班级','桌号','签到状态','签到时间','统计范围说明','签到标识']
 
 
 def _display_time(value):
@@ -110,7 +110,27 @@ def workbook_bytes(data):
         for row in bundle['rows']:
             group_name=row.get('current_group_name') if row.get('current_membership_resolved') else row.get('ops_study_group_name') or row.get('group_name')
             if group_name in {row.get('class_name'),row.get('home_class_name')}:group_name=None
-            details.append([label,row.get('actual_attendee_name') or row.get('registered_display_name') or row.get('name') or '',row.get('registered_display_name') or row.get('registered_name') or row.get('name') or '',row.get('phone_masked') or '',row.get('company') or '',row.get('center') or '',row.get('class_name') or '',group_name or '未分组',row.get('class_group_participation_rate') if row.get('class_group_participation_rate') is not None else '—',row.get('attendance_role_label') or row.get('attendance_role') or '',row.get('home_class_name') or '',row.get('dinner_table_num') or '',row.get('sign_status') or row.get('attendance_status_label') or ('已签到' if row.get('checked') or row.get('sign_time') or row.get('checked_at') else '未签到'),_display_time(row.get('sign_time') or row.get('checked_at')),row.get('statistics_exclusion_reason') or ''])
+            checked_at = row.get('sign_time') or row.get('checked_at')
+            status = row.get('sign_status') or row.get('attendance_status_label')
+            participation_rate = row.get('class_group_participation_rate')
+            details.append([
+                label,
+                row.get('actual_attendee_name') or row.get('registered_display_name') or row.get('name') or '',
+                row.get('registered_display_name') or row.get('registered_name') or row.get('name') or '',
+                row.get('phone_masked') or '',
+                row.get('company') or '',
+                row.get('center') or '',
+                row.get('class_name') or '',
+                group_name or '未分组',
+                participation_rate if participation_rate is not None else '—',
+                row.get('attendance_role_label') or row.get('attendance_role') or '',
+                row.get('home_class_name') or '',
+                row.get('dinner_table_num') or '',
+                status or ('已签到' if row.get('checked') or checked_at else '未签到'),
+                _display_time(checked_at),
+                row.get('statistics_exclusion_reason') or '',
+                row.get('checkin_badge') or '',
+            ])
         session_rows.append([label,stats.get('home_class_total',stats.get('total')),stats.get('home_class_checked',stats.get('checked')),stats.get('cross_class_checked'),stats.get('guest_checked'),stats.get('onsite_total',stats.get('checked')),stats['rate']/100 if isinstance(stats.get('rate'),(int,float)) else None,stats.get('requirement_roster_count'),stats.get('requirement_present_count'),stats.get('requirement_participation_rate')])
     _append_sheet(book,'签到名单',DETAIL_HEADERS,details,(9,))
     _append_sheet(book,'场次汇总',['场次','本班报名（含自愿参加）','本班已签到（报名口径）','外班实际到场','来宾实际到场','现场真实人数','报名签到率','应参人数（排除精进组）','应参到场（含本班师资）','班级参会率（含本班师资，排除精进组）'],session_rows,(7,10))

@@ -1,7 +1,7 @@
 <template name="resource-card">
   <view class="card">
-    <image class="qr-image" src="{{item.image}}" mode="aspectFit" data-image="{{item.image}}" bindtap="preview"/>
     <view class="qr-title">{{item.title}}</view>
+    <image class="qr-image" src="{{item.image}}" mode="aspectFit" data-image="{{item.image}}" bindtap="preview"/>
     <view class="qr-actions">
       <button class="qr-button" data-url="{{item.url}}" bindtap="copy">复制链接</button>
       <button class="qr-button secondary" data-image="{{item.image}}" bindtap="save">保存二维码</button>
