@@ -48,6 +48,58 @@ function context(eventId = 10, extra = {}) {
     can_checkin: true, already_checked_in: false, ...extra } };
 }
 
+test("an ended dedicated code offers open sessions without submitting or redirecting automatically", async () => {
+  const source = context("morning", { member: null, guest_allowed: true });
+  Object.assign(source.data.event, { checkin_status: "ended", checkin_available: false,
+    available_checkin_sessions: [{ event_id: "afternoon", session_code: "AFTERNOON", session_name: "下午" }]
+  });
+  const h = harness("checkin/index", async () => source, "");
+  h.page.onLoad({ scene: "ci_testDedicatedToken123" });
+  await h.page.onShow();
+  assert.equal(h.page.data.event.event_id, "morning");
+  assert.equal(h.page.data.guestAllowed, false);
+  assert.match(h.page.data.notice, /已结束/);
+  await h.page.submitGuest();
+  assert.equal(h.calls.length, 1);
+  assert.deepEqual(h.navigations, []);
+  h.page.openAvailableSession({ currentTarget: { dataset: { eventId: "other" } } });
+  assert.deepEqual(h.navigations, []);
+  h.page.openAvailableSession({ currentTarget: { dataset: { eventId: "afternoon" } } });
+  assert.deepEqual(h.navigations, ["/pages/checkin/index?event_id=afternoon"]);
+});
+
+test("an unavailable dedicated code keeps the bound identity and offers the common entry", async () => {
+  const h = harness("checkin/index", async () => {
+    throw Object.assign(new Error("签到码已过有效期"), { statusCode: 410 });
+  });
+  h.page.onLoad({ scene: "ci_testDedicatedToken123" });
+  await h.page.onShow();
+  assert.equal(h.app.globalData.personSessionToken, "account-a");
+  assert.equal(h.page.data.canCheckin, false);
+  h.page.openTodayCheckin();
+  assert.deepEqual(h.navigations, ["/pages/checkin/events"]);
+});
+
+test("an open dedicated code pins guest lookup and confirmation to the displayed session", async () => {
+  const source = context("afternoon", { member: null, can_checkin: false, guest_allowed: true });
+  source.data.event.checkin_status = "open";
+  const h = harness("checkin/index", async url => {
+    if (url.endsWith("guest-lookup")) return { data: { candidates: [{ candidate_token: "selected" }] } };
+    if (url.endsWith("guest-confirm")) return { data: { status: "CHECKED_IN", checked_at: "synthetic-time", participant_type: "GUEST" } };
+    return source;
+  }, "");
+  h.page.onLoad({ scene: "ci_testDedicatedToken123" });
+  await h.page.onShow();
+  h.page.inputGuestName({ detail: { value: "合成来宾" } });
+  await h.page.submitGuest();
+  assert.equal(h.page.data.result.status, "CHECKED_IN");
+  assert.equal(h.calls.length, 3);
+  for (const { options } of h.calls.slice(1)) {
+    assert.equal(options.data.token, "testDedicatedToken123");
+    assert.equal(options.data.event_id, "afternoon");
+  }
+});
+
 test('required konpa choice starts empty, blocks submit, and explicit no is submitted as false',async()=>{
  const source=context();source.data.event.konpa_choice_required=true;
  const h=harness('checkin/index',async(_,options)=>options.method==='POST'?{data:{status:'CHECKED_IN',checked_at:'2026-10-31T01:00:00Z'}}:source);
@@ -418,7 +470,7 @@ test("one tap verifies a unique enrollment and confirms its original slot exactl
   assert(!JSON.stringify(h.page.data).includes("private-selection"));
   await h.page.submitGuest();
   assert.equal(h.calls.length, 3);
-  assert.deepEqual(JSON.parse(JSON.stringify(h.calls[2].options.data)), { token: "external_scene_123456789", name: "合成报名人",candidate_token:"private-selection", wx_login_code: "synthetic-login" });
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls[2].options.data)), { token: "external_scene_123456789", event_id: "10", name: "合成报名人",candidate_token:"private-selection", wx_login_code: "synthetic-login" });
   pending.resolve({ data: { status: "CHECKED_IN", participant_type: "GUEST", checked_at: "2026-10-10T09:00:00+08:00", sync_status: "PENDING" } });
   await first;
   assert.equal(h.page.data.alreadyChecked, true);

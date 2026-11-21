@@ -67,8 +67,13 @@
     </button>
   </view>
   <view wx:if="{{errorMessage}}" class="state-card error">{{errorMessage}}</view>
+  <view wx:if="{{showTodayCheckin && !loading && !result}}" class="section-card">
+    <view wx:if="{{availableSessions.length}}" class="section-title">同一活动正在开放的场次</view>
+    <button wx:for="{{availableSessions}}" wx:key="event_id" class="primary-button" style="width:100%;" data-event-id="{{item.event_id}}" bindtap="openAvailableSession">前往{{item.session_name}}</button>
+    <button class="plain-button" style="width:100%;" bindtap="openTodayCheckin">查看今日签到</button>
+  </view>
   <view wx:if="{{rescueNotice}}" class="section-card"><view class="section-title">现场备用签到</view><view class="section-hint">{{rescueNotice}}</view></view>
-  <button wx:if="{{errorMessage && !confirming}}" class="plain-button" bindtap="loadContext">重新确认活动</button>
+  <button wx:if="{{errorMessage && !confirming && !showTodayCheckin}}" class="plain-button" bindtap="loadContext">重新确认活动</button>
   <view wx:if="{{fallbackAvailable && !loading && !result}}" class="section-card">
     <view class="section-title">备用现场签到</view><view class="section-hint">团队报名、来宾或无法匹配报名时，可使用原有现场签到流程；也可联系工作人员协助。</view>
     <button class="plain-button" bindtap="openFallback">姓名 / 团队 / 来宾签到</button>
