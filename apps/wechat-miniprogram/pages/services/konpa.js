@@ -6,14 +6,19 @@ const STATUS_LABELS = {
 };
 
 function participantRows(rows) {
- const attending = [];
+ const pending = [];
+ const confirmed = [];
  const other = [];
  for (const row of rows) {
   const attendingNow = row.latest_choice === true;
-  const item = { ...row, attendingNow, statusLabel: STATUS_LABELS[row.status] || row.status };
-  (attendingNow ? attending : other).push(item);
+  const isConfirmed = row.status === 'CONFIRMED';
+  const section = attendingNow ? (isConfirmed ? '已确认参加' : '参加意向待确认') : '其他报名';
+  const item = { ...row, attendingNow, section, statusLabel: STATUS_LABELS[row.status] || row.status };
+  if (!attendingNow) other.push(item);
+  else if (isConfirmed) confirmed.push(item);
+  else pending.push(item);
  }
- return [...attending, ...other];
+ return [...pending, ...confirmed, ...other];
 }
 
 const empty=()=>({events:[],rows:[],eventId:'',busy:false,error:'',canManage:false,estimatedCount:0,confirmedCount:0,deadline:'',dinnerLocked:false,dinnerCount:0,dinnerAdded:0,dinnerRemoved:0});

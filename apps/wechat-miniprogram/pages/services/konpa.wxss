@@ -72,3 +72,5 @@
 .konpa-toolbar .konpa-button { flex: none; width: auto; }
 .konpa-context .konpa-button { width: 100%; }
 .konpa-actions .konpa-button { width: auto; min-width: 0; }
+.konpa-list-heading { margin: 24rpx 4rpx 12rpx; font-size: 28rpx; font-weight: 700; color: #514141; }
+.konpa-actions .konpa-button { min-height: 94rpx; }

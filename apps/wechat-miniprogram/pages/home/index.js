@@ -24,6 +24,7 @@ Page({
   data: {
     loading: true,
     unbinding: false,
+    accountSettingsOpen: false,
     member: null,
     identities: null,
     isEmployee: false,
@@ -59,7 +60,7 @@ Page({
     this._homeVisible = false;
     this._homeVisibilityEpoch = (this._homeVisibilityEpoch || 0) + 1;
     this._homeLoadVersion = (this._homeLoadVersion || 0) + 1;
-    this.setData({ loading: false, unbinding: false, member: null, identities: null, isEmployee: false,
+    this.setData({ loading: false, unbinding: false, accountSettingsOpen: false, member: null, identities: null, isEmployee: false,
       operationEntries: [], identityState: "unknown", canManageStudyMeeting: false,
       isVolunteer: false, volunteerRoles: [], displayRole: "", displayScope: "", serviceMessage: "" });
   },
@@ -176,6 +177,14 @@ Page({
   openBinding() {
     if (this.data.unbinding || identityChangePending()) return;
     wx.navigateTo({ url: "/pages/identity/bind" });
+  },
+
+  openTodayCheckin() {
+    wx.navigateTo({ url: "/pages/checkin/events" });
+  },
+
+  toggleAccountSettings() {
+    if (!this.data.unbinding) this.setData({ accountSettingsOpen: !this.data.accountSettingsOpen });
   },
 
   openLearning() {

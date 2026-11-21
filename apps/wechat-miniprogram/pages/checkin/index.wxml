@@ -26,13 +26,13 @@
   <view wx:if="{{!result && !guestAllowed && (notice || alreadyChecked)}}" class="state-card {{alreadyChecked ? 'success' : ''}}">{{notice || '本场次已签到'}}</view>
   <button wx:if="{{member && alreadyChecked && !result}}" class="plain-button" bindtap="openHistory">查看我的参与记录</button>
   <view wx:if="{{result && successCard}}" class="result-card">
-    <view class="check-icon">✅</view>
+    <view class="receipt-status"><text class="check-icon" aria-hidden="true">✓</text>签到成功</view>
     <view class="welcome">{{successCard.welcome}}</view>
     <view wx:for="{{successCard.seats}}" wx:key="*this" class="seat-item">{{item}}</view>
     <view class="result-info"><view wx:for="{{successCard.lines}}" wx:key="index">{{item}}</view></view>
   </view>
   <view wx:for="{{guestResults}}" wx:key="key" class="result-card">
-    <view class="check-icon">✅</view>
+    <view class="receipt-status"><text class="check-icon" aria-hidden="true">✓</text>签到成功</view>
     <view class="welcome">{{item.card.welcome}}</view>
     <view wx:for="{{item.card.seats}}" wx:for-item="seat" wx:key="*this" class="seat-item">{{seat}}</view>
     <view class="result-info"><view wx:for="{{item.card.lines}}" wx:for-item="line" wx:key="index">{{line}}</view></view>

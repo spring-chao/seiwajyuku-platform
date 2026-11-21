@@ -1236,7 +1236,8 @@ onUnmounted(() => {
       <el-drawer
         v-model="workspaceVisible"
         title="活动签到管理"
-        size="min(1200px, 96vw)"
+        size="min(1560px, 98vw)"
+        class="attendance-workspace"
         :close-on-click-modal="false"
       >
         <el-card v-if="selected" shadow="never" v-loading="detailLoading">
@@ -1337,21 +1338,10 @@ onUnmounted(() => {
               }}</el-button
             >
             <el-button
-              v-if="
-                permission('manage') &&
-                currentEvent?.lifecycle_status !== 'CANCELLED'
-              "
-              type="danger"
-              plain
-              :disabled="busy"
-              @click="changeLifecycle('CANCELLED')"
-              >取消活动</el-button
-            >
-            <el-button
               v-if="permission('code') && currentEvent?.session_code !== 'KONPA'"
               :disabled="busy || currentEvent?.lifecycle_status === 'CANCELLED'"
               @click="openCode()"
-              >生成当前场次小程序码</el-button
+              >场次专用码</el-button
             >
             <el-button
               v-if="permission('export')"
@@ -1359,6 +1349,18 @@ onUnmounted(() => {
               @click="exportExcel()"
               >导出 Excel</el-button
             >
+            <el-button v-if="permission('code')" :disabled="busy" @click="openCommonCode">
+              通用签到码
+            </el-button>
+            <details v-if="permission('manage') && currentEvent?.lifecycle_status !== 'CANCELLED'" class="more-actions">
+              <summary>更多操作</summary>
+              <el-button
+                type="danger"
+                plain
+                :disabled="busy"
+                @click="changeLifecycle('CANCELLED')"
+              >取消活动</el-button>
+            </details>
           </div>
           <div v-if="stats" class="summary">
             <el-statistic
@@ -1378,10 +1380,12 @@ onUnmounted(() => {
               :value="stats.guest_checked || 0"
             />
             <el-statistic
+              class="summary-focus"
               title="现场真实人数"
               :value="stats.onsite_total ?? stats.checked ?? 0"
             />
             <el-statistic
+              class="summary-focus"
               title="报名签到率"
               :value="stats.rate || 0"
               suffix="%"
@@ -1494,32 +1498,68 @@ onUnmounted(() => {
             row-key="registration_id"
             max-height="620"
           >
-            <el-table-column label="原报名人" min-width="110"
-              ><template #default="{ row }">{{
-                row.registered_display_name || row.registered_name || row.name
-              }}</template></el-table-column
-            >
-            <el-table-column label="实际参加人" min-width="110"
-              ><template #default="{ row }">{{
-                checked(row) ? row.actual_attendee_name || row.name : "—"
-              }}</template></el-table-column
-            >
-            <el-table-column label="身份" width="95"
-              ><template #default="{ row }"
-                >{{ roleLabel(row) }}
-                <div v-if="row.is_team" class="muted">团队名额</div></template
-              ></el-table-column
-            >
-            <el-table-column prop="center" label="分中心" width="100" />
+            <el-table-column type="expand" width="48">
+              <template #default="{ row }">
+                <div class="person-details">
+                  <dl>
+                    <div><dt>原报名人</dt><dd>{{ row.registered_display_name || row.registered_name || row.name || "—" }}</dd></div>
+                    <div><dt>身份</dt><dd>{{ roleLabel(row) }}{{ row.is_team ? " · 团队名额" : "" }}</dd></div>
+                    <div><dt>分中心</dt><dd>{{ row.center || "—" }}</dd></div>
+                    <div><dt>参加班级</dt><dd>{{ row.class_name || "—" }}</dd></div>
+                    <div><dt>原班级</dt><dd>{{ row.home_class_name || "—" }}</dd></div>
+                    <div><dt>公司</dt><dd>{{ row.company || "—" }}</dd></div>
+                    <div v-if="checked(row)"><dt>签到时间</dt><dd>{{ timeLabel(row.checked_at) }}</dd></div>
+                  </dl>
+                  <div v-if="!isKonpa && !checked(row) && (permission('status') || permission('manage'))" class="actions">
+
+                    <el-button
+                      v-if="permission('status')"
+                      size="small"
+                      :disabled="
+                        busy ||
+                        !canMaintainRegistration(currentEvent) ||
+                        currentEvent?.session_code === 'KONPA'
+                      "
+                      @click="updatePerson(row, 'late')"
+                      >预计迟到</el-button
+                    ><el-button
+                      v-if="permission('status')"
+                      size="small"
+                      :disabled="busy || !canMaintainRegistration(currentEvent)"
+                      @click="updatePerson(row, 'leave')"
+                      >请假</el-button
+                    ><el-button
+                      v-if="
+                        permission('status') &&
+                        ['late', 'leave'].includes(row.attendance_status)
+                      "
+                      size="small"
+                      :disabled="busy || !canMaintainRegistration(currentEvent)"
+                      @click="updatePerson(row, 'pending')"
+                      >恢复待签到</el-button
+                    >
+                    <div v-if="row.is_team && permission('manage')" class="muted">
+                      团队报名：姓名一致可扫码确认本人签到
+                    </div>
+                    <el-button
+                      v-if="permission('manage')"
+                      size="small"
+                      type="danger"
+                      text
+                      :disabled="busy || !canMaintainRegistration(currentEvent)"
+                      @click="removePerson(row)"
+                      >删除报名</el-button
+                    >
+                  </div>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="姓名" min-width="130">
+              <template #default="{ row }">
+                <strong>{{ checked(row) ? row.actual_attendee_name || row.name : row.registered_display_name || row.registered_name || row.name }}</strong>
+              </template>
+            </el-table-column>
             <el-table-column
-              prop="class_name"
-              label="参加班级"
-              width="115"
-            /><el-table-column
-              prop="home_class_name"
-              label="原班级"
-              width="115"
-            /><el-table-column
               :label="
                 currentEvent?.activity_type === 'class_meeting'
                   ? '小组'
@@ -1533,7 +1573,6 @@ onUnmounted(() => {
             <el-table-column v-if="hasDinnerTables" prop="dinner_table_num" label="餐桌号" width="90">
               <template #default="{ row }">{{ row.dinner_table_num ?? "—" }}</template>
             </el-table-column>
-            <el-table-column prop="company" label="公司" min-width="130" />
             <el-table-column label="状态" width="100"
               ><template #default="{ row }"
                 ><el-tag
@@ -1553,16 +1592,10 @@ onUnmounted(() => {
                 ></template
               ></el-table-column
             >
-            <el-table-column label="签到时间" width="155"
-              ><template #default="{ row }">{{
-                checked(row) ? timeLabel(row.checked_at) : "—"
-              }}</template></el-table-column
-            >
             <el-table-column
-              v-if="permission('status') || permission('manage')"
+              v-if="permission('manage')"
               label="现场操作"
-              min-width="260"
-              fixed="right"
+              :min-width="isKonpa ? 160 : 110"
               ><template #default="{ row }"
                 ><template v-if="isKonpa">
                   <template v-if="permission('manage') && konpaReviews[row.registration_id]">
@@ -1576,32 +1609,6 @@ onUnmounted(() => {
                       @click="recordKonpaAttendance(row, false)">未参加</el-button>
                   </template>
                 </template><template v-else-if="!checked(row)">
-                  <el-button
-                    v-if="permission('status')"
-                    size="small"
-                    :disabled="
-                      busy ||
-                      !canMaintainRegistration(currentEvent) ||
-                      currentEvent?.session_code === 'KONPA'
-                    "
-                    @click="updatePerson(row, 'late')"
-                    >预计迟到</el-button
-                  ><el-button
-                    v-if="permission('status')"
-                    size="small"
-                    :disabled="busy || !canMaintainRegistration(currentEvent)"
-                    @click="updatePerson(row, 'leave')"
-                    >请假</el-button
-                  ><el-button
-                    v-if="
-                      permission('status') &&
-                      ['late', 'leave'].includes(row.attendance_status)
-                    "
-                    size="small"
-                    :disabled="busy || !canMaintainRegistration(currentEvent)"
-                    @click="updatePerson(row, 'pending')"
-                    >恢复待签到</el-button
-                  >
                   <el-tooltip
                     v-if="permission('manage')"
                     :content="manualCheckinReason(currentEvent, row, busy)"
@@ -1619,18 +1626,7 @@ onUnmounted(() => {
                       ></span
                     ></el-tooltip
                   >
-                  <div v-if="row.is_team && permission('manage')" class="muted">
-                    团队报名：姓名一致可扫码确认本人签到
-                  </div>
-                  <el-button
-                    v-if="permission('manage')"
-                    size="small"
-                    type="danger"
-                    text
-                    :disabled="busy || !canMaintainRegistration(currentEvent)"
-                    @click="removePerson(row)"
-                    >删除报名</el-button
-                  > </template
+ </template
                 ><span v-else class="muted">已签到事实保留</span></template
               ></el-table-column
             >
@@ -1658,6 +1654,7 @@ onUnmounted(() => {
       body-class="attendance-activity-editor-body"
       :close-on-click-modal="false"
     >
+      <h3 class="editor-section-title">活动信息</h3>
       <el-form label-position="top" class="editor-grid">
         <el-form-item
           v-if="!meetingSessions.length"
@@ -1731,6 +1728,7 @@ onUnmounted(() => {
               " /></el-select
         ></el-form-item>
       </el-form>
+      <h3 class="editor-section-title">场次时间</h3>
       <template v-if="meetingSessions.length">
         <div v-for="session in meetingSessions" :key="session.event_id" class="session-editor">
           <h3>{{ session.session_name || session.name }}</h3>
@@ -1819,7 +1817,7 @@ onUnmounted(() => {
         v-if="!editingId && editor.activity_type !== 'class_meeting'"
         class="notice"
       >
-        <h3>上传报名表格（必填）</h3>
+        <h3 class="editor-section-title">报名名单核对</h3>
         <p class="muted">
           选择 Excel
           报名表，核对名单后保存活动。表格需包含姓名，联系方式、公司、班级等可选；重复报名名额会分别保留。
@@ -2105,10 +2103,11 @@ onUnmounted(() => {
           codeKind === "common" ? "打印一次，重复使用" : eventName(codeEvent)
         }}
       </h3>
-      <p v-if="codeKind === 'session'">
-        {{ codeEvent?.event_date }} ·
-        {{ sessionName(codeEvent) }}
-      </p>
+      <dl v-if="codeKind === 'session'" class="code-session">
+        <div><dt>活动日期</dt><dd>{{ codeEvent?.event_date }}</dd></div>
+        <div><dt>签到场次</dt><dd>{{ sessionName(codeEvent) }}</dd></div>
+        <div class="code-hours"><dt>签到开放时间（北京时间）</dt><dd>{{ timeLabel(codeEvent?.checkin_start_at) }} 至 {{ timeLabel(codeEvent?.checkin_end_at) }}</dd></div>
+      </dl>
       <el-alert
         v-if="codeKind === 'common'"
         title="扫码进入当前开放活动；仅一场开放时直接进入，多场时先选择。仍需匹配本场报名，每个场次独立签到。通用码不随活动更换而失效。"
@@ -2191,7 +2190,7 @@ h3 {
 }
 .heading p,
 .muted {
-  color: var(--el-text-color-secondary);
+  color: var(--el-text-color-regular);
   font-size: 13px;
 }
 .actions,
@@ -2215,6 +2214,8 @@ h3 {
   gap: 14px;
   padding: 20px 0;
 }
+.summary-focus :deep(.el-statistic__number) { color: var(--el-color-primary); font-weight: 700; }
+.summary :deep(.el-statistic__head) { color: var(--el-text-color-regular); }
 .pagination {
   display: flex;
   justify-content: flex-end;
@@ -2227,6 +2228,7 @@ h3 {
   grid-template-columns: 1fr 1fr;
   column-gap: 20px;
 }
+.editor-section-title { margin: 14px 0; padding-bottom: 8px; border-bottom: 1px solid var(--el-border-color); }
 :global(.attendance-activity-editor-body) {
   max-height: calc(85vh - 140px);
   overflow-y: auto;
@@ -2251,10 +2253,24 @@ h3 {
   padding-top: 16px;
 }
 .code-preview img {
-  width: 280px;
-  height: 280px;
+  width: min(280px, 100%);
+  aspect-ratio: 1;
   object-fit: contain;
 }
+.person-details { padding: 14px 18px; background: var(--el-fill-color-light); }
+.person-details dl, .code-session {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 0 0 12px;
+}
+.person-details dt, .code-session dt { font-size: 13px; color: var(--el-text-color-regular); }
+.person-details dd, .code-session dd { margin: 3px 0 0; overflow-wrap: anywhere; font-weight: 600; }
+.code-session { padding: 14px; border-radius: 10px; background: var(--el-fill-color-light); }
+.code-hours { grid-column: 1 / -1; }
+.more-actions summary { cursor: pointer; padding: 6px 8px; color: var(--el-text-color-primary); }
+.more-actions .el-button { margin-top: 6px; }
+.attendance-workspace :deep(.el-table th) { color: var(--el-text-color-regular); }
 @media (max-width: 900px) {
   .summary {
     grid-template-columns: repeat(3, 1fr);

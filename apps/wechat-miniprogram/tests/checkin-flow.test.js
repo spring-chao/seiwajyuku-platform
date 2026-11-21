@@ -48,6 +48,13 @@ function context(eventId = 10, extra = {}) {
     can_checkin: true, already_checked_in: false, ...extra } };
 }
 
+test("home opens the common today check-in route without requiring a bound identity", () => {
+  const h = harness("home/index", undefined, "");
+  h.page.openTodayCheckin();
+  assert.deepEqual(h.navigations, ["/pages/checkin/events"]);
+  assert.equal(h.calls.length, 0);
+});
+
 test("an ended dedicated code offers open sessions without submitting or redirecting automatically", async () => {
   const source = context("morning", { member: null, guest_allowed: true });
   Object.assign(source.data.event, { checkin_status: "ended", checkin_available: false,
