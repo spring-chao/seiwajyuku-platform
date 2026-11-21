@@ -369,7 +369,7 @@ def test_staff_mobile_v1_high_frequency_closed_loop_and_live_iam2_scope() -> Non
         # can also coexist with an active master record during reconciliation.
         with transaction() as connection:
             execute(connection, "UPDATE members SET status='INACTIVE' WHERE id=?", (fixture["focal_member_id"],))
-            execute(connection, "UPDATE renewal_cycles SET status='NOT_RENEWING' WHERE id=?", (fixture["renewal_cycles"]["RENEW_2"],))
+            execute(connection, "UPDATE renewal_cycles SET status='EXITED' WHERE id=?", (fixture["renewal_cycles"]["RENEW_2"],))
         updated_today = client.get("/api/v1/wechat/operations/today-actions", headers=headers)
         assert updated_today.status_code == 200
         assert all(item["source"] != "RENEWAL" or item["member_id"] != fixture["focal_member_id"]

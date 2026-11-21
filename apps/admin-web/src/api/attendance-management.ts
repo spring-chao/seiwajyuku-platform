@@ -65,7 +65,12 @@ export async function manageAttendance<T extends EngineResult = EngineResult>(
   const result = await http.request<T>(
     "post",
     `/api/v1/attendance/manage/${operation}`,
-    { data }
+    {
+      data,
+      ...(["upload", "upload_preview", "create_class_meeting_sessions", "import_apply"].includes(operation)
+        ? { timeout: 75000 }
+        : {})
+    }
   );
   if (result.ok === false || result.success === false) {
     throw new Error(result.msg || "签到管理操作失败");

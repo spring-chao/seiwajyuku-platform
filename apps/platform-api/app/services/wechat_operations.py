@@ -31,8 +31,7 @@ from app.services.members import (
     reveal_contact,
     search_members,
 )
-from app.services.renewals import CLOSED_RENEWAL_STATUSES, list_cycles
-from app.services.renewals import add_followup as add_renewal_followup
+from app.services.renewals import add_followup as add_renewal_followup, list_cycles
 from app.services.study_meetings import list_study_meeting_records
 from app.services.volunteer_positions import get_member_volunteer_services
 from app.services.wechat_identity import WeChatIdentityError
@@ -413,7 +412,7 @@ def renewal_watch(session: dict[str, Any]) -> dict[str, Any]:
         stage: [] for stage, _ in _RENEWAL_WATCH_STAGES
     }
     for row in rows:
-        if str(row.get("status") or "").upper() in CLOSED_RENEWAL_STATUSES:
+        if str(row.get("status") or "").upper() in {"RENEWED", "EXITED"}:
             continue
         # Same current/next/following month windows as the shared stage engine.
         offset = (row.get("stage") or {}).get("months_until_due")

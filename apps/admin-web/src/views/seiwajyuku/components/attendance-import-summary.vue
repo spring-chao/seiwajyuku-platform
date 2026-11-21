@@ -20,7 +20,8 @@ const fields = [
   { key: "center", label: "分中心" },
   { key: "class_name", label: "班级" },
   { key: "group", label: "现场分组" },
-  { key: "dinner_table_num", label: "桌号" }
+  { key: "onsite_seat", label: "会场座位" },
+  { key: "dinner_table_num", label: "餐桌号" }
 ];
 const displayedFields = computed(() =>
   fields.map(field => {

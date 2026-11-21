@@ -668,7 +668,20 @@ async function saveEditor() {
         };
       }
     }
-    const result = await manageAttendance(operation, payload);
+    let result;
+    try {
+      result = await manageAttendance(operation, payload);
+    } catch (error: any) {
+      const creating = !editingId.value;
+      if (creating && (["ECONNABORTED", "ETIMEDOUT", "ERR_NETWORK"].includes(error?.code)
+        || [502, 503, 504].includes(error?.response?.status))) {
+        creationPreview.value = null;
+        creationPreviewFingerprint.value = "";
+        await loadEvents(true);
+        throw new Error("保存结果待核对。请先在活动列表按名称和日期查找，确认未创建后再重新预览保存。");
+      }
+      throw error;
+    }
     ElMessage.success(result.msg || "活动已保存");
     editorVisible.value = false;
     await loadEvents(true);
@@ -1514,8 +1527,13 @@ onUnmounted(() => {
                 attendanceGroupLabel(row, currentEvent?.activity_type)
               }}</template></el-table-column
             >
+            <el-table-column prop="onsite_seat" label="会场座位" width="110">
+              <template #default="{ row }">{{ row.onsite_seat || "—" }}</template>
+            </el-table-column>
+            <el-table-column prop="dinner_table_num" label="餐桌号" width="90">
+              <template #default="{ row }">{{ row.dinner_table_num ?? "—" }}</template>
+            </el-table-column>
             <el-table-column prop="company" label="公司" min-width="130" />
-            <el-table-column prop="dinner_table_num" label="餐桌号" width="90" />
             <el-table-column label="状态" width="100"
               ><template #default="{ row }"
                 ><el-tag
@@ -1841,7 +1859,12 @@ onUnmounted(() => {
               attendanceGroupLabel(row, editor.activity_type)
             }}</template></el-table-column
           >
-          <el-table-column prop="dinner_table_num" label="桌号" />
+          <el-table-column prop="onsite_seat" label="会场座位">
+            <template #default="{ row }">{{ row.onsite_seat || "—" }}</template>
+          </el-table-column>
+          <el-table-column prop="dinner_table_num" label="餐桌号">
+            <template #default="{ row }">{{ row.dinner_table_num ?? "—" }}</template>
+          </el-table-column>
         </el-table>
         <el-button
           :loading="busy"
@@ -1947,7 +1970,8 @@ onUnmounted(() => {
             attendanceGroupLabel(row, currentEvent?.activity_type)
           }}</template></el-table-column
         >
-        <el-table-column prop="dinner_table_num" label="桌号"
+        <el-table-column prop="onsite_seat" label="会场座位" />
+        <el-table-column prop="dinner_table_num" label="餐桌号"
       /></el-table>
       <el-alert
         v-if="preview"

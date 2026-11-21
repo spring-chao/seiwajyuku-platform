@@ -173,6 +173,21 @@ test("onsite group numbers use the explicit column and fall back to numeric grou
     assert.equal(parser.attendanceGroupNumber(invalid), null);
 });
 
+test("composite seating survives preview and a blank dinner table stays blank", () => {
+  const parsed = parser.parseAttendanceRows([
+    ["现场分组", "餐桌号", "姓名"], ["01桌02", "", "合成甲"], ["07桌03", "第6桌", "合成乙"]
+  ]);
+  assert.equal(parsed.columns.dinner_table_num, 1);
+  assert.equal(parsed.columns.onsite_seat, 0);
+  assert.deepEqual(parsed.attendees.map(({ group_num, onsite_seat, dinner_table_num }) =>
+    [group_num, onsite_seat, dinner_table_num]), [[1, "01桌02", null], [7, "07桌03", 6]]);
+  const separate = parser.parseAttendanceRows([
+    ["座位号", "组号", "姓名"], ["01桌02", "9组", "合成丙"]
+  ]);
+  assert.equal(separate.attendees[0].group_num, 9);
+  assert.equal(separate.attendees[0].onsite_seat, "01桌02");
+});
+
 test("uploaded filename supplies the activity name while preserving manually edited names", () => {
   const first = parser.attendanceNameFromFile("示例报告会.XLS");
   assert.equal(first, "示例报告会");
@@ -700,6 +715,24 @@ test("ordinary creation requires a roster and uses the original signed upload pr
     false
   );
 });
+
+test("an uncertain activity creation refreshes the list without resubmitting", async () => {
+  const h = harness(async operation => {
+    if (operation === "upload_preview") return { ok: true, preview_token: "signed-preview", preview_issued_at: 123 };
+    if (operation === "upload") throw Object.assign(new Error("timeout"), { code: "ECONNABORTED" });
+    return { ok: true, items: [] };
+  });
+  configureOrdinaryCreation(h);
+  h.state.creationAttendees.value = [{ name: "合成报名", group_num: 1, onsite_seat: "01桌02" }];
+  await h.actions.previewCreation();
+  await h.actions.saveEditor();
+  assert.equal(h.state.creationPreview.value, null);
+  assert.match(h.state.error.value, /保存结果待核对/);
+  assert.equal(h.calls.filter(call => call.operation === "admin_events").length, 1);
+  await h.actions.saveEditor();
+  assert.equal(h.calls.filter(call => call.operation === "upload").length, 1);
+});
+
 
 test("creation rejects a preview after activity metadata or roster changes", async () => {
   for (const mutate of [

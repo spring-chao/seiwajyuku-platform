@@ -29,7 +29,7 @@ def test_mobile_watch_starts_with_current_month_and_crosses_years(today):
 @pytest.mark.parametrize("offset", [0, 1, 2])
 def test_completed_renewals_are_hidden_in_every_mobile_watch_tab(offset):
     stage = {"months_until_due": offset}
-    statuses = ["RENEWED", "PENDING_FIRST_CONTACT", "IN_COMMUNICATION", "NOT_RENEWING", "DEFERRED"]
+    statuses = ["RENEWED", "EXITED", "PENDING_FIRST_CONTACT", "IN_COMMUNICATION", "NOT_RENEWING", "DEFERRED"]
     rows = [{"id": index + 1, "member_id": index + 11, "due_month": 10 + offset,
              "status": status, "stage": stage} for index, status in enumerate(statuses)]
     with patch.object(service, "_principal", return_value={}), patch.object(
@@ -37,5 +37,5 @@ def test_completed_renewals_are_hidden_in_every_mobile_watch_tab(offset):
     ):
         groups = service.renewal_watch({})["groups"]
     visible = [item for group in groups for item in group["items"]]
-    assert [item["status"] for item in visible] == statuses[1:]
+    assert [item["status"] for item in visible] == statuses[2:]
     assert rows[0]["status"] == "RENEWED", "Filtering must not modify the original renewal fact"

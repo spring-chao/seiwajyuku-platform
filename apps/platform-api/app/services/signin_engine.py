@@ -79,7 +79,13 @@ def redact(value: Any) -> Any:
     return value
 
 
-def engine_request(path: str, payload: dict, *, timeout: float = 20) -> dict:
+def engine_request(path: str, payload: dict, *, timeout: float | None = None) -> dict:
+    import_operation = path in {
+        "/ops/v1/manage/upload", "/ops/v1/manage/upload_preview",
+        "/ops/v1/manage/create_class_meeting_sessions", "/ops/v1/manage/import_apply",
+    }
+    if timeout is None:
+        timeout = 60 if import_operation else 20
     settings = get_settings()
     base = settings.signin_api_base_url.rstrip("/")
     parsed = urlsplit(base)
@@ -98,6 +104,8 @@ def engine_request(path: str, payload: dict, *, timeout: float = 20) -> dict:
     except (httpx.HTTPError, ValueError) as exc:
         if isinstance(exc, SigninEngineError):
             raise
+        if import_operation and isinstance(exc, httpx.TimeoutException):
+            raise SigninEngineError("签到引擎响应超时，请核对活动列表或名单后再重试", 504) from exc
         raise SigninEngineError("签到引擎暂时不可用，请重试", 502) from exc
     if not isinstance(data, dict):
         raise SigninEngineError("签到引擎返回格式无效", 502)
