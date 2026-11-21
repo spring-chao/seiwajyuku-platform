@@ -7,7 +7,15 @@ const { successCard } = require("../../utils/checkin-success");
 function empty() {
   return { event: null, member: null, registration: null, loading: false, confirming: false,
     konpaChoice: null, konpaRequired: false, canCheckin: false, alreadyChecked: false, bindingRequired: false, requiresFallback: false,
-    fallbackAvailable: false, guestName: "", guestAllowed: false, nameCandidates: [], selectedCandidateIndexes: [], guestResults: [], historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null, successCard: null };
+    fallbackAvailable: false, guestName: "", guestAllowed: false, nameCandidates: [], selectedCandidateIndexes: [], guestResults: [], historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null, successCard: null,
+    showTodayCheckin: false, availableSessions: [] };
+}
+
+function unavailableNotice(event) {
+  if (event.checkin_status === "upcoming") return "本场次签到尚未开放。";
+  if (event.checkin_status === "ended") return "本场次签到已结束。";
+  if (event.checkin_status === "closed") return "本场次签到已关闭。";
+  return "本场次当前不可签到。";
 }
 
 Page({
@@ -22,7 +30,7 @@ Page({
 
   async loadContext() {
     if (!this._target) {
-      this.setData({ ...empty(), errorMessage: "这个活动码无效，请重新扫描现场活动码。" });
+      this.setData({ ...empty(), errorMessage: "这个活动码无效，请重新扫描现场活动码。", showTodayCheckin: true });
       return;
     }
     const current = beginPrivateRequest(this, "context");
@@ -48,20 +56,27 @@ Page({
         app.setPersonSession(data.access_token);
       }
       if (!data.event || !data.event.event_id) throw new Error("活动信息暂时不可用，请联系现场工作人员。");
-      const ticket = typeof data.checkin_ticket === "string" ? data.checkin_ticket : "";
+      const event = displayEvent(data.event);
+      const unavailable = event.checkin_available === false || Boolean(event.checkin_status && event.checkin_status !== "open");
+      const sessions = Array.isArray(event.available_checkin_sessions) ? event.available_checkin_sessions : [];
+      const availableSessions = unavailable ? sessions
+        .filter(item => item && checkinTarget({ event_id: item.event_id }) && String(item.event_id) !== String(event.event_id))
+        .map(displayEvent) : [];
+      const ticket = !unavailable && typeof data.checkin_ticket === "string" ? data.checkin_ticket : "";
       if (ticket) {
         const url = engineConfirmUrl(data.engine_confirm_url, app.globalData.apiBaseUrl, app.globalData);
         if (!url || ticket.length > 8192 || !/^[A-Za-z0-9._-]+$/.test(ticket)) throw new Error("现场签到服务地址未确认，请联系工作人员。");
         // Keep the ticket outside render data and persistent application state.
         this._checkinTicket = ticket; this._engineConfirmUrl = url;
       }
-      this.setData({ event: displayEvent(data.event), konpaRequired: data.event.konpa_choice_required === true, member: data.member || null,
-        registration: data.registration || null, canCheckin: Boolean(data.can_checkin && data.member),
+      this.setData({ event, konpaRequired: event.konpa_choice_required === true, member: data.member || null,
+        registration: data.registration || null, canCheckin: !unavailable && Boolean(data.can_checkin && data.member),
         alreadyChecked: Boolean(data.already_checked_in), bindingRequired: false,
-        guestAllowed: Boolean(!data.member && data.guest_allowed),
-        requiresFallback: Boolean(data.requires_fallback), fallbackAvailable: Boolean(fallbackUrl(data.fallback_url)),
+        guestAllowed: !unavailable && Boolean(!data.member && data.guest_allowed),
+        requiresFallback: !unavailable && Boolean(data.requires_fallback), fallbackAvailable: !unavailable && Boolean(fallbackUrl(data.fallback_url)),
         historyKind: data.history_kind === "learning" ? "learning" : "activity",
-        notice: data.notice || "" });
+        notice: unavailable ? unavailableNotice(event) : data.notice || "",
+        showTodayCheckin: unavailable, availableSessions });
       if (data.already_checked_in && data.receipt) {
         const result = { status: "ALREADY_CHECKED_IN", receipt: data.receipt, checked_at: data.receipt.checked_at };
         this.setData({ result, successCard: successCard(result, { event: data.event, member: data.member }) });
@@ -73,7 +88,8 @@ Page({
         app.clearMemberSession();
         if (hadSession) return this.loadContext();
         this.setData({ errorMessage: error.message || "微信身份暂时无法确认，请重试。" });
-      } else this.setData({ errorMessage: error.message || "活动信息暂时无法加载，请重试。", rescueNotice: platformRescueNotice(error) });
+      } else this.setData({ errorMessage: error.message || "活动信息暂时无法加载，请重试。", rescueNotice: platformRescueNotice(error),
+        showTodayCheckin: error.statusCode === 410 || (error.statusCode === 409 && Boolean(this._target.token)) });
     } finally { if (current()) this.setData({ loading: false }); }
   },
 
@@ -103,6 +119,7 @@ Page({
       this.setData({ errorMessage: "请填写有效报名姓名。" }); return;
     }
     const current = beginPrivateRequest(this, "confirm");
+    const target = { ...this._target, event_id: String(this.data.event.event_id) };
     this.setData({ confirming: true, errorMessage: "" });
     try {
       if (!this._nameSelections || !this._nameSelections.length) {
@@ -110,7 +127,7 @@ Page({
         if (!current()) return;
         if (!login.code) throw new Error("微信身份暂时无法确认，请重试。");
         const response = await request("/api/v1/wechat/checkin/guest-lookup", {
-          method: "POST", data: { ...this._target, name, wx_login_code: login.code }
+          method: "POST", data: { ...target, name, wx_login_code: login.code }
         });
         if (!current()) return;
         const candidates = ((response.data || {}).candidates || []).filter(row => row.candidate_token);
@@ -141,7 +158,7 @@ Page({
           if (!current()) return;
           if (!login.code) throw new Error("微信身份暂时无法确认，请重试。");
           const response = await request("/api/v1/wechat/checkin/guest-confirm", {
-            method: "POST", data: { ...this._target, name, candidate_token: selected.token, wx_login_code: login.code,
+            method: "POST", data: { ...target, name, candidate_token: selected.token, wx_login_code: login.code,
               ...(this.data.konpaRequired ? {konpa_choice:this.data.konpaChoice} : {}) }
           });
           if (!current()) return;
@@ -231,6 +248,19 @@ Page({
   openFallback() {
     if (!this._target || !this.data.fallbackAvailable) return;
     wx.navigateTo({ url: `/pages/checkin/legacy?${targetQuery(this._target)}` });
+  },
+
+  openAvailableSession(event) {
+    const id = String(event.currentTarget.dataset.eventId || "");
+    if (this.data.loading || this.data.confirming || !this.data.availableSessions.some(item => String(item.event_id) === id)) return;
+    const target = checkinTarget({ event_id: id });
+    if (target) wx.navigateTo({ url: checkinPath(target) });
+  },
+
+  openTodayCheckin() {
+    if (this.data.showTodayCheckin && !this.data.loading && !this.data.confirming) {
+      wx.navigateTo({ url: "/pages/checkin/events" });
+    }
   },
   openHistory() {
     const kind = this.data.historyKind;
