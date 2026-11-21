@@ -403,7 +403,7 @@ function harness(api = async () => ({ ok: true }), xlsx = XLSXModule) {
   });
   vm.runInContext(
     output +
-      "\nglobalThis.state = { konpaSummary, konpaIntentCounts, konpaLoadError, selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, groupOptions, orgOptions, organizations, rosterOptions, rosterMembers, rosterSource, rosterVersion, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { eventName, sessionName, selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation, openEditor, confirmPerson, exportExcel };",
+      "\nglobalThis.state = { personFilter, visiblePeople, busy, konpaReviews, konpaSummary, konpaIntentCounts, konpaLoadError, selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, groupOptions, orgOptions, organizations, rosterOptions, rosterMembers, rosterSource, rosterVersion, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { refreshDetail, recordKonpaAttendance, eventName, sessionName, selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation, openEditor, confirmPerson, exportExcel };",
     context
   );
   return { state: context.state, actions: context.actions, calls, downloaded };
@@ -999,4 +999,58 @@ test("morning signup management loads the evening roster and separates both Konp
   await unavailable.actions.selectEvent(meeting);
   assert.equal(unavailable.state.people.value[0].registration_id, "morning-row");
   assert.equal(unavailable.state.konpaLoadError.value, "暂不可用");
+});
+
+test("manual Konpa confirmation supersedes an older refresh and updates counts and filters", async () => {
+  let confirmed = false;
+  let holdOld = false;
+  let releaseOld;
+  const oldRead = new Promise(resolve => { releaseOld = resolve; });
+  const h = harness(async operation => {
+    if (operation === "konpa_attendance") { confirmed = true; return { ok: true }; }
+    const before = !confirmed;
+    if (holdOld && before) return oldRead;
+    if (operation === "stats") return { checked: confirmed ? 1 : 0, pending: confirmed ? 0 : 1 };
+    if (operation === "event_detail") return { rows: [{
+      registration_id: "r", checked: confirmed, checked_at: confirmed ? "2026-11-19T10:00:00Z" : "",
+      attendance_status: confirmed ? "present" : "pending"
+    }] };
+    if (operation === "konpa_list") return { confirmed_count: confirmed ? 1 : 0, rows: [{
+      registration_id: "r", revision: confirmed ? "new" : "initial",
+      choice: confirmed ? true : null, status: confirmed ? "CONFIRMED" : "UNCONFIRMED"
+    }] };
+    return {};
+  });
+  await h.actions.selectEvent({ event_id: "ev", session_code: "KONPA", lifecycle_status: "CONFIRMED" });
+  h.state.personFilter.value = "pending";
+  holdOld = true;
+  const staleRead = h.actions.refreshDetail(true);
+  await h.actions.recordKonpaAttendance({ registration_id: "r" }, true);
+  assert.equal(h.state.stats.value.checked, 1);
+  assert.equal(h.state.stats.value.pending, 0);
+  assert.equal(h.state.konpaSummary.value.confirmed_count, 1);
+  assert.equal(h.state.visiblePeople.value.length, 0);
+  assert.equal(h.state.busy.value, false);
+  releaseOld({ checked: 0, pending: 1, rows: [] });
+  await staleRead;
+  assert.equal(h.state.stats.value.checked, 1);
+  h.state.personFilter.value = "checked";
+  assert.equal(h.state.visiblePeople.value[0].registration_id, "r");
+});
+
+test("Konpa write reloading cannot replace a subsequently selected session", async () => {
+  let complete;
+  const write = new Promise(resolve => { complete = resolve; });
+  const h = harness(async (operation, payload) => {
+    if (operation === "konpa_attendance") return write;
+    if (operation === "konpa_list") return { rows: [{ registration_id: "r", revision: "initial" }] };
+    return { rows: [{ registration_id: payload.event_id }] };
+  });
+  await h.actions.selectEvent({ event_id: "ev", session_code: "KONPA", lifecycle_status: "CONFIRMED" });
+  const saving = h.actions.recordKonpaAttendance({ registration_id: "r" }, true);
+  await h.actions.selectEvent({ event_id: "another" });
+  complete({ ok: true });
+  await saving;
+  assert.equal(h.state.activeEventId.value, "another");
+  assert.equal(h.state.people.value[0].registration_id, "another");
 });
