@@ -157,12 +157,15 @@ def _candidates(settings, today, *, window=RECOVERY_DAYS):
 
 def preview_due_class_meetings():
     """Read current cycle receipts and the reason each recent meeting is pending."""
-    today = datetime.now(CHINA).date()
+    now = datetime.now(CHINA)
+    today = now.date()
     due = _candidates(get_settings(), today, window=AUDIT_DAYS)
     connection = connect()
     try:
         report = []
         for class_id, candidates in due.items():
+            active = cycles._active_binding(connection, class_id)
+            current = cycles._cycle_at(connection, int(active["id"]), now.isoformat()) if active else None
             pending = []
             for group_id, group, start, boundary in candidates:
                 effective_day = boundary.astimezone(CHINA).date()
@@ -171,7 +174,31 @@ def preview_due_class_meetings():
                 if state == "DUE" and effective_day < today - timedelta(days=RECOVERY_DAYS):
                     state = "RECOVERY_WINDOW_CLOSED"
                 item = {"class_id": class_id, "meeting_date": group["event_date"],
-                        "next_cycle_due": effective_day.isoformat(), "cycle_index": cycle_index, "status": state}
+                        "next_cycle_due": effective_day.isoformat(), "cycle_index": cycle_index, "status": state,
+                        "current_cycle_index": current["learning_cycle_index"] if current else None,
+                        "current_cycle_status": current["cycle_status"] if current else None,
+                        "current_cycle_opened_at": parse_utc_datetime(current["opened_at"]).isoformat() if current else None}
+                if state == "ALREADY_ADVANCED":
+                    closed = execute(
+                        connection,
+                        "SELECT c.id, c.learning_cycle_index, c.closed_at FROM class_learning_cycles c "
+                        "JOIN attendance_event_groups e ON e.id=c.source_event_group_id "
+                        "WHERE c.class_org_unit_id=? AND c.cycle_status='CLOSED' "
+                        "AND e.source_key='signin' AND e.external_group_id=? ORDER BY c.id DESC LIMIT 1",
+                        (class_id, group_id),
+                    ).fetchone()
+                    if closed:
+                        item["completed_cycle_index"] = closed["learning_cycle_index"]
+                        item["completed_cycle_closed_at"] = parse_utc_datetime(closed["closed_at"]).isoformat()
+                        recorded = execute(
+                            connection,
+                            "SELECT created_at FROM audit_logs WHERE action='learning.cycle.confirm_class_meeting' "
+                            "AND resource_type='class_learning_cycle' AND resource_id=? "
+                            "AND org_unit_id=? ORDER BY id LIMIT 1",
+                            (str(closed["id"]), class_id),
+                        ).fetchone()
+                        if recorded:
+                            item["advancement_recorded_at"] = parse_utc_datetime(recorded["created_at"]).isoformat()
                 report.append(item)
                 if state != "ALREADY_ADVANCED":
                     pending.append(item)

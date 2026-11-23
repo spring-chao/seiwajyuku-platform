@@ -9,3 +9,7 @@
 .action-card { padding: 22rpx 26rpx; }
 .action-card .section-title { min-width: 0; overflow-wrap: anywhere; }
 .action-link { color: #741f2b; font-weight: 600; }
+
+.anniversary-item { margin-top: 18rpx; padding: 20rpx; border: 1rpx solid #ebd9d6; border-radius: 18rpx; background: #fffaf7; }
+.anniversary-name { font-size: 28rpx; font-weight: 650; overflow-wrap: anywhere; }
+.anniversary-meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8rpx 16rpx; margin-top: 10rpx; color: #6d5b5b; font-size: 24rpx; }

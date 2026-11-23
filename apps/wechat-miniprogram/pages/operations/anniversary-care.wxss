@@ -1,0 +1,19 @@
+.care-page { min-height: 100vh; box-sizing: border-box; padding: 26rpx 26rpx calc(32rpx + env(safe-area-inset-bottom)); background: #f8f3ef; color: #392a2b; }
+.care-hero { padding: 30rpx 28rpx; border-radius: 24rpx; background: linear-gradient(132deg,#741f2b,#91424a); color: #fff; }
+.care-title { font-size: 39rpx; font-weight: 700; }
+.care-years { margin-top: 6rpx; font-size: 32rpx; font-weight: 600; }
+.care-dates { margin-top: 14rpx; font-size: 24rpx; line-height: 1.5; }
+.care-card { margin-top: 20rpx; padding: 24rpx; border: 1rpx solid #ecdcd8; border-radius: 22rpx; background: #fff; }
+.care-heading { font-size: 31rpx; font-weight: 700; }
+.care-muted { color: #6e5b5b; font-size: 25rpx; line-height: 1.5; }
+.care-heading + .care-muted { margin-top: 10rpx; }
+.care-memory { display: flex; gap: 16rpx; align-items: center; min-height: 86rpx; margin-top: 12rpx; padding: 10rpx 0; border-top: 1rpx solid #efe5e2; font-size: 27rpx; }
+.care-memory checkbox { flex: none; }
+.care-draft { margin-top: 16rpx; padding: 20rpx; border-radius: 16rpx; background: #fff7f2; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 28rpx; }
+.care-page .care-button { width: 100%; max-width: none; min-height: 78rpx; margin: 16rpx 0 0; border-radius: 14rpx; font-size: 27rpx; }
+.care-button::after { border: 0; }
+.care-primary { background: #741f2b; color: #fff; }
+.care-outline { border: 1rpx solid #dcc3c3; background: #fff; color: #741f2b; }
+.care-receipt { margin-top: 16rpx; color: #226040; font-weight: 600; }
+.care-error { color: #9a2434; }
+

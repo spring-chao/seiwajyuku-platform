@@ -24,6 +24,14 @@ Page({
     this.loadLearning();
   },
 
+  async onPullDownRefresh() {
+    try {
+      await this.loadLearning();
+    } finally {
+      wx.stopPullDownRefresh();
+    }
+  },
+
   onHide() {
     this._loadVersion = (this._loadVersion || 0) + 1;
     this.setData({ loading: false, member: null, currentLearning: [], recentLearning: [],
