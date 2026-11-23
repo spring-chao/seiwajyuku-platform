@@ -88,3 +88,61 @@ def test_review_chooses_one_event_per_period(monkeypatch):
     assert [(item["period"], item["occurred_on"]) for item in selected] == [
         ("上期", "2026-02-01"), ("中期", "2026-05-02"), ("下期", "2026-11-10")
     ]
+
+
+def test_mobile_greeting_without_verified_experience_does_not_invent_any():
+    text = anniversary_care._mobile_greeting("示例", 7, [])
+    assert "入塾7周年" in text
+    assert "七载同行，感恩相遇" in text
+    assert "回望" not in text
+    assert "——苏州盛和塾" in text
+
+
+def test_mobile_anniversary_review_and_send_are_scoped_and_idempotent(monkeypatch):
+    import sqlite3
+    from contextlib import nullcontext
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript("""
+        CREATE TABLE members(id INTEGER, status TEXT, org_unit_id TEXT, name TEXT, join_date TEXT);
+        INSERT INTO members VALUES (7, 'ACTIVE', 'class-1', '合成学员', '2019-11-23');
+        CREATE TABLE audit_logs(id INTEGER PRIMARY KEY, actor_user_id INTEGER, action TEXT, resource_type TEXT,
+            resource_id TEXT, org_unit_id TEXT, purpose TEXT, result TEXT, before_json TEXT,
+            after_json TEXT, request_id TEXT, created_at TEXT);
+        BEGIN IMMEDIATE;
+    """)
+    today = date(2026, 11, 23)
+    monkeypatch.setattr(anniversary_care, "business_today", lambda: today)
+    monkeypatch.setattr(anniversary_care, "transaction", lambda: nullcontext(conn))
+    monkeypatch.setattr(anniversary_care, "accessible_org_ids", lambda _: {"class-1"})
+    monkeypatch.setattr(anniversary_care, "resolve_member_scope", lambda _, org, allowed: org)
+    monkeypatch.setattr(anniversary_care, "_member_contexts", lambda *_: {7: {"class_name": "合成班"}})
+    monkeypatch.setattr(anniversary_care, "_mobile_memories", lambda *_: [
+        {"id": "att-1", "occurred_on": "2026-03-08", "title": "春季学习会"},
+    ])
+    def call(action="view", selected=(), manage=True, read=True):
+        return anniversary_care.mobile_anniversary_care(
+            7, 8, due_date=today, may_read_memories=read,
+            may_manage=manage, action=action, memory_ids=selected,
+        )
+
+    assert call()["selected_ids"] == ["att-1"]
+    assert "3月8日春季学习会" in call()["draft"]
+    with pytest.raises(ValueError, match="先审核"):
+        call("sent")
+    with pytest.raises(PermissionError):
+        call("review", ["att-1"], manage=False)
+    with pytest.raises(ValueError, match="已核实"):
+        call("review", ["other-member-memory"])
+    assert call("preview", [])["selected_ids"] == []
+    assert conn.execute("SELECT COUNT(*) FROM audit_logs").fetchone()[0] == 0
+    assert call("review", ["att-1"])["review_status"] == "APPROVED"
+    assert call("review", [])["selected_ids"] == ["att-1"]
+    assert call(read=False)["draft"] == ""
+    with pytest.raises(PermissionError):
+        call("sent", read=False)
+    assert call("sent")["sent_date"] == today.isoformat()
+    assert call("sent")["send_status"] == "SENT"
+    assert conn.execute("SELECT COUNT(*) FROM audit_logs").fetchone()[0] == 2
+    conn.close()

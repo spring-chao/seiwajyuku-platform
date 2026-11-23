@@ -17,6 +17,7 @@
     "pages/identity/staff-bind",
     "pages/operations/index",
     "pages/operations/today-actions",
+    "pages/operations/anniversary-care",
     "pages/operations/member-search",
     "pages/operations/member-detail",
     "pages/operations/care-record",

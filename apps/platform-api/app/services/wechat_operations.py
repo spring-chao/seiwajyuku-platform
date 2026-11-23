@@ -300,17 +300,27 @@ def _today_actions_for_principal(principal: dict[str, Any]) -> dict[str, Any]:
                 completed_seen.add(marker)
                 completed.append(item)
 
+    anniversaries = []
+    permission = "members:detail_view"
+    if permission in permissions:
+        from app.services.anniversary_care import list_mobile_anniversary_care
+
+        with mobile_iam_context(_source_principal(principal, permission), permission):
+            anniversaries = list_mobile_anniversary_care(int(principal["user_id"]))
     pending.sort(key=_pending_sort_key)
     completed.sort(key=_completed_sort_key, reverse=True)
+    pending_anniversaries = [item for item in anniversaries if item["send_status"] == "PENDING" and item["due_date"] <= as_of]
+    completed_anniversaries = [item for item in anniversaries if item["sent_date"] == as_of]
     return {
         "as_of": as_of,
         "summary": {
-            "pending_action_count": len(pending),
-            "pending_people_count": len({item["member_id"] for item in pending}),
-            "completed_action_count": len(completed),
-            "completed_people_count": len({item["member_id"] for item in completed}),
+            "pending_action_count": len(pending) + len(pending_anniversaries),
+            "pending_people_count": len({item["member_id"] for item in [*pending, *pending_anniversaries]}),
+            "completed_action_count": len(completed) + len(completed_anniversaries),
+            "completed_people_count": len({item["member_id"] for item in [*completed, *completed_anniversaries]}),
         },
         "source_coverage": coverage,
+        "anniversaries": anniversaries,
         "pending": pending,
         "completed": completed,
     }
@@ -334,16 +344,25 @@ def operation_workbench(session: dict[str, Any]) -> dict[str, Any]:
 
 
 def today_actions(session: dict[str, Any]) -> dict[str, Any]:
-    principal = _principal(session)
-    result = _today_actions_for_principal(principal)
-    permission = "members:detail_view"
-    if permission in principal["permissions"]:
-        from app.services.anniversary_care import list_anniversary_care
+    return _today_actions_for_principal(_principal(session))
 
-        scoped = _source_principal(principal, permission)
-        with mobile_iam_context(scoped, permission):
-            result["anniversaries"] = list_anniversary_care(int(principal["user_id"]))["items"]
-    return result
+
+def manage_mobile_anniversary(session, *, member_id, due_date, action="view", memory_ids=()):
+    from app.services.anniversary_care import mobile_anniversary_care
+
+    principal = _principal(session)
+    permission = "members:detail_view"
+    _require_permission(principal, permission)
+    if not _member_in_permission_scope(principal, member_id, permission):
+        raise PermissionError("学长不在当前周年关怀授权范围内")
+    may_read_memories = ("members:read" in principal["permissions"]
+                         and _member_in_permission_scope(principal, member_id, "members:read"))
+    may_manage = ("followups:manage" in principal["permissions"]
+                  and _member_in_permission_scope(principal, member_id, "followups:manage"))
+    with mobile_iam_context(_source_principal(principal, permission), permission):
+        return mobile_anniversary_care(member_id, int(principal["user_id"]), due_date=due_date,
+                                       may_read_memories=may_read_memories, may_manage=may_manage,
+                                       action=action, memory_ids=memory_ids)
 
 
 def _renewal_rows_for_principal(

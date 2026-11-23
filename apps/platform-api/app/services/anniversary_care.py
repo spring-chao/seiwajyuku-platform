@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import re
+import sqlite3
 from calendar import monthrange
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from app.core.business_time import business_today, calendar_date
-from app.db import fetch_all, fetch_one, transaction
+from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
 from app.services.birthday_ai import generate_body
 from app.services.birthday_greetings import _participation_phrase
@@ -94,3 +96,163 @@ def generate_anniversary_draft(member_id: int, actor: dict) -> dict:
                    "model": ai.get("model"), "total_tokens": ai.get("total_tokens", 0)},
         )
     return {"draft": draft, "memories": memories, "generation_status": ai["status"]}
+
+
+MOBILE_WINDOW_DAYS = 7
+CARE_ACTION = "member_care.anniversary"
+CARE_RESOURCE = "anniversary_care"
+ANNIVERSARY_LINES = (
+    "一载同行，感恩相遇", "两载相伴，感恩同行", "三载同行，初心如故", "四载相伴，一路同行",
+    "五载同行，感恩有您", "六载相知，温暖同行", "七载同行，感恩相遇", "八载相伴，情谊绵长",
+    "九载同行，初心不改", "十载同行，感恩有您",
+)
+PHONE_LIKE = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
+
+
+def _mobile_due_dates(joined: date, today: date):
+    for year in (today.year - 1, today.year, today.year + 1):
+        if year <= joined.year:
+            continue
+        due = _anniversary_date(joined, year)
+        if abs((due - today).days) <= MOBILE_WINDOW_DAYS:
+            yield due
+
+
+def _mobile_care_key(member_id, due):
+    return f"{member_id}:{due.isoformat()}"
+
+
+def _mobile_state(record):
+    if not record:
+        return {"review_status": "PENDING", "send_status": "PENDING"}
+    return json.loads(record["after_json"])
+
+
+def list_mobile_anniversary_care(actor_user_id: int) -> list[dict]:
+    today = business_today()
+    due_by_member = {}
+    for row in fetch_all("SELECT id, join_date FROM members WHERE status='ACTIVE' AND join_date IS NOT NULL"):
+        joined = calendar_date(row["join_date"])
+        dates = list(_mobile_due_dates(joined, today)) if joined else []
+        if dates:
+            due_by_member[int(row["id"])] = (joined, dates[0])
+    contexts = _member_contexts(set(due_by_member), accessible_org_ids(actor_user_id))
+    keys = [_mobile_care_key(member_id, due_by_member[member_id][1]) for member_id in contexts]
+    if not keys:
+        return []
+    placeholders = ",".join("?" for _ in keys)
+    latest = {}
+    for row in fetch_all(
+        "SELECT resource_id, after_json FROM audit_logs WHERE action=? AND resource_type=? "
+        f"AND resource_id IN ({placeholders}) ORDER BY id DESC",
+        (CARE_ACTION, CARE_RESOURCE, *keys),
+    ):
+        if row["resource_id"] not in latest:
+            latest[row["resource_id"]] = _mobile_state(row)
+    items = []
+    for member_id, context in contexts.items():
+        joined, due = due_by_member[member_id]
+        state = latest.get(_mobile_care_key(member_id, due), {})
+        items.append({**context, "join_date": joined.isoformat(), "due_date": due.isoformat(),
+                      "years": due.year - joined.year, "review_status": state.get("review_status", "PENDING"),
+                      "send_status": state.get("send_status", "PENDING"), "sent_date": state.get("sent_date")})
+    return sorted(items, key=lambda row: (row["due_date"] > today.isoformat(), row["due_date"], row["member_id"]))
+
+
+def _mobile_memories(member_id, joined, due, today):
+    start = _anniversary_date(joined, due.year - 1)
+    eligible = verified_member_memories(member_id, limit=20, since=start, as_of=min(today, due))
+    # Display only the verified event title and date. Free-text contact data
+    # from a legacy title does not belong in a group greeting.
+    memories = []
+    for item in eligible:
+        title = PHONE_LIKE.sub("", item["title"]).strip()
+        if title:
+            memories.append({"id": item["id"], "title": title, "occurred_on": item["occurred_on"]})
+    return memories[:12]
+
+
+def _mobile_greeting(name, years, memories):
+    opening = ANNIVERSARY_LINES[years - 1] if 1 <= years <= len(ANNIVERSARY_LINES) else "多年相伴，感恩有您"
+    lines = [f"🎉 {member_salutation(name)}，入塾{years}周年快乐！", f"🌷 {opening}！"]
+    experiences = []
+    for item in sorted(memories, key=lambda row: row["occurred_on"]):
+        day = date.fromisoformat(item["occurred_on"])
+        title = item["title"]
+        if not re.match(r"^(?:\d{4}年)?\d{1,2}月\d{1,2}", title):
+            title = f"{day.month}月{day.day}日{title}"
+        experiences.append(title)
+    if experiences:
+        text = "、".join(experiences[:-1]) + "和" + experiences[-1] if len(experiences) > 1 else experiences[0]
+        lines.append(f"回望一路学习的时光，{text}的相聚，都是值得珍藏的缘分。")
+    lines.extend(("🌱 愿未来的日子里，继续与学长们相伴，在学习中收获成长，在经营中收获幸福！",
+                  "💐 感恩一路有您，期待更多美好相聚！", "——苏州盛和塾"))
+    return "\n\n".join(lines)
+
+
+def mobile_anniversary_care(member_id, actor_id, *, due_date, may_read_memories, may_manage,
+                            action="view", memory_ids=()):
+    due = calendar_date(due_date)
+    today = business_today()
+    if not due or abs((due - today).days) > MOBILE_WINDOW_DAYS:
+        raise ValueError("周年关怀日期已超出当前处理范围")
+    if action in {"review", "sent"} and not may_manage:
+        raise PermissionError("当前角色只能查看周年关怀")
+    allowed = accessible_org_ids(actor_id)
+    writing = action in {"review", "sent"}
+    with transaction() as connection:
+        sqlite = isinstance(connection, sqlite3.Connection)
+        if writing and sqlite and not connection.in_transaction:
+            execute(connection, "BEGIN IMMEDIATE")
+        lock = " FOR UPDATE" if writing and not sqlite else ""
+        member = execute(connection, "SELECT name, org_unit_id, join_date FROM members "
+                         f"WHERE id=? AND status='ACTIVE'{lock}", (member_id,)).fetchone()
+        if not member:
+            raise ValueError("在册学长不存在")
+        joined = calendar_date(member["join_date"])
+        years = _anniversary(joined, due)
+        if not years:
+            raise ValueError("周年日期与学长入塾日期不一致")
+        org_id = resolve_member_scope(member_id, member["org_unit_id"], allowed)
+        context = _member_contexts({member_id}, allowed).get(member_id, {})
+        key = _mobile_care_key(member_id, due)
+        previous = execute(connection, "SELECT after_json FROM audit_logs WHERE action=? AND resource_type=? "
+                           "AND resource_id=? ORDER BY id DESC LIMIT 1" + lock,
+                           (CARE_ACTION, CARE_RESOURCE, key)).fetchone()
+        state = _mobile_state(previous)
+        memories = _mobile_memories(member_id, joined, due, today) if may_read_memories else []
+        by_id = {item["id"]: item for item in memories}
+        selected = memories[:3]
+        if action in {"preview", "review"} and state["review_status"] == "PENDING":
+            if len(memory_ids) > 3 or len(set(memory_ids)) != len(memory_ids) or any(mid not in by_id for mid in memory_ids):
+                raise ValueError("请从已核实的经历中选择最多三条")
+            selected = [by_id[mid] for mid in memory_ids]
+            if action == "review":
+                state.update(review_status="APPROVED", draft=_mobile_greeting(member["name"], years, selected),
+                             selected_memories=selected, reviewed_at=datetime.now(UTC).isoformat())
+        elif action == "sent" and state["send_status"] == "PENDING":
+            if state["review_status"] != "APPROVED":
+                raise ValueError("请先审核祝福文案")
+            if state.get("selected_memories") and not may_read_memories:
+                raise PermissionError("当前无权查看已审核的学习经历")
+            if due > today:
+                raise ValueError("周年当天起可登记发送")
+            state.update(send_status="SENT", sent_date=today.isoformat(), sent_at=datetime.now(UTC).isoformat(),
+                         sent_channel="WECHAT_GROUP", sent_class_name=context.get("class_name"))
+        if action in {"review", "sent"} and state != _mobile_state(previous):
+            write_audit(connection, actor_user_id=actor_id, action=CARE_ACTION, resource_type=CARE_RESOURCE,
+                        resource_id=key, org_unit_id=org_id, purpose="入塾周年关怀",
+                        after={**state, "due_date": due.isoformat(), "years": years})
+    selected = state.get("selected_memories", selected)
+    # Removing members:read must also stop previously approved text from
+    # revealing historical activities to the current operator.
+    private = not may_read_memories and bool(state.get("selected_memories"))
+    if private:
+        selected = []
+    return {"member_id": member_id, "member_name": member["name"], "join_date": joined.isoformat(),
+            "class_name": state.get("sent_class_name") or context.get("class_name"),
+            "due_date": due.isoformat(), "years": years, "memories": memories, "can_manage": may_manage,
+            "review_status": state["review_status"], "send_status": state["send_status"],
+            "sent_date": state.get("sent_date"), "can_mark_sent": may_manage and not private and due <= today,
+            "selected_ids": [item["id"] for item in selected],
+            "draft": "" if private else state.get("draft") or _mobile_greeting(member["name"], years, selected)}

@@ -14,6 +14,8 @@ Page({
     loading: true,
     pending: [],
     anniversaries: [],
+    upcomingAnniversaries: [],
+    completedAnniversaries: [],
     completed: [],
     items: [],
     activeTab: "pending",
@@ -21,7 +23,7 @@ Page({
     errorMessage: ""
   },
   onShow() { showPrivatePage(this); this.load(); },
-  onHide() { hidePrivatePage(this, { loading: false, pending: [], anniversaries: [], completed: [], items: [], summary: {}, errorMessage: "" }); },
+  onHide() { hidePrivatePage(this, { loading: false, pending: [], anniversaries: [], upcomingAnniversaries: [], completedAnniversaries: [], completed: [], items: [], summary: {}, errorMessage: "" }); },
   onUnload() { this.onHide(); },
 
   showTab(event) {
@@ -41,7 +43,9 @@ Page({
       const completed = data.completed || [];
       this.setData({
         pending,
-        anniversaries: data.anniversaries || [],
+        anniversaries: (data.anniversaries || []).filter(item => item.send_status === "PENDING" && item.due_date <= data.as_of),
+        upcomingAnniversaries: (data.anniversaries || []).filter(item => item.send_status === "PENDING" && item.due_date > data.as_of),
+        completedAnniversaries: (data.anniversaries || []).filter(item => item.sent_date === data.as_of),
         completed,
         items: this.data.activeTab === "completed" ? completed : pending,
         summary: data.summary || { pending_action_count: 0, completed_action_count: 0 }
@@ -51,6 +55,10 @@ Page({
     } finally {
       if (current()) this.setData({ loading: false });
     }
+  },
+  openAnniversary(event) {
+    const { id, due } = event.currentTarget.dataset;
+    if (id && due) wx.navigateTo({ url: `/pages/operations/anniversary-care?member_id=${encodeURIComponent(id)}&due_date=${encodeURIComponent(due)}` });
   },
   openMember(event) {
     const item = event.currentTarget.dataset.item;

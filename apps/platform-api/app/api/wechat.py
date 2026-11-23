@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query
@@ -487,6 +488,34 @@ def operations_record_renewal_care(
             **payload.model_dump(),
         ),
     }
+
+
+class MobileAnniversaryPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    due_date: date
+    memory_ids: list[str] = Field(default_factory=list, max_length=3)
+
+
+@router.get("/operations/members/{member_id}/anniversary-care")
+def operations_anniversary_care(
+    member_id: int, due_date: date,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    return {"success": True, "data": _operation_call(
+        wechat_operations.manage_mobile_anniversary, _operation_session(credentials),
+        member_id=member_id, due_date=due_date,
+    )}
+
+
+@router.post("/operations/members/{member_id}/anniversary-care/{action}")
+def operations_update_anniversary_care(
+    member_id: int, action: Literal["preview", "review", "sent"], payload: MobileAnniversaryPayload,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    return {"success": True, "data": _operation_call(
+        wechat_operations.manage_mobile_anniversary, _operation_session(credentials),
+        member_id=member_id, action=action, **payload.model_dump(),
+    )}
 
 
 @router.post("/operations/members/{member_id}/birthday-care")
