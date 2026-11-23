@@ -13,7 +13,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function harness(name = "checkin/index", handler = async () => ({ data: {} }), token = "account-a") {
+function harness(name = "checkin/index", handler = async () => ({ data: {} }), token = "account-a", clock = Date) {
   const app = { globalData: { personSessionToken: token, memberSessionToken: token, apiBaseUrl: "https://stage.example.test/platform" },
     clearMemberSession() { this.globalData.personSessionToken = ""; this.globalData.memberSessionToken = ""; },
     setPersonSession(next) { this.globalData.personSessionToken = next; this.globalData.memberSessionToken = next; } };
@@ -36,7 +36,7 @@ function harness(name = "checkin/index", handler = async () => ({ data: {} }), t
       if (module.endsWith("identity-session")) return { identityChangePending: () => false };
       return { request(url, options = {}) { calls.push({ url, options }); return handler(url, options); } };
     },
-    wx
+    wx, Date: clock
   });
   page.setData = values => Object.assign(page.data, values);
   return { page, app, wx, calls, navigations, copied, modals };
@@ -612,4 +612,30 @@ test('group leaders can register an unset choice and cannot confirm it', async (
   const count=h.calls.length;
   await h.page.update({currentTarget:{dataset:{id:'r',action:'confirm'}}});
   assert.equal(h.calls.length,count);
+});
+
+
+test("Konpa lists the current round per class through the Shanghai confirmation deadline", async () => {
+  const event = (id, classId, date, times = {}) => ({
+    event_id: id, class_org_unit_id: classId, event_date: date,
+    scheduled_start_at: `${date} 18:00`, scheduled_end_at: `${date}T20:30:00+08:00`, ...times
+  });
+  const rows = [
+    event("a-december", "a", "2026-12-22"),
+    event("b-future", "b", "2026-11-26"),
+    event("a-next", "a", "2026-11-25"),
+    event("b-expired", "b", "2026-11-16"),
+    event("a-active", "a", "2026-11-20", { scheduled_end_at: "2026-11-20T12:30:00Z" }),
+    event("only-prior", "c", "2026-10-24"),
+    event("a-prior", "a", "2026-10-27"),
+    event("fallback-day", "d", "2026-11-23", { scheduled_start_at: "", scheduled_end_at: "" })
+  ];
+  let now = Date.parse("2026-11-23T12:00:00+08:00");
+  class BeijingClock extends Date { static now() { return now; } }
+  const h = harness("services/konpa", async () => ({ data: { events: rows } }), "account-a", BeijingClock);
+  await h.page.onShow();
+  assert.deepEqual(Array.from(h.page.data.events, row => row.event_id), ["fallback-day", "a-active", "b-expired"]);
+  now = Date.parse("2026-11-27T20:30:00+08:00");
+  await h.page.loadEvents();
+  assert.deepEqual(Array.from(h.page.data.events, row => row.event_id), ["b-future", "a-next", "fallback-day"]);
 });

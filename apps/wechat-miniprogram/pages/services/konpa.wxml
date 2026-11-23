@@ -1,7 +1,7 @@
 <view class="konpa-page">
   <block wx:if="{{!eventId}}">
     <view class="konpa-intro">
-      <view class="konpa-heading">选择空巴场次</view>
+      <view class="konpa-heading">当期空巴场次</view>
       <view class="konpa-muted">查看参加意向、订餐人数和最终确认结果。</view>
     </view>
     <view wx:for="{{events}}" wx:key="event_id" class="konpa-event" hover-class="konpa-event-active" data-id="{{item.event_id}}" bindtap="selectEvent">
@@ -11,7 +11,7 @@
       </view>
       <text class="konpa-arrow">›</text>
     </view>
-    <view wx:if="{{!busy && !error && !events.length}}" class="konpa-notice">暂无可查看的空巴场次</view>
+    <view wx:if="{{!busy && !error && !events.length}}" class="konpa-notice">暂无当期空巴场次</view>
   </block>
 
   <block wx:if="{{eventId}}">
