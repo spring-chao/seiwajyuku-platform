@@ -91,16 +91,18 @@ def test_review_chooses_one_event_per_period(monkeypatch):
 
 
 def test_mobile_greeting_without_verified_experience_does_not_invent_any():
-    text = anniversary_care._mobile_greeting("示例", 7, [])
+    text = anniversary_care._care_greeting("示例", 7, [])
     assert "入塾7周年" in text
     assert "七载同行，感恩相遇" in text
     assert "回望" not in text
     assert "——苏州盛和塾" in text
 
 
-def test_mobile_anniversary_review_and_send_are_scoped_and_idempotent(monkeypatch):
+def test_anniversary_review_and_send_are_shared_scoped_and_idempotent(monkeypatch):
     import sqlite3
     from contextlib import nullcontext
+    from fastapi import HTTPException
+    from app.api import members as web
 
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
@@ -118,17 +120,19 @@ def test_mobile_anniversary_review_and_send_are_scoped_and_idempotent(monkeypatc
     monkeypatch.setattr(anniversary_care, "accessible_org_ids", lambda _: {"class-1"})
     monkeypatch.setattr(anniversary_care, "resolve_member_scope", lambda _, org, allowed: org)
     monkeypatch.setattr(anniversary_care, "_member_contexts", lambda *_: {7: {"class_name": "合成班"}})
-    monkeypatch.setattr(anniversary_care, "_mobile_memories", lambda *_: [
+    monkeypatch.setattr(anniversary_care, "_care_memories", lambda *_: [
         {"id": "att-1", "occurred_on": "2026-03-08", "title": "春季学习会"},
     ])
     def call(action="view", selected=(), manage=True, read=True):
-        return anniversary_care.mobile_anniversary_care(
+        return anniversary_care.process_anniversary_care(
             7, 8, due_date=today, may_read_memories=read,
             may_manage=manage, action=action, memory_ids=selected,
         )
 
     assert call()["selected_ids"] == ["att-1"]
-    assert "3月8日春季学习会" in call()["draft"]
+    assert "春季学习会" in call()["draft"]
+    assert "3月8日" not in call()["draft"]
+    assert call()["memories"][0]["occurred_on"] == "2026-03-08"
     with pytest.raises(ValueError, match="先审核"):
         call("sent")
     with pytest.raises(PermissionError):
@@ -142,7 +146,34 @@ def test_mobile_anniversary_review_and_send_are_scoped_and_idempotent(monkeypatc
     assert call(read=False)["draft"] == ""
     with pytest.raises(PermissionError):
         call("sent", read=False)
-    assert call("sent")["sent_date"] == today.isoformat()
+    actor = {"id": 9, "permissions": {"members:detail_view", "members:read", "followups:manage"}}
+    scopes = {"members:detail_view": {"class-1"}, "members:read": set(), "followups:manage": set()}
+    monkeypatch.setattr(web, "fetch_one", lambda *_: {"org_unit_id": "class-1"})
+    monkeypatch.setattr(web, "can_access_member", lambda _, org, allowed: org in allowed)
+    monkeypatch.setattr(web, "accessible_org_ids", lambda _, permission: scopes[permission])
+
+    assert web.anniversary_workflow_detail(7, today, actor)["data"]["draft"] == ""
+    with pytest.raises(HTTPException) as denied:
+        web.anniversary_workflow_update(7, "sent", web.AnniversaryWorkflowPayload(due_date=today), actor)
+    assert denied.value.status_code == 403
+    scopes["members:read"].add("class-1")
+    scopes["followups:manage"].add("class-1")
+    assert web.anniversary_workflow_detail(7, today, actor)["data"]["draft"] == call()["draft"]
+    sent = web.anniversary_workflow_update(7, "sent", web.AnniversaryWorkflowPayload(due_date=today), actor)
+    assert sent["data"]["sent_date"] == today.isoformat()
     assert call("sent")["send_status"] == "SENT"
     assert conn.execute("SELECT COUNT(*) FROM audit_logs").fetchone()[0] == 2
     conn.close()
+
+
+def test_group_greeting_removes_dates_and_combines_same_day_sessions():
+    memories = [
+        {"occurred_on": "2026-09-28", "title": "928合成一班报告会空巴晚宴"},
+        {"occurred_on": "2026-09-28", "title": "9月28日928合成一班报告会"},
+        {"occurred_on": "2026-11-14", "title": "11月14–15日《示例课程》"},
+    ]
+    text = anniversary_care._care_greeting("合成学员", 2, memories)
+    assert "合成一班报告会和《示例课程》" in text
+    for fragment in ("9月28日", "928", "11月14", "空巴晚宴"):
+        assert fragment not in text
+    assert "空巴晚宴" in anniversary_care._care_greeting("合成学员", 2, memories[:1])

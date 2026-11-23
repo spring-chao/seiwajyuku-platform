@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -7,7 +8,12 @@ from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app.api.auth import require_permission
-from app.services.anniversary_care import generate_anniversary_draft, list_anniversary_care
+from app.services.anniversary_care import (
+    generate_anniversary_draft,
+    list_anniversary_care,
+    list_anniversary_workflow,
+    process_anniversary_care,
+)
 from app.services.birthday_calendar import LUNAR_BIRTHDAY_PATTERN, lunar_month_options
 from app.services.members import (
     create_member,
@@ -517,6 +523,57 @@ def member_timeline(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"success": True, "data": data}
+
+
+class AnniversaryWorkflowPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    due_date: date
+    memory_ids: list[str] = Field(default_factory=list, max_length=3)
+
+
+@router.get("/members/anniversary-care")
+def anniversary_workflow_list(user: dict = Depends(require_permission("members:detail_view"))) -> dict:
+    return {"success": True, "data": list_anniversary_workflow(user["id"])}
+
+
+def _anniversary_workflow_action(member_id, user, *, due_date, action="view", memory_ids=()):
+    member = fetch_one("SELECT org_unit_id FROM members WHERE id=? AND status='ACTIVE'", (member_id,))
+    if not member:
+        raise HTTPException(400, "在册学长不存在")
+
+    def authorized(permission):
+        return permission in user["permissions"] and can_access_member(
+            member_id, member["org_unit_id"], accessible_org_ids(user["id"], permission)
+        )
+
+    if not authorized("members:detail_view"):
+        raise HTTPException(403, "学长不在当前周年关怀授权范围内")
+    try:
+        data = process_anniversary_care(
+            member_id, user["id"], due_date=due_date,
+            may_read_memories=authorized("members:read"), may_manage=authorized("followups:manage"),
+            action=action, memory_ids=memory_ids,
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"success": True, "data": data}
+
+
+@router.get("/members/{member_id}/anniversary-care")
+def anniversary_workflow_detail(
+    member_id: int, due_date: date, user: dict = Depends(require_permission("members:detail_view"))
+) -> dict:
+    return _anniversary_workflow_action(member_id, user, due_date=due_date)
+
+
+@router.post("/members/{member_id}/anniversary-care/{action}")
+def anniversary_workflow_update(
+    member_id: int, action: Literal["preview", "review", "sent"], payload: AnniversaryWorkflowPayload,
+    user: dict = Depends(require_permission("members:detail_view")),
+) -> dict:
+    return _anniversary_workflow_action(member_id, user, action=action, **payload.model_dump())
 
 
 @router.get("/members/anniversary-care/today")

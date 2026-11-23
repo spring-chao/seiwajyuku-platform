@@ -303,10 +303,12 @@ def _today_actions_for_principal(principal: dict[str, Any]) -> dict[str, Any]:
     anniversaries = []
     permission = "members:detail_view"
     if permission in permissions:
-        from app.services.anniversary_care import list_mobile_anniversary_care
+        from app.services.anniversary_care import list_anniversary_workflow
 
         with mobile_iam_context(_source_principal(principal, permission), permission):
-            anniversaries = list_mobile_anniversary_care(int(principal["user_id"]))
+            anniversary_workflow = list_anniversary_workflow(int(principal["user_id"]))
+            anniversaries = anniversary_workflow["items"]
+            as_of = anniversary_workflow["as_of"]
     pending.sort(key=_pending_sort_key)
     completed.sort(key=_completed_sort_key, reverse=True)
     pending_anniversaries = [item for item in anniversaries if item["send_status"] == "PENDING" and item["due_date"] <= as_of]
@@ -348,7 +350,7 @@ def today_actions(session: dict[str, Any]) -> dict[str, Any]:
 
 
 def manage_mobile_anniversary(session, *, member_id, due_date, action="view", memory_ids=()):
-    from app.services.anniversary_care import mobile_anniversary_care
+    from app.services.anniversary_care import process_anniversary_care
 
     principal = _principal(session)
     permission = "members:detail_view"
@@ -360,7 +362,7 @@ def manage_mobile_anniversary(session, *, member_id, due_date, action="view", me
     may_manage = ("followups:manage" in principal["permissions"]
                   and _member_in_permission_scope(principal, member_id, "followups:manage"))
     with mobile_iam_context(_source_principal(principal, permission), permission):
-        return mobile_anniversary_care(member_id, int(principal["user_id"]), due_date=due_date,
+        return process_anniversary_care(member_id, int(principal["user_id"]), due_date=due_date,
                                        may_read_memories=may_read_memories, may_manage=may_manage,
                                        action=action, memory_ids=memory_ids)
 
