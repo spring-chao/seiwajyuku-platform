@@ -5,6 +5,32 @@ const STATUS_LABELS = {
  CONFIRMED: '已确认参加', ABSENT: '已确认未参加'
 };
 
+const CONFIRMATION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+function shanghaiTimestamp(value, fallback) {
+ const text = String(value || fallback || '').trim().replace(' ', 'T');
+ return Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : text + '+08:00');
+}
+
+function currentEvents(events, now) {
+ const byClass = new Map();
+ for (const event of events) {
+  if (!event.class_org_unit_id || !event.event_id) continue;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(event.event_date || '') ? event.event_date : '';
+  const start = shanghaiTimestamp(event.scheduled_start_at, date && date + 'T00:00:00');
+  const end = shanghaiTimestamp(event.scheduled_end_at, date && date + 'T23:59:59');
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start || end + CONFIRMATION_WINDOW_MS <= now) continue;
+
+  const started = start <= now;
+  const previous = byClass.get(event.class_org_unit_id);
+  if (!previous || (started && (!previous.started || start > previous.start)) ||
+    (!started && !previous.started && start < previous.start)) {
+   byClass.set(event.class_org_unit_id, { event, start, started });
+  }
+ }
+ return [...byClass.values()].sort((a, b) => b.start - a.start).map(item => item.event);
+}
+
 function participantRows(rows) {
  const pending = [];
  const confirmed = [];
@@ -35,7 +61,7 @@ Page({
  onHide(){hidePrivatePage(this,empty());},onUnload(){this.onHide();},
  async loadEvents(){
   const current=beginPrivateRequest(this,'events');this.setData({busy:true,error:''});
-  try{const result=await request('/api/v1/wechat/checkin/konpa/events',{auth:true});if(current())this.setData({events:result.data.events||[]});}
+  try{const result=await request('/api/v1/wechat/checkin/konpa/events',{auth:true});if(current())this.setData({events:currentEvents(result.data.events||[],Date.now())});}
   catch(e){if(current())this.setData({error:e.message||'名单暂时无法加载'});}
   finally{if(current())this.setData({busy:false});}
  },
