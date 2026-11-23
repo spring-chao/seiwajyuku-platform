@@ -3,7 +3,13 @@
 .eyebrow { font-size: 24rpx; opacity: .82; letter-spacing: 2rpx; }
 .hero-title { margin-top: 8rpx; font-size: 42rpx; font-weight: 700; }
 .hero-copy { margin-top: 6rpx; line-height: 1.5; font-size: 28rpx; }
-.today-checkin { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 100rpx; margin: 20rpx 0 0; padding: 0 28rpx; box-sizing: border-box; border: 1rpx solid #e7cbd0; border-radius: 22rpx; background: #fff; color: #741f2b; font-size: 34rpx; font-weight: 700; }
+.page-shell .today-checkin { display: flex; align-items: center; gap: 20rpx; width: 100%; max-width: none; min-height: 108rpx; margin: 20rpx 0 0; padding: 16rpx 24rpx; box-sizing: border-box; border: 1rpx solid #e9d4d6; border-radius: 22rpx; background: #fff; color: #741f2b; text-align: left; line-height: 1.35; }
+.page-shell .today-checkin-active { background: #fbefed; }
+.checkin-icon { display: flex; align-items: center; justify-content: center; flex: 0 0 62rpx; height: 62rpx; border-radius: 18rpx; background: #f8e8e6; font-size: 32rpx; font-weight: 700; }
+.checkin-content { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4rpx; }
+.checkin-label { font-size: 31rpx; font-weight: 700; }
+.checkin-caption { color: #6c5656; font-size: 25rpx; font-weight: 400; }
+.checkin-arrow { flex: none; font-size: 40rpx; }
 .today-checkin::after { border: 0; }
 .account-settings { margin: 14rpx 0 32rpx; }
 .section-card, .state-card { margin-top: 24rpx; padding: 28rpx; border-radius: 24rpx; background: #fff; box-shadow: 0 8rpx 24rpx rgba(80, 35, 35, .06); }

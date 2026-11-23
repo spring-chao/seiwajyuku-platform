@@ -41,14 +41,18 @@ def request(member_id,event_id,action,**payload):
             if any(r.get('event_id')==event_id for r in visible):class_id=candidate;break
     scope=allowed.get(class_id)
     if not scope:raise PermissionError('活动不在空巴授权范围内')
-    if action!='list' and not scope['manage']:raise PermissionError('仅班主任、副班主任、班长可修改或确认')
+    if action not in ('list','set') and not scope['manage']:
+        raise PermissionError('仅班级负责人可确认空巴或锁定订餐')
     members=None
     if not scope['manage']:
         from app.services.study_membership import group_roster
         members=sorted({str(row['member_id']) for row in group_roster_groups(scope['groups'],group_roster)})
     signin_engine.enabled(member=True,write=action!='list')
+    actor={'id':str(member_id),'classes':[class_id],'members':members,'manage':scope['manage']}
+    if members:
+        actor['group_intent']=True
     return signin_engine.engine_request('/ops/v1/konpa',{'action':action,'event_id':event_id,**payload,
-        'actor':{'id':str(member_id),'classes':[class_id],'members':members,'manage':scope['manage']}},timeout=20)
+        'actor':actor},timeout=20)
 
 def group_roster_groups(groups,loader):
     from app.db import transaction

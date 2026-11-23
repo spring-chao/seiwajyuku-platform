@@ -88,3 +88,32 @@ test('secrets cannot be forwarded to arbitrary worker hosts or redirects',()=>{
  assert.notEqual(a.headers['X-Reading-Sync-Signature'],b.headers['X-Reading-Sync-Signature']);
  assert.ok(!JSON.stringify(a.headers).includes(env.READING_SYNC_SIGNING_KEY));
 });
+
+test('scheduled recovery queues only failed, missing and unfinished source intervals',async()=>{
+ const sent=[];
+ const stored=tasks.map(t=>({...t,skip:true,previous:done}));
+ for(const [i,previous] of [[0,{status:'FAILED'}],[2,null],[3,{status:'PARTIAL_PENDING_IDENTITY'}],
+  [4,{status:'NEEDS_REVIEW'}],[5,{status:'POSTING_PENDING',import_id:5}]]){
+  stored[i]={...tasks[i],previous};
+ }
+ const deps={env,periodModule,today:'2026-11-09',request:async url=>{assert.ok(url.endsWith('/plan'));return stored;},
+  dispatch:async event=>sent.push(event)};
+ const report=await dispatcher.run({Type:'Timer',TriggerName:'readingSyncRecovery'},deps);
+ assert.deepEqual([report.status,report.success,report.partial,report.review,report.retryable],['RECOVERY_QUEUED',17,1,1,3]);
+ assert.deepEqual(sent[0].recovery_indices,[0,2,5]);
+ const audit=await dispatcher.run({Type:'Timer',TriggerName:'readingSyncAudit'},deps);
+ assert.equal(audit.status,'INCOMPLETE');assert.equal(sent.length,1);
+ const offDay=await dispatcher.run({Type:'Timer',TriggerName:'readingSyncRecovery'},{...deps,today:'2026-11-10',request:()=>assert.fail('no plan')});
+ assert.equal(offDay.skipped,true);
+});
+test('recovery reuses saved imports and preserves receipts when status polling fails',async()=>{
+ const sent=[];
+ const request=async(url,payload)=>{
+  if(url.endsWith('/plan'))return tasks.map(t=>({...t,previous:{status:'POSTING_PENDING',import_id:9}}));
+  assert.ok(url.endsWith('/status'));
+  assert.equal(payload.import_id,9);
+  throw Error('temporary status failure');
+ };
+ const result=await dispatcher.run({...event,attempt:2,recovery_indices:[0,1],receipt_recovery:true},{env,periodModule,request,dispatch:async e=>sent.push(e)});
+ assert.equal(result.status,'FAILED');assert.equal(sent[0].index,1);assert.equal(sent[0].receipt_recovery,true);
+});

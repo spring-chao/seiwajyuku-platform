@@ -35,6 +35,11 @@
           "config": "0 0 2 * * * *"
         },
         {
+          "name": "classMeetingNextDayRetry",
+          "type": "timer",
+          "config": "0 15 7 * * * *"
+        },
+        {
           "name": "studyMeetingRosterDaily",
           "type": "timer",
           "config": "0 0 0 * * * *"

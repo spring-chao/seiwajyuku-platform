@@ -1,1 +1,12 @@
 @import "index.wxss";
+
+.daily-checkin .brand-header { padding-bottom: 24rpx; }
+.daily-toolbar, .daily-checkin .daily-event { display: flex; align-items: center; gap: 18rpx; justify-content: space-between; }
+.daily-toolbar { margin: 26rpx 0 14rpx; }
+.daily-heading { font-size: 34rpx; font-weight: 700; }
+.daily-checkin .daily-refresh { width: auto; min-height: 64rpx; margin: 0; padding: 0 20rpx; }
+.daily-checkin .daily-event { box-sizing: border-box; width: 100%; max-width: none; min-height: 124rpx; margin: 0 0 16rpx; text-align: left; color: #35282a; line-height: 1.4; }
+.daily-event::after { border: 0; }
+.daily-event-copy { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.daily-status { flex: none; border-radius: 20rpx; padding: 8rpx 14rpx; background: #f5efed; color: #685757; font-size: 24rpx; }
+.daily-open { background: #f7e5e8; color: #761c2e; font-weight: 700; }

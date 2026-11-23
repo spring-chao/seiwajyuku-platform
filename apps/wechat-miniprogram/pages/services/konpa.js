@@ -8,17 +8,24 @@ const STATUS_LABELS = {
 function participantRows(rows) {
  const pending = [];
  const confirmed = [];
- const other = [];
+ const declined = [];
+ const unselected = [];
  for (const row of rows) {
   const attendingNow = row.latest_choice === true;
   const isConfirmed = row.status === 'CONFIRMED';
-  const section = attendingNow ? (isConfirmed ? '已确认参加' : '参加意向待确认') : '其他报名';
-  const item = { ...row, attendingNow, section, statusLabel: STATUS_LABELS[row.status] || row.status };
-  if (!attendingNow) other.push(item);
+  const choice = typeof row.latest_choice === 'boolean' ? row.latest_choice : null;
+  const section = attendingNow ? (isConfirmed ? '已确认参加' : '参加意向待确认')
+   : choice === false ? '选择不参加' : '未选择';
+  const item = { ...row, attendingNow, section, statusLabel: STATUS_LABELS[row.status] || row.status,
+   selectedYes: choice === true, selectedNo: choice === false,
+   choiceLabel: choice === null ? '当前未选择' : choice ? '当前选择：参加' : '当前选择：不参加',
+   confirmLabel: row.choice ? '确认参加' : '确认不参加',
+   canConfirm: typeof row.choice === 'boolean' && !['CONFIRMED','ABSENT'].includes(row.status) };
+  if (!attendingNow) (choice === false ? declined : unselected).push(item);
   else if (isConfirmed) confirmed.push(item);
   else pending.push(item);
  }
- return [...pending, ...confirmed, ...other];
+ return [...pending, ...confirmed, ...declined, ...unselected];
 }
 
 const empty=()=>({events:[],rows:[],eventId:'',busy:false,error:'',canManage:false,estimatedCount:0,confirmedCount:0,deadline:'',dinnerLocked:false,dinnerCount:0,dinnerAdded:0,dinnerRemoved:0});
@@ -54,9 +61,11 @@ Page({
   finally{if(current())this.setData({busy:false});}
  },
  async update(e){
-  if(this.data.busy||!this.data.canManage)return;
+  if(this.data.busy)return;
   const row=this.data.rows.find(r=>r.registration_id===e.currentTarget.dataset.id);if(!row)return;
   const action=e.currentTarget.dataset.action;
+  if(action==='set' ? (!this.data.canManage && !row.can_set_intent)
+   : action!=='confirm' || !this.data.canManage || !row.canConfirm)return;
   const payload={registration_id:row.registration_id,expected_revision:row.revision};
   if(action==='set')payload.choice=e.currentTarget.dataset.choice==='yes';
   const current=beginPrivateRequest(this,'update');const eventId=this.data.eventId;
