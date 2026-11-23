@@ -184,8 +184,6 @@ def export_weekly(actor, class_id, occurred_from, occurred_to, pauses=()):
         for source in source_metadata(c,(r['import_id'] for r in raw)):
             imports[source['id']] = _safe_text(source['original_filename'])
             ignored[source['file_sha256']] = int(source['ignored_count'] or 0)
-        if not raw:
-            raise ValueError('所选区间尚未保存读书打卡来源，请先同步或上传')
         data = {'class_name': selected['name'], 'center_name': selected.get('parent_name') or '',
             'start': start, 'end': end, 'days': days, 'groups': [], 'ignored': sum(ignored.values()),
             'sources': imports, 'staff': _staff(c, ids, end), 'total_completed': 0, 'total_required': 0, 'pending': False}
@@ -206,7 +204,7 @@ def export_weekly(actor, class_id, occurred_from, occurred_to, pauses=()):
                 states = records.get((member['id'], day.isoformat()), set())
                 # Completion is evidence of a finished task, even if an older
                 # import still contains the pre-completion "未提交" snapshot.
-                value = '√' if '是' in states else '×'
+                value = '待同步' if not raw else '√' if '是' in states else '×'
                 values.append(value)
                 completed += value == '√'
                 pending |= value in ('待同步','待核对')
@@ -318,7 +316,9 @@ def build_workbook(data):
         '√＝已有完成录音记录（含过期完成）；×＝当前已保存来源中未见完成记录。同日历史未提交不覆盖完成记录。完成率＝已完成人天÷应打卡人天。',
         '小组完成率＝小组√总数÷（小组在册人数×应打卡天数）；临时暂停、停学、免要求及不在本班日期扣除对应人天。按工作日日历（含调休）统计，分组按区间内最后有效本班归属；临时暂停只用于本次导出。']
     if data['ignored']: notes.append(f"来源另有{data['ignored']}条未通过身份或内容检查的记录，未强行匹配到学员。本表按已匹配来源统计；请核对异常来源，补齐后重新导出。")
-    notes.append('保存来源：'+'；'.join(f"#{key} {value}" for key,value in data['sources'].items()))
+    if not data['sources']:
+        notes.append('本区间尚无已保存的读书打卡来源。待同步表示来源缺失，个人及小组完成率待核对；请同步或上传后重新导出。')
+    notes.append('保存来源：'+('；'.join(f"#{key} {value}" for key,value in data['sources'].items()) or '待同步'))
     for offset,note in enumerate(notes,2):
         ws.merge_cells(start_row=row+offset,start_column=1,end_row=row+offset,end_column=group_col)
         v=_literal(ws,row+offset,1,note); v.font=Font(name='宋体',size=10,color='595959'); v.alignment=Alignment(wrap_text=True,vertical='center')

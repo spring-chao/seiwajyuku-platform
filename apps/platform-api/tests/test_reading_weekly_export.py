@@ -168,12 +168,23 @@ def test_pauses_roster_and_export_revalidate_scope_and_permissions(reading_fixtu
     finally: app.dependency_overrides.pop(current_user,None)
 
 
-def test_calendar_missing_cross_month_and_no_source_fail_explicitly(reading_fixture):
+def test_calendar_missing_and_cross_month_fail_explicitly(reading_fixture):
     f=reading_fixture
-    with pytest.raises(ValueError,match='尚未保存'): export(f)
     with pytest.raises(ValueError,match='跨月'): weekly.period('2026-10-26','2026-11-01')
     with pytest.raises(ValueError,match='自然周'): weekly.period('2026-10-05','2026-10-12')
     with patch.object(activity,'is_workday',return_value=None),pytest.raises(ValueError,match='日历'): export(f)
+
+
+def test_no_saved_source_exports_pending_instead_of_false_absences(reading_fixture):
+    f = reading_fixture
+    ws = export(f).active
+    member = next(row for row in ws.iter_rows() if row[1].value == f['name'])
+    assert [cell.value for cell in member[2:7]] == ['待同步'] * 5
+    assert member[7].value == '待核对'
+    summary = next(row for row in ws.iter_rows() if row[0].value == '汇总')
+    assert summary[8].value == '待核对'
+    assert '来源缺失' in '\\n'.join(str(cell.value or '') for row in ws for cell in row)
+    assert fetch_one('SELECT COUNT(*) AS n FROM learning_credit_entries WHERE member_id=?', (f['member_id'],))['n'] == 0
 
 
 def test_unmatched_sources_do_not_block_complete_groups_and_names_stay_literal(reading_fixture):

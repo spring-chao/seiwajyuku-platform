@@ -642,6 +642,7 @@ onMounted(() => perform(reload));
     <section v-if="canExport" class="section">
       <strong>班级每周读书打卡统计</strong>
       <p>按已保存的读书来源导出分组统计表，含每日打卡、个人完成率、小组完成率及汇总。选择同一自然周的日期，跨月分段导出；按工作日日历计算（含调休），无需先入账。</p>
+      <p>所选区间没有已保存来源时，导出表会标注「待同步」，完成率显示「待核对」。同步或上传读书来源后可重新导出。</p>
       <el-form inline>
         <el-form-item label="统计班级"><el-select v-model="weeklyForm.class_id" filterable placeholder="选择班级">
           <el-option v-for="c in exportClasses" :key="c.id" :value="c.id" :label="c.center_name ? `${c.name} · ${c.center_name}` : c.name" />
