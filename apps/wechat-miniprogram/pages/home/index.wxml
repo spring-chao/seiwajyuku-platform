@@ -5,8 +5,10 @@
     <view class="hero-copy">{{identityState === 'bound' ? '学习服务从这里开始' : identityState === 'unbound' ? '绑定身份，开启您的学长服务' : '学长服务'}}</view>
   </view>
 
-  <button class="today-checkin" bindtap="openTodayCheckin">
-    <text>今日签到</text><text aria-hidden="true">›</text>
+  <button class="today-checkin" hover-class="today-checkin-active" bindtap="openTodayCheckin">
+    <text class="checkin-icon" aria-hidden="true">✓</text>
+    <view class="checkin-content"><text class="checkin-label">今日签到</text><text class="checkin-caption">查看今日可签到的活动</text></view>
+    <text class="checkin-arrow" aria-hidden="true">›</text>
   </button>
   <view wx:if="{{loading}}" class="state-card">正在加载，请稍候…</view>
   <view wx:if="{{!loading && errorMessage}}" class="state-card error">{{errorMessage}}</view>

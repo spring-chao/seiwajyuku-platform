@@ -7,7 +7,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from app.api.study_evidence_cleanup import require_maintenance_token
-from app.services.class_meeting_next_day import refresh_due_class_meetings
+from app.services.class_meeting_next_day import preview_due_class_meetings, refresh_due_class_meetings
 
 router = APIRouter(prefix="/api/v1/internal/learning-cycle-monthly", tags=["internal-maintenance"])
 
@@ -44,6 +44,31 @@ def refresh_monthly_content(
         "data": report,
         "renewal_status_sync": renewal_report,
     }
+
+
+@router.post("/class-meeting-retry")
+def retry_class_meetings(payload: RefreshPayload,
+    x_study_evidence_cleanup_token: str | None = Header(default=None, alias="X-Study-Evidence-Cleanup-Token")):
+    require_maintenance_token(x_study_evidence_cleanup_token)
+    try:
+        report = refresh_due_class_meetings()
+    except Exception as error:
+        logging.getLogger("uvicorn.error").error("CLASS_MEETING_RETRY_FAILED error_type=%s", type(error).__name__)
+        raise HTTPException(status_code=503, detail="班会周期推进暂不可用") from None
+    complete = report["enabled"] and not any(report[key] for key in ("failed", "repair_required", "review_required"))
+    return {"success": complete, "data": report}
+
+
+@router.post("/class-meeting-preview")
+def preview_class_meetings(payload: RefreshPayload,
+    x_study_evidence_cleanup_token: str | None = Header(default=None, alias="X-Study-Evidence-Cleanup-Token")):
+    require_maintenance_token(x_study_evidence_cleanup_token)
+    try:
+        return {"success": True, "data": preview_due_class_meetings()}
+    except Exception as error:
+        logging.getLogger("uvicorn.error").error("CLASS_MEETING_AUDIT_FAILED error_type=%s", type(error).__name__)
+        raise HTTPException(status_code=503, detail="班会周期检查暂不可用") from None
+
 
 
 @router.post('/renewal-status-preview')

@@ -7,13 +7,14 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from app.core.settings import get_settings
-from app.db import execute, fetch_all, transaction
+from app.db import connect, execute, fetch_all, transaction
 from app.services import learning_cycles as cycles
 from app.services.attendance_sync import _upsert_event_group
 from app.services.learning_cycle_schedule import parse_utc_datetime
 
 CHINA = ZoneInfo("Asia/Shanghai")
 RECOVERY_DAYS = 2
+AUDIT_DAYS = 7
 logger = logging.getLogger("uvicorn.error")
 
 
@@ -44,7 +45,7 @@ def _load_groups(settings):
     raise ValueError("班会活动分页未完整返回")
 
 
-def _due_group(rows, today):
+def _due_group(rows, today, *, window=RECOVERY_DAYS):
     if not rows or any(
         row.get("source_system") != "PLATFORM_MANAGEMENT" or row.get("lifecycle_status") != "CONFIRMED"
         for row in rows
@@ -66,7 +67,7 @@ def _due_group(rows, today):
         return None
     end_day = max(end for _, end in intervals).astimezone(CHINA).date()
     effective_day = end_day + timedelta(days=1)
-    if not today - timedelta(days=RECOVERY_DAYS) <= effective_day <= today:
+    if not today - timedelta(days=window) <= effective_day <= today:
         return None
     boundary = datetime.combine(effective_day, time.min, CHINA).astimezone(UTC)
     return group, min(start for start, _ in intervals), boundary
@@ -96,30 +97,44 @@ class RecoveryReviewRequired(ValueError):
     """A late transition needs an operator to reconcile existing facts."""
 
 
+def _transition_state(connection, group_id, group, start, boundary, *, recovering):
+    class_id = group["study_org_unit_id"]
+    event = execute(connection,
+        "SELECT id, status FROM attendance_event_groups WHERE source_key='signin' AND external_group_id=?",
+        (group_id,)).fetchone()
+    binding = cycles._active_binding(connection, class_id)
+    cycle = cycles._cycle_at(connection, int(binding["id"]), boundary.isoformat()) if binding else None
+    cycle_index = cycle["learning_cycle_index"] if cycle else None
+    if event and execute(connection,
+        "SELECT id FROM class_learning_cycles WHERE source_event_group_id=? AND cycle_status='CLOSED'",
+        (event["id"],)).fetchone():
+        return "ALREADY_ADVANCED", cycle, cycle_index
+    if not binding:
+        return "NO_ACTIVE_PLAN", cycle, cycle_index
+    if not cycle or cycle["cycle_status"] != "OPEN":
+        return "NO_OPEN_CYCLE_AT_BOUNDARY", cycle, cycle_index
+    if start <= parse_utc_datetime(cycle["opened_at"]):
+        return "MEETING_PRECEDES_CYCLE", cycle, cycle_index
+    if event and event["status"] in {"CANCELLED", "DELETED", "INACTIVE"}:
+        return "SOURCE_EVENT_INACTIVE", cycle, cycle_index
+    if cycle.get("actual_class_meeting_at") or (
+        cycle.get("source_event_group_id") and (not event or cycle["source_event_group_id"] != event["id"])
+    ):
+        return "CYCLE_HAS_OTHER_MEETING", cycle, cycle_index
+    if recovering and _has_later_facts(connection, cycle, boundary):
+        return "LATER_LEARNING_FACTS", cycle, cycle_index
+    return "DUE", cycle, cycle_index
+
+
 def _advance(group_id, group, start, boundary, *, recovering=False):
     class_id = group["study_org_unit_id"]
     with transaction() as connection:
         cycles._lock_class_for_update(connection, class_id)
-        binding = cycles._active_binding(connection, class_id)
-        if not binding:
+        state, cycle, _ = _transition_state(connection, group_id, group, start, boundary, recovering=recovering)
+        if state == "ALREADY_ADVANCED":
             return False
-        cycle = cycles._cycle_at(connection, int(binding["id"]), boundary.isoformat())
-        if (not cycle or cycle["cycle_status"] != "OPEN"
-                or start <= parse_utc_datetime(cycle["opened_at"])):
-            return False
-        event = execute(connection,
-            "SELECT id FROM attendance_event_groups WHERE source_key='signin' AND external_group_id=?",
-            (group_id,)).fetchone()
-        if event and execute(connection,
-            "SELECT id FROM class_learning_cycles WHERE source_event_group_id=? AND cycle_status='CLOSED'",
-            (event["id"],)).fetchone():
-            return False
-        if recovering and _has_later_facts(connection, cycle, boundary):
-            raise RecoveryReviewRequired("次日后已有学习记录，需先核对学习周期")
-        if cycle.get("source_event_group_id") and (
-            not event or cycle["source_event_group_id"] != event["id"]
-        ):
-            raise ValueError("本期已关联不同的班会活动")
+        if state != "DUE":
+            raise RecoveryReviewRequired(state)
         group_pk = _upsert_event_group(connection, source_key="signin",
             external_group_id=group_id, group_data={**group, "status": "ACTIVE"}, now=cycles._now())
         cycles.confirm_class_meeting(
@@ -128,6 +143,44 @@ def _advance(group_id, group, start, boundary, *, recovering=False):
             learning_cycle_id=cycle["id"], _connection=connection, _scheduled_boundary=boundary.isoformat(),
         )
         return True
+
+
+def _candidates(settings, today, *, window=RECOVERY_DAYS):
+    by_class = defaultdict(list)
+    for group_id, rows in _load_groups(settings).items():
+        candidate = _due_group(rows, today, window=window)
+        if candidate:
+            group, _, _ = candidate
+            by_class[group["study_org_unit_id"]].append((group_id, *candidate))
+    return by_class
+
+
+def preview_due_class_meetings():
+    """Read current cycle receipts and the reason each recent meeting is pending."""
+    today = datetime.now(CHINA).date()
+    due = _candidates(get_settings(), today, window=AUDIT_DAYS)
+    connection = connect()
+    try:
+        report = []
+        for class_id, candidates in due.items():
+            pending = []
+            for group_id, group, start, boundary in candidates:
+                effective_day = boundary.astimezone(CHINA).date()
+                state, _, cycle_index = _transition_state(
+                    connection, group_id, group, start, boundary, recovering=effective_day < today)
+                if state == "DUE" and effective_day < today - timedelta(days=RECOVERY_DAYS):
+                    state = "RECOVERY_WINDOW_CLOSED"
+                item = {"class_id": class_id, "meeting_date": group["event_date"],
+                        "next_cycle_due": effective_day.isoformat(), "cycle_index": cycle_index, "status": state}
+                report.append(item)
+                if state != "ALREADY_ADVANCED":
+                    pending.append(item)
+            if len(pending) > 1:
+                for item in pending:
+                    item["status"] = "MULTIPLE_PENDING_MEETINGS"
+        return report
+    finally:
+        connection.close()
 
 
 def refresh_due_class_meetings():
@@ -141,12 +194,7 @@ def refresh_due_class_meetings():
         raise ValueError("签到服务未配置")
     report["enabled"] = True
     today = datetime.now(CHINA).date()
-    due = defaultdict(list)
-    for group_id, rows in _load_groups(settings).items():
-        candidate = _due_group(rows, today)
-        if candidate:
-            group, _, _ = candidate
-            due[group["study_org_unit_id"]].append((group_id, *candidate))
+    due = _candidates(settings, today)
     report["scanned"] = len(due)
     for class_id, candidates in due.items():
         if len({candidate[3] for candidate in candidates}) > 1:
@@ -172,10 +220,10 @@ def refresh_due_class_meetings():
             group_id, group, start, boundary = candidates[0]
             recovering = boundary.astimezone(CHINA).date() < today
             report["updated"] += int(_advance(group_id, group, start, boundary, recovering=recovering))
-        except RecoveryReviewRequired:
+        except RecoveryReviewRequired as error:
             report["review_required"] += 1
-            logger.warning("CLASS_MEETING_ADVANCE_REVIEW class_id=%s reason=later_facts", class_id)
-        except ValueError:
+            logger.warning("CLASS_MEETING_ADVANCE_REVIEW class_id=%s reason=%s", class_id, error)
+        except Exception as error:
             report["failed"] += 1
-            logger.warning("CLASS_MEETING_ADVANCE_FAILED class_id=%s", class_id)
+            logger.warning("CLASS_MEETING_ADVANCE_FAILED class_id=%s error_type=%s", class_id, type(error).__name__)
     return report

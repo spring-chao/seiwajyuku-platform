@@ -139,7 +139,7 @@ test("konpa displays the same selected participants as its estimated count and p
     : { data: { rows, estimated_count: 2, confirmed_count: 1, auto_confirm_at: "2026-11-27T12:30:00Z" } });
   await h.page.onShow();
   await h.page.selectEvent({ currentTarget: { dataset: { id: "evening" } } });
-  assert.deepEqual(Array.from(h.page.data.rows, row => row.registration_id), ["morning", "confirmed", "unset", "declined"]);
+  assert.deepEqual(Array.from(h.page.data.rows, row => row.registration_id), ["morning", "confirmed", "declined", "unset"]);
   assert.equal(h.page.data.rows.filter(row => row.attendingNow).length, h.page.data.estimatedCount);
 });
 
@@ -593,4 +593,23 @@ test("mini-program templates have no camera or scan buttons", () => {
     const source = fs.readFileSync(path.join(root, "pages", page + ".wxml"), "utf8");
     assert.doesNotMatch(source, /bindtap="(?:openScan|startScan|clearStatus)"|打开相机扫码|再扫一次/);
   }
+});
+
+test('group leaders can register an unset choice and cannot confirm it', async () => {
+  const row={registration_id:'r',latest_choice:null,choice:null,status:'UNCONFIRMED',revision:'initial',can_set_intent:true};
+  const h=harness('services/konpa',async(url,options)=>{
+    if(url.endsWith('/events'))return {data:{events:[]}};
+    if(url.endsWith('/set')){
+      assert.equal(options.data.choice,false);
+      Object.assign(row,{latest_choice:false,choice:false,status:'REVIEWED',can_set_intent:false});
+      return {data:{}};
+    }
+    return {data:{rows:[row],auto_confirm_at:'2026-11-28T12:30:00Z',can_manage:false}};
+  });
+  await h.page.onShow();await h.page.selectEvent({currentTarget:{dataset:{id:'evening'}}});
+  await h.page.update({currentTarget:{dataset:{id:'r',action:'set',choice:'no'}}});
+  assert.equal(h.page.data.rows[0].selectedNo,true);
+  const count=h.calls.length;
+  await h.page.update({currentTarget:{dataset:{id:'r',action:'confirm'}}});
+  assert.equal(h.calls.length,count);
 });

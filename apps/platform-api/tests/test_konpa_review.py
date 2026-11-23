@@ -28,7 +28,7 @@ def test_group_read_uses_only_live_scoped_member_ids():
     with patch.object(service,'scopes',return_value=allowed),patch.object(service,'event_list',return_value={'events':[{'event_id':'evening','class_org_unit_id':'c1'}]}),patch.object(service,'group_roster_groups',return_value=[{'member_id':123}]),patch.object(service.signin_engine,'enabled'),patch.object(service.signin_engine,'engine_request',return_value={'rows':[]}) as transport:
         service.request(1,'evening','list')
         actor=transport.call_args.args[1]['actor']
-        assert actor=={'id':'1','classes':['c1'],'members':['123'],'manage':False}
+        assert actor=={'id':'1','classes':['c1'],'members':['123'],'manage':False,'group_intent':True}
 
 
 def test_choice_models_preserve_false_and_reject_string_boolean():

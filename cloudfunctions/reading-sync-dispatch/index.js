@@ -3,6 +3,8 @@ const {createHash,createHmac,timingSafeEqual}=require('node:crypto');
 const API='https://seiwajyuku-platform-api-287369-8-1453587887.sh.run.tcloudbase.com';
 const FUNCTION='readingSyncDispatch';
 const NAMESPACE='shengheshu-d2g2zyyl99f6c6fc2';
+const TIMERS=new Set(['readingSyncWeekly','readingSyncMonthly','readingSyncClockProbe','readingSyncRecovery','readingSyncAudit']);
+const RETRYABLE=new Set(['FAILED','POSTING_PENDING','SOURCE_SAVED_POSTING_NOT_CREATED']);
 const sha=v=>createHash('sha256').update(v).digest('hex');
 const mac=(k,v)=>createHmac('sha256',k).update(v).digest();
 
@@ -17,7 +19,7 @@ function verifyEvent(event,env=process.env,now=Math.floor(Date.now()/1000)){
  const key=env.READING_DISPATCH_SIGNING_KEY;
  if(typeof key!=='string'||key.length<32)throw Error('EVENT_IDENTITY_NOT_CONFIGURED');
  if(event.Type==='Timer'){
-  if(!['readingSyncWeekly','readingSyncMonthly','readingSyncClockProbe'].includes(event.TriggerName))throw Error('INVALID_TIMER_IDENTITY');
+  if(!TIMERS.has(event.TriggerName))throw Error('INVALID_TIMER_IDENTITY');
   const message=JSON.parse(event.Message||'{}');
   const expected=createHmac('sha256',key).update('timer\n'+event.TriggerName).digest('hex');
   if(!matches(message.timer_signature,expected))throw Error('INVALID_TIMER_IDENTITY');
@@ -73,24 +75,54 @@ async function run(event,{env=process.env,request=call,dispatch=enqueue,today,pe
  if(!['Timer','ReadingSyncContinuation','ReadingSyncManual'].includes(event.Type))throw Error('INVALID_EVENT');
  const {periods,shanghaiToday}=periodModule||await import('./periods.mjs');
  const runDate=event.runDate||today||shanghaiToday();
- const kind=event.kind||(event.TriggerName==='readingSyncMonthly'?'monthly':event.TriggerName==='readingSyncWeekly'?'weekly':null);
+ const recoverySweep=event.TriggerName==='readingSyncRecovery';
+ const auditSweep=event.TriggerName==='readingSyncAudit';
+ const scheduledKind=event.TriggerName==='readingSyncMonthly'?'monthly':event.TriggerName==='readingSyncWeekly'?'weekly':null;
+ const kind=event.kind||scheduledKind||((recoverySweep||auditSweep)?(
+  runDate.endsWith('-01')?'monthly':new Date(runDate+'T00:00:00Z').getUTCDay()===1?'weekly':null
+ ):null);
+ if((recoverySweep||auditSweep)&&!kind)return{skipped:true,reason:'NO_SCHEDULED_SYNC_TODAY'};
  const intervals=periods(kind,runDate);
  if(!intervals.length)return{skipped:true,reason:'MONTHLY_OWNS_THIS_DATE'};
  const index=event.index??0,attempt=event.attempt??0,polls=event.polls??0;
  if(!Number.isInteger(index)||index<0||index>=44||!Number.isInteger(attempt)||attempt<0||attempt>2||!Number.isInteger(polls)||polls<0||polls>30)throw Error('INVALID_CONTINUATION');
  const tasks=await request(API+'/api/v1/internal/reading-sync/plan',{intervals},env.READING_SYNC_SIGNING_KEY);
  if(!Array.isArray(tasks)||tasks.length!==22*intervals.length)throw Error('PLAN_INCOMPLETE');
+ if(recoverySweep||auditSweep){
+  const counts={success:0,partial:0,review:0,retryable:0};
+  const recoveryIndices=[];
+  tasks.forEach((task,i)=>{
+   const prior=task.previous;
+   if(task.skip)counts.success++;
+   else if(!prior||RETRYABLE.has(prior.status)){
+    counts.retryable++;
+    recoveryIndices.push(i);
+   }else if(prior.status==='PARTIAL_PENDING_IDENTITY')counts.partial++;
+   else counts.review++;
+  });
+  if(recoverySweep&&recoveryIndices.length){
+   await dispatch({Type:'ReadingSyncContinuation',kind,runDate,index:recoveryIndices[0],
+    recovery_indices:recoveryIndices,receipt_recovery:true},env);
+  }
+  return {status:counts.success===tasks.length?'SUCCESS':recoverySweep&&recoveryIndices.length?'RECOVERY_QUEUED':'INCOMPLETE',
+   kind,runDate,intervals,total:tasks.length,...counts};
+ }
  const recovery=event.recovery_indices;
  if(recovery!==undefined&&(!Array.isArray(recovery)||!recovery.length||recovery.length>44||recovery.some((n,i)=>!Number.isInteger(n)||n<0||n>=tasks.length||(i>0&&n<=recovery[i-1]))||!recovery.includes(index)))throw Error('INVALID_RECOVERY_SCOPE');
- const continuation={Type:'ReadingSyncContinuation',kind,runDate,...(recovery?{recovery_indices:recovery}:{})};
+ if(event.receipt_recovery===true&&!recovery)throw Error('INVALID_RECOVERY_SCOPE');
+ const continuation={Type:'ReadingSyncContinuation',kind,runDate,...(recovery?{recovery_indices:recovery}:{}),
+  ...(event.receipt_recovery===true?{receipt_recovery:true}:{})};
  const task=tasks[index];
  const next=async()=>{const selected=recovery?recovery.find(n=>n>index):index+1;if(selected!==undefined&&selected<tasks.length)await dispatch({...continuation,index:selected},env);};
- if(task.skip){await next();return{class_id:task.class_id,start:task.start,end:task.end,status:'SKIPPED_VERIFIED_SUCCESS'};}
+ if(task.skip||(event.receipt_recovery===true&&task.previous&&!RETRYABLE.has(task.previous.status))){
+  await next();return{class_id:task.class_id,start:task.start,end:task.end,status:task.skip?'SKIPPED_VERIFIED_SUCCESS':'SKIPPED_MANUAL_REVIEW'};
+ }
  const selected={class_id:task.class_id,source_meeting_id:task.source_meeting_id,start:task.start,end:task.end};
+ const importId=event.import_id||(event.receipt_recovery===true?task.previous?.import_id:null);
  let result,digest=event.file_sha256;
  try{
-  if(event.import_id){
-   result=await request(API+'/api/v1/internal/reading-sync/status',{...selected,import_id:event.import_id},env.READING_SYNC_SIGNING_KEY);
+  if(importId){
+   result=await request(API+'/api/v1/internal/reading-sync/status',{...selected,import_id:importId},env.READING_SYNC_SIGNING_KEY);
   }else{
    if(digest){
     result=await request(API+'/api/v1/internal/reading-sync/lookup',{...selected,file_sha256:digest},env.READING_SYNC_SIGNING_KEY);
@@ -106,11 +138,14 @@ async function run(event,{env=process.env,request=call,dispatch=enqueue,today,pe
   }
   if(result.status==='SOURCE_SAVED_POSTING_NOT_CREATED')result=await request(API+'/api/v1/internal/reading-sync/resume',{...selected,import_id:result.import_id},env.READING_SYNC_SIGNING_KEY);
  }catch{
-  if(attempt<2){await dispatch({...continuation,index,attempt:attempt+1,import_id:event.import_id,file_sha256:digest,polls},env);return{...selected,status:'RETRY_PENDING'};}
-  await request(API+'/api/v1/internal/reading-sync/outcome',{...selected,error_code:'SOURCE_OR_POSTING_NOT_VERIFIED'},env.READING_SYNC_SIGNING_KEY);
+  if(attempt<2){await dispatch({...continuation,index,attempt:attempt+1,import_id:importId,file_sha256:digest,polls},env);return{...selected,status:'RETRY_PENDING'};}
+  // Preserve an existing source receipt so a transient status failure cannot
+  // turn a posting recovery into another collection.
+  if(!importId)await request(API+'/api/v1/internal/reading-sync/outcome',{...selected,error_code:'SOURCE_OR_POSTING_NOT_VERIFIED'},env.READING_SYNC_SIGNING_KEY);
   await next();return{...selected,status:'FAILED',error_code:'SOURCE_OR_POSTING_NOT_VERIFIED'};
  }
- if(!result.posting_completed&&!result.source_only&&result.job_status!=='NEEDS_REVIEW'&&polls<30){
+ if(!result.posting_completed&&!result.source_only&&result.status!=='NEEDS_REVIEW'
+  &&result.job_status!=='NEEDS_REVIEW'&&result.job_status!=='PAUSED'&&result.job_status!=='FAILED'&&polls<30){
   await new Promise(resolve=>setTimeout(resolve,10000));
   await dispatch({...continuation,index,import_id:result.import_id,polls:polls+1},env);
  }else await next();
@@ -125,7 +160,12 @@ exports.main=async event=>{try{
   const {shanghaiToday}=await import('./periods.mjs');
   return{status:'CLOCK_PROBE',at:new Date().toISOString(),business_date:shanghaiToday()};
  }
- return await run(verified);
+ const report=await run(verified);
+ if(verified.TriggerName==='readingSyncRecovery'||verified.TriggerName==='readingSyncAudit'){
+  const log=report.status==='INCOMPLETE'?console.warn:console.info;
+  log(JSON.stringify({event:'READING_SYNC_SCHEDULED_CHECK',trigger:verified.TriggerName,...report}));
+ }
+ return report;
 }catch{throw Error('READING_SYNC_DISPATCH_NOT_VERIFIED');}};
 exports.run=run;
 exports.signed=signed;

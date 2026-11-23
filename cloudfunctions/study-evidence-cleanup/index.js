@@ -109,6 +109,20 @@ exports.main = async (_event, _context) => {
     const valid = result && result.success === true && data && typeof data.enabled === "boolean" && validCounts(data, ["updated", "failed"]);
     return { ok: Boolean(valid && data.enabled && data.failed === 0), roster: { enabled: Boolean(valid && data.enabled), updated: valid ? data.updated : 0, failed: valid ? data.failed : 1, state: valid && ["OPEN","FROZEN","SCHEMA_REQUIRED","WRITE_DISABLED","FEATURE_DISABLED"].includes(data.state) ? data.state : "UNKNOWN" } };
   }
+  if (_event && _event.Type === "Timer" && _event.TriggerName === "classMeetingNextDayRetry") {
+    const retryUrl = new URL(url);
+    retryUrl.pathname = "/api/v1/internal/learning-cycle-monthly/class-meeting-retry";
+    const retry = await requestMaintenance(retryUrl.toString(), token, {}, timeoutMs);
+    const data = retry && retry.data;
+    const valid = validCounts(data, ["scanned", "updated", "failed", "repair_required", "review_required"]);
+    if (!valid) throw Error("CLASS_MEETING_RETRY_NOT_VERIFIED");
+    const report = {
+      ok: retry.success === true, scanned: data.scanned, updated: data.updated, failed: data.failed,
+      repair_required: data.repair_required, review_required: data.review_required,
+    };
+    console.info(JSON.stringify({event:"CLASS_MEETING_NEXT_DAY_RETRY", ...report}));
+    return report;
+  }
   const monthlyUrl = new URL(url);
   monthlyUrl.pathname = "/api/v1/internal/learning-cycle-monthly";
   // One maintenance failure must not prevent the independent task from
@@ -135,6 +149,7 @@ exports.main = async (_event, _context) => {
   };
   // Return counts for the CloudBase invocation result, but never return or log
   // the authentication token or any upstream body containing sensitive data.
+  console.info(JSON.stringify({event:"CLASS_MEETING_NEXT_DAY_SWEEP", ...monthly}));
   return {
     ok: cleanupValid && data.errors === 0 && monthly.ok,
     candidates: cleanupValid ? data.candidates : 0,

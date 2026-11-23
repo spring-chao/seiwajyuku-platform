@@ -75,3 +75,19 @@ def test_monthly_scheduler_keeps_existing_write_gates(monkeypatch, gates):
         response = client.post(URL, json={}, headers={"X-Study-Evidence-Cleanup-Token": TOKEN})
     assert response.json()["data"]["updated"] == 0
     refresh.assert_not_called()
+
+
+def test_class_meeting_preview_is_read_only_and_rejects_scope_override(monkeypatch):
+    monkeypatch.setenv("STUDY_EVIDENCE_CLEANUP_TOKEN", TOKEN)
+    headers = {"X-Study-Evidence-Cleanup-Token": TOKEN}
+    report = [{"class_id": "synthetic", "cycle_index": 13, "status": "LATER_LEARNING_FACTS"}]
+    with (
+        patch("app.api.learning_cycle_monthly.preview_due_class_meetings", return_value=report) as preview,
+        patch("app.api.learning_cycle_monthly.refresh_due_class_meetings") as sweep,
+        TestClient(app) as client,
+    ):
+        assert client.post(URL + "/class-meeting-preview", json={}).status_code == 401
+        assert client.post(URL + "/class-meeting-preview", json={"class_id": "other"}, headers=headers).status_code == 422
+        assert client.post(URL + "/class-meeting-preview", json={}, headers=headers).json() == {"success": True, "data": report}
+    preview.assert_called_once_with()
+    sweep.assert_not_called()

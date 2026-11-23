@@ -26,13 +26,13 @@
       <view class="konpa-muted">锁定后新增 {{dinnerAdded}} 人 · 减少 {{dinnerRemoved}} 人</view>
     </view>
     <view class="konpa-toolbar">
-      <view><view class="konpa-heading">参加名单</view><view class="konpa-muted">已选择参加优先显示</view></view>
+      <view><view class="konpa-heading">参加名单</view><view class="konpa-muted">参加优先，未选择排在最后</view></view>
       <button class="konpa-button konpa-outline" bindtap="refresh" disabled="{{busy}}">刷新名单</button>
     </view>
     <view wx:if="{{deadline}}" class="konpa-context">
       <button wx:if="{{canManage && !dinnerLocked}}" class="konpa-button konpa-primary" disabled="{{busy}}" bindtap="lockDinner">订餐时锁定人数</button>
       <view class="konpa-muted">上午用于订餐，下午登记参加计划。空巴结束一周后，待核实记录自动确认。</view>
-      <view wx:if="{{!canManage}}" class="konpa-muted">当前仅可查看本组名单。</view>
+      <view wx:if="{{!canManage}}" class="konpa-muted">仅显示本组名单，可为未选择的学长补录。</view>
     </view>
     <view wx:if="{{deadline && !error && !rows.length}}" class="konpa-notice">暂无名单记录</view>
     <block wx:for="{{rows}}" wx:key="registration_id">
@@ -49,10 +49,11 @@
         <view>上午 <text>{{item.morning_choice === null ? '未选择' : item.morning_choice ? '参加' : '不参加'}}</text></view>
         <view>下午 <text>{{item.afternoon_choice === null ? '未选择' : item.afternoon_choice ? '参加' : '不参加'}}</text></view>
       </view>
-      <view wx:if="{{canManage}}" class="konpa-actions">
-        <button class="konpa-button konpa-outline" disabled="{{busy}}" data-id="{{item.registration_id}}" data-action="set" data-choice="yes" bindtap="update">补录／改为参加</button>
-        <button class="konpa-button konpa-outline" disabled="{{busy}}" data-id="{{item.registration_id}}" data-action="set" data-choice="no" bindtap="update">改为不参加</button>
-        <button wx:if="{{item.choice !== null}}" class="konpa-button konpa-primary konpa-final" disabled="{{busy}}" data-id="{{item.registration_id}}" data-action="confirm" bindtap="update">最终确认</button>
+      <view class="konpa-current-choice">{{item.choiceLabel}}</view>
+      <view wx:if="{{canManage || item.can_set_intent}}" class="konpa-actions">
+        <button class="konpa-button konpa-outline {{item.selectedYes ? 'konpa-selected' : ''}}" disabled="{{busy}}" data-id="{{item.registration_id}}" data-action="set" data-choice="yes" bindtap="update">{{item.selectedYes ? '✓ 参加' : '参加'}}</button>
+        <button class="konpa-button konpa-outline {{item.selectedNo ? 'konpa-selected' : ''}}" disabled="{{busy}}" data-id="{{item.registration_id}}" data-action="set" data-choice="no" bindtap="update">{{item.selectedNo ? '✓ 不参加' : '不参加'}}</button>
+        <button wx:if="{{canManage && item.canConfirm}}" class="konpa-button konpa-primary konpa-final" disabled="{{busy}}" data-id="{{item.registration_id}}" data-action="confirm" bindtap="update">{{item.confirmLabel}}</button>
       </view>
     </view>
     </block>
