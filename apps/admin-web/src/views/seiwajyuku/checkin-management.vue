@@ -331,8 +331,8 @@ async function confirmEvent(item: any) {
   await selectEvent(item);
   await changeLifecycle("CONFIRMED");
 }
-async function refreshDetail(quiet = false) {
-  if (!activeEventId.value || detailLoading.value) return;
+async function refreshDetail(quiet = false, force = false) {
+  if (!activeEventId.value || (detailLoading.value && !force)) return;
   const eventId = activeEventId.value;
   const sequence = ++detailSequence;
   detailLoading.value = true;
@@ -390,10 +390,11 @@ async function switchSession(eventId: string) {
 async function recordKonpaAttendance(row: any, choice: boolean) {
   const review = konpaReviews.value[row.registration_id];
   if (busy.value || !isKonpa.value || !review) return;
+  const eventId = activeEventId.value;
   busy.value = true;
   try {
     await manageAttendance("konpa_attendance", {
-      event_id: activeEventId.value,
+      event_id: eventId,
       registration_id: row.registration_id,
       expected_revision: review.revision,
       choice
@@ -402,8 +403,11 @@ async function recordKonpaAttendance(row: any, choice: boolean) {
   } catch (e) {
     ElMessage.error(messageOf(e));
   } finally {
-    await refreshDetail();
-    busy.value = false;
+    try {
+      if (activeEventId.value === eventId) await refreshDetail(false, true);
+    } finally {
+      busy.value = false;
+    }
   }
 }
 async function reloadAfterMutation() {
