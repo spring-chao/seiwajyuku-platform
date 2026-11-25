@@ -145,6 +145,7 @@ class GuestLookupPayload(EntryPayload):
 class GuestConfirmPayload(GuestLookupPayload):
     candidate_token: str | None = Field(default=None, max_length=2048)
     konpa_choice: StrictBool | None = None
+    phone: str | None = Field(default=None, pattern=r"^1[0-9]{10}$")
 
 
 def _raise(exc: signin_engine.SigninEngineError) -> HTTPException:
@@ -355,14 +356,16 @@ def _registration_name_request(payload: GuestLookupPayload, *, confirm: bool) ->
         access_token = resume_wechat_binding(identity)
         if access_token and _member(HTTPAuthorizationCredentials(scheme="Bearer", credentials=access_token), required=False):
             raise HTTPException(409, "当前微信已绑定塾生，请重新打开活动页确认本人签到")
-        # The selection is bound to this WeChat account and existing enrollment.
-        # Raw openid never leaves this service; this path never creates slots.
+        # A selection is bound to this WeChat account and the current event.
+        # Raw openid never leaves this service.
         guest_id = hmac.new(get_settings().signin_platform_api_key.encode(),
                             ("signin-guest\x1f" + str(identity["appid"]) + "\x1f" + str(identity["openid"])).encode(),
                             hashlib.sha256).hexdigest()
         engine_payload = {"event_id": selected_id, "guest_id": guest_id, "name": name}
         if confirm:
             engine_payload["candidate_token"] = payload.candidate_token
+            if payload.phone is not None:
+                engine_payload["phone"] = payload.phone
             if payload.konpa_choice is not None:
                 engine_payload['konpa_choice'] = payload.konpa_choice
         result = signin_engine.engine_request("/ops/v1/guest-checkin/" + ("confirm" if confirm else "lookup"),
@@ -372,6 +375,7 @@ def _registration_name_request(payload: GuestLookupPayload, *, confirm: bool) ->
                       "center", "company", "checked_in", "checked_at", "candidate_token"}
             return {"success": True, "data": {"status": result.get("status"),
                 "message": result.get("msg"),
+                **({"walk_in_token": result["walk_in_token"]} if result.get("walk_in_token") else {}),
                 "candidates": [{key: value for key, value in row.items() if key in fields}
                                for row in result.get("candidates", [])]}}
         checked_at = result.get("checked_at") or (result.get("data") or {}).get("checked_at")

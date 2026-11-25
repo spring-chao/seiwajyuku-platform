@@ -408,6 +408,25 @@ def test_guest_uses_provider_identity_and_never_posts_or_resolves_member_by_name
         assert len(calls) == 2
 
 
+def test_walk_in_guest_passes_contact_only_to_signin_engine():
+    with patch.dict(os.environ, ENV), TestClient(app) as client, patch(
+        "app.api.wechat_checkin.exchange_wechat_code", return_value={"appid": "guest-test-app", "openid": "guest-walk-in"},
+    ), patch.object(signin_engine, "engine_request", side_effect=[
+        {"ok": True, "status": "WALK_IN_PHONE_REQUIRED", "walk_in_token": "walk-in-selection", "candidates": []},
+        {"ok": True, "checked_at": "2026-10-10T01:00:00Z", "data": {"attendance_role": "GUEST", "phone": "19900000009"}},
+    ]) as engine:
+        base = {"event_id": "event-morning", "name": "合成嘉宾", "wx_login_code": "fresh-code"}
+        lookup = client.post("/api/v1/wechat/checkin/guest-lookup", json=base).json()["data"]
+        assert lookup["walk_in_token"] == "walk-in-selection"
+        payload = {**base, "candidate_token": lookup["walk_in_token"], "phone": "19900000009"}
+        response = client.post("/api/v1/wechat/checkin/guest-confirm", json=payload)
+        assert response.status_code == 200
+        assert response.json()["data"]["participant_type"] == "GUEST"
+        assert "19900000009" not in response.text
+        assert engine.call_args.args[1]["phone"] == payload["phone"]
+        assert engine.call_args.args[1]["guest_id"] == engine.call_args_list[0].args[1]["guest_id"]
+
+
 def test_bound_member_cannot_claim_a_guest_or_overwrite_same_name_identity():
     fixture = _seed_group_leader_fixture()
     with patch.dict(os.environ, ENV), TestClient(app) as client:

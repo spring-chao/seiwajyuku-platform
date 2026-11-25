@@ -493,6 +493,27 @@ test("unregistered names show the requested message and never send confirmation"
   assert.equal(h.page.data.errorMessage,"未查询到您的报名信息，请联系工作人员，谢谢");
 });
 
+test("class meeting walk-in asks for a phone and confirms once after input", async () => {
+  const h = harness("checkin/index", async url => url.endsWith("guest-lookup")
+    ? { data: { status: "WALK_IN_PHONE_REQUIRED", candidates: [], walk_in_token: "walk-in-secret" } }
+    : url.endsWith("guest-confirm") ? guestReceipt({ receipt: { attendance_role: "GUEST" } })
+    : context(10, { member: null, guest_allowed: true, konpa_required: true }), "");
+  h.page.onLoad({ event_id: "test-event" }); await h.page.onShow();
+  h.page.inputGuestName({ detail: { value: "合成到场嘉宾" } }); await h.page.submitGuest();
+  assert.equal(h.page.data.walkInRequired, true);
+  assert(!JSON.stringify(h.page.data).includes("walk-in-secret"));
+  await h.page.submitGuest();
+  assert.equal(h.calls.length, 2);
+  h.page.inputGuestPhone({ detail: { value: "19900000009" } });
+  await h.page.submitGuest();
+  assert.equal(h.calls.length, 3);
+  assert.equal(h.calls[2].options.data.phone, "19900000009");
+  assert.equal(h.calls[2].options.data.candidate_token, "walk-in-secret");
+  assert.equal(h.page.data.alreadyChecked, true);
+  assert.equal(h.page.data.guestPhone, "");
+  assert.equal(h.page.data.successCard.welcome, "欢迎 合成到场嘉宾！");
+});
+
 function guestCandidate(slot, extra = {}) {
   return {registration_id:slot,name:"同名报名人",candidate_token:`selection-${slot}`,class_name:`合成班级${slot}`,...extra};
 }

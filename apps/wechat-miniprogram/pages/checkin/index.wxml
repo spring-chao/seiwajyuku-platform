@@ -49,11 +49,15 @@
     <view class="result-info"><view wx:for="{{item.card.lines}}" wx:for-item="line" wx:key="index">{{line}}</view></view>
   </view>
   <view wx:if="{{guestAllowed && !loading && !alreadyChecked}}" class="section-card">
-    <view wx:if="{{konpaRequired}}"><view class="input-label">是否参加空巴（必选）</view><radio-group bindchange="chooseKonpa"><label><radio value="yes" checked="{{konpaChoice === true}}" disabled="{{confirming}}" />参加</label><label><radio value="no" checked="{{konpaChoice === false}}" disabled="{{confirming}}" />不参加</label></radio-group></view>
     <view class="section-title">✍️ 签到</view>
-    <view class="section-hint">输入报名姓名，确认签到。</view>
     <view class="input-label">姓名</view>
-    <input class="name-input" placeholder="请输入报名姓名" maxlength="120" value="{{guestName}}" bindinput="inputGuestName" disabled="{{confirming || guestResults.length > 0}}" />
+    <input class="name-input" placeholder="请输入姓名" maxlength="120" value="{{guestName}}" bindinput="inputGuestName" disabled="{{confirming || guestResults.length > 0}}" />
+    <view wx:if="{{walkInRequired}}">
+      <view class="section-hint">未找到报名姓名，请填写手机号登记本场嘉宾到场。</view>
+      <view class="input-label">手机号</view>
+      <input class="name-input" type="number" placeholder="请输入11位手机号" maxlength="11" value="{{guestPhone}}" bindinput="inputGuestPhone" disabled="{{confirming}}" />
+    </view>
+    <view wx:elif="{{konpaRequired}}"><view class="input-label">是否参加空巴（必选）</view><radio-group bindchange="chooseKonpa"><label><radio value="yes" checked="{{konpaChoice === true}}" disabled="{{confirming}}" />参加</label><label><radio value="no" checked="{{konpaChoice === false}}" disabled="{{confirming}}" />不参加</label></radio-group></view>
     <view wx:if="{{nameCandidates.length > 1}}" class="candidate-section">
       <view class="candidate-heading">找到多条同名报名</view>
       <view class="candidate-hint">请核对并勾选需要签到的报名信息，可多选。</view>
@@ -71,7 +75,7 @@
         </label>
       </checkbox-group>
     </view>
-    <button class="primary-button" style="width:100%;" loading="{{confirming}}" disabled="{{confirming || (konpaRequired && konpaChoice === null) || (nameCandidates.length > 1 && !selectedCandidateIndexes.length)}}" bindtap="submitGuest">{{nameCandidates.length > 1 ? '确认签到（' + selectedCandidateIndexes.length + '）' : '确认签到'}}</button>
+    <button class="primary-button" style="width:100%;" loading="{{confirming}}" disabled="{{confirming || (walkInRequired && guestPhone.length !== 11) || (nameCandidates.length > 1 && !selectedCandidateIndexes.length)}}" bindtap="submitGuest">{{walkInRequired ? '确认嘉宾签到' : nameCandidates.length > 1 ? '确认签到（' + selectedCandidateIndexes.length + '）' : '确认签到'}}</button>
     <button class="binding-entry" style="width:100%;" disabled="{{confirming}}" bindtap="openBinding">
       <view class="binding-copy"><view class="binding-title">塾生身份绑定</view><view class="binding-hint">绑定后，后续活动可直接确认签到</view></view>
       <text class="binding-arrow">›</text>
