@@ -1,0 +1,23 @@
+<view class="page-shell">
+  <view wx:if="{{events.length}}" class="section-card">
+    <picker range="{{events}}" range-key="label" value="{{eventIndex}}" bindchange="pickEvent" disabled="{{loading || confirming}}">
+      <view class="section-title">{{events[eventIndex].label}} ▾</view>
+    </picker>
+  </view>
+  <view wx:if="{{loading}}" class="state-card">正在加载…</view>
+  <view wx:if="{{error}}" class="state-card error">{{error}}</view>
+  <view wx:if="{{!loading && !error && !events.length}}" class="state-card">所负责班级暂无开放签到的班会场次。</view>
+  <view wx:if="{{!loading && !error && events.length && !rows.length}}" class="state-card">当前场次暂无可确认的报名记录。</view>
+  <view wx:if="{{rows.length}}" class="section-card">
+    <view wx:for="{{rows}}" wx:key="member_id" class="arrival-row">
+      <view>
+        <view>{{item.name}}{{item.self ? '（本人）' : ''}}</view>
+        <view wx:if="{{item.group_name}}" class="arrival-group">{{item.group_name}}</view>
+      </view>
+      <text wx:if="{{item.checked}}" class="arrival-done">已到场</text>
+      <button wx:else class="primary-button arrival-button" size="mini" data-id="{{item.member_id}}" bindtap="confirm"
+              disabled="{{confirming || loading}}">确认到场</button>
+    </view>
+  </view>
+  <button class="plain-button" disabled="{{loading || confirming}}" bindtap="refresh">刷新名单</button>
+</view>

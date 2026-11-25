@@ -21,6 +21,39 @@ def appointment(f, position="volunteer_class_counselor"):
     return set_member_current_volunteer_position(_admin_id(), f["member_id"], position)
 
 
+@pytest.mark.parametrize("position,allowed", [
+    ("volunteer_class_counselor", True), ("volunteer_class_monitor", True),
+    ("volunteer_deputy_class_teacher", False), ("volunteer_group_counselor", False),
+    ("volunteer_group_leader", False),
+])
+def test_class_arrival_requires_current_teacher_or_monitor(position, allowed):
+    from app.services import class_arrival
+
+    f = _fixture()
+    appointment(f, position)
+    actor = {"member_id": f["member_id"], "name": "测试学长", "member_code": "TEST",
+             "home_class_org_unit_id": f["class_id"], "class_name": "", "group_name": ""}
+    with patch.object(signin_engine, "enabled"), patch.object(signin_engine, "engine_request") as upstream:
+        if not allowed:
+            with pytest.raises(PermissionError):
+                class_arrival.request(actor, "events")
+            upstream.assert_not_called()
+            return
+        class_arrival.request(actor, "events")
+        assert upstream.call_args.args[1]["class_ids"] == [f["class_id"]]
+        upstream.reset_mock()
+        with pytest.raises(PermissionError):
+            class_arrival.request(actor, "roster", class_id=f["other_class_id"], event_id="test")
+        other = extra_member({**f, "class_id": f["other_class_id"]}, group=f["other_group_id"])
+        with pytest.raises(PermissionError):
+            class_arrival.request(actor, "confirm", class_id=f["class_id"], event_id="test", target_id=other)
+        with transaction() as connection:
+            execute(connection, "UPDATE volunteer_appointments SET status='ENDED' WHERE member_id=?", (f["member_id"],))
+        with pytest.raises(PermissionError):
+            class_arrival.request(actor, "confirm", class_id=f["class_id"], event_id="test", target_id=f["member_id"])
+        upstream.assert_not_called()
+
+
 @pytest.mark.parametrize("position", ATTENDANCE_POSITIONS)
 def test_class_team_get_live_class_scope_without_backend_accounts(position):
     f = _fixture()
