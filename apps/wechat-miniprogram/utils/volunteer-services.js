@@ -10,6 +10,11 @@ function resolveVolunteerServices(data) {
     canViewClassAttendance: !serviceData.needs_manual_review && roles.some(item =>
       Array.isArray(item.capabilities) && item.capabilities.includes("CLASS_ATTENDANCE_VIEW")
     ),
+    canConfirmClassArrival: !serviceData.needs_manual_review && roles.some(item =>
+      ["volunteer_class_counselor", "volunteer_class_monitor"].includes(item.position_key) &&
+      item.scope_org_unit_id && Array.isArray(item.capabilities) &&
+      item.capabilities.includes("CLASS_ATTENDANCE_VIEW")
+    ),
     serviceAssignments: roles.map(item => ({
       key: `${item.position_key || item.position_name || "volunteer"}-${item.scope_org_unit_id || item.org_unit_id || "default"}`,
       positionName: item.position_name || "志工",

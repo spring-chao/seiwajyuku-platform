@@ -6,7 +6,7 @@ const { successCard } = require("../../utils/checkin-success");
 
 function empty() {
   return { event: null, member: null, registration: null, loading: false, confirming: false,
-    konpaChoice: null, konpaRequired: false, canCheckin: false, alreadyChecked: false, bindingRequired: false, requiresFallback: false,
+    konpaChoice: null, konpaRequired: false, canAddKonpaChoice: false, canCheckin: false, alreadyChecked: false, bindingRequired: false, requiresFallback: false,
     fallbackAvailable: false, guestName: "", guestAllowed: false, nameCandidates: [], selectedCandidateIndexes: [], guestResults: [], historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null, successCard: null,
     showTodayCheckin: false, availableSessions: [], groupReceiptTheme: "" };
 }
@@ -72,6 +72,7 @@ Page({
       this.setData({ event, konpaRequired: event.konpa_choice_required === true, member: data.member || null,
         registration: data.registration || null, canCheckin: !unavailable && Boolean(data.can_checkin && data.member),
         alreadyChecked: Boolean(data.already_checked_in), bindingRequired: false,
+        canAddKonpaChoice: !unavailable && data.can_add_konpa_choice === true,
         guestAllowed: !unavailable && Boolean(!data.member && data.guest_allowed),
         requiresFallback: !unavailable && Boolean(data.requires_fallback), fallbackAvailable: !unavailable && Boolean(fallbackUrl(data.fallback_url)),
         historyKind: data.history_kind === "learning" ? "learning" : "activity",
@@ -241,6 +242,25 @@ Page({
         this.setData({ ...empty(), bindingRequired: true, notice: "绑定已失效，请重新绑定后继续签到。" });
       } else this.setData({ errorMessage: error.message || "暂未收到签到结果，请重试；重复确认不会重复签到。" });
     } finally { if (current()) this.setData({ confirming: false }); }
+  },
+  async savePersonalKonpaChoice() {
+    const { canAddKonpaChoice, confirming, konpaChoice, event } = this.data;
+    if (!canAddKonpaChoice || confirming || typeof konpaChoice !== "boolean" || !event) return;
+    const current = beginPrivateRequest(this, "confirm");
+    this.setData({ confirming: true, errorMessage: "" });
+    try {
+      await request("/api/v1/wechat/checkin/personal-konpa-choice", {
+        method: "POST", auth: true,
+        data: { event_id: event.event_id, choice: konpaChoice }
+      });
+      if (!current()) return;
+      this.setData({ canAddKonpaChoice: false });
+      wx.showToast({ title: "已保存空巴意向" });
+    } catch (error) {
+      if (current()) this.setData({ errorMessage: error.message || "空巴意向保存失败，请重试" });
+    } finally {
+      if (current()) this.setData({ confirming: false });
+    }
   },
 
   openBinding() {

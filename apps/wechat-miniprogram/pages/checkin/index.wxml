@@ -32,6 +32,15 @@
     <view wx:for="{{successCard.seats}}" wx:key="*this" class="seat-item">{{item}}</view>
     <view class="result-info"><view wx:for="{{successCard.lines}}" wx:key="index">{{item}}</view></view>
   </view>
+  <view wx:if="{{canAddKonpaChoice}}" class="section-card">
+    <view class="input-label">{{event.session_code === 'MORNING' ? '预计是否参加空巴（用于订餐）' : '是否参加空巴'}}</view>
+    <radio-group bindchange="chooseKonpa">
+      <label><radio value="yes" checked="{{konpaChoice === true}}" disabled="{{confirming}}" />参加</label>
+      <label><radio value="no" checked="{{konpaChoice === false}}" disabled="{{confirming}}" />不参加</label>
+    </radio-group>
+    <button class="primary-button" loading="{{confirming}}" disabled="{{confirming || konpaChoice === null}}"
+            bindtap="savePersonalKonpaChoice">保存空巴意向</button>
+  </view>
   <view wx:for="{{guestResults}}" wx:key="key" class="result-card result-{{item.card.theme}}">
     <view class="receipt-status"><text class="check-icon" aria-hidden="true">✓</text>签到成功</view>
     <view class="welcome">{{item.card.welcome}}</view>

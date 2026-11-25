@@ -32,6 +32,65 @@ class ConfirmPayload(BaseModel):
     token: str | None = Field(default=None, min_length=16, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")
 
 
+class ClassArrivalPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    event_id: str = Field(min_length=1, max_length=128)
+    class_id: str = Field(min_length=1, max_length=64)
+    member_id: int = Field(gt=0)
+    konpa_choice: StrictBool | None = None
+
+
+class PersonalKonpaPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    event_id: str = Field(min_length=1, max_length=128)
+    choice: StrictBool
+
+
+def _class_arrival(credentials, action, **params):
+    from app.services.class_arrival import request
+    try:
+        return {"success": True, "data": request(_member(credentials), action, **params)}
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except signin_engine.SigninEngineError as exc:
+        raise _raise(exc) from exc
+
+
+@router.get("/class-arrival/events")
+def class_arrival_events(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    return _class_arrival(credentials, "events")
+
+
+@router.get("/class-arrival/roster")
+def class_arrival_roster(event_id: str = Query(min_length=1, max_length=128),
+                         class_id: str = Query(min_length=1, max_length=64),
+                         credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    return _class_arrival(credentials, "roster", event_id=event_id, class_id=class_id)
+
+
+@router.post("/class-arrival/confirm")
+def class_arrival_confirm(payload: ClassArrivalPayload,
+                          credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    return _class_arrival(credentials, "confirm", event_id=payload.event_id,
+                          class_id=payload.class_id, target_id=payload.member_id,
+                          konpa_choice=payload.konpa_choice)
+
+
+@router.post("/personal-konpa-choice")
+def personal_konpa_choice(payload: PersonalKonpaPayload,
+                          credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    try:
+        signin_engine.enabled(member=True, write=True)
+        member = _member(credentials)
+        data = signin_engine.engine_request("/ops/v1/class-arrival", {
+            "action": "personal_konpa", "event_id": payload.event_id,
+            "target_id": str(member["member_id"]), "konpa_choice": payload.choice,
+        })
+        return {"success": True, "data": data}
+    except signin_engine.SigninEngineError as exc:
+        raise _raise(exc) from exc
+
+
 class KonpaReviewPayload(BaseModel):
     model_config=ConfigDict(extra='forbid')
     registration_id:str=Field(min_length=1,max_length=128)
@@ -239,6 +298,7 @@ def context(event_id: str | None = Query(default=None, min_length=1, max_length=
             "event": event, "member": {key: value for key, value in member.items() if key not in {"binding_id", "token_version"}} if member else None,
             "registration": signin_engine.redact(registration),
             "already_checked_in": already,
+            "can_add_konpa_choice": bool(member and lookup.get("can_add_konpa_choice")),
             "receipt": _receipt(lookup.get("receipt")) if member and already else None,
             "can_checkin": bool(member and lookup.get("can_checkin", registration is not None) and not already),
             "requires_fallback": bool(lookup.get("requires_fallback")),

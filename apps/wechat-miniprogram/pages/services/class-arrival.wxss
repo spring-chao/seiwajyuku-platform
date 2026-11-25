@@ -1,0 +1,12 @@
+.arrival-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  min-height: 92rpx;
+  border-bottom: 1rpx solid #eee7e3;
+}
+.arrival-row:last-child { border-bottom: 0; }
+.arrival-group { color: #736663; font-size: 24rpx; }
+.arrival-button { flex-shrink: 0; width: auto; margin: 0; }
+.arrival-done { color: #285b48; font-size: 26rpx; }
