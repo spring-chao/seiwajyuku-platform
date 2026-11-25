@@ -264,7 +264,8 @@ def _upsert_record(
     if external_record_id:
         existing = execute(
             connection,
-            "SELECT id, source_revision, member_id, attendance_status, score_eligible, checked_at "
+            "SELECT id, source_revision, member_id, member_code_snapshot, participant_type, "
+            "attendance_status, score_eligible, checked_at, checkin_source "
             "FROM attendance_records "
             "WHERE attendance_session_id=? AND external_record_id=?",
             (session_id, external_record_id),
@@ -298,6 +299,19 @@ def _upsert_record(
 
     participant_type = str(record_data.get("participant_type") or "MEMBER").upper()
     attendance_status = _normalize_attendance_status(record_data)
+    checked_at = _db_datetime(record_data.get("checked_at"))
+    if (
+        existing and existing["member_id"] and checked_at
+        and existing["participant_type"] == participant_type == "MEMBER"
+        and existing["attendance_status"] == attendance_status == "PRESENT"
+        and existing["checkin_source"] == record_data.get("checkin_source") == "MANUAL"
+        and _db_datetime(existing["checked_at"]) == checked_at
+        and record_data.get("member_identity_source") == "MANUAL_REGISTRATION_LOOKUP"
+    ):
+        # A later rename or change of phone must not move a previously linked
+        # check-in. A stable source ID or an explicit staff relink can correct it.
+        member_id = existing["member_id"]
+        member_code = existing["member_code_snapshot"]
     score_eligible = bool(record_data.get("score_eligible", True))
     if participant_type == "MEMBER" and member_id is None:
         # Keep the source check-in fact for raw 签到率. The unresolved identity
@@ -313,7 +327,7 @@ def _upsert_record(
         "participant_type": participant_type,
         "score_eligible": 1 if score_eligible else 0,
         "attendance_status": attendance_status,
-        "checked_at": _db_datetime(record_data.get("checked_at")),
+        "checked_at": checked_at,
         "checkin_source": record_data.get("checkin_source"),
         "source_revision": incoming_revision,
         "source_updated_at": _db_datetime(record_data.get("updated_at")),

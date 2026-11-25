@@ -280,6 +280,41 @@ def test_live_attendance_sessions_and_imported_copy_share_one_participation():
     assert data["records"][0]["source_type"] == "签到活动"
 
 
+def test_assisted_general_activity_appears_for_verified_member_after_resync():
+    from app.services.attendance_sync import _upsert_record
+
+    fixture = _seed_group_leader_fixture()
+    now = _stamp()
+    with transaction() as connection:
+        group = execute(connection,
+            "INSERT INTO attendance_event_groups(source_key,external_group_id,org_unit_id,title,activity_type,event_date,status,created_at,updated_at) "
+            "VALUES ('signin',?,?,?,'CENTER_QUARTERLY_REPORT','2026-07-19','ACTIVE',?,?)",
+            (uuid4().hex, fixture["class_id"], "补签分中心报告会", now, now))
+        session = execute(connection,
+            "INSERT INTO attendance_sessions(event_group_id,external_session_id,session_code,session_order,status,created_at,updated_at) "
+            "VALUES (?,?,'MORNING',1,'ACTIVE',?,?)", (group.lastrowid, uuid4().hex, now, now))
+        record = {"external_record_id": uuid4().hex, "attendance_status": "PRESENT",
+                  "checkin_source": "MANUAL", "checked_at": "2026-07-19T02:30:00Z", "revision": 2}
+        record_id, _, member_id, _, _ = _upsert_record(connection, session_id=session.lastrowid,
+                                                       record_data=dict(record), now=now)
+        assert member_id is None
+        for expected in (fixture["member_id"], None, fixture["foreign_member_id"]):
+            same_id, created, member_id, status, eligible = _upsert_record(
+                connection, session_id=session.lastrowid, now=now,
+                record_data={**record, "member_id": expected,
+                             "member_identity_source": "MANUAL_REGISTRATION_LOOKUP"},
+            )
+            assert (same_id, created, member_id, status, eligible) == (
+                record_id, False, fixture["member_id"], "PRESENT", True,
+            )
+
+    with _bound_client(fixture) as (client, headers):
+        result = client.get("/api/v1/wechat/participation-history?kind=activity", headers=headers)
+        assert result.status_code == 200
+        assert [entry["title"] for entry in result.json()["data"]["records"]] == ["补签分中心报告会"]
+    assert get_member_participation_history(fixture["foreign_member_id"], kind="activity")["total"] == 0
+
+
 @pytest.mark.parametrize("title,expected", [
     ("报告会（上午）", "报告会"), ("报告会下午", "报告会"),
     ("报告会 · 空巴晚宴", "报告会"), ("PROGRAM", "PROGRAM"),
