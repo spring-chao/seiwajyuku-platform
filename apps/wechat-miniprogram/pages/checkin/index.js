@@ -7,7 +7,7 @@ const { successCard } = require("../../utils/checkin-success");
 function empty() {
   return { event: null, member: null, registration: null, loading: false, confirming: false,
     konpaChoice: null, konpaRequired: false, canAddKonpaChoice: false, canCheckin: false, alreadyChecked: false, bindingRequired: false, requiresFallback: false,
-    fallbackAvailable: false, guestName: "", guestAllowed: false, nameCandidates: [], selectedCandidateIndexes: [], guestResults: [], historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null, successCard: null,
+    fallbackAvailable: false, guestName: "", guestPhone: "", walkInRequired: false, guestAllowed: false, nameCandidates: [], selectedCandidateIndexes: [], guestResults: [], historyKind: "activity", notice: "", errorMessage: "", rescueNotice: "", result: null, successCard: null,
     showTodayCheckin: false, availableSessions: [], groupReceiptTheme: "" };
 }
 
@@ -97,7 +97,10 @@ Page({
   inputGuestName(event) {
     if (this.data.confirming || this.data.guestResults.length) return;
     this._nameSelections = [];
-    this.setData({ guestName: event.detail.value, nameCandidates: [], selectedCandidateIndexes: [], notice: "", errorMessage: "" });
+    this.setData({ guestName: event.detail.value, guestPhone: "", walkInRequired: false, nameCandidates: [], selectedCandidateIndexes: [], notice: "", errorMessage: "" });
+  },
+  inputGuestPhone(event) {
+    if (!this.data.confirming && this.data.walkInRequired) this.setData({ guestPhone: event.detail.value, errorMessage: "" });
   },
   selectGuestCandidates(event) {
     if (this.data.confirming) return;
@@ -112,9 +115,6 @@ Page({
   },
   async submitGuest() {
     if (this.data.confirming || !this.data.guestAllowed || this.data.alreadyChecked || !this.data.event) return;
-    if (this.data.konpaRequired && typeof this.data.konpaChoice !== 'boolean') {
-      this.setData({errorMessage:'请选择是否参加空巴'}); return;
-    }
     const name = String(this.data.guestName || "").trim();
     if (!name || name.length > 120 || /[\x00-\x1f\x7f]/.test(name)) {
       this.setData({ errorMessage: "请填写有效报名姓名。" }); return;
@@ -137,9 +137,23 @@ Page({
         this.setData({ nameCandidates: candidates.map(({ candidate_token, ...row }) => ({ ...row, selected: false })),
           selectedCandidateIndexes: [], notice: "" });
         if (!candidates.length) {
+          const lookup = response.data || {};
+          if (lookup.status === "WALK_IN_PHONE_REQUIRED" && typeof lookup.walk_in_token === "string" && lookup.walk_in_token) {
+            this._nameSelections = [{ name, token: lookup.walk_in_token, walkIn: true }];
+            this.setData({ walkInRequired: true });
+            return;
+          }
           this.setData({ errorMessage: "未查询到您的报名信息，请联系工作人员，谢谢" }); return;
         }
         if (candidates.length > 1) return;
+      }
+      const walkIn = this._nameSelections[0].walkIn === true;
+      const phone = String(this.data.guestPhone || "").trim();
+      if (walkIn && !/^1\d{10}$/.test(phone)) {
+        this.setData({ errorMessage: "请输入有效的11位手机号。" }); return;
+      }
+      if (!walkIn && this.data.konpaRequired && typeof this.data.konpaChoice !== "boolean") {
+        this.setData({ errorMessage: "请选择是否参加空巴。" }); return;
       }
       const indexes = this._nameSelections.length === 1 ? [0] : this.data.selectedCandidateIndexes.map(Number);
       if (!indexes.length) {
@@ -160,7 +174,7 @@ Page({
           if (!login.code) throw new Error("微信身份暂时无法确认，请重试。");
           const response = await request("/api/v1/wechat/checkin/guest-confirm", {
             method: "POST", data: { ...target, name, candidate_token: selected.token, wx_login_code: login.code,
-              ...(this.data.konpaRequired ? {konpa_choice:this.data.konpaChoice} : {}) }
+              ...(walkIn ? { phone } : this.data.konpaRequired ? { konpa_choice: this.data.konpaChoice } : {}) }
           });
           if (!current()) return;
           const result = response.data || {};
@@ -170,6 +184,7 @@ Page({
             selectedCandidateIndexes: this.data.selectedCandidateIndexes.filter(value => Number(value) !== index) });
         } catch (error) {
           if (!current()) return;
+          if (walkIn) throw error;
           failed += 1;
           this.setData({ nameCandidates: this.data.nameCandidates.map((row, rowIndex) => rowIndex === index ? { ...row, error: error.message || "签到暂时未完成，请重试。" } : row) });
         }
@@ -188,10 +203,16 @@ Page({
         notice: "" });
       if (allSelectedCompleted) {
         this._nameSelections = [];
-        this.setData({ nameCandidates: [], selectedCandidateIndexes: [], guestName: "" });
+        this.setData({ nameCandidates: [], selectedCandidateIndexes: [], guestName: "", guestPhone: "", walkInRequired: false });
       }
     } catch (error) {
-      if (current()) this.setData({ errorMessage: error.message || "签到暂时未完成，请重试。" });
+      if (current()) {
+        if (this.data.walkInRequired && error.statusCode === 409) {
+          this._nameSelections = [];
+          this.setData({ walkInRequired: false, guestPhone: "" });
+        }
+        this.setData({ errorMessage: error.message || "签到暂时未完成，请重试。" });
+      }
     } finally { if (current()) this.setData({ confirming: false }); }
   },
 

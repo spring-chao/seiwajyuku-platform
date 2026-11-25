@@ -39,7 +39,8 @@ function successCard(result, fallback = {}) {
   if (data.company) lines.push(`公司：${data.company}`);
   if (data.multi_total > 1) lines.push(`多人报名：已签到 ${data.multi_checked}/${data.multi_total} 人${result.checked_count ? `（本次 ${result.checked_count} 人）` : ""}`);
   if (result.already === true || result.status === "ALREADY_CHECKED_IN") lines.push(`（已签到 · ${chinaDateTime(data.checked_at || result.checked_at)}）`);
-  return { welcome: `欢迎 ${name}学长！`, seats, lines: lines.length ? lines : ["签到成功"], badge: theme ? badge : "", theme };
+  const welcome = data.attendance_role === "GUEST" ? `欢迎 ${name}！` : `欢迎 ${name}学长！`;
+  return { welcome, seats, lines: lines.length ? lines : ["签到成功"], badge: theme ? badge : "", theme };
 }
 
 module.exports = { successCard };
