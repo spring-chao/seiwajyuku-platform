@@ -383,7 +383,7 @@ test("closed/cancelled sessions cannot accept manual check-in and display dates 
   );
 });
 
-function harness(api = async () => ({ ok: true }), xlsx = XLSXModule) {
+function harness(api = async () => ({ ok: true }), xlsx = XLSXModule, dialogs = {}) {
   const source = readFileSync(
     new URL("../src/views/seiwajyuku/checkin-management.vue", import.meta.url),
     "utf8"
@@ -420,7 +420,7 @@ function harness(api = async () => ({ ok: true }), xlsx = XLSXModule) {
     onUnmounted() {},
     hasPerms: () => true,
     ElMessage: { success() {}, error() {}, warning() {} },
-    ElMessageBox: { confirm: async () => true },
+    ElMessageBox: { confirm: async () => true, ...dialogs },
     manageAttendance: async (operation, payload) => {
       calls.push({ operation, payload });
       return api(operation, payload);
@@ -455,7 +455,7 @@ function harness(api = async () => ({ ok: true }), xlsx = XLSXModule) {
   });
   vm.runInContext(
     output +
-      "\nglobalThis.state = { konpaSummary, konpaIntentCounts, konpaLoadError, selected, workspaceVisible, activeEventId, stats, people, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, groupOptions, orgOptions, organizations, rosterOptions, rosterMembers, rosterSource, rosterVersion, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { eventName, sessionName, selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation, openEditor, confirmPerson, exportExcel };",
+      "\nglobalThis.state = { konpaSummary, konpaIntentCounts, konpaLoadError, selected, workspaceVisible, activeEventId, stats, people, personFilter, personKeyword, selectedCheckins, detailLoading, importTarget, importAttendees, importGroupField, preview, previewFingerprint, error, editor, regionId, editingId, classOptions, groupOptions, orgOptions, organizations, rosterOptions, rosterMembers, rosterSource, rosterVersion, rosterOptionId, code, codeEvent, codeVersion, codeKind, editorActivityTypes, creationAttendees, creationPreview, creationPreviewFingerprint }; globalThis.actions = { eventName, sessionName, selectEvent, confirmEvent, previewImport, applyImport, saveEditor, createCode, openCommonCode, previewCreation, openEditor, confirmPerson, confirmSelectedCheckins, selectAllCheckins, exportExcel };",
     context
   );
   return { state: context.state, actions: context.actions, calls, downloaded };
@@ -471,6 +471,50 @@ test("onsite activity headings show the unified meeting title while sessions rem
     assert.equal(JSON.stringify(row),original);
   }
   assert.equal(h.calls.length,0);
+});
+
+test("onsite bulk signup uses only eligible visible registrations and reports partial results", async () => {
+  const rows = [
+    { registration_id: "a", name: "合成甲" },
+    { registration_id: "b", name: "合成乙" },
+    { registration_id: "signed", name: "合成已签到", checked: true },
+    { registration_id: "team", name: "合成团队", is_team: true },
+    { registration_id: "hidden", name: "其他报名" }
+  ];
+  const event = { event_id: "morning", name: "合成活动", lifecycle_status: "CONFIRMED", checkin_status: "open" };
+  let summary = "";
+  const h = harness(async (operation, payload) => {
+    if (operation === "event_detail") return { event, rows };
+    if (operation === "manual_checkin" && payload.registration_id === "b") throw new Error("timeout");
+    return { ok: true };
+  }, XLSXModule, { alert: async text => { summary = text; } });
+  await h.actions.selectEvent(event);
+  h.state.personFilter.value = "pending";
+  h.state.personKeyword.value = "合成";
+  h.actions.selectAllCheckins(true);
+  assert.deepEqual([...h.state.selectedCheckins.value], ["a", "b"]);
+  await h.actions.confirmSelectedCheckins();
+  const writes = h.calls.filter(call => call.operation === "manual_checkin");
+  assert.deepEqual(writes.map(call => call.payload.registration_id), ["a", "b"]);
+  assert(writes.every(call => call.payload.event_id === "morning"));
+  assert.match(summary, /成功 1 人.*待核对 1 人.*合成乙/);
+  assert.equal(h.state.selectedCheckins.value.size, 0);
+});
+
+test("changing the active session invalidates a pending bulk sign-in confirmation", async () => {
+  const event = { event_id: "morning", name: "合成活动", lifecycle_status: "CONFIRMED", checkin_status: "open" };
+  let approve;
+  const h = harness(async () => ({ event, rows: [{ registration_id: "a", name: "合成甲" }] }),
+    XLSXModule, { confirm: () => new Promise(resolve => { approve = resolve; }) });
+  await h.actions.selectEvent(event);
+  h.state.personFilter.value = "pending";
+  h.actions.selectAllCheckins(true);
+  const pending = h.actions.confirmSelectedCheckins();
+  h.state.activeEventId.value = "afternoon";
+  approve();
+  await pending;
+  assert.equal(h.state.selectedCheckins.value.size, 0);
+  assert.equal(h.calls.filter(call => call.operation === "manual_checkin").length, 0);
 });
 
 test("onsite download preserves the shared server workbook and never uses stale displayed totals", async () => {
