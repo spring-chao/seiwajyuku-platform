@@ -108,6 +108,39 @@ const visiblePeople = computed(() =>
       attendanceGroupLabel(right, currentEvent.value?.activity_type)
     ))
 );
+const showBatchCheckin = computed(
+  () => personFilter.value === "pending" && permission("manage") && !isKonpa.value
+);
+const batchEligible = computed(() => new Set<string>(
+  showBatchCheckin.value ? visiblePeople.value
+    .filter(row => row.registration_id && !manualCheckinReason(currentEvent.value, row, false, refreshClock.value))
+    .map(row => String(row.registration_id)) : []
+));
+const selectedCheckins = ref(new Set<string>());
+const batchConfirming = ref(false);
+const batchProgress = ref<{ completed: number; total: number } | null>(null);
+const batchDisabled = computed(() => busy.value || detailLoading.value || batchConfirming.value);
+let selectionContext = 0;
+watch([activeEventId, personFilter, personKeyword, workspaceVisible], () => {
+  selectedCheckins.value = new Set();
+  selectionContext++;
+}, { flush: "sync" });
+watch(batchEligible, eligible => {
+  selectedCheckins.value = new Set([...selectedCheckins.value].filter(id => eligible.has(id)));
+}, { flush: "sync" });
+
+function selectAllCheckins(value: boolean | string | number) {
+  if (!batchDisabled.value) selectedCheckins.value = new Set(value === true ? batchEligible.value : []);
+}
+
+function selectCheckin(id: string, value: boolean | string | number) {
+  if (batchDisabled.value || !batchEligible.value.has(id)) return;
+  const selected = new Set(selectedCheckins.value);
+  if (value === true) selected.add(id);
+  else selected.delete(id);
+  selectedCheckins.value = selected;
+}
+
 const groupRows = computed(() =>
   Object.entries(stats.value?.groups || {}).map(
     ([name, counts]: [string, any]) => ({ name, ...counts })
@@ -961,6 +994,73 @@ async function confirmPerson(row: any) {
     await reloadAfterMutation();
   });
 }
+async function confirmSelectedCheckins() {
+  const event = currentEvent.value;
+  if (!event || batchDisabled.value || !selectedCheckins.value.size) return;
+  const eventId = event.event_id;
+  const context = selectionContext;
+  const sameView = () => context === selectionContext && workspaceVisible.value && activeEventId.value === eventId;
+  const rows = visiblePeople.value.filter(row => selectedCheckins.value.has(String(row.registration_id)));
+  if (!rows.length) return;
+  batchConfirming.value = true;
+  try {
+    await ElMessageBox.confirm(
+      `确认「${eventName(selected.value)} · ${sessionName(event)}」所选 ${rows.length} 人均已现场到场？`,
+      "批量人工签到",
+      { type: "warning", confirmButtonText: "确认签到" }
+    );
+  } catch {
+    return;
+  } finally {
+    batchConfirming.value = false;
+  }
+  if (!sameView() || busy.value || detailLoading.value) return;
+  refreshClock.value = Date.now();
+  if (rows.some(row => !batchEligible.value.has(String(row.registration_id)))) {
+    ElMessage.warning("名单已变化，请核对后重新确认");
+    return;
+  }
+  await perform(async () => {
+    let saved = 0, already = 0, completed = 0;
+    const failed: string[] = [];
+    batchProgress.value = { completed, total: rows.length };
+    try {
+      for (let index = 0; index < rows.length && sameView(); index += 3) {
+        await Promise.all(rows.slice(index, index + 3).map(async row => {
+          try {
+            const result = await manageAttendance("manual_checkin", {
+              event_id: eventId,
+              registration_id: row.registration_id
+            });
+            if (result.already) already++;
+            else saved++;
+          } catch {
+            failed.push(row.registered_display_name || row.registered_name || row.name || "未命名报名");
+          } finally {
+            batchProgress.value = { completed: ++completed, total: rows.length };
+          }
+        }));
+      }
+      if (sameView()) {
+        selectedCheckins.value = new Set();
+        await reloadAfterMutation();
+      }
+      const remaining = rows.length - completed;
+      const summary = `人工签到成功 ${saved} 人，提交前已签到 ${already} 人，结果待核对 ${failed.length} 人${remaining ? `，未提交 ${remaining} 人` : ""}。`;
+      if (failed.length || remaining) {
+        const preview = failed.slice(0, 8).join("、");
+        await ElMessageBox.alert(
+          summary + (preview ? `待核对：${preview}${failed.length > 8 ? "等" : ""}。请刷新名单后核对实际结果。` : ""),
+          "批量签到结果"
+        );
+      } else {
+        ElMessage.success(summary);
+      }
+    } finally {
+      batchProgress.value = null;
+    }
+  });
+}
 async function exportExcel() {
   await perform(async () => {
     const target = currentEvent.value;
@@ -1256,7 +1356,7 @@ onUnmounted(() => {
                 <el-switch v-model="autoRefresh" :disabled="eventEnded" active-text="自动刷新" /><span
                   class="muted"
                   >{{ refreshedAt ? `更新于 ${refreshedAt}` : "" }}</span
-                ><el-button @click="refreshDetail()">刷新</el-button>
+                ><el-button :disabled="!!batchProgress" @click="refreshDetail()">刷新</el-button>
               </div>
             </div></template
           >
@@ -1493,6 +1593,15 @@ onUnmounted(() => {
             clearable
             class="people-search"
           />
+          <div v-if="showBatchCheckin" class="actions notice">
+            <el-button
+              type="primary"
+              :loading="!!batchProgress"
+              :disabled="batchDisabled || !selectedCheckins.size"
+              @click="confirmSelectedCheckins"
+            >{{ batchProgress ? `已处理 ${batchProgress.completed}/${batchProgress.total}` : `批量人工签到（${selectedCheckins.size}）` }}</el-button>
+            <span class="muted">全选仅包含当前筛选下可人工签到的人员</span>
+          </div>
           <el-table
             :data="visiblePeople"
             row-key="registration_id"
@@ -1575,6 +1684,25 @@ onUnmounted(() => {
             </el-table-column>
             <el-table-column v-if="hasDinnerTables" prop="dinner_table_num" label="餐桌号" width="90">
               <template #default="{ row }">{{ row.dinner_table_num ?? "—" }}</template>
+            </el-table-column>
+            <el-table-column v-if="showBatchCheckin" width="52" align="center">
+              <template #header>
+                <el-checkbox
+                  aria-label="全选当前筛选下可人工签到人员"
+                  :model-value="batchEligible.size > 0 && selectedCheckins.size === batchEligible.size"
+                  :indeterminate="selectedCheckins.size > 0 && selectedCheckins.size < batchEligible.size"
+                  :disabled="batchDisabled || !batchEligible.size"
+                  @change="selectAllCheckins"
+                />
+              </template>
+              <template #default="{ row }">
+                <el-checkbox
+                  :aria-label="`选择 ${row.registered_display_name || row.registered_name || row.name || '报名人'}`"
+                  :model-value="selectedCheckins.has(String(row.registration_id))"
+                  :disabled="batchDisabled || !batchEligible.has(String(row.registration_id))"
+                  @change="value => selectCheckin(String(row.registration_id), value)"
+                />
+              </template>
             </el-table-column>
             <el-table-column label="状态" width="100"
               ><template #default="{ row }"
