@@ -197,6 +197,7 @@ test("mobile activity actions respect staff permissions, session windows and imm
   assert.equal(a.rowActions(detail, row).length, 5);
   assert.equal(a.rowActions(detail, { ...row, checked: true }).length, 0);
   assert.equal(a.rowActions({ ...detail, group: { ...detail.group, checkin_status: "ended" } }, row).length, 0);
+  assert.deepEqual(a.rowActions({ ...detail, can_manual_checkin: true, group: { ...detail.group, checkin_status: "ended" } }, row).map(item => item.value), ["manual_checkin"]);
   assert.equal(a.rowActions({ ...detail, can_manage: false, can_status: false }, row).length, 0);
   assert.ok(!a.rowActions(detail, { ...row, is_team: true }).some(r => r.value === "manual_checkin"));
   assert.ok(!a.rowActions({ ...detail, group: { ...detail.group, session_code: "KONPA" } }, row).some(r => r.value === "late"));
@@ -204,7 +205,35 @@ test("mobile activity actions respect staff permissions, session windows and imm
   assert.equal(view.statistics.overallRate, "80.0%");
   assert.equal(view.statistics.staffPresent, 2);
   assert.equal(view.attendees.length, 1);
+  assert.equal(view.attendees[0].canManualCheckin, true);
+  assert.equal(view.unsignedCount, 1);
   assert.equal(a.clockFromIso("2026-10-25T23:30:00Z"), "07:30");
+});
+
+test("staff roster tabs split attendance and the manual action uses the active session", () => {
+  let modal;
+  const detail = { group: { id: "am", status: "CONFIRMED", checkin_status: "ended", activity_type: "other" },
+    can_manage: true, can_manual_checkin: true, attendees: [
+      { registration_id: "arrived", name: "已到甲", checked_at: "2026-11-26T09:30:00+08:00" },
+      { registration_id: "absent", name: "未到乙", attendance_status: "leave" }
+    ] };
+  const p = page("activity-detail", async () => ({}), { showModal: args => { modal = args; } });
+  p.onLoad({ event_id: "am" });
+  p.setData({ detail, ...p.viewData(detail) });
+  assert.equal(p.data.people[0].registration_id, "absent");
+  assert.equal(p.data.people[0].statusLabel, "已请假");
+  p.switchPeopleTab({ currentTarget: { dataset: { tab: "signed" } } });
+  assert.equal(p.data.people[0].registration_id, "arrived");
+  assert.equal(p.data.people[0].canManualCheckin, false);
+  p.switchPeopleTab({ currentTarget: { dataset: { tab: "unsigned" } } });
+  let submitted;
+  p.performOperation = (action, values) => { submitted = { action, values }; };
+  p.managePerson({ currentTarget: { dataset: { id: "absent", action: "manual_checkin" } } });
+  assert.equal(modal.title, "人工签到");
+  modal.success({ confirm: true });
+  assert.equal(submitted.action, "row-action");
+  assert.equal(submitted.values.registration_id, "absent");
+  assert.equal(submitted.values.expected_status, "leave");
 });
 
 test("mobile class creation confirms three trusted sessions and keeps the same intent on timeout", async () => {

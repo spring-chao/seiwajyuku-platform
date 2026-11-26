@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -367,12 +367,22 @@ def test_mobile_actions_keep_fact_permissions_event_scope_and_revision(mobile, m
     assert client.post(url+"/row-action", headers=headers, json=action()).status_code == 400
     row["is_team"] = False
     event["checkin_status"] = "ended"
+    original_cutoff = event["checkin_end_at"]
+    event["checkin_end_at"] = "2001-01-01T14:00:23Z"
     assert client.post(url+"/row-action", headers=headers, json=action()).status_code == 400
+    event["checkin_end_at"] = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    assert client.get(url, headers=headers).json()["data"]["can_manual_checkin"] is True
+    assert client.post(url+"/row-action", headers=headers, json=action()).status_code == 200
+    assert writes[-1][0] == "manual_checkin"
+    assert client.post(url+"/row-action", headers=headers, json=action("registration_delete")).status_code == 400
+    event["checkin_end_at"] = original_cutoff
     event["checkin_status"] = "open"
     event["session_code"] = "KONPA"
     assert client.post(url+"/row-action", headers=headers, json=action("late")).status_code == 400
+    event["checkin_end_at"] = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
     assert client.post(url+"/row-action", headers=headers, json=action()).status_code == 200
     assert writes[-1][0] == "manual_checkin"
+    event["checkin_end_at"] = original_cutoff
     row["checked"] = True
     assert client.post(url+"/row-action", headers=headers, json=action("registration_delete")).status_code == 400
     fresh = client.get(url, headers=headers).json()["data"]

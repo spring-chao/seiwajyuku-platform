@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 
 from app.db import execute, fetch_all, fetch_one, transaction
 from app.services.audit import write_audit
@@ -58,6 +58,24 @@ def _is_konpa(event):
     return event.get("activity_type") == "class_meeting" and event.get("session_code") == "KONPA"
 
 
+def _manual_checkin_open(event):
+    from app.services.class_meeting_credits import _parse_timestamp
+
+    if event.get("lifecycle_status") != "CONFIRMED" or _is_konpa(event):
+        return False
+    now = datetime.now(UTC)
+    beijing = timezone(timedelta(hours=8))
+    starts_at = _parse_timestamp(event.get("checkin_start_at"))
+    event_date = event.get("event_date") or (starts_at.astimezone(beijing).date().isoformat() if starts_at else "")
+    if event.get("checkin_status") == "open" and event_date == now.astimezone(beijing).date().isoformat():
+        return True
+    cutoff = _parse_timestamp(event.get("checkin_end_at"))
+    if cutoff is None:
+        return False
+    scheduled_end = _parse_timestamp(event.get("scheduled_end_at")) or cutoff
+    return cutoff < now <= max(cutoff, scheduled_end) + timedelta(days=30)
+
+
 def list_activities(session, month, page=1):
     principal = _principal(session)
     start = date.fromisoformat(month + "-01")
@@ -96,6 +114,7 @@ def detail(session, event_id):
             raise
         statistics_error = "统计暂不可用，请刷新；活动与人员明细仍可查看。"
     capabilities["can_edit_times"] = capabilities["can_update"] and not any(row.get("checked") or row.get("checked_at") for row in data.get("rows", []))
+    capabilities["can_manual_checkin"] = capabilities["can_manage"] and _manual_checkin_open(event)
     if _is_konpa(event):
         capabilities["can_code"] = False
     return {"group": _normalized(event), "attendees": data.get("rows", []), **capabilities,
@@ -261,13 +280,13 @@ def row_action(session, event_id, values):
     if checked != values["expected_checked"] or values.get("expected_status") is not None and str(row.get("attendance_status") or "pending") != values["expected_status"]:
         raise ValueError("报名状态已变化，请刷新后核对")
     event = current["group"]
-    if event.get("status") == "CANCELLED" or event.get("checkin_status") not in {"upcoming", "open"}:
-        raise ValueError("当前场次未处于可维护的签到时段，请核对场次状态")
     if action == "manual_checkin":
         if row.get("is_team") or row.get("attendance_role") in {"EVENT_TEAM_MEMBER", "COURSE_TEAM_MEMBER"}:
             raise ValueError("团队名额请核实实际参加人后扫码签到，不能直接将联系人记为到场")
-        if event.get("status") != "CONFIRMED" or event.get("checkin_status") != "open":
-            raise ValueError("仅已确认且签到开放的场次支持人工签到")
+        if not current["can_manual_checkin"]:
+            raise ValueError("当前场次不可人工签到，请核对活动状态及30天人工签到期限")
+    elif event.get("status") == "CANCELLED" or event.get("checkin_status") not in {"upcoming", "open"}:
+        raise ValueError("当前场次未处于可维护的签到时段，请核对场次状态")
     if action == "late" and str(event.get("session_code", "")).upper() == "KONPA":
         raise ValueError("空巴不设置预计迟到，请按实际到场签到")
     payload = {"event_id": event_id, "registration_id": values["registration_id"]}
