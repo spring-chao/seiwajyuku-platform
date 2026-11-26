@@ -37,7 +37,22 @@
       <view wx:if="{{codePath}}" class="entry-code"><image src="{{codePath}}" mode="widthFix"/><view class="muted">{{detail.group.session_name || title}} · 请核对场次后扫码</view></view>
     </view>
     <view wx:if="{{detail.can_manage && status !== 'CANCELLED' && (detail.group.checkin_status === 'open' || detail.group.checkin_status === 'upcoming')}}" class="section-card"><view class="section-title">现场新增临时参加人员</view><input class="field" placeholder="临时参加人员姓名" value="{{personName}}" data-field="personName" bindinput="input" maxlength="255"/><input class="field" placeholder="手机号码（选填，用于核对在册身份）" value="{{personPhone}}" data-field="personPhone" bindinput="input" type="number" maxlength="11"/><view class="muted">加入当前场次报名名单后，可按现场规则扫码或人工签到。</view><button class="primary-button" loading="{{adding}}" disabled="{{adding || saving}}" bindtap="addAttendee">保存临时报名</button></view>
-    <view wx:if="{{detail}}" class="section-card"><view class="section-title">当前场次报名与参加明细</view><input class="field" placeholder="搜索姓名、单位或小组" value="{{keyword}}" bindinput="search"/><view wx:if="{{!people.length}}" class="muted">暂无匹配人员</view><view wx:for="{{people}}" wx:key="registration_id" class="person-row"><view class="person-info"><view>{{item.displayName}}</view><view class="muted">{{item.current_group_name || item.group_name || '未分组'}} · {{item.statusLabel}}</view><view wx:if="{{item.actual_attendee_name && item.actual_attendee_name !== item.displayName}}" class="muted">实际参加：{{item.actual_attendee_name}}</view></view><button wx:if="{{item.hasActions}}" size="mini" class="person-action" data-id="{{item.registration_id}}" disabled="{{saving || adding}}" bindtap="managePerson">处理</button></view></view>
+    <view wx:if="{{detail}}" class="section-card">
+      <view class="section-title">当前场次报名与参加明细</view>
+      <view class="session-tabs">
+        <button class="session-tab {{peopleTab === 'signed' ? 'selected' : ''}}" data-tab="signed" bindtap="switchPeopleTab">已签到（{{signedCount}}）</button>
+        <button class="session-tab {{peopleTab === 'unsigned' ? 'selected' : ''}}" data-tab="unsigned" bindtap="switchPeopleTab">未签到（{{unsignedCount}}）</button>
+      </view>
+      <input class="field" placeholder="搜索姓名、单位或小组" value="{{keyword}}" bindinput="search"/>
+      <view wx:if="{{!people.length}}" class="muted">{{keyword ? '暂无匹配人员' : peopleTab === 'signed' ? '暂无已签到人员' : '暂无未签到人员'}}</view>
+      <view wx:for="{{people}}" wx:key="registration_id" class="person-row">
+        <view class="person-info"><view>{{item.displayName}}</view><view class="muted">{{item.current_group_name || item.group_name || '未分组'}} · {{item.statusLabel}}</view><view wx:if="{{item.actual_attendee_name && item.actual_attendee_name !== item.displayName}}" class="muted">实际参加：{{item.actual_attendee_name}}</view></view>
+        <view wx:if="{{item.canManualCheckin || item.hasActions}}" class="person-actions">
+          <button wx:if="{{item.canManualCheckin}}" size="mini" class="person-action manual-action" data-id="{{item.registration_id}}" data-action="manual_checkin" disabled="{{saving || adding}}" bindtap="managePerson">人工签到</button>
+          <button wx:if="{{item.hasActions}}" size="mini" class="person-action" data-id="{{item.registration_id}}" disabled="{{saving || adding}}" bindtap="managePerson">{{item.canManualCheckin ? '其他' : '处理'}}</button>
+        </view>
+      </view>
+    </view>
     </block>
   </block>
 </view>

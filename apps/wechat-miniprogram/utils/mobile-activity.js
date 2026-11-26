@@ -20,9 +20,11 @@ function clockFromIso(value, fallback) {
 function rate(value, digits = 1) { return typeof value === "number" && Number.isFinite(value) ? (value * 100).toFixed(digits) + "%" : "—"; }
 function rowActions(detail, row) {
   const event = detail.group || {};
-  if (!row.registration_id || row.checked || row.checked_at || event.status === "CANCELLED" || !["upcoming", "open"].includes(event.checkin_status)) return [];
+  if (!row.registration_id || row.checked || row.checked_at || event.status === "CANCELLED") return [];
   const actions = [];
-  if (detail.can_manage && event.session_code !== "KONPA" && event.status === "CONFIRMED" && event.checkin_status === "open" && !row.is_team && !["EVENT_TEAM_MEMBER", "COURSE_TEAM_MEMBER"].includes(row.attendance_role)) actions.push({ label: "人工签到", value: "manual_checkin" });
+  const manualOpen = detail.can_manual_checkin ?? (event.status === "CONFIRMED" && event.checkin_status === "open");
+  if (detail.can_manage && manualOpen && event.session_code !== "KONPA" && !row.is_team && !["EVENT_TEAM_MEMBER", "COURSE_TEAM_MEMBER"].includes(row.attendance_role)) actions.push({ label: "人工签到", value: "manual_checkin" });
+  if (!["upcoming", "open"].includes(event.checkin_status)) return actions;
   if (detail.can_status) {
     if (String(event.session_code).toUpperCase() !== "KONPA") actions.push({ label: "标记预计迟到", value: "late" });
     actions.push({ label: "标记请假", value: "leave" }, { label: "恢复待签到", value: "pending" });
@@ -36,12 +38,19 @@ function decorate(detail, keyword = "", scope = "overall") {
   const c = (scope === "overall" ? s.class_statistics : scene) || {}, g = (scope === "overall" ? s.group_totals : scene && scene.group_totals) || {};
   const groupRows = ((scope === "overall" ? s.group_statistics : scene && scene.group_statistics) || []).map(row => ({ ...row, group_id: row.group_org_unit_id || "ungrouped", rateLabel: rate(row.participation_rate, 0) }));
   const query = keyword.trim().toLowerCase();
-  const attendees = (detail.attendees || []).map(row => ({ ...row,
-    displayName: row.registered_display_name || row.registered_name || row.name,
-    statusLabel: row.checked || row.checked_at ? "已签到" : ({ late: "预计迟到", leave: "已请假", pending: "未签到" }[row.attendance_status] || "未签到"),
-    hasActions: rowActions(detail, row).length > 0
-  })).filter(row => !query || [row.displayName, row.actual_attendee_name, row.company, row.current_group_name].some(v => String(v || "").toLowerCase().includes(query)));
-  return { attendees, groupRows, statistics: {
+  const rows = (detail.attendees || []).map(row => {
+    const actions = rowActions(detail, row);
+    const signed = Boolean(row.checked || row.checked_at);
+    return { ...row, signed,
+      displayName: row.registered_display_name || row.registered_name || row.name,
+      statusLabel: signed ? "已签到" : ({ late: "预计迟到", leave: "已请假" }[row.attendance_status] || "未签到"),
+      canManualCheckin: actions.some(item => item.value === "manual_checkin"),
+      hasActions: actions.some(item => item.value !== "manual_checkin")
+    };
+  });
+  const signedCount = rows.filter(row => row.signed).length;
+  const attendees = rows.filter(row => !query || [row.displayName, row.actual_attendee_name, row.company, row.current_group_name, row.group_name].some(v => String(v || "").toLowerCase().includes(query)));
+  return { attendees, signedCount, unsignedCount: rows.length - signedCount, groupRows, statistics: {
     isClassMeeting: String(detail.group.activity_type).toLowerCase() === "class_meeting",
     scopeLabel: scope === "overall" ? "整体" : (detail.group.session_name || "当前场次"),
     overallRate: rate(c.participation_rate), memberRate: rate(c.member_participation_rate), groupRate: rate(g.participation_rate, 0),

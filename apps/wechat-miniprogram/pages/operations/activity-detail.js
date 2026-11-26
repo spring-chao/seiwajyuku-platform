@@ -3,10 +3,10 @@ const { request } = require("../../utils/request");
 const activity = require("../../utils/mobile-activity");
 function key() { return `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 Page({
-  data: { statisticsScope: "overall", activityTypes: activity.ACTIVITY_TYPES, typeIndex: 7, activityType: "other", classes: [], classIndex: 0, classTimes: { ...activity.CLASS_TIMES }, periods: activity.PERIODS, clockFields: activity.CLOCK_FIELDS, sessions: [], statistics: null, groupRows: [], people: [], keyword: "", codePath: "", loading: true, saving: false, adding: false, eventId: null, detail: null, organizations: [], orgIndex: 0, title: "", eventDate: "", status: "DRAFT", checkinStart: "08:00", checkinEnd: "22:00", personPhone: "", personName: "", errorMessage: "" },
+  data: { statisticsScope: "overall", activityTypes: activity.ACTIVITY_TYPES, typeIndex: 7, activityType: "other", classes: [], classIndex: 0, classTimes: { ...activity.CLASS_TIMES }, periods: activity.PERIODS, clockFields: activity.CLOCK_FIELDS, sessions: [], statistics: null, groupRows: [], people: [], peopleTab: "unsigned", signedCount: 0, unsignedCount: 0, keyword: "", codePath: "", loading: true, saving: false, adding: false, eventId: null, detail: null, organizations: [], orgIndex: 0, title: "", eventDate: "", status: "DRAFT", checkinStart: "08:00", checkinEnd: "22:00", personPhone: "", personName: "", errorMessage: "" },
   onLoad(options) { this._createKey = key(); this._attendeeKey = key(); this.setData({ eventId: options.event_id || null }); },
   onShow() { showPrivatePage(this); this.load(); },
-  onHide() { this._personIntents = {}; this.clearCode(); hidePrivatePage(this, { classes: [], sessions: [], statistics: null, groupRows: [], people: [], keyword: "", codePath: "", detail: null, organizations: [], title: "", personName: "", personPhone: "", errorMessage: "", saving: false, adding: false, loading: false }); },
+  onHide() { this._personIntents = {}; this.clearCode(); hidePrivatePage(this, { classes: [], sessions: [], statistics: null, groupRows: [], people: [], peopleTab: "unsigned", signedCount: 0, unsignedCount: 0, keyword: "", codePath: "", detail: null, organizations: [], title: "", personName: "", personPhone: "", errorMessage: "", saving: false, adding: false, loading: false }); },
   onUnload() { this.onHide(); },
   async load() {
     const current = beginPrivateRequest(this);
@@ -27,10 +27,19 @@ Page({
     finally { if (current()) this.setData({ loading: false }); }
   },
   input(event) { const field = event.currentTarget.dataset.field; if (["title", "personName", "personPhone"].includes(field)) { this.setData({ [field]: event.detail.value }); if (field === "personName" || field === "personPhone") this._attendeeKey = key(); } },
-  viewData(detail) { const result = activity.decorate(detail, this.data.keyword, this.data.statisticsScope || "overall"); return { people: result.attendees, groupRows: result.groupRows, statistics: result.statistics }; },
+  viewData(detail, scope = this.data.statisticsScope) {
+    const { attendees, ...view } = activity.decorate(detail, this.data.keyword, scope);
+    return { ...view, people: attendees.filter(row => row.signed === (this.data.peopleTab === "signed")) };
+  },
   chooseType(event) { const typeIndex = Number(event.detail.value); this.setData({ typeIndex, activityType: this.data.activityTypes[typeIndex].value }); this.autoTitle(); },
   chooseClass(event) { this.setData({ classIndex: Number(event.detail.value) }); this.autoTitle(); },
   autoTitle() { const row = this.data.classes[this.data.classIndex]; if (this.data.activityType === "class_meeting" && row && (!this.data.title || this.data.title === this._autoTitle)) { this._autoTitle = row.name + "班级学习会"; this.setData({ title: this._autoTitle }); } },
+  switchPeopleTab(event) {
+    const tab = event.currentTarget.dataset.tab;
+    if (!this.data.detail || !["signed", "unsigned"].includes(tab)) return;
+    this.setData({ peopleTab: tab });
+    this.setData(this.viewData(this.data.detail));
+  },
   search(event) { this.setData({ keyword: event.detail.value }); if (this.data.detail) this.setData(this.viewData(this.data.detail)); },
   switchSession(event) {
     const id = event.currentTarget.dataset.id;
@@ -39,7 +48,7 @@ Page({
     if (id === this.data.eventId) { this.setData({ statisticsScope: "session", ...this.viewDataForScope("session") }); return; }
     this.onHide(); showPrivatePage(this); this.setData({ eventId: id, statisticsScope: "session" }); this.load();
   },
-  viewDataForScope(scope) { if (!this.data.detail) return {}; const result = activity.decorate(this.data.detail, this.data.keyword, scope); return { people: result.attendees, groupRows: result.groupRows, statistics: result.statistics }; },
+  viewDataForScope(scope) { return this.data.detail ? this.viewData(this.data.detail, scope) : {}; },
   chooseOrg(event) { this.setData({ orgIndex: Number(event.detail.value) }); },
   chooseDate(event) { this.setData({ eventDate: event.detail.value }); },
   chooseTime(event) { const field = event.currentTarget.dataset.field; if (["checkinStart", "checkinEnd"].includes(field)) this.setData({ [field]: event.detail.value }); else if (Object.prototype.hasOwnProperty.call(activity.CLASS_TIMES, field)) this.setData({ classTimes: { ...this.data.classTimes, [field]: event.detail.value } }); },
@@ -127,22 +136,31 @@ Page({
   },
   syncRoster() { const current = beginPrivateRequest(this, "confirm"); wx.showModal({ title: "增补可信班级名单", content: "只增补未开始场次，保留已有报名与签到。", success: result => { if (result.confirm && current()) this.performOperation("sync-roster", {}); } }); },
   managePerson(event) {
-    if (!this.data.detail || this.data.saving) return;
-    const row = this.data.detail.attendees.find(row => String(row.registration_id) === String(event.currentTarget.dataset.id));
+    if (!this.data.detail || this.data.saving || this.data.adding) return;
+    const { id, action } = event.currentTarget.dataset;
+    const row = this.data.detail.attendees.find(row => String(row.registration_id) === String(id));
     if (!row) return;
     const current = beginPrivateRequest(this, "confirm");
     const actions = activity.rowActions(this.data.detail, row);
-    if (!actions.length) return;
-    wx.showActionSheet({ itemList: actions.map(item => item.label), success: selected => {
-      if (!current()) return;
-      const choice = actions[selected.tapIndex];
-      const name = row.registered_display_name || row.registered_name || row.name;
-      wx.showModal({ title: choice.label, content: `确认对“${name}”${choice.label}？${choice.value === "registration_delete" ? "仅删除本场未签到报名。" : ""}`, success: result => {
-        if (!result.confirm || !current()) return;
-        const intent = this._personIntents || (this._personIntents = {}), intentKey = `${this.data.eventId}:${row.registration_id}:${choice.value}`;
-        const requestId = intent[intentKey] || (intent[intentKey] = key());
-        this.performOperation("row-action", { action: choice.value, registration_id: String(row.registration_id), expected_checked: Boolean(row.checked || row.checked_at), expected_status: row.attendance_status || "pending", request_id: requestId });
-      }});
+    if (action === "manual_checkin") {
+      const choice = actions.find(item => item.value === action);
+      if (choice) this.confirmPersonAction(row, choice, current);
+      return;
+    }
+    const otherActions = actions.filter(item => item.value !== "manual_checkin");
+    if (!otherActions.length) return;
+    wx.showActionSheet({ itemList: otherActions.map(item => item.label), success: selected => {
+      const choice = otherActions[selected.tapIndex];
+      if (current() && choice) this.confirmPersonAction(row, choice, current);
+    }});
+  },
+  confirmPersonAction(row, choice, current) {
+    const name = row.registered_display_name || row.registered_name || row.name;
+    wx.showModal({ title: choice.label, content: `确认对“${name}”${choice.label}？${choice.value === "registration_delete" ? "仅删除本场未签到报名。" : ""}`, success: result => {
+      if (!result.confirm || !current() || this.data.saving || this.data.adding) return;
+      const intent = this._personIntents || (this._personIntents = {}), intentKey = `${this.data.eventId}:${row.registration_id}:${choice.value}`;
+      const requestId = intent[intentKey] || (intent[intentKey] = key());
+      this.performOperation("row-action", { action: choice.value, registration_id: String(row.registration_id), expected_checked: Boolean(row.checked || row.checked_at), expected_status: row.attendance_status || "pending", request_id: requestId });
     }});
   }
 });
