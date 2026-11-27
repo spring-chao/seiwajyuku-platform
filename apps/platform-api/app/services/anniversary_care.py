@@ -114,6 +114,24 @@ LEADING_ACTIVITY_DATE = re.compile(
     r"[\s）)】\]·:：、-]*"
 )
 ACTIVITY_SESSION_SUFFIXES = ("空巴晚宴", "晚上空巴", "空巴", "上午场", "下午场")
+CLASS_MEETING_SESSION = re.compile(
+    r"[\s·:：、_—–/（(【\[-]*(?:上午(?:场|签到)?|下午(?:场|签到)?|(?:晚上|晚间)?空巴(?:晚宴|场|签到)?)"
+    r"[\s）)】\]]*$"
+)
+GREETING_VARIANTS = (
+    (
+        "回想您与学长们在{activities}一起学习、交流的时光，每一次相聚都让这份同行的缘分更深一分。",
+        "💐 感恩一路有您，期待更多美好相聚！",
+    ),
+    (
+        "您与学长们在{activities}一起学习、交流，那些相聚的时光值得珍藏。",
+        "💐 祝您周年快乐，期待您与学长们再次相聚！",
+    ),
+    (
+        "从{activities}的共学时光里，可以看到您与学长们一路相伴的足迹。",
+        "💐 感恩这一路的相伴，祝您与学长们同行常乐！",
+    ),
+)
 
 
 def _care_due_dates(joined: date, today: date):
@@ -173,12 +191,21 @@ def _care_memories(member_id, joined, due, today):
     eligible = verified_member_memories(member_id, limit=20, since=start, as_of=min(today, due))
     # Display only the verified event title and date. Free-text contact data
     # from a legacy title does not belong in a group greeting.
-    memories = []
+    memories = {}
     for item in eligible:
-        title = PHONE_LIKE.sub("", item["title"]).strip()
+        title = _care_activity_title(item)
         if title:
-            memories.append({"id": item["id"], "title": title, "occurred_on": item["occurred_on"]})
-    return memories[:12]
+            key = (item["occurred_on"], title)
+            memories.setdefault(key, {"id": item["id"], "title": title, "occurred_on": item["occurred_on"]})
+    return list(memories.values())[:12]
+
+
+def _care_activity_title(item: dict) -> str:
+    title = PHONE_LIKE.sub("", item["title"]).strip()
+    if "学习会" in title and (item.get("activity_type") == "CLASS_MEETING" or re.search(r"班(?:级)?\s*学习会", title)):
+        title = _greeting_activity_title({**item, "title": title})
+        title = CLASS_MEETING_SESSION.sub("", title).strip()
+    return title
 
 
 def _greeting_activity_title(item: dict) -> str:
@@ -190,12 +217,12 @@ def _greeting_activity_title(item: dict) -> str:
     return title.strip()
 
 
-def _care_greeting(name, years, memories):
+def _care_greeting(name, years, memories, *, variant=0):
     opening = ANNIVERSARY_LINES[years - 1] if 1 <= years <= len(ANNIVERSARY_LINES) else "多年相伴，感恩有您"
     lines = [f"🎉 {member_salutation(name)}，入塾{years}周年快乐！", f"🌷 {opening}！"]
     titles_by_day = {}
     for item in sorted(memories, key=lambda row: row["occurred_on"]):
-        title = _greeting_activity_title(item)
+        title = _greeting_activity_title({**item, "title": _care_activity_title(item)})
         if title:
             titles_by_day.setdefault(item["occurred_on"], {})[title] = None
     experiences = {}
@@ -204,12 +231,13 @@ def _care_greeting(name, years, memories):
             if not any(title.endswith(suffix) and title.removesuffix(suffix).rstrip(" ·-—") in titles
                        for suffix in ACTIVITY_SESSION_SUFFIXES):
                 experiences[title] = None
+    memory_line, closing = GREETING_VARIANTS[variant]
     if experiences:
         titles = list(experiences)
         text = "、".join(titles[:-1]) + "和" + titles[-1] if len(titles) > 1 else titles[0]
-        lines.append(f"很珍惜与您在{text}一起学习、交流的时光。每一次相聚，都让这份同行的缘分更深一分。")
-    lines.extend(("🌱 愿未来的日子里，继续与学长们相伴，在学习中收获成长，在经营中收获幸福！",
-                  "💐 感恩一路有您，期待更多美好相聚！", "——苏州盛和塾"))
+        lines.append(memory_line.format(activities=text))
+    lines.extend(("🌱 愿您与学长们继续携手同行，在学习中收获成长，在经营中收获幸福！",
+                  closing, "——苏州盛和塾"))
     return "\n\n".join(lines)
 
 
@@ -219,10 +247,10 @@ def process_anniversary_care(member_id, actor_id, *, due_date, may_read_memories
     today = business_today()
     if not due or abs((due - today).days) > CARE_WINDOW_DAYS:
         raise ValueError("周年关怀日期已超出当前处理范围")
-    if action in {"review", "sent"} and not may_manage:
+    writing = action in {"review", "regenerate", "sent"}
+    if writing and not may_manage:
         raise PermissionError("当前角色只能查看周年关怀")
     allowed = accessible_org_ids(actor_id)
-    writing = action in {"review", "sent"}
     with transaction() as connection:
         sqlite = isinstance(connection, sqlite3.Connection)
         if writing and sqlite and not connection.in_transaction:
@@ -246,36 +274,49 @@ def process_anniversary_care(member_id, actor_id, *, due_date, may_read_memories
         memories = _care_memories(member_id, joined, due, today) if may_read_memories else []
         by_id = {item["id"]: item for item in memories}
         selected = memories[:3]
-        if action in {"preview", "review"} and state["review_status"] == "PENDING":
+        private = not may_read_memories and bool(state.get("selected_memories"))
+        regenerate = action == "regenerate"
+        if regenerate:
+            if state["send_status"] == "SENT":
+                raise ValueError("祝福已登记发送，无法重新生成")
+            if private:
+                raise PermissionError("当前无权查看祝福文案中的学习经历")
+        if regenerate or (action in {"preview", "review"} and state["review_status"] == "PENDING"):
             if len(memory_ids) > 3 or len(set(memory_ids)) != len(memory_ids) or any(mid not in by_id for mid in memory_ids):
                 raise ValueError("请从已核实的经历中选择最多三条")
             selected = [by_id[mid] for mid in memory_ids]
-            if action == "review":
-                state.update(review_status="APPROVED", draft=_care_greeting(member["name"], years, selected),
-                             selected_memories=selected, reviewed_at=datetime.now(UTC).isoformat())
+            if regenerate or action == "review":
+                variant = (state.get("greeting_variant", 0) + 1) % len(GREETING_VARIANTS) if regenerate else 0
+                state.update(review_status="APPROVED", draft=_care_greeting(member["name"], years, selected, variant=variant),
+                             selected_memories=selected, greeting_variant=variant)
+                state["generated_at" if regenerate else "reviewed_at"] = datetime.now(UTC).isoformat()
         elif action == "sent" and state["send_status"] == "PENDING":
             if state["review_status"] != "APPROVED":
-                raise ValueError("请先审核祝福文案")
-            if state.get("selected_memories") and not may_read_memories:
-                raise PermissionError("当前无权查看已审核的学习经历")
+                raise ValueError("请先生成祝福文案")
+            if private:
+                raise PermissionError("当前无权查看祝福文案中的学习经历")
             if due > today:
                 raise ValueError("周年当天起可登记发送")
             state.update(send_status="SENT", sent_date=today.isoformat(), sent_at=datetime.now(UTC).isoformat(),
                          sent_channel="WECHAT_GROUP", sent_class_name=context.get("class_name"))
-        if action in {"review", "sent"} and state != _care_state(previous):
+        if writing and state != _care_state(previous):
             write_audit(connection, actor_user_id=actor_id, action=CARE_ACTION, resource_type=CARE_RESOURCE,
                         resource_id=key, org_unit_id=org_id, purpose="入塾周年关怀",
                         after={**state, "due_date": due.isoformat(), "years": years})
     selected = state.get("selected_memories", selected)
-    # Removing members:read must also stop previously approved text from
-    # revealing historical activities to the current operator.
-    private = not may_read_memories and bool(state.get("selected_memories"))
-    if private:
-        selected = []
+    memory_keys = {(item["occurred_on"], item["title"]): item["id"] for item in memories}
+    selected_ids = []
+    if not private:
+        for item in selected:
+            memory_id = item["id"]
+            if memory_id not in by_id:
+                memory_id = memory_keys.get((item["occurred_on"], _care_activity_title(item)))
+            if memory_id and memory_id not in selected_ids:
+                selected_ids.append(memory_id)
     return {"member_id": member_id, "member_name": member["name"], "join_date": joined.isoformat(),
             "class_name": state.get("sent_class_name") or context.get("class_name"),
             "due_date": due.isoformat(), "years": years, "memories": memories, "can_manage": may_manage,
             "review_status": state["review_status"], "send_status": state["send_status"],
             "sent_date": state.get("sent_date"), "can_mark_sent": may_manage and not private and due <= today,
-            "selected_ids": [item["id"] for item in selected],
+            "selected_ids": selected_ids,
             "draft": "" if private else state.get("draft") or _care_greeting(member["name"], years, selected)}

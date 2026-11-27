@@ -10,7 +10,7 @@
     <view class="anniversary-item" data-id="{{item.member_id}}" data-due="{{item.due_date}}" bindtap="openAnniversary">
       <view class="action-head">
         <view class="anniversary-name">{{item.member_name}}学长 · {{item.years}} 周年</view>
-        <view class="type-tag">{{item.send_status === 'SENT' ? '已发送' : item.review_status === 'APPROVED' ? '待发送' : '待审核'}}</view>
+        <view class="type-tag">{{item.send_status === 'SENT' ? '已发送' : item.review_status === 'APPROVED' ? '待发送' : '待生成'}}</view>
       </view>
       <view class="anniversary-meta">
         <text>{{item.class_name || item.org_name}} · {{item.sent_date || item.due_date}}</text>

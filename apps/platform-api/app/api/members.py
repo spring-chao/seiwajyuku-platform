@@ -570,7 +570,7 @@ def anniversary_workflow_detail(
 
 @router.post("/members/{member_id}/anniversary-care/{action}")
 def anniversary_workflow_update(
-    member_id: int, action: Literal["preview", "review", "sent"], payload: AnniversaryWorkflowPayload,
+    member_id: int, action: Literal["preview", "review", "regenerate", "sent"], payload: AnniversaryWorkflowPayload,
     user: dict = Depends(require_permission("members:detail_view")),
 ) -> dict:
     return _anniversary_workflow_action(member_id, user, action=action, **payload.model_dump())

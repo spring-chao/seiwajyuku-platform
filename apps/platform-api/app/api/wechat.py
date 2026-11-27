@@ -509,7 +509,7 @@ def operations_anniversary_care(
 
 @router.post("/operations/members/{member_id}/anniversary-care/{action}")
 def operations_update_anniversary_care(
-    member_id: int, action: Literal["preview", "review", "sent"], payload: MobileAnniversaryPayload,
+    member_id: int, action: Literal["preview", "review", "regenerate", "sent"], payload: MobileAnniversaryPayload,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
 ) -> dict:
     return {"success": True, "data": _operation_call(

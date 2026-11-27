@@ -2,7 +2,7 @@ const { request } = require("../../utils/request");
 const { beginPrivateRequest, hidePrivatePage, showPrivatePage } = require("../../utils/page-session");
 
 Page({
-  data: { care: null, loading: false, busy: false, errorMessage: "" },
+  data: { care: null, selectionChanged: false, loading: false, busy: false, errorMessage: "" },
 
   onLoad(options) {
     this._memberId = Number(options.member_id);
@@ -13,17 +13,19 @@ Page({
     return this.load();
   },
   onHide() {
-    hidePrivatePage(this, { care: null, loading: false, busy: false, errorMessage: "" });
+    hidePrivatePage(this, { care: null, selectionChanged: false, loading: false, busy: false, errorMessage: "" });
   },
   onUnload() { this.onHide(); },
 
   path() {
     return `/api/v1/wechat/operations/members/${encodeURIComponent(this._memberId)}/anniversary-care`;
   },
-  showCare(result) {
-    const selected = new Set(result.selected_ids || []);
-    const memories = (result.memories || []).map(item => ({ ...item, checked: selected.has(item.id) }));
-    this.setData({ care: { ...result, memories } });
+  showCare(result, ids = result.selected_ids) {
+    const selected = new Set(ids);
+    const memories = result.memories.map(item => ({ ...item, checked: selected.has(item.id) }));
+    const selectionChanged = selected.size !== result.selected_ids.length ||
+      result.selected_ids.some(id => !selected.has(id));
+    this.setData({ care: { ...result, memories }, selectionChanged });
   },
   async load() {
     const current = beginPrivateRequest(this);
@@ -39,18 +41,21 @@ Page({
     }
   },
   chooseMemories(event) {
-    if (this.data.busy || !this.data.care) return;
+    const care = this.data.care;
+    if (this.data.busy || !care?.can_manage || care.send_status === "SENT") return;
     const ids = event.detail.value;
     if (ids.length > 3) {
-      this.showCare(this.data.care);
+      this.showCare(care, care.memories.filter(item => item.checked).map(item => item.id));
       wx.showToast({ title: "最多选择三条经历", icon: "none" });
       return;
     }
-    return this.update("preview", ids);
+    this.showCare(care, ids);
   },
-  review() {
+  regenerate() {
     const care = this.data.care;
-    if (care?.can_manage && care.review_status === "PENDING") return this.update("review", care.selected_ids);
+    if (care?.can_manage && care.draft && care.send_status !== "SENT") {
+      return this.update("regenerate", care.memories.filter(item => item.checked).map(item => item.id));
+    }
   },
   async update(action, ids = []) {
     if (this.data.busy) return;
@@ -63,7 +68,6 @@ Page({
       if (current()) this.showCare(response.data);
     } catch (error) {
       if (current()) {
-        if (this.data.care) this.showCare(this.data.care);
         this.setData({ errorMessage: error.message || "操作未完成，请重试" });
       }
     } finally {
@@ -72,18 +76,18 @@ Page({
   },
   copy() {
     const care = this.data.care;
-    if (care?.review_status !== "APPROVED" || !care.draft || care.send_status === "SENT") return;
+    if (this.data.busy || this.data.selectionChanged || care?.review_status !== "APPROVED" || !care.draft || care.send_status === "SENT") return;
     wx.setClipboardData({ data: care.draft });
   },
   markSent() {
     const care = this.data.care;
-    if (this.data.busy || !care?.can_mark_sent || care.review_status !== "APPROVED" || care.send_status === "SENT") return;
+    if (this.data.busy || this.data.selectionChanged || !care?.can_mark_sent || care.review_status !== "APPROVED" || care.send_status === "SENT") return;
     const current = beginPrivateRequest(this, "confirmation");
     wx.showModal({
       title: "登记已发送",
       content: "仅在祝福已经发送到微信群后登记。",
       confirmText: "登记发送",
-      success: result => { if (current() && result.confirm) this.update("sent"); }
+      success: result => { if (current() && result.confirm && !this.data.selectionChanged) this.update("sent"); }
     });
   }
 });
