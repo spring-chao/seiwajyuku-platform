@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { http } from "@/utils/http";
 
 type Bucket = "pending" | "upcoming" | "completed";
-type Action = "preview" | "review" | "sent";
+type Action = "regenerate" | "sent";
 
 type Anniversary = {
   member_id: number;
@@ -37,8 +37,14 @@ const selected = ref<Anniversary>();
 const visible = ref(false);
 const busy = ref(false);
 const result = ref<Detail>();
+const selectedIds = ref<string[]>([]);
 const detailError = ref("");
 let detailVersion = 0;
+
+const selectionChanged = computed(() => {
+  const saved = result.value?.selected_ids ?? [];
+  return selectedIds.value.length !== saved.length || selectedIds.value.some(id => !saved.includes(id));
+});
 
 const buckets = computed(() => ({
   pending: items.value.filter(item => item.send_status === "PENDING" && item.due_date <= asOf.value),
@@ -49,7 +55,7 @@ const buckets = computed(() => ({
 const rowKey = (row: Anniversary) => `${row.member_id}:${row.due_date}`;
 const memberPath = (row: Anniversary) => `/api/v1/members/${row.member_id}/anniversary-care`;
 const statusLabel = (sent: Anniversary["send_status"], review: Anniversary["review_status"]) => sent === "SENT"
-  ? "已发送" : review === "APPROVED" ? "待发送" : "待审核";
+  ? "已发送" : review === "APPROVED" ? "待发送" : "待生成";
 
 async function load() {
   if (loading.value) return;
@@ -69,6 +75,11 @@ async function load() {
   }
 }
 
+function showDetail(detail: Detail) {
+  result.value = detail;
+  selectedIds.value = detail.selected_ids;
+}
+
 async function open(memberId: number, dueDate: string) {
   const member = items.value.find(item => item.member_id === memberId && item.due_date === dueDate);
   if (!member) return;
@@ -82,7 +93,7 @@ async function open(memberId: number, dueDate: string) {
     const response = await http.request<{ data: Detail }>("get", memberPath(member), {
       params: { due_date: member.due_date }
     });
-    if (version === detailVersion) result.value = response.data;
+    if (version === detailVersion) showDetail(response.data);
   } catch {
     if (version === detailVersion) detailError.value = "暂时无法读取周年关怀，请重试。";
   } finally {
@@ -100,16 +111,14 @@ async function update(action: Action, memoryIds: string[] = []) {
     const response = await http.request<{ data: Detail }>("post", `${memberPath(member)}/${action}`, {
       data: { due_date: member.due_date, memory_ids: memoryIds }
     });
-    if (version === detailVersion) result.value = response.data;
-    if (action !== "preview") {
-      const row = items.value.find(item => rowKey(item) === rowKey(member));
-      if (row) {
-        row.review_status = response.data.review_status;
-        row.send_status = response.data.send_status;
-        row.sent_date = response.data.sent_date;
-      }
-      if (action === "sent") await load();
+    if (version === detailVersion) showDetail(response.data);
+    const row = items.value.find(item => rowKey(item) === rowKey(member));
+    if (row) {
+      row.review_status = response.data.review_status;
+      row.send_status = response.data.send_status;
+      row.sent_date = response.data.sent_date;
     }
+    if (action === "sent") await load();
   } catch {
     if (version === detailVersion) detailError.value = "暂时无法完成操作，请刷新后重试。";
   } finally {
@@ -119,12 +128,12 @@ async function update(action: Action, memoryIds: string[] = []) {
 
 function changeMemories(values: (string | number | boolean)[]) {
   const ids = values.filter((value): value is string => typeof value === "string");
-  if (ids.length <= 3) return update("preview", ids);
+  if (ids.length <= 3) selectedIds.value = ids;
 }
 
 async function copy() {
   const detail = result.value;
-  if (!detail?.draft || detail.review_status !== "APPROVED" || detail.send_status === "SENT") return;
+  if (busy.value || selectionChanged.value || !detail?.draft || detail.review_status !== "APPROVED" || detail.send_status === "SENT") return;
   try {
     await navigator.clipboard.writeText(detail.draft);
     ElMessage.success("已复制周年关怀文案");
@@ -135,7 +144,7 @@ async function copy() {
 
 async function markSent() {
   const member = selected.value;
-  if (!member || !result.value?.can_mark_sent || busy.value) return;
+  if (!member || !result.value?.can_mark_sent || busy.value || selectionChanged.value) return;
   try {
     await ElMessageBox.confirm("仅在祝福已经发送到微信群后登记。", "登记已发送", {
       type: "info",
@@ -145,7 +154,7 @@ async function markSent() {
   } catch {
     return;
   }
-  if (visible.value && selected.value === member) await update("sent");
+  if (visible.value && selected.value === member && !selectionChanged.value) await update("sent");
 }
 
 watch(visible, openNow => {
@@ -200,14 +209,14 @@ onMounted(load);
         <el-button v-if="detailError && !result && selected" :disabled="busy" @click="open(selected.member_id, selected.due_date)">重新加载</el-button>
         <template v-if="result">
           <p class="anniversary-dates">{{ result.class_name }}<span v-if="result.class_name"> · </span>入塾 {{ result.join_date }} · 周年 {{ selected?.due_date }}</p>
-          <div v-if="result.review_status === 'PENDING'">
+          <div v-if="result.send_status !== 'SENT'">
             <h3>学习回忆</h3>
             <p v-if="!result.memories.length" class="anniversary-dates">当前没有可加入祝福的已核实经历。</p>
             <el-checkbox-group
               v-else
-              :model-value="result.selected_ids"
+              :model-value="selectedIds"
               :max="3"
-              :disabled="busy"
+              :disabled="busy || !result.can_manage"
               class="anniversary-memories"
               @change="changeMemories"
             >
@@ -219,12 +228,13 @@ onMounted(load);
           <div>
             <h3>微信群祝福</h3>
             <el-input v-if="result.draft" :model-value="result.draft" aria-label="周年关怀文案" type="textarea" :rows="10" readonly />
-            <p v-else class="anniversary-dates">当前权限无法查看已审核文案中的学习经历。</p>
+            <p v-else class="anniversary-dates">当前权限无法查看祝福文案中的学习经历。</p>
           </div>
           <p v-if="result.send_status === 'SENT'" class="anniversary-receipt">已登记发送 · {{ result.sent_date }}</p>
           <div v-else class="anniversary-actions">
-            <el-button v-if="result.review_status === 'PENDING' && result.can_manage" type="primary" :disabled="busy" @click="update('review', result.selected_ids)">审核通过</el-button>
-            <template v-if="result.review_status === 'APPROVED' && result.draft">
+            <span v-if="selectionChanged" class="anniversary-dates">重新生成后更新祝福文案。</span>
+            <el-button v-if="result.can_manage && result.draft" type="primary" :disabled="busy" @click="update('regenerate', selectedIds)">重新生成</el-button>
+            <template v-if="result.review_status === 'APPROVED' && result.draft && !selectionChanged">
               <el-button type="primary" :disabled="busy" @click="copy">复制文案</el-button>
               <el-button v-if="result.can_mark_sent" :disabled="busy" @click="markSent">登记已发送</el-button>
               <span v-else-if="result.can_manage" class="anniversary-dates">周年当天起可登记发送。</span>

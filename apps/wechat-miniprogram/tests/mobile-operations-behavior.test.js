@@ -157,3 +157,35 @@ test("dashboard ignores outdated month results and clears the list after a faile
   assert.equal(p.data.birthdayMembers.length, 0);
   assert.equal(p.data.errorMessage, "合成失败");
 });
+
+
+test("anniversary regeneration uses the chosen memories and unlocks copying the new draft", async () => {
+  const calls = [];
+  const copied = [];
+  const draft = {
+    can_manage: true, can_mark_sent: true, review_status: "PENDING", send_status: "PENDING",
+    selected_ids: ["activity-1"], memories: [{ id: "activity-1", title: "合成班学习会" }],
+    draft: "周年祝福预览"
+  };
+  const p = page("anniversary-care", async (path, options) => {
+    calls.push([path, options]);
+    if (options.method !== "POST") return { data: draft };
+    if (calls.length === 2) throw new Error("暂时无法生成");
+    return { data: { ...draft, selected_ids: [], review_status: "APPROVED", draft: "新周年祝福" } };
+  }, { setClipboardData: value => copied.push(value.data) });
+  p.onLoad({ member_id: 7, due_date: "2026-11-30" });
+  await p.onShow();
+  p.chooseMemories({ detail: { value: [] } });
+  assert.equal(p.data.selectionChanged, true);
+  p.copy();
+  assert.equal(copied.length, 0);
+  await p.regenerate();
+  assert.equal(p.data.care.draft, "周年祝福预览");
+  assert.equal(p.data.selectionChanged, true);
+  await p.regenerate();
+  assert.match(calls[2][0], /anniversary-care\/regenerate$/);
+  assert.equal(calls[2][1].data.memory_ids.length, 0);
+  assert.equal(p.data.selectionChanged, false);
+  p.copy();
+  assert.deepEqual(copied, ["新周年祝福"]);
+});

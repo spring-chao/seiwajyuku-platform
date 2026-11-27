@@ -133,7 +133,7 @@ def test_anniversary_review_and_send_are_shared_scoped_and_idempotent(monkeypatc
     assert "春季学习会" in call()["draft"]
     assert "3月8日" not in call()["draft"]
     assert call()["memories"][0]["occurred_on"] == "2026-03-08"
-    with pytest.raises(ValueError, match="先审核"):
+    with pytest.raises(ValueError, match="先生成"):
         call("sent")
     with pytest.raises(PermissionError):
         call("review", ["att-1"], manage=False)
@@ -143,6 +143,21 @@ def test_anniversary_review_and_send_are_shared_scoped_and_idempotent(monkeypatc
     assert conn.execute("SELECT COUNT(*) FROM audit_logs").fetchone()[0] == 0
     assert call("review", ["att-1"])["review_status"] == "APPROVED"
     assert call("review", [])["selected_ids"] == ["att-1"]
+    original = call()["draft"]
+    with pytest.raises(PermissionError):
+        call("regenerate", ["att-1"], manage=False)
+    with pytest.raises(PermissionError):
+        call("regenerate", [], read=False)
+    with pytest.raises(ValueError, match="已核实"):
+        call("regenerate", ["other-member-memory"])
+    first = call("regenerate", ["att-1"])
+    assert first["draft"] != original
+    assert "您与学长们在春季学习会一起学习" in first["draft"]
+    empty = call("regenerate", [])
+    assert empty["selected_ids"] == []
+    assert "春季学习会" not in empty["draft"]
+    assert call()["draft"] == empty["draft"]
+    assert call("regenerate", ["att-1"])["selected_ids"] == ["att-1"]
     assert call(read=False)["draft"] == ""
     with pytest.raises(PermissionError):
         call("sent", read=False)
@@ -162,7 +177,10 @@ def test_anniversary_review_and_send_are_shared_scoped_and_idempotent(monkeypatc
     sent = web.anniversary_workflow_update(7, "sent", web.AnniversaryWorkflowPayload(due_date=today), actor)
     assert sent["data"]["sent_date"] == today.isoformat()
     assert call("sent")["send_status"] == "SENT"
-    assert conn.execute("SELECT COUNT(*) FROM audit_logs").fetchone()[0] == 2
+    with pytest.raises(ValueError, match="已登记发送"):
+        call("regenerate", ["att-1"])
+    assert call()["draft"] == sent["data"]["draft"]
+    assert conn.execute("SELECT COUNT(*) FROM audit_logs").fetchone()[0] == 5
     conn.close()
 
 
@@ -177,3 +195,25 @@ def test_group_greeting_removes_dates_and_combines_same_day_sessions():
     for fragment in ("9月28日", "928", "11月14", "空巴晚宴"):
         assert fragment not in text
     assert "空巴晚宴" in anniversary_care._care_greeting("合成学员", 2, memories[:1])
+
+
+def test_anniversary_memories_group_class_meeting_sessions_by_activity_and_day(monkeypatch):
+    rows = [
+        {"id": "pm", "occurred_on": "2026-09-28", "title": "928合成一班学习会（下午场）"},
+        {"id": "am", "occurred_on": "2026-09-28", "title": "9月28日合成一班学习会 · 上午"},
+        {"id": "dinner", "occurred_on": "2026-09-28", "title": "合成一班学习会空巴晚宴"},
+        {"id": "next", "occurred_on": "2026-10-12", "title": "合成一班学习会 - 空巴"},
+        {"id": "report", "occurred_on": "2026-11-14", "title": "合成报告会空巴晚宴"},
+    ]
+    monkeypatch.setattr(anniversary_care, "verified_member_memories", lambda *_, **__: rows)
+    due = date(2026, 11, 23)
+    memories = anniversary_care._care_memories(7, date(2024, 11, 23), due, due)
+    assert [(item["id"], item["title"], item["occurred_on"]) for item in memories] == [
+        ("pm", "合成一班学习会", "2026-09-28"),
+        ("next", "合成一班学习会", "2026-10-12"),
+        ("report", "合成报告会空巴晚宴", "2026-11-14"),
+    ]
+    text = anniversary_care._care_greeting("示例", 2, memories[:2])
+    assert "您与学长们在合成一班学习会一起学习" in text
+    assert text.count("合成一班学习会") == 1
+    assert "上午" not in text and "下午" not in text and "空巴" not in text

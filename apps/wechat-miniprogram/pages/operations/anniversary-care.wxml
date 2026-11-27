@@ -8,12 +8,12 @@
       <view class="care-years">入塾 {{care.years}} 周年</view>
       <view class="care-dates">{{care.class_name ? care.class_name + " · " : ""}}入塾 {{care.join_date}} · 周年 {{care.due_date}}</view>
     </view>
-    <view wx:if="{{care.review_status === 'PENDING'}}" class="care-card">
+    <view wx:if="{{care.send_status !== 'SENT'}}" class="care-card">
       <view class="care-heading">学习回忆</view>
       <view class="care-muted">{{care.memories.length ? '可选择最多 3 条已核实的经历。' : '当前没有可加入祝福的已核实经历。'}}</view>
       <checkbox-group wx:if="{{care.memories.length}}" bindchange="chooseMemories">
         <label wx:for="{{care.memories}}" wx:key="id" class="care-memory">
-          <checkbox value="{{item.id}}" checked="{{item.checked}}" disabled="{{busy}}" color="#741f2b" />
+          <checkbox value="{{item.id}}" checked="{{item.checked}}" disabled="{{busy || !care.can_manage}}" color="#741f2b" />
           <view><view>{{item.title}}</view><view class="care-muted">{{item.occurred_on}}</view></view>
         </label>
       </checkbox-group>
@@ -21,10 +21,11 @@
     <view class="care-card">
       <view class="care-heading">微信群祝福</view>
       <view wx:if="{{care.draft}}" class="care-draft" selectable>{{care.draft}}</view>
-      <view wx:else class="care-muted">当前权限无法查看已审核文案中的学习经历。</view>
-      <button wx:if="{{care.review_status === 'PENDING' && care.can_manage}}" class="care-button care-primary" bindtap="review" disabled="{{busy}}" loading="{{busy}}">审核通过</button>
+      <view wx:else class="care-muted">当前权限无法查看祝福文案中的学习经历。</view>
+      <view wx:if="{{selectionChanged}}" class="care-muted">重新生成后更新祝福文案。</view>
+      <button wx:if="{{care.send_status !== 'SENT' && care.can_manage && care.draft}}" class="care-button care-primary" bindtap="regenerate" disabled="{{busy}}" loading="{{busy}}">重新生成</button>
       <view wx:if="{{care.send_status === 'SENT'}}" class="care-receipt">已登记发送 · {{care.sent_date}}</view>
-      <block wx:elif="{{care.review_status === 'APPROVED' && care.draft}}">
+      <block wx:elif="{{care.review_status === 'APPROVED' && care.draft && !selectionChanged}}">
         <button class="care-button care-primary" bindtap="copy" disabled="{{busy}}">复制文案</button>
         <button wx:if="{{care.can_mark_sent}}" class="care-button care-outline" bindtap="markSent" disabled="{{busy}}">登记已发送</button>
         <view wx:if="{{care.can_manage && !care.can_mark_sent}}" class="care-muted">周年当天起可登记发送。</view>
